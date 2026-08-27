@@ -46,3 +46,9 @@ what actually protects the work.
 
 This ADR governs how the coordinator writes briefs. It does not change how tasks are
 prioritized, only how that priority is communicated.
+
+## Provenance
+
+Owner-stated. The quote in the Decision section is the owner's own words. The reasoning in
+Consequences is the coordinator's elaboration of it, drawn from the specific shortcuts that
+were available on the task that prompted the correction.
