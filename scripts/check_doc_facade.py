@@ -205,6 +205,7 @@ Usage:
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -215,6 +216,38 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() not in ("utf-8", "utf8"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def git_tracked_files() -> List[str]:
+    """Every git-tracked file path (POSIX, relative to REPO_ROOT), via
+    `git ls-files -z` -- never a filesystem walk. See scripts/check_gates.py's
+    identically-named helper for the full rationale: this is what makes an
+    untracked nested worktree checkout (e.g. `.claude/worktrees/agent-*/`)
+    structurally impossible to pick up, rather than merely excluded by name.
+    Without this, a nested worktree copy's `.lean` text could make this
+    linter's identifier-presence check falsely believe a claimed-but-absent
+    identifier "exists in the tree" -- a false NEGATIVE that would hide a
+    real doc-facade defect, which is worse than the noisy false positive the
+    other affected gates in this repo produce. Fails loudly (exits 1) if git
+    is unavailable -- never falls back to a filesystem walk."""
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=REPO_ROOT,
+            capture_output=True, timeout=30,
+        )
+    except (FileNotFoundError, OSError) as e:
+        print(f"[!] FATAL: 'git' is not available or could not be run ({e}). File "
+              f"enumeration for this gate depends on 'git ls-files' -- refusing to fall "
+              f"back to a filesystem walk (that would silently reintroduce the "
+              f"nested-worktree false-negative bug this enumeration exists to prevent).",
+              file=sys.stderr)
+        sys.exit(1)
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
+        print(f"[!] FATAL: 'git ls-files' exited {proc.returncode}: {stderr}", file=sys.stderr)
+        sys.exit(1)
+    raw = proc.stdout.decode("utf-8", errors="replace")
+    return [p for p in raw.split("\0") if p]
 DOCS_DIR = REPO_ROOT / "docs"
 REVIEW_MD = DOCS_DIR / "REVIEW.md"
 RUN_GATES_PY = REPO_ROOT / "scripts" / "run_gates.py"
@@ -247,7 +280,10 @@ def _lean_tokens() -> Set[str]:
     global _LEAN_TOKENS
     if _LEAN_TOKENS is None:
         tokens: Set[str] = set()
-        for p in REPO_ROOT.rglob("*.lean"):
+        for rel in git_tracked_files():
+            if not rel.endswith(".lean"):
+                continue
+            p = REPO_ROOT / rel
             parts = set(p.parts)
             if ".git" in parts or ".lake" in parts:
                 continue

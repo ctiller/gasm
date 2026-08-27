@@ -507,7 +507,54 @@ def _tool_info_for(g: Dict, prereqs: Dict[str, Dict]) -> str:
 # exercises glob over the whole repo, so a defect has to actually be visible to them),
 # asserted to turn the SPECIFIC gate it targets red, then reverted and re-asserted green,
 # with try/finally cleanup so a crash mid-test cannot leave the tree dirty.
+#
+# A MUST-BE-TRACKED WRINKLE: scripts/check_gates.py and scripts/check_refs.py now enumerate
+# `.lean` files from `git ls-files` rather than a filesystem walk (the fix for the nested-
+# worktree phantom-violation bug -- see scripts/check_gates.py's git_tracked_files()). A file
+# must be tracked to be checked; that is the correct, intended semantics (an untracked stray
+# copy of the tree must never produce a finding), but it means a probe `.lean` file planted by
+# `Path.write_text()` alone is now INVISIBLE to those two gates until it is staged -- a
+# self-test that doesn't account for this would silently stop testing anything (the exact
+# "far worse bug" this task warns about), not merely fail loudly. So every probe below that
+# targets check_gates.py/check_refs.py is `git add`-ed immediately after being written (making
+# it visible to `git ls-files` exactly the way a real, about-to-be-committed defect would be)
+# and `git reset`-ed (unstaged) before deletion in the `finally` block, mirroring the real
+# workflow: a defect is checked once it is staged for commit, not while it is still a stray
+# untracked file nobody has offered to the gate yet.
 # --------------------------------------------------------------------------------------------
+
+def _git_stage(path: Path) -> None:
+    """Stage a freshly-planted probe file so `git ls-files`-based enumeration
+    (scripts/check_gates.py / scripts/check_refs.py) can see it.
+
+    READ THIS BEFORE REMOVING A CALL TO THIS FUNCTION, OR BEFORE ADDING A NEW
+    SELF-TEST CONTROL FOR A GATE THAT ENUMERATES `.lean` FILES: if the probe
+    below it is not staged, the probe is invisible to `git ls-files` (it is
+    an ordinary untracked file on disk), the targeted gate will find NOTHING
+    wrong, `red` will be silently False, and the self-test will report
+    `turned_red=False` -- which at least fails loudly. The genuinely dangerous
+    failure mode, caught once already while writing this fix, is subtler:
+    if the assertion string were ever loosened (e.g. to just `code != 0`)
+    while this staging call were missing, the control could report a FALSE
+    PASS while having tested nothing at all -- the gate would silently stop
+    being exercised, and nobody would know, because a self-test that only
+    ever reports green is indistinguishable from a self-test that was never
+    wired up. That is a strictly worse bug than the phantom-violation bug
+    this whole change fixes: the phantom bug was loud (it failed CI); a
+    self-test that quietly tests nothing is invisible until someone goes
+    looking. Every control that targets a git-ls-files-enumerated gate MUST
+    stage its probe here before invoking that gate, and MUST unstage it (see
+    _git_unstage) before deleting it in `finally`."""
+    subprocess.run(["git", "add", "--", str(path)], cwd=REPO_ROOT, capture_output=True, timeout=30)
+
+
+def _git_unstage(path: Path) -> None:
+    """Reverse of _git_stage(): unstage the probe before it is deleted, so a
+    crash mid-test never leaves it sitting in the index (which would corrupt
+    the next `git status`/commit a human or another gate does against this
+    tree, and would itself be a second, self-inflicted phantom-file bug)."""
+    subprocess.run(["git", "reset", "--", str(path)], cwd=REPO_ROOT, capture_output=True, timeout=30)
+
 
 def _self_test_broken_ref(py: str) -> Dict:
     probe = REPO_ROOT / "Gasm" / "_TC5SelfTestBrokenRef.lean"
@@ -518,6 +565,7 @@ def _self_test_broken_ref(py: str) -> Dict:
     )
     try:
         probe.write_text(content, encoding="utf-8")
+        _git_stage(probe)  # must be tracked: check_refs.py enumerates via `git ls-files`
         code, out = _run_capture([py, "scripts/check_refs.py"], cwd=REPO_ROOT, timeout=60)
         # check_refs.py's broken-citation report is keyed by (file, line), not by
         # declaration name, since citation validity is no longer coupled to "the
@@ -525,6 +573,7 @@ def _self_test_broken_ref(py: str) -> Dict:
         # so the assertion below checks for the probe's FILE, not its decl name.
         red = code != 0 and "_TC5SelfTestBrokenRef.lean" in (out or "") and "not found" in (out or "")
     finally:
+        _git_unstage(probe)
         probe.unlink(missing_ok=True)
     code2, _ = _run_capture([py, "scripts/check_refs.py"], cwd=REPO_ROOT, timeout=60)
     green_after = code2 == 0
@@ -555,10 +604,12 @@ def _self_test_ref_before_anonymous_instance(py: str) -> Dict:
     )
     try:
         probe.write_text(content, encoding="utf-8")
+        _git_stage(probe)  # must be tracked: check_refs.py enumerates via `git ls-files`
         code, out = _run_capture([py, "scripts/check_refs.py"], cwd=REPO_ROOT, timeout=60)
         red = (code != 0 and "_TC5SelfTestRefBeforeAnonInstance.lean" in (out or "")
                and "not found" in (out or ""))
     finally:
+        _git_unstage(probe)
         probe.unlink(missing_ok=True)
     code2, _ = _run_capture([py, "scripts/check_refs.py"], cwd=REPO_ROOT, timeout=60)
     green_after = code2 == 0
@@ -574,9 +625,11 @@ def _self_test_unallowlisted_native_decide(py: str) -> Dict:
     )
     try:
         probe.write_text(content, encoding="utf-8")
+        _git_stage(probe)  # must be tracked: check_gates.py enumerates via `git ls-files`
         code, out = _run_capture([py, "scripts/check_gates.py"], cwd=REPO_ROOT, timeout=60)
         red = code != 0 and "tc5SelfTestUnallowlistedNativeDecide" in (out or "") and "not allowlisted" in (out or "").lower()
     finally:
+        _git_unstage(probe)
         probe.unlink(missing_ok=True)
     code2, _ = _run_capture([py, "scripts/check_gates.py"], cwd=REPO_ROOT, timeout=60)
     green_after = code2 == 0
@@ -604,9 +657,16 @@ def _self_test_duplicate_heading(py: str) -> Dict:
     try:
         doc.write_text(doc_content, encoding="utf-8")
         probe.write_text(probe_content, encoding="utf-8")
+        # check_refs.py's citation scan (collect_ref_citations) enumerates `.lean`
+        # files via `git ls-files`; its markdown-section index (collect_markdown_
+        # sections) still walks docs/ directly (a directory-scoped glob, never
+        # affected by the nested-worktree bug), so only the `.lean` probe needs
+        # staging for this control to remain visible to the gate it targets.
+        _git_stage(probe)
         code, out = _run_capture([py, "scripts/check_refs.py"], cwd=REPO_ROOT, timeout=60)
         red = code != 0 and "overview-2" in (out or "") and "not found" in (out or "")
     finally:
+        _git_unstage(probe)
         doc.unlink(missing_ok=True)
         probe.unlink(missing_ok=True)
     code2, _ = _run_capture([py, "scripts/check_refs.py"], cwd=REPO_ROOT, timeout=60)

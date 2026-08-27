@@ -75,6 +75,44 @@ same 5-field `::`-delimited shape as scripts/gate_allowlist.txt and
 scripts/license_allowlist.txt. THIRD_PARTY_PROSE and REF_CITES_BANNED_PROSE
 findings have no allowlist override by design (see load_allowlist()).
 
+FILE ENUMERATION -- TRACKED vs. UNTRACKED (read this before touching
+iter_repo_files()): this script used to walk the raw filesystem
+(`REPO_ROOT.rglob("*")`), which is exactly the "crying wolf" bug the rest of
+this gate suite was fixed for -- an untracked nested worktree checkout under
+`.claude/worktrees/agent-*/` contains a full second copy of this source
+tree, so a plain filesystem walk re-discovers every already-allowlisted
+finding at a bogus nested path the allowlist (keyed on real paths) can never
+match, and duplicates every SECRET/MACHINE_PATH finding under a path that
+will never be published. Now: this script enumerates git-TRACKED files
+(`git ls-files`) UNION git-UNTRACKED-BUT-NOT-IGNORED files (`git ls-files
+--others --exclude-standard`) -- see iter_repo_files(). Deliberately EXCLUDES
+anything gitignored:
+  - A nested worktree under `.claude/` is (once `.claude/` is gitignored,
+    see this commit) excluded from BOTH sets -- it can never be
+    double-scanned under a nested path again, closing the same bug class as
+    every other gate in this suite.
+  - Untracked-but-IGNORED content in general (`.lake/` build output, caches,
+    `__pycache__`, a real `.venv/`) is no longer scanned either. This is a
+    deliberate narrowing from the previous "regardless of .gitignore" design,
+    not an oversight: the actual risk this script exists to catch is content
+    that could end up PUBLISHED, and content `.gitignore` excludes will not
+    accidentally ship via the normal `git add` / `git add -A` workflow
+    everyone here actually uses. Scanning it anyway is exactly what caused
+    the nested-worktree false-positive class. A file that is untracked and
+    NOT yet ignored, by contrast, is one `git add -A` away from shipping --
+    that is the real remaining risk, and it is still fully scanned (see
+    below), just distinguished in the report as "untracked" rather than
+    conflated with what is already committed.
+
+This directly answers the "untracked != will never be published" concern:
+"untracked" only means "safe" if nobody ever runs `git add -A`/`git add .`
+afterward. So SECRET and MACHINE_PATH findings in an untracked-but-unignored
+file are NOT silently dropped -- they are still reported under the same
+check_id, with the finding's detail noting the file is untracked, so a
+reviewer sees both "this ships today" (tracked) and "this would ship on the
+next careless `git add -A`" (untracked, unignored) without conflating the
+two into a single undifferentiated pile.
+
 Usage:
     python scripts/check_publishable.py            # run all checks
     python scripts/check_publishable.py --list-only # print findings, always exit 0
@@ -162,13 +200,74 @@ class Finding(NamedTuple):
     allowlisted: bool
 
 
+class RepoFile(NamedTuple):
+    path: Path
+    rel: str
+    tracked: bool
+
+
+def _git_ls(args: List[str]) -> List[str]:
+    """Runs a `git ls-files`-family command with an explicit cwd (so behavior
+    never depends on the caller's current working directory) and returns its
+    NUL-separated output as a list of POSIX-relative paths. Fails LOUDLY
+    (exits 1) if git is unavailable or errors -- see module docstring's
+    "FILE ENUMERATION" section for why a filesystem-walk fallback here would
+    silently reintroduce the exact bug this replaces."""
+    try:
+        proc = subprocess.run(
+            ["git"] + args, cwd=REPO_ROOT, capture_output=True, timeout=30,
+        )
+    except (FileNotFoundError, OSError) as e:
+        print(f"[!] FATAL: 'git' is not available or could not be run ({e}). File "
+              f"enumeration for this gate depends on git -- refusing to fall back to a "
+              f"filesystem walk (that would silently reintroduce the nested-worktree "
+              f"phantom-finding bug this enumeration exists to prevent).", file=sys.stderr)
+        sys.exit(1)
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
+        print(f"[!] FATAL: 'git {' '.join(args)}' exited {proc.returncode}: {stderr}", file=sys.stderr)
+        sys.exit(1)
+    raw = proc.stdout.decode("utf-8", errors="replace")
+    return [p for p in raw.split("\0") if p]
+
+
+def git_tracked_files() -> List[str]:
+    """Every git-tracked file path (POSIX, relative to REPO_ROOT)."""
+    return _git_ls(["ls-files", "-z"])
+
+
+def git_untracked_not_ignored_files() -> List[str]:
+    """Every untracked file path NOT excluded by .gitignore (POSIX, relative
+    to REPO_ROOT) -- i.e. exactly what `git add -A` would sweep in next.
+    Once `.claude/` is gitignored, a nested worktree checkout never appears
+    here (or in git_tracked_files()) at all."""
+    return _git_ls(["ls-files", "-z", "--others", "--exclude-standard"])
+
+
 def iter_repo_files():
-    for p in REPO_ROOT.rglob("*"):
+    """Tracked files UNION untracked-but-not-gitignored files -- see the
+    module docstring's "FILE ENUMERATION" section for the full reasoning.
+    Each yielded RepoFile records whether it is currently tracked, so
+    callers can distinguish "this ships today" from "this would ship on the
+    next careless `git add -A`" instead of conflating the two."""
+    seen: Set[str] = set()
+    for rel in git_tracked_files():
+        p = REPO_ROOT / rel
         if not p.is_file():
             continue
         if any(part in EXCLUDED_DIR_NAMES for part in p.parts):
             continue
-        yield p
+        seen.add(rel)
+        yield RepoFile(p, rel, True)
+    for rel in git_untracked_not_ignored_files():
+        if rel in seen:
+            continue
+        p = REPO_ROOT / rel
+        if not p.is_file():
+            continue
+        if any(part in EXCLUDED_DIR_NAMES for part in p.parts):
+            continue
+        yield RepoFile(p, rel, False)
 
 
 def load_allowlist() -> List[dict]:
@@ -220,51 +319,58 @@ def is_allowlisted(allowlist: List[dict], check_id: str, rel_path: str) -> bool:
     return False
 
 
+def _untracked_note(rf: "RepoFile") -> str:
+    return "" if rf.tracked else (
+        " [UNTRACKED: not yet part of a commit -- currently safe only because nobody has "
+        "run `git add -A`/`git add .` since this file appeared; fix or gitignore it before "
+        "that happens]"
+    )
+
+
 def check_secrets(allowlist: List[dict]) -> List[Finding]:
     findings = []
-    for p in iter_repo_files():
-        if p.suffix.lower() not in TEXT_EXTENSIONS_TO_SCAN and p.name != ".gitignore":
+    for rf in iter_repo_files():
+        if rf.path.suffix.lower() not in TEXT_EXTENSIONS_TO_SCAN and rf.path.name != ".gitignore":
             continue
         try:
-            text = p.read_text(encoding="utf-8", errors="ignore")
+            text = rf.path.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-        rel = p.relative_to(REPO_ROOT).as_posix()
         for name, pattern in SECRET_PATTERNS:
             if pattern.search(text):
-                findings.append(Finding("SECRET", rel, f"{name} pattern matched", is_allowlisted(allowlist, "SECRET", rel)))
+                findings.append(Finding("SECRET", rf.rel, f"{name} pattern matched{_untracked_note(rf)}",
+                                         is_allowlisted(allowlist, "SECRET", rf.rel)))
     return findings
 
 
 def check_machine_local_paths(allowlist: List[dict]) -> List[Finding]:
     findings = []
-    for p in iter_repo_files():
-        if p.suffix.lower() not in TEXT_EXTENSIONS_TO_SCAN:
+    for rf in iter_repo_files():
+        if rf.path.suffix.lower() not in TEXT_EXTENSIONS_TO_SCAN:
             continue
         try:
-            text = p.read_text(encoding="utf-8", errors="ignore")
+            text = rf.path.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-        rel = p.relative_to(REPO_ROOT).as_posix()
         for name, pattern in MACHINE_LOCAL_PATTERNS:
             matches = pattern.findall(text)
             if matches:
                 sample = matches[0]
-                findings.append(Finding("MACHINE_PATH", rel,
-                                         f"{name} ({len(matches)} occurrence(s), e.g. {sample!r})",
-                                         is_allowlisted(allowlist, "MACHINE_PATH", rel)))
+                findings.append(Finding("MACHINE_PATH", rf.rel,
+                                         f"{name} ({len(matches)} occurrence(s), e.g. {sample!r})"
+                                         f"{_untracked_note(rf)}",
+                                         is_allowlisted(allowlist, "MACHINE_PATH", rf.rel)))
     return findings
 
 
 def check_tracked_binaries(allowlist: List[dict]) -> List[Finding]:
+    # NOTE: previously silently SKIPPED this check on any git failure (a soft
+    # warning, exit 0 either way) -- the exact "fail-soft on a missing/broken
+    # git" trap this whole gate suite is being hardened against elsewhere.
+    # git_tracked_files() now fails LOUDLY instead, matching the rest of this
+    # script's file enumeration.
     findings = []
-    try:
-        out = subprocess.run(["git", "ls-files"], cwd=REPO_ROOT, capture_output=True,
-                              text=True, check=True).stdout
-    except Exception as e:
-        print(f"[!] WARNING: could not run 'git ls-files' ({e}); skipping tracked-binary check.")
-        return findings
-    for rel in out.splitlines():
+    for rel in git_tracked_files():
         ext = Path(rel).suffix.lower()
         if ext in TRACKED_BINARY_EXTENSIONS:
             findings.append(Finding("TRACKED_BINARY", rel, f"tracked file has build-artifact extension '{ext}'",
@@ -298,14 +404,16 @@ def check_ref_citations_into_references() -> List[Finding]:
     that is scripts/check_references.py's job once it exists; this only
     answers "does this citation still point at the banned tree at all.\""""
     findings = []
-    for p in REPO_ROOT.rglob("*.lean"):
+    for rel in git_tracked_files():
+        if not rel.endswith(".lean"):
+            continue
+        p = REPO_ROOT / rel
         if any(part in EXCLUDED_DIR_NAMES for part in p.parts):
             continue
         try:
             text = p.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-        rel = p.relative_to(REPO_ROOT).as_posix()
         hits = [m.group(1) for m in REF_REGEX.finditer(text) if m.group(1).startswith("references/")]
         if hits:
             findings.append(Finding("REF_CITES_BANNED_PROSE", rel,

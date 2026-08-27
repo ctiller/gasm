@@ -74,6 +74,7 @@ so explicitly instead of claiming a stronger guarantee than this script
 actually provides.
 """
 
+import subprocess
 import sys
 import re
 import json
@@ -88,6 +89,34 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOC_DIRS = [REPO_ROOT / "docs", REPO_ROOT / "references"]
 REFERENCES_JSON_PATH = REPO_ROOT / "references.json"
+
+
+def git_tracked_files() -> List[str]:
+    """Every git-tracked file path (POSIX, relative to REPO_ROOT), via
+    `git ls-files -z` -- never a filesystem walk. See scripts/check_gates.py's
+    identically-named helper for the full rationale: this is what makes an
+    untracked nested worktree checkout (e.g. `.claude/worktrees/agent-*/`)
+    structurally impossible to pick up, rather than merely excluded by name.
+    Fails loudly (exits 1) if git is unavailable -- never falls back to a
+    filesystem walk."""
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=REPO_ROOT,
+            capture_output=True, timeout=30,
+        )
+    except (FileNotFoundError, OSError) as e:
+        print(f"[!] FATAL: 'git' is not available or could not be run ({e}). File "
+              f"enumeration for this gate depends on 'git ls-files' -- refusing to fall "
+              f"back to a filesystem walk (that would silently reintroduce the "
+              f"nested-worktree phantom-citation bug this enumeration exists to prevent).",
+              file=sys.stderr)
+        sys.exit(1)
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
+        print(f"[!] FATAL: 'git ls-files' exited {proc.returncode}: {stderr}", file=sys.stderr)
+        sys.exit(1)
+    raw = proc.stdout.decode("utf-8", errors="replace")
+    return [p for p in raw.split("\0") if p]
 
 # Regex patterns
 HEADING_REGEX = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
@@ -192,14 +221,15 @@ def collect_ref_citations() -> List[Dict]:
     """
     citations = []
 
-    lean_files = sorted(REPO_ROOT.glob("**/*.lean"))
+    lean_rel_paths = sorted(p for p in git_tracked_files() if p.endswith(".lean"))
 
-    for lean_file in lean_files:
-        # Skip build artifacts
+    for rel_path in lean_rel_paths:
+        lean_file = REPO_ROOT / rel_path
+        # Skip build artifacts (defensive; a tracked file should never live
+        # under these, but keep the check cheap and explicit).
         if ".lake" in lean_file.parts or ".system_generated" in lean_file.parts:
             continue
 
-        rel_path = lean_file.relative_to(REPO_ROOT).as_posix()
         try:
             lines = lean_file.read_text(encoding="utf-8").splitlines()
         except Exception:
