@@ -1,0 +1,186 @@
+# Copyright 2026 Craig Tiller
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NOTE (CI establishment, 2026-08-27): every `[[lean_exe]]` below previously carried
+# `moreLinkArgs = ["-Wl,--subsystem,console"]`. That flag is a PE/COFF-only linker option
+# (meaningful to lld-link / MinGW's `ld`); GNU ld's ELF backend on Linux does not recognize
+# it and fails the link. Empirically (see docs/CI.md "Linux platform coverage") removing it
+# changes nothing observable on Windows: `lake build` still succeeds for all targets and a
+# spot-checked executable (`test_smolalloc`) still runs, prints its full console output, and
+# exits with the same code with the flag absent as with it present -- Lean/Lake's default
+# link already produces a console-subsystem binary on Windows, making the flag redundant
+# there. Removing it is what allows `lake build`'s executables to link at all on Linux.
+name = "gasm"
+version = "0.1.0"
+defaultTargets = [
+  "Gasm", "Spikes", "Stdlib",
+  "check_gates_axioms", "check_refs_coverage",
+  "spike1_hello_windows", "test_spike1_windows",
+  "spike1_hello_wasm", "test_spike1_wasm",
+  "spike2_fibonacci_windows", "test_spike2_windows",
+  "spike2_fibonacci_wasm", "test_spike2_wasm",
+  "spike3_sort_lines_windows", "test_spike3_windows",
+  "spike3_sort_lines_wasm", "test_spike3_wasm",
+  "test_smolalloc", "test_zlib", "test_png", "gzip_fuzzer", "perf_fuzzer", "encoding_fuzzer", "test_roundtrip",
+  "spike4_http_windows", "spike4_http_wasm", "test_spike4",
+  "spike5_gzip_windows", "spike5_gunzip_windows", "spike5_gzip_wasm", "test_spike5",
+  "x86_fuzzer", "wasm_fuzzer", "validate_spike_wasm"
+]
+
+[[lean_lib]]
+name = "Gasm"
+roots = ["Gasm"]
+
+[[lean_lib]]
+name = "Spikes"
+roots = ["Spikes"]
+
+[[lean_lib]]
+name = "Stdlib"
+roots = ["Stdlib"]
+
+# Law 10 axiom-level gate verifier: walks every compiled declaration in
+# Gasm/Stdlib/Spikes and cross-checks its axiom dependencies (Lean's own
+# `#print axioms` machinery) against scripts/gate_allowlist.txt. See
+# Tools/CheckGatesAxioms.lean for why this, and not the Python regex
+# pre-check, is the load-bearing gate.
+[[lean_exe]]
+name = "check_gates_axioms"
+root = "Tools.CheckGatesAxioms"
+
+# Law 1 / Law 3 declaration-coverage gate verifier: walks every compiled
+# declaration in Gasm/Stdlib/Spikes and cross-checks a preceding `REF:`
+# citation against scripts/ref_allowlist.txt. See Tools/CheckRefsCoverage.lean
+# for why this, and not scripts/check_refs.py's old regex-based declaration
+# matching, is the load-bearing declaration-coverage gate.
+[[lean_exe]]
+name = "check_refs_coverage"
+root = "Tools.CheckRefsCoverage"
+
+[[lean_exe]]
+name = "spike1_hello_windows"
+root = "Spikes.Spike1Hello.Windows.Emit"
+
+[[lean_exe]]
+name = "test_spike1_windows"
+root = "Spikes.Spike1Hello.Windows.Test"
+
+[[lean_exe]]
+name = "spike1_hello_wasm"
+root = "Spikes.Spike1Hello.Wasm.Emit"
+
+[[lean_exe]]
+name = "test_spike1_wasm"
+root = "Spikes.Spike1Hello.Wasm.Test"
+
+[[lean_exe]]
+name = "spike2_fibonacci_windows"
+root = "Spikes.Spike2Fibonacci.Windows.Emit"
+
+[[lean_exe]]
+name = "test_spike2_windows"
+root = "Spikes.Spike2Fibonacci.Windows.Test"
+
+[[lean_exe]]
+name = "spike2_fibonacci_wasm"
+root = "Spikes.Spike2Fibonacci.Wasm.Emit"
+
+[[lean_exe]]
+name = "test_spike2_wasm"
+root = "Spikes.Spike2Fibonacci.Wasm.Test"
+
+[[lean_exe]]
+name = "spike3_sort_lines_windows"
+root = "Spikes.Spike3SortLines.Windows.Emit"
+
+[[lean_exe]]
+name = "test_spike3_windows"
+root = "Spikes.Spike3SortLines.Windows.Test"
+
+[[lean_exe]]
+name = "spike3_sort_lines_wasm"
+root = "Spikes.Spike3SortLines.Wasm.Emit"
+
+[[lean_exe]]
+name = "test_spike3_wasm"
+root = "Spikes.Spike3SortLines.Wasm.Test"
+
+[[lean_exe]]
+name = "test_smolalloc"
+root = "Stdlib.SmolAlloc.Test"
+
+[[lean_exe]]
+name = "perf_fuzzer"
+root = "Gasm.Targets.X86_64.PerfFuzzerCLI"
+
+[[lean_exe]]
+name = "encoding_fuzzer"
+root = "Gasm.Targets.X86_64.EncodingFuzzerCLI"
+
+[[lean_exe]]
+name = "test_roundtrip"
+root = "Gasm.Targets.X86_64.RoundtripTests"
+
+[[lean_exe]]
+name = "x86_fuzzer"
+root = "Gasm.Targets.X86_64.SemanticsFuzzerCLI"
+
+[[lean_exe]]
+name = "wasm_fuzzer"
+root = "Gasm.Targets.Wasm.SemanticsFuzzerCLI"
+
+[[lean_exe]]
+name = "spike4_http_windows"
+root = "Spikes.Spike4HttpServer.Windows.Emit"
+
+[[lean_exe]]
+name = "spike4_http_wasm"
+root = "Spikes.Spike4HttpServer.Wasm.Emit"
+
+[[lean_exe]]
+name = "test_spike4"
+root = "Spikes.Spike4HttpServer.Test"
+
+[[lean_exe]]
+name = "test_zlib"
+root = "Stdlib.Zlib.Test"
+
+[[lean_exe]]
+name = "test_png"
+root = "Stdlib.Png.Test"
+
+[[lean_exe]]
+name = "gzip_fuzzer"
+root = "Stdlib.Zlib.GzipFuzzer"
+
+[[lean_exe]]
+name = "spike5_gzip_windows"
+root = "Spikes.Spike5Gzip.Windows.Emit"
+
+[[lean_exe]]
+name = "spike5_gunzip_windows"
+root = "Spikes.Spike5Gzip.Windows.GunzipEmit"
+
+[[lean_exe]]
+name = "spike5_gzip_wasm"
+root = "Spikes.Spike5Gzip.Wasm.Emit"
+
+[[lean_exe]]
+name = "test_spike5"
+root = "Spikes.Spike5Gzip.Test"
+
+[[lean_exe]]
+name = "validate_spike_wasm"
+root = "Tools.ValidateSpikeWasm"
+

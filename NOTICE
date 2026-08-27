@@ -1,0 +1,32 @@
+gasm
+Copyright 2026 Craig Tiller
+
+This product includes software developed as part of the gasm project
+(proof-carrying assembly: verified Lean 4 machine-code generation for
+x86-64, WebAssembly, and Windows/WASI targets).
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file at
+the root of this repository for the full license text.
+
+================================================================================
+Third-Party Content
+================================================================================
+
+This distribution does not include third-party documentation, specification
+prose, or vendored reference corpora. During development, gasm's citation
+discipline (the `/- REF: ... -/` annotations required by docs/REVIEW.md)
+was backed by a local `references/` directory containing copies of
+third-party material (instruction-set manuals, format specifications, RFCs,
+and similar). That material is not part of this distribution: citations
+resolve against an external reference index (source URL and content hash)
+rather than a vendored copy shipped in this repository, so no third-party
+prose is redistributed here and no attribution obligation for it attaches
+to this distribution.
+
+No third-party source code, libraries, or package dependencies are
+compiled into or distributed with gasm (see lake-manifest.json: zero
+external packages).
+
+If a future version of this project vendors or redistributes third-party
+code, data, or documentation, the required attribution for that material
+will be added here at that time.

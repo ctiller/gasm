@@ -1,0 +1,146 @@
+# Copyright 2026 Craig Tiller
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# gasm scheduled fuzzing campaign. See docs/CI.md #10 for why this is split
+# out from ci.yml: every-push and every-PR cost is bounded by keeping fuzzer
+# iteration counts low there; this workflow re-runs the same differential
+# fuzzers with substantially higher iteration counts on a fixed, small,
+# predictable cadence instead of paying that cost on every push.
+#
+# docs/CI.md #7 also names a future reference-refresh job
+# (`scripts/check_references.py --refresh`, plus the staleness bound the
+# every-push --offline gate in ci.yml would check) as belonging in this same
+# scheduled workflow. scripts/check_references.py exists now, but the
+# staleness-bound/timestamp logic --offline would need to consume a refresh
+# recorded here does not -- adding a --refresh step without it would run
+# real network fetches on a schedule for no effect ci.yml can observe. See
+# docs/CI.md #7 for the design and the exact step to add the day that
+# logic lands.
+
+name: Scheduled fuzzing campaign
+
+on:
+  schedule:
+    # Monday 06:00 UTC. Weekly, not nightly: these fuzzers already run at
+    # PR time on every merge candidate; this campaign exists to catch rare
+    # divergences a low-iteration PR-time run would miss by construction,
+    # which does not need a daily cadence to still land within a week of
+    # being introduced.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.12"
+  # 10x the fuzzers' own PR-time defaults (150/150/100/100 -- see
+  # docs/CI.md #10).
+  ITERATIONS: "1500"
+  ENCODING_COUNT: "1000"
+  GZIP_COUNT: "1000"
+
+jobs:
+  extended-fuzz:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    name: Extended fuzzing (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install elan (Lean toolchain manager, Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/leanprover/elan/master/elan-init.ps1" -OutFile elan-init.ps1
+          ./elan-init.ps1 -y --default-toolchain none
+          "$HOME\.elan\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install elan (Lean toolchain manager, Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache elan toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.elan
+          key: ${{ runner.os }}-elan-${{ hashFiles('lean-toolchain') }}
+
+      - name: Cache Lake build artifacts
+        uses: actions/cache@v4
+        with:
+          path: .lake/build
+          key: ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.toml', 'lake-manifest.json') }}-${{ hashFiles('Gasm/**/*.lean', 'Stdlib/**/*.lean', 'Spikes/**/*.lean', 'Tools/**/*.lean', '*.lean') }}
+          restore-keys: |
+            ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.toml', 'lake-manifest.json') }}-
+            ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-
+            ${{ runner.os }}-lake-
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install NASM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install nasm -y --no-progress
+
+      - name: Install NASM (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm
+
+      - name: lake build (all defaultTargets)
+        shell: bash
+        run: lake build
+
+      - name: x86-64 semantics fuzzer (extended)
+        shell: bash
+        run: lake exe x86_fuzzer -- -n ${{ env.ITERATIONS }}
+
+      - name: "Wasm semantics fuzzer (extended, oracle: node)"
+        shell: bash
+        run: lake exe wasm_fuzzer -- -n ${{ env.ITERATIONS }}
+
+      - name: "x86-64 encoding fuzzer (extended, oracle: NASM)"
+        shell: bash
+        run: lake exe encoding_fuzzer -- --count ${{ env.ENCODING_COUNT }}
+
+      - name: "GZIP differential fuzzer (extended, oracle: python)"
+        shell: bash
+        run: lake exe gzip_fuzzer -- --count ${{ env.GZIP_COUNT }}
+
+      # perf_fuzzer: same hardware carve-out as ci.yml (docs/CI.md #5) --
+      # GitHub-hosted runners, even on a schedule, are still shared/
+      # virtualized vCPUs with no trustworthy cycle-count signal. This does
+      # not change once a self-hosted Linux runner joins the matrix for
+      # ci.yml; it changes once that runner's CPU profile is recorded per
+      # Law 14, at which point perf_fuzzer belongs here explicitly, not by
+      # silently starting to work.
+
+      - name: "GZIP native-binary cross-fuzzer (Windows only -- executes native PE, oracle: python)"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python scripts/fuzz_gzip.py

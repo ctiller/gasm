@@ -1,0 +1,41 @@
+# Pre-Flatten Publishability Allowlist
+#
+# Format (one entry per line, `::`-delimited, 5 fields):
+#   <check_id>::<path-or-'*'>::<added-date>::<added-by>::<justification>
+#
+# Same shape convention as scripts/gate_allowlist.txt and
+# scripts/license_allowlist.txt: <added-date> is ISO-8601 (YYYY-MM-DD),
+# <added-by> identifies who/what added the entry, and justification is free
+# text (may itself contain `::`; the parser splits with a bounded field
+# count so that never breaks the format).
+#
+# check_id is one of:
+#   SECRET             - a matched secret-pattern that is a verified false
+#                         positive (e.g. a test fixture that looks like a key
+#                         but isn't one).
+#   MACHINE_PATH        - a matched machine-local path that is intentional
+#                         and reviewed (e.g. a deliberately-kept illustrative
+#                         example, not an accidental leak).
+#   TRACKED_BINARY      - a tracked file with a build-artifact extension that
+#                         is deliberately versioned (a genuinely vendored
+#                         binary fixture, not build output).
+#   ROOT_LICENSE_TEXT   - suppresses the missing-LICENSE/NOTICE finding.
+#                         Should never be used in practice; add the file
+#                         instead. (As of this allowlist's introduction,
+#                         LICENSE and NOTICE both already exist at repo root,
+#                         so this check_id is not expected to ever fire.)
+#
+# THIRD_PARTY_PROSE and REF_CITES_BANNED_PROSE have NO allowlist override --
+# scripts/check_publishable.py refuses to load an entry for either check_id
+# (hard parse error, not a silent skip). The owner's ruling is unconditional:
+# no third-party prose ships, full stop. The fix for either finding is to
+# delete the offending references/ file and re-point its citations at the
+# references.json slug registry (docs/REFERENCE_INDEX.md), not to allowlist
+# it.
+#
+# Lines starting with '#' and blank lines are ignored.
+#
+# THIS FILE IS SEEDED EMPTY. Do not add an entry here to paper over an
+# ordinary finding; every category above should be rare in practice, and a
+# stale entry (for a finding that no longer exists) should be removed
+# promptly rather than left to accumulate.

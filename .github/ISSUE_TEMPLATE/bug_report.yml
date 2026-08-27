@@ -1,0 +1,56 @@
+# Copyright 2026 Craig Tiller
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Mechanical bug report
+description: A gate failed, a gate should have failed and didn't, or something built/ran incorrectly.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for mechanical failures: `lake build` broke, a fuzzer found a
+        real divergence, CI is green but shouldn't be, or a binary produced
+        the wrong output. If instead you think a formal theorem doesn't
+        actually prove what its cited spec section requires, use the
+        **Domain gap / wrong theorem** template instead -- that's a different,
+        and in this repository's own words more important, class of finding
+        (`docs/REVIEW.md`'s Pillar 2 north star: "are we proving the right
+        theorems?").
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Command run, expected outcome, actual outcome (exit code and output, not just "it failed").
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Exact command(s), from repo root. Include the gate/executable name if applicable (e.g. `lake exe x86_fuzzer -- -n 500 --seed 12345`).
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS, and whether this reproduces on both windows-latest and ubuntu-latest CI or only locally.
+    validations:
+      required: true
+  - type: textarea
+    id: gate
+    attributes:
+      label: Which gate should have caught this (Law 13)
+      description: If this is a mechanical class of bug, name the existing gate that should have caught it and why it didn't, or state that no gate currently covers this class.

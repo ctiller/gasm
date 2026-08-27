@@ -1,0 +1,74 @@
+# Copyright 2026 Craig Tiller
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Domain gap / wrong theorem
+description: CI is green and the proof compiles, but the theorem doesn't actually guarantee what its cited spec section requires.
+title: "[domain-gap] "
+labels: ["domain-gap"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `docs/REVIEW.md`'s own framing: "the one question review can never
+        delegate is *are we proving the right theorems?*" A green CI run
+        (Pillar 1) only proves the Lean kernel accepted *some* theorem --
+        it says nothing about whether that theorem is the one the cited
+        spec section actually demands. This template is for exactly that
+        gap: a formal statement whose hypotheses are stricter than the
+        spec's precondition, or whose conclusion is weaker than the spec's
+        guarantee, even though it typechecks and CI is green.
+  - type: input
+    id: declaration
+    attributes:
+      label: Lean declaration
+      description: Fully-qualified name and file:line.
+    validations:
+      required: true
+  - type: input
+    id: spec-section
+    attributes:
+      label: Cited spec section
+      description: "The docs/ (or references/) section this declaration's `/- REF: ... -/` points to."
+    validations:
+      required: true
+  - type: textarea
+    id: spec-requirement
+    attributes:
+      label: Spec requirement P(x) / precondition Q(x)
+      description: Quote the exact domain contract from the cited section.
+    validations:
+      required: true
+  - type: textarea
+    id: formal-theorem
+    attributes:
+      label: Formal theorem signature
+      description: Paste the exact Lean signature.
+    validations:
+      required: true
+  - type: textarea
+    id: gap
+    attributes:
+      label: The gap
+      description: Where H_i is stricter than Q, or C is weaker than P -- a concrete input/state the spec allows or mandates that the theorem excludes, weakens, or ignores.
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Gap status
+      options:
+        - Uncovered (spec-mandated behavior the theorem says nothing about)
+        - Weakened (theorem covers it, but with a strictly weaker guarantee than the spec requires)
+    validations:
+      required: true

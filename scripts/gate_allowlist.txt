@@ -1,0 +1,145 @@
+# Law 10 / Pillar 1 Gate Allowlist
+#
+# Format (one entry per line, `::`-delimited, 5 fields):
+#   <relative-file-path>::<declaration-name>::<fully-qualified-name>::<category>::<justification>
+#
+# - <relative-file-path>::<declaration-name> is what scripts/check_gates.py
+#   (the fast source-text pre-check) matches against -- it only ever sees
+#   the bare, unqualified name a `theorem`/`lemma` header spells in source.
+# - <fully-qualified-name> is what Tools/CheckGatesAxioms.lean (the
+#   load-bearing axiom-level gate) matches against -- exactly as Lean's
+#   compiled environment names it, e.g. `Stdlib.Zlib.crc32_empty`. This is
+#   the field that actually authorizes a declaration; matching by bare name
+#   alone is exploitable (a same-named declaration in a different/foreign
+#   namespace would collide and pass for free).
+# - Justification is free text and may itself contain `::`; parsers here
+#   split with a bounded field count so that never breaks the format.
+#
+# category is one of:
+#   finite-forall  - the discharged proposition is universally quantified over
+#                     its entire finite domain (e.g. `for b in [0:256]` over all
+#                     UInt8 values, or `cases` over a small closed inductive).
+#                     Permanently allowed under Law 10.
+#   grandfathered  - a single-ground-instance native_decide check that predates
+#                     Law 10. Allowed for now but tracked as migration backlog;
+#                     should eventually be replaced by a genuine finite-forall
+#                     theorem or demoted to a `*_inst`-suffixed regression test
+#                     in a designated regression module.
+#   axiom-only     - exists purely for Tools/CheckGatesAxioms.lean: a
+#                     declaration with no native_decide/decide+native TEXT of
+#                     its own (so scripts/check_gates.py can never see an
+#                     occurrence for it) that transitively depends on a
+#                     non-standard axiom via citing another declaration.
+#                     Exempt from scripts/check_gates.py's stale-entry check;
+#                     Tools/CheckGatesAxioms.lean instead requires every
+#                     `axiom-only` entry to match a REAL finding in its own
+#                     scan (a hard failure if one doesn't).
+#
+# Lines starting with '#' and blank lines are ignored.
+# Seeded by scripts/check_gates.py authors reading every existing occurrence
+# by hand on 2026-08-27 (Law 10 ratification cleanup); fully-qualified names
+# added after Tools/CheckGatesAxioms.lean's bare-name keying was found
+# exploitable via cross-namespace collision.
+
+Stdlib/Zlib/Equivalence.lean::reverse_bits_8_involutive_inst::Stdlib.Zlib.reverse_bits_8_involutive_inst::finite-forall::exhaustively quantified over all 256 possible 8-bit values via `for b in [0:256]`
+Stdlib/Zlib/Equivalence.lean::encode_length_bounds_inst::Stdlib.Zlib.encode_length_bounds_inst::finite-forall::exhaustively quantified over all 256 valid DEFLATE length codes (3..258) via `for len in [3:259]`
+Stdlib/Zlib/Equivalence.lean::encode_distance_bounds_inst::Stdlib.Zlib.encode_distance_bounds_inst::finite-forall::exhaustively quantified over all 32768 valid DEFLATE distance codes (1..32768) via `for dist in [1:32769]`
+Stdlib/Zlib/Equivalence.lean::deflate_roundtrip_empty_inst::Stdlib.Zlib.deflate_roundtrip_empty_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Zlib/Equivalence.lean::deflate_roundtrip_soundness_inst::Stdlib.Zlib.deflate_roundtrip_soundness_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Zlib/Equivalence.lean::deflate_roundtrip_repetitive_inst::Stdlib.Zlib.deflate_roundtrip_repetitive_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Zlib/Equivalence.lean::zlib_roundtrip_soundness_inst::Stdlib.Zlib.zlib_roundtrip_soundness_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Zlib/Equivalence.lean::gzip_roundtrip_soundness_inst::Stdlib.Zlib.gzip_roundtrip_soundness_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Zlib/Equivalence.lean::deflate_idempotent_canonical_roundtrip_inst::Stdlib.Zlib.deflate_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Zlib/Equivalence.lean::zlib_idempotent_canonical_roundtrip_inst::Stdlib.Zlib.zlib_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Zlib/Equivalence.lean::gzip_idempotent_canonical_roundtrip_inst::Stdlib.Zlib.gzip_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Zlib/CRC32.lean::crc32_empty::Stdlib.Zlib.crc32_empty::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Zlib/Adler32.lean::adler32_empty::Stdlib.Zlib.adler32_empty::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Png/Equivalence.lean::filter_none_invertible_inst::Stdlib.Png.filter_none_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Png/Equivalence.lean::filter_sub_invertible_inst::Stdlib.Png.filter_sub_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Png/Equivalence.lean::filter_up_invertible_inst::Stdlib.Png.filter_up_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Png/Equivalence.lean::filter_average_invertible_inst::Stdlib.Png.filter_average_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Png/Equivalence.lean::filter_paeth_invertible_inst::Stdlib.Png.filter_paeth_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Png/Equivalence.lean::png_roundtrip_soundness_inst::Stdlib.Png.png_roundtrip_soundness_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Stdlib/Png/Equivalence.lean::png_idempotent_canonical_roundtrip_inst::Stdlib.Png.png_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike5Gzip/Equivalence.lean::spike5_windows_gzip_trace_equivalence::Spikes.Spike5Gzip.spike5_windows_gzip_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike5Gzip/Equivalence.lean::spike5_wasm_gzip_trace_equivalence::Spikes.Spike5Gzip.spike5_wasm_gzip_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike5Gzip/Equivalence.lean::gzip_roundtrip_soundness_inst::Spikes.Spike5Gzip.gzip_roundtrip_soundness_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike5Gzip/Equivalence.lean::gzip_idempotent_canonical_roundtrip_inst::Spikes.Spike5Gzip.gzip_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike5Gzip/Equivalence.lean::bit_reversal_8_involution_inst::Spikes.Spike5Gzip.bit_reversal_8_involution_inst::finite-forall::exhaustively quantified over all 256 possible 8-bit values via `for b in [0:256]`
+Spikes/Spike5Gzip/Equivalence.lean::spike5_windows_gunzip_trace_equivalence::Spikes.Spike5Gzip.spike5_windows_gunzip_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike4HttpServer/Equivalence.lean::spike4_windows_root_trace_equivalence::Spikes.Spike4HttpServer.spike4_windows_root_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike4HttpServer/Equivalence.lean::spike4_windows_status_trace_equivalence::Spikes.Spike4HttpServer.spike4_windows_status_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike4HttpServer/Equivalence.lean::spike4_windows_404_trace_equivalence::Spikes.Spike4HttpServer.spike4_windows_404_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike4HttpServer/Equivalence.lean::spike4_wasm_root_trace_equivalence::Spikes.Spike4HttpServer.spike4_wasm_root_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike4HttpServer/Equivalence.lean::spike4_wasm_status_trace_equivalence::Spikes.Spike4HttpServer.spike4_wasm_status_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike4HttpServer/Equivalence.lean::spike4_wasm_404_trace_equivalence::Spikes.Spike4HttpServer.spike4_wasm_404_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike3SortLines/Wasm/Equivalence.lean::spike3_wasm_canonical_effect_trace_equivalence::Spikes.Spike3SortLines.Wasm.spike3_wasm_canonical_effect_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3_canonical_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Windows.spike3_canonical_effect_trace_equivalence_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3_empty_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Windows.spike3_empty_effect_trace_equivalence_inst::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike2Fibonacci/Windows/Equivalence.lean::fib_iter_asm_soundness::Spikes.Spike2Fibonacci.Windows.fib_iter_asm_soundness::finite-forall::finite-forall over its stated domain n = 0..90 (List.range 91); true UInt64-no-overflow domain extends to n = 0..93 (fib(93) fits UInt64, fib(94) overflows) - theorem should be widened to 0..93, tracked as a separate follow-up, not edited here
+Spikes/Spike2Fibonacci/Windows/Equivalence.lean::spike2_canonical_effect_trace_equivalence::Spikes.Spike2Fibonacci.Windows.spike2_canonical_effect_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike2Fibonacci/Wasm/Equivalence.lean::fib_iter_wasm_soundness::Spikes.Spike2Fibonacci.Wasm.fib_iter_wasm_soundness::finite-forall::finite-forall over its stated domain n = 0..90 (List.range 91); true UInt64-no-overflow domain extends to n = 0..93 (fib(93) fits UInt64, fib(94) overflows) - theorem should be widened to 0..93, tracked as a separate follow-up, not edited here
+Spikes/Spike2Fibonacci/Wasm/Equivalence.lean::spike2_wasm_canonical_effect_trace_equivalence::Spikes.Spike2Fibonacci.Wasm.spike2_wasm_canonical_effect_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike1Hello/Wasm/Equivalence.lean::spike1_wasm_canonical_effect_trace_equivalence::Spikes.Spike1Hello.Wasm.spike1_wasm_canonical_effect_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+Spikes/Spike1Hello/Windows/Equivalence.lean::spike1_canonical_effect_trace_equivalence::Spikes.Spike1Hello.Windows.spike1_canonical_effect_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
+
+# --- Downstream declarations found ONLY by the axiom-level cross-check ---
+# Tools/CheckGatesAxioms.lean walks Lean.collectAxioms transitively, so it
+# also flags declarations that don't literally contain a native_decide/decide
+# +native TACTIC INVOCATION but transitively cite an already-grandfathered
+# theorem above (via `exact`, `cases ... exact`, or a struct field). The
+# source-regex pre-check (scripts/check_gates.py) is structurally blind to
+# these -- there is no native_decide-shaped text to match, ever, no matter
+# how the regex is improved -- which is exactly why Part A (the axiom-level
+# tool) is the load-bearing gate and this Python script is only
+# defense-in-depth. Category `axiom-only` marks entries like these: matched
+# by name for Tools/CheckGatesAxioms.lean same as any other entry, but
+# deliberately exempt from scripts/check_gates.py's stale-entry check,
+# since by construction no text-level occurrence will ever exist for them.
+Spikes/Spike1Hello/Windows/Equivalence.lean::spike1VerifiedProgram::Spikes.Spike1Hello.Windows.spike1VerifiedProgram::axiom-only::downstream VerifiedProgram wiring that transitively cites the already-grandfathered spike1_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike1Hello/Wasm/Equivalence.lean::spike1VerifiedWasmProgram::Spikes.Spike1Hello.Wasm.spike1VerifiedWasmProgram::axiom-only::downstream VerifiedWasmProgram wiring that transitively cites the already-grandfathered spike1_wasm_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike2Fibonacci/Windows/Equivalence.lean::spike2VerifiedProgram::Spikes.Spike2Fibonacci.Windows.spike2VerifiedProgram::axiom-only::downstream VerifiedProgram wiring that transitively cites the already-grandfathered spike2_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike2Fibonacci/Wasm/Equivalence.lean::spike2VerifiedWasmProgram::Spikes.Spike2Fibonacci.Wasm.spike2VerifiedWasmProgram::axiom-only::downstream VerifiedWasmProgram wiring that transitively cites the already-grandfathered spike2_wasm_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3VerifiedProgram::Spikes.Spike3SortLines.Windows.spike3VerifiedProgram::axiom-only::downstream VerifiedProgram wiring that transitively cites the already-grandfathered spike3_canonical_effect_trace_equivalence_inst / spike3_empty_effect_trace_equivalence_inst via cases+exact; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike3SortLines/Wasm/Equivalence.lean::spike3VerifiedWasmProgram::Spikes.Spike3SortLines.Wasm.spike3VerifiedWasmProgram::axiom-only::downstream VerifiedWasmProgram wiring that transitively cites the already-grandfathered spike3_wasm_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike4HttpServer/Equivalence.lean::spike4_windows_route_equivalence::Spikes.Spike4HttpServer.spike4_windows_route_equivalence::axiom-only::downstream cases+exact composition over HttpRoute that transitively cites the three already-grandfathered spike4_windows_{root,status,404}_trace_equivalence theorems; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike4HttpServer/Equivalence.lean::spike4_wasm_route_equivalence::Spikes.Spike4HttpServer.spike4_wasm_route_equivalence::axiom-only::downstream cases+exact composition over HttpRoute that transitively cites the three already-grandfathered spike4_wasm_{root,status,404}_trace_equivalence theorems; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike4HttpServer/Equivalence.lean::spike4WindowsVerifiedProgram::Spikes.Spike4HttpServer.spike4WindowsVerifiedProgram::axiom-only::downstream VerifiedProgram wiring built on spike4_windows_route_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike4HttpServer/Equivalence.lean::spike4WasmVerifiedProgram::Spikes.Spike4HttpServer.spike4WasmVerifiedProgram::axiom-only::downstream VerifiedWasmProgram wiring built on spike4_wasm_route_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike5Gzip/Equivalence.lean::spike5WindowsVerifiedProgram::Spikes.Spike5Gzip.spike5WindowsVerifiedProgram::axiom-only::downstream VerifiedProgram wiring that transitively cites the already-grandfathered spike5_windows_gzip_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike5Gzip/Equivalence.lean::spike5GunzipWindowsVerifiedProgram::Spikes.Spike5Gzip.spike5GunzipWindowsVerifiedProgram::axiom-only::downstream VerifiedProgram wiring that transitively cites the already-grandfathered spike5_windows_gunzip_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike5Gzip/Equivalence.lean::spike5WasmVerifiedProgram::Spikes.Spike5Gzip.spike5WasmVerifiedProgram::axiom-only::downstream VerifiedWasmProgram wiring that transitively cites the already-grandfathered spike5_wasm_gzip_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Gasm/Targets/Wasm/SemanticsFuzzer.lean::trapShortCircuitGuard_inst::Gasm.Targets.Wasm.SemanticsFuzzer.trapShortCircuitGuard_inst::grandfathered::single ground-instance pin of evalInstr trap short-circuit guard; decide cannot discharge (partial def chain, verified); migration backlog
+
+# --- TC15 / TCB.md T2 findings (2026-08-27): CLI entrypoints in the 32
+# modules Tools/CheckGatesAxioms.lean could not previously see -- every
+# Spikes/*/Emit.lean and Spikes/*/Test.lean's `main` (some via a namespaced
+# `runTests`) references its spike's `*VerifiedProgram`/`*Executable`/
+# `*Instructions` value to emit or exercise the binary. That value's TYPE
+# carries the equivalence proof as a field, so `main` transitively cites the
+# same already-grandfathered `*_trace_equivalence` axiom the corresponding
+# Equivalence.lean::*VerifiedProgram entry above already authorizes -- one
+# hop further downstream than this file's existing entries reach, not a new
+# distinct native_decide use. `fqn` here is the BARE name Lean actually
+# gives these declarations (no enclosing `namespace`); the `file` field is
+# load-bearing for these (see Tools/CheckGatesAxioms.lean's `matchKey`) --
+# a dozen+ unrelated files all declare literally `main`.
+Spikes/Spike1Hello/Windows/Emit.lean::main::main::axiom-only::downstream `main` calls emitVerifiedExecutable spike1VerifiedProgram, transitively citing the already-grandfathered spike1_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike1Hello/Wasm/Emit.lean::main::main::axiom-only::downstream `main` emits from spike1VerifiedWasmProgram, transitively citing the already-grandfathered spike1_wasm_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike1Hello/Wasm/Test.lean::main::main::axiom-only::downstream `main` exercises spike1VerifiedWasmProgram, transitively citing the already-grandfathered spike1_wasm_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike2Fibonacci/Windows/Emit.lean::main::main::axiom-only::downstream `main` calls emitVerifiedExecutable spike2VerifiedProgram, transitively citing the already-grandfathered spike2_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike2Fibonacci/Wasm/Emit.lean::main::main::axiom-only::downstream `main` emits from spike2VerifiedWasmProgram, transitively citing the already-grandfathered spike2_wasm_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike2Fibonacci/Wasm/Test.lean::main::main::axiom-only::downstream `main` exercises spike2VerifiedWasmProgram, transitively citing the already-grandfathered spike2_wasm_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike3SortLines/Windows/Emit.lean::main::main::axiom-only::downstream `main` calls emitVerifiedExecutable spike3VerifiedProgram, transitively citing the already-grandfathered spike3_canonical_effect_trace_equivalence_inst / spike3_empty_effect_trace_equivalence_inst; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike3SortLines/Windows/Test.lean::runTests::Spikes.Spike3SortLines.Windows.runTests::axiom-only::downstream `runTests` emits and exercises spike3VerifiedProgram, transitively citing the already-grandfathered spike3_canonical_effect_trace_equivalence_inst / spike3_empty_effect_trace_equivalence_inst; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike3SortLines/Windows/Test.lean::main::main::axiom-only::downstream `main` delegates to Spikes.Spike3SortLines.Windows.runTests (same file, same axiom-only entry above); found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike3SortLines/Wasm/Emit.lean::main::main::axiom-only::downstream `main` emits from spike3VerifiedWasmProgram, transitively citing the already-grandfathered spike3_wasm_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike3SortLines/Wasm/Test.lean::main::main::axiom-only::downstream `main` exercises spike3VerifiedWasmProgram, transitively citing the already-grandfathered spike3_wasm_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike4HttpServer/Windows/Emit.lean::main::main::axiom-only::downstream `main` calls emitVerifiedExecutable spike4WindowsVerifiedProgram, transitively citing the already-grandfathered spike4_windows_{root,status,404}_trace_equivalence theorems via spike4_windows_route_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike4HttpServer/Wasm/Emit.lean::main::main::axiom-only::downstream `main` emits from spike4WasmVerifiedProgram, transitively citing the already-grandfathered spike4_wasm_{root,status,404}_trace_equivalence theorems via spike4_wasm_route_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike4HttpServer/Test.lean::main::main::axiom-only::downstream `main` exercises both spike4WindowsVerifiedProgram and spike4WasmVerifiedProgram, transitively citing all six already-grandfathered spike4_{windows,wasm}_{root,status,404}_trace_equivalence theorems; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike5Gzip/Windows/Emit.lean::main::main::axiom-only::downstream `main` calls emitVerifiedExecutable spike5WindowsVerifiedProgram, transitively citing the already-grandfathered spike5_windows_gzip_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike5Gzip/Windows/GunzipEmit.lean::main::main::axiom-only::downstream `main` calls emitVerifiedExecutable spike5GunzipWindowsVerifiedProgram, transitively citing the already-grandfathered spike5_windows_gunzip_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike5Gzip/Wasm/Emit.lean::main::main::axiom-only::downstream `main` emits from spike5WasmVerifiedProgram, transitively citing the already-grandfathered spike5_wasm_gzip_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike5Gzip/Test.lean::main::main::axiom-only::downstream `main` exercises spike5WindowsVerifiedProgram and spike5WasmVerifiedProgram, transitively citing the already-grandfathered spike5_windows_gzip_trace_equivalence and spike5_wasm_gzip_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Gasm/Targets/Wasm/LEB128.lean::encodeI32SLEB128_exceeds_i32_budget_inst::Gasm.Targets.Wasm.encodeI32SLEB128_exceeds_i32_budget_inst::grandfathered::single ground-instance witness (encodeI32SLEB128 (2^40) has size >= 6); encodeSLEB128List is well-founded-recursive (termination_by val.natAbs) so kernel `decide` gets stuck on the Acc.rec proof term and cannot reduce it, unlike the finite-forall theorems above -- this is a single witness value, not a universal claim, so a finite-forall migration does not apply; TC20 completion notes have the full derivation

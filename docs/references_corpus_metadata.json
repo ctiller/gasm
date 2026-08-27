@@ -1,0 +1,457 @@
+{
+  "_note": "Per-chapter upstream metadata for the vulkan and spirv corpora, extracted from each vendored file's own frontmatter/BibTeX block before deletion -- unlike the other references/ corpora, this URL+fragment granularity exists nowhere else in the tree (references/MANIFEST.provenance.json records only corpus-level provenance for these two: a 72/6 file count and, for spirv, a single base spec URL for spirv.core.grammar.json, not per-chapter fragments). wasi/zlib/png/wasm/windows already have their known per-file source URLs (and, where resolvable, an upstream commit-SHA pin) recorded durably in references/MANIFEST.provenance.json, so no separate extraction was needed for those. png's three vendored C/C++ source files additionally embed their own upstream version string in a header comment, captured below since it is the one piece of edition-identifying data for those three files that lives only inside the vendored source itself.",
+  "png_vendored_source_versions": {
+    "references/png/lodepng.h": "LodePNG version 20260119",
+    "references/png/lodepng.cpp": "LodePNG version 20260119",
+    "references/png/stb_image.h": "stb_image - v2.30",
+    "references/png/stb_image_write.h": "stb_image_write - v1.16"
+  },
+  "spirv": {
+    "references/spirv/ch_01_1_introduction.md": {
+      "chapter_id": "_introduction",
+      "document": "SPIR-V Unified Specification",
+      "title": "1. Introduction",
+      "url": "https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#_introduction"
+    },
+    "references/spirv/ch_02_2_specification.md": {
+      "chapter_id": "Specification",
+      "document": "SPIR-V Unified Specification",
+      "title": "2. Specification",
+      "url": "https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#Specification"
+    },
+    "references/spirv/ch_03_3_binary_form.md": {
+      "chapter_id": "Binary",
+      "document": "SPIR-V Unified Specification",
+      "title": "3. Binary Form",
+      "url": "https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#Binary"
+    },
+    "references/spirv/ch_04_4_appendix_a_changes.md": {
+      "chapter_id": "_appendix_a_changes",
+      "document": "SPIR-V Unified Specification",
+      "title": "4. Appendix A: Changes",
+      "url": "https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#_appendix_a_changes"
+    }
+  },
+  "vulkan": {
+    "references/vulkan/appendix_a__vulkan_environment_for_spir-v.md": {
+      "chapter_id": "spirvenv",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix A: Vulkan Environment for SPIR-V",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#spirvenv"
+    },
+    "references/vulkan/appendix_b__memory_model.md": {
+      "chapter_id": "memory-model",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix B: Memory Model",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#memory-model"
+    },
+    "references/vulkan/appendix_c__compressed_image_formats.md": {
+      "chapter_id": "compressed_image_formats",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix C: Compressed Image Formats",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#compressed_image_formats"
+    },
+    "references/vulkan/appendix_d__core_revisions_(informative).md": {
+      "chapter_id": "versions",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix D: Core Revisions (Informative)",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#versions"
+    },
+    "references/vulkan/appendix_e__layers_&_extensions_(informative).md": {
+      "chapter_id": "extensions",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix E: Layers & Extensions (Informative)",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#extensions"
+    },
+    "references/vulkan/appendix_f__vulkan_roadmap_milestones.md": {
+      "chapter_id": "roadmap",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix F: Vulkan Roadmap Milestones",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#roadmap"
+    },
+    "references/vulkan/appendix_g__legacy_and_superseded_functionality.md": {
+      "chapter_id": "legacy",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix G: Legacy and Superseded Functionality",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#legacy"
+    },
+    "references/vulkan/appendix_h__api_boilerplate.md": {
+      "chapter_id": "boilerplate",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix H: API Boilerplate",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#boilerplate"
+    },
+    "references/vulkan/appendix_i__invariance.md": {
+      "chapter_id": "invariance",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix I: Invariance",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#invariance"
+    },
+    "references/vulkan/appendix_j__lexicon.md": {
+      "chapter_id": "lexicon",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix J: Lexicon",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#lexicon"
+    },
+    "references/vulkan/appendix_k__credits_(informative).md": {
+      "chapter_id": "credits",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "Appendix K: Credits (Informative)",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#credits"
+    },
+    "references/vulkan/ch_01_preamble.md": {
+      "chapter_id": "preamble",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "1. Preamble",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#preamble"
+    },
+    "references/vulkan/ch_02_introduction.md": {
+      "chapter_id": "introduction",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "2. Introduction",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#introduction"
+    },
+    "references/vulkan/ch_03_fundamentals.md": {
+      "chapter_id": "fundamentals",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "3. Fundamentals",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#fundamentals"
+    },
+    "references/vulkan/ch_04_initialization.md": {
+      "chapter_id": "initialization",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "4. Initialization",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#initialization"
+    },
+    "references/vulkan/ch_05_devices_and_queues.md": {
+      "chapter_id": "devsandqueues",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "5. Devices and Queues",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#devsandqueues"
+    },
+    "references/vulkan/ch_06_command_buffers.md": {
+      "chapter_id": "commandbuffers",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "6. Command Buffers",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#commandbuffers"
+    },
+    "references/vulkan/ch_07_synchronization_and_cache_control.md": {
+      "chapter_id": "synchronization",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "7. Synchronization and Cache Control",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#synchronization"
+    },
+    "references/vulkan/ch_08_render_pass.md": {
+      "chapter_id": "renderpass",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "8. Render Pass",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#renderpass"
+    },
+    "references/vulkan/ch_09_shaders.md": {
+      "chapter_id": "shaders",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "9. Shaders",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#shaders"
+    },
+    "references/vulkan/ch_10_pipelines.md": {
+      "chapter_id": "pipelines",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "10. Pipelines",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#pipelines"
+    },
+    "references/vulkan/ch_11_memory_allocation.md": {
+      "chapter_id": "memory",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "11. Memory Allocation",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#memory"
+    },
+    "references/vulkan/ch_12_resource_creation.md": {
+      "chapter_id": "resources",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "12. Resource Creation",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#resources"
+    },
+    "references/vulkan/ch_13_images.md": {
+      "chapter_id": "images",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "13. Images",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#images"
+    },
+    "references/vulkan/ch_14_samplers.md": {
+      "chapter_id": "samplers",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "14. Samplers",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#samplers"
+    },
+    "references/vulkan/ch_15_resource_descriptors.md": {
+      "chapter_id": "descriptors",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "15. Resource Descriptors",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#descriptors"
+    },
+    "references/vulkan/ch_16_descriptor_heaps.md": {
+      "chapter_id": "descriptorheaps",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "16. Descriptor Heaps",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#descriptorheaps"
+    },
+    "references/vulkan/ch_17_descriptor_sets.md": {
+      "chapter_id": "descriptors-sets",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "17. Descriptor Sets",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#descriptors-sets"
+    },
+    "references/vulkan/ch_18_descriptor_buffers.md": {
+      "chapter_id": "descriptorbuffers",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "18. Descriptor Buffers",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#descriptorbuffers"
+    },
+    "references/vulkan/ch_19_shader_interfaces.md": {
+      "chapter_id": "interfaces",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "19. Shader Interfaces",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#interfaces"
+    },
+    "references/vulkan/ch_20_sampling.md": {
+      "chapter_id": "textures",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "20. Sampling",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#textures"
+    },
+    "references/vulkan/ch_21_fragment_density_map_operations.md": {
+      "chapter_id": "fragmentdensitymapops",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "21. Fragment Density Map Operations",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#fragmentdensitymapops"
+    },
+    "references/vulkan/ch_22_tensor_operations.md": {
+      "chapter_id": "tensors",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "22. Tensor Operations",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#tensors"
+    },
+    "references/vulkan/ch_23_queries.md": {
+      "chapter_id": "queries",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "23. Queries",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#queries"
+    },
+    "references/vulkan/ch_24_gpu_performance_api_interface.md": {
+      "chapter_id": "gpu-performance-api",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "24. GPU Performance API Interface",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#gpu-performance-api"
+    },
+    "references/vulkan/ch_25_clear_commands.md": {
+      "chapter_id": "clears",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "25. Clear Commands",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#clears"
+    },
+    "references/vulkan/ch_26_copy_commands.md": {
+      "chapter_id": "copies",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "26. Copy Commands",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#copies"
+    },
+    "references/vulkan/ch_27_drawing_commands.md": {
+      "chapter_id": "drawing",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "27. Drawing Commands",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#drawing"
+    },
+    "references/vulkan/ch_28_fixed-function_vertex_processing.md": {
+      "chapter_id": "fxvertex",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "28. Fixed-Function Vertex Processing",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#fxvertex"
+    },
+    "references/vulkan/ch_29_tessellation.md": {
+      "chapter_id": "tessellation",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "29. Tessellation",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#tessellation"
+    },
+    "references/vulkan/ch_30_geometry_shading.md": {
+      "chapter_id": "geometry",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "30. Geometry Shading",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#geometry"
+    },
+    "references/vulkan/ch_31_mesh_shading.md": {
+      "chapter_id": "mesh",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "31. Mesh Shading",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#mesh"
+    },
+    "references/vulkan/ch_32_cluster_culling_shading.md": {
+      "chapter_id": "cluster-culling",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "32. Cluster Culling Shading",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#cluster-culling"
+    },
+    "references/vulkan/ch_33_fixed-function_vertex_post-processing.md": {
+      "chapter_id": "vertexpostproc",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "33. Fixed-Function Vertex Post-Processing",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#vertexpostproc"
+    },
+    "references/vulkan/ch_34_rasterization.md": {
+      "chapter_id": "primsrast",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "34. Rasterization",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#primsrast"
+    },
+    "references/vulkan/ch_35_fragment_operations.md": {
+      "chapter_id": "fragops",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "35. Fragment Operations",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#fragops"
+    },
+    "references/vulkan/ch_36_the_framebuffer.md": {
+      "chapter_id": "framebuffer",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "36. The Framebuffer",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#framebuffer"
+    },
+    "references/vulkan/ch_37_dispatching_commands.md": {
+      "chapter_id": "dispatch",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "37. Dispatching Commands",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#dispatch"
+    },
+    "references/vulkan/ch_38_device-generated_commands.md": {
+      "chapter_id": "device-generated-commands",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "38. Device-Generated Commands",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#device-generated-commands"
+    },
+    "references/vulkan/ch_39_sparse_resources.md": {
+      "chapter_id": "sparsememory",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "39. Sparse Resources",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#sparsememory"
+    },
+    "references/vulkan/ch_40_window_system_integration_(wsi).md": {
+      "chapter_id": "wsi",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "40. Window System Integration (WSI)",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#wsi"
+    },
+    "references/vulkan/ch_41_deferred_host_operations.md": {
+      "chapter_id": "deferred-host-operations",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "41. Deferred Host Operations",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#deferred-host-operations"
+    },
+    "references/vulkan/ch_42_private_data.md": {
+      "chapter_id": "private-data",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "42. Private Data",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#private-data"
+    },
+    "references/vulkan/ch_43_acceleration_structures.md": {
+      "chapter_id": "acceleration-structure",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "43. Acceleration Structures",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#acceleration-structure"
+    },
+    "references/vulkan/ch_44_compressed_triangle_data.md": {
+      "chapter_id": "compressed-triangle-data",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "44. Compressed triangle data",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#compressed-triangle-data"
+    },
+    "references/vulkan/ch_45_micromap.md": {
+      "chapter_id": "micromap",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "45. Micromap",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#micromap"
+    },
+    "references/vulkan/ch_46_ray_traversal.md": {
+      "chapter_id": "ray-traversal",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "46. Ray Traversal",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#ray-traversal"
+    },
+    "references/vulkan/ch_47_ray_tracing.md": {
+      "chapter_id": "ray-tracing",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "47. Ray Tracing",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#ray-tracing"
+    },
+    "references/vulkan/ch_48_memory_decompression.md": {
+      "chapter_id": "memory-decompression",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "48. Memory Decompression",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#memory-decompression"
+    },
+    "references/vulkan/ch_49_video_coding.md": {
+      "chapter_id": "video-coding",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "49. Video Coding",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#video-coding"
+    },
+    "references/vulkan/ch_50_optical_flow.md": {
+      "chapter_id": "opticalflow",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "50. Optical Flow",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#opticalflow"
+    },
+    "references/vulkan/ch_51_execution_graphs.md": {
+      "chapter_id": "executiongraphs",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "51. Execution Graphs",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#executiongraphs"
+    },
+    "references/vulkan/ch_52_external_compute_queues.md": {
+      "chapter_id": "external-compute-queues",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "52. External Compute Queues",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#external-compute-queues"
+    },
+    "references/vulkan/ch_53_data_graphs.md": {
+      "chapter_id": "graphs",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "53. Data graphs",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#graphs"
+    },
+    "references/vulkan/ch_54_extending_vulkan.md": {
+      "chapter_id": "extendingvulkan",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "54. Extending Vulkan",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#extendingvulkan"
+    },
+    "references/vulkan/ch_55_features.md": {
+      "chapter_id": "features",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "55. Features",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#features"
+    },
+    "references/vulkan/ch_56_limits.md": {
+      "chapter_id": "limits",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "56. Limits",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#limits"
+    },
+    "references/vulkan/ch_57_formats.md": {
+      "chapter_id": "formats",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "57. Formats",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#formats"
+    },
+    "references/vulkan/ch_58_additional_capabilities.md": {
+      "chapter_id": "capabilities",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "58. Additional Capabilities",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#capabilities"
+    },
+    "references/vulkan/ch_59_debugging.md": {
+      "chapter_id": "debugging",
+      "document": "Vulkan® 1.3-Extensions - A Specification",
+      "title": "59. Debugging",
+      "url": "https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#debugging"
+    }
+  }
+}

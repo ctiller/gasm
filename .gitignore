@@ -1,0 +1,61 @@
+# Lean/Lake build outputs and byproducts
+.lake/
+*.exe
+*.o
+*.olean
+*.ilean
+*.c
+*.json.setup
+broken.txt
+*.wasm
+*.wat
+
+# Native linker/debug byproducts (belt-and-braces: normally confined to
+# .lake/, but guard against anything emitted at the repo root too)
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.a
+*.dll
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# scripts/check_references.py's local, network-fetched cache (docs/
+# REFERENCE_INDEX.md, scripts/check_references.py's own module docstring):
+# populated by `--refresh`, read by `--offline`. Never committed -- the
+# registry (references.json) plus its recorded sha256 pins are the
+# reproducible source of truth; this directory is just a local fetch cache.
+.cache/
+
+# Scratch/temp files (e.g. NASM.lean's assembleWithNasm tmpPrefix)
+.tmp_*
+*.tmp
+*.bak
+*~
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS-generated files
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Local secrets / environment overrides -- never commit these
+.env
+.env.*
+*.local

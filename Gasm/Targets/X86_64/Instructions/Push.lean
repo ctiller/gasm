@@ -1,0 +1,65 @@
+/-
+Copyright 2026 Craig Tiller
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-/
+
+import Lean
+import Gasm.Core.Types
+import Gasm.Targets.X86_64.Registers
+import Gasm.Targets.X86_64.Instructions.Base
+
+namespace Gasm.Targets.X86_64.Instructions
+
+open Gasm.Core
+open Gasm.Targets.X86_64
+
+/- REF: intel-sdm#vol=2;instr=PUSH;part=description -/
+/-- PUSH r64: Pushes a 64-bit general-purpose register onto the stack. -/
+structure PushR64 where
+  reg : Reg64
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=PUSH;part=operation -/
+instance : X86_64Instruction PushR64 where
+  encode i :=
+    let (code, ext) := reg64Code i.reg
+    let opcode := 0x50 + code
+    if ext then
+      ByteArray.mk #[0x41, opcode]
+    else
+      ByteArray.mk #[opcode]
+
+  step i s :=
+    let (_, ext) := reg64Code i.reg
+    let len := if ext then 2 else 1
+    let val := s.gprs i.reg
+    let s' := s.push64 val
+    { s' with rip := s.rip + len }
+
+  toUops _ := [
+    { mnemonic := "PUSH.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
+    { mnemonic := "PUSH.storeData", uopClass := .storeData, eligiblePorts := [.p4, .p9], latencyCycles := 1, reciprocalThroughput := 0.5 }
+  ]
+  toNASM i := s!"push {i.reg}"
+  toLean i := s!"push_r64 .{i.reg}"
+  canFuzzHardware _ := false
+  generateFuzzStates _ rng := ([], rng)
+  roundtripCases := allReg64List.map PushR64.mk
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- PUSH r64 helper. -/
+def push_r64 (r : Reg64) : AnyX86_64Instruction :=
+  ⟨PushR64.mk r⟩
+
+end Gasm.Targets.X86_64.Instructions
