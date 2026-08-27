@@ -1,0 +1,21 @@
+# scripts/check_doc_facade.py Allowlist
+#
+# Format (one entry per line, `::`-delimited, 5 fields):
+#   <check>::<key>::<added>::<added-by>::<justification>
+#
+# <check> is one of: mechanism-absent, gate-script-missing, gate-not-wired.
+# <key> is <file>:<line>:<token> -- the file relative to the repo root, the
+# 1-based line number (counted after fenced-code-block stripping), and the
+# flagged identifier/script/exe name.
+#
+# Justification is free text and must be non-empty. A line with any other
+# field count, an unknown check name, an empty key, or an empty
+# justification is a hard parse failure, never a silently-skipped line. A
+# stale entry (its check::key no longer trips anything) is also a hard
+# failure -- see scripts/check_doc_facade.py's module docstring.
+#
+# This file is currently empty: every finding this linter has ever produced
+# against this tree was fixed at the source (see docs/REVIEW.md Law 9's
+# `progressProof` Status clause) rather than allowlisted. Do not widen this
+# file to reach green -- every allowlist in this repository is either empty
+# or fully justified, and that property is worth more than a green run.
