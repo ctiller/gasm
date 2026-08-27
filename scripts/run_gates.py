@@ -330,11 +330,18 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
          "long": "D23/decision-record integrity gate: PLAN.md/docs/adr//docs/tasks/ are the sole "
                  "surviving decision history post-flatten (0035)",
          "cmd": [py, "scripts/check_record.py"], "slow": False, "tools": ["python"]},
+        {"key": "check_doc_facade", "desc": "python scripts/check_doc_facade.py",
+         "long": "TC21: doc-facade linter -- detects docs/*.md (excluding docs/adr/, docs/tasks/) "
+                 "asserting enforcement the tree does not provide: a MUST/is-implemented-shaped "
+                 "claim citing a Lean identifier absent from the whole .lean tree, or "
+                 "docs/REVIEW.md naming a script/lake-exe gate that is missing or not wired into "
+                 "this table (the check_licenses.py-was-never-wired-in shape, found this week)",
+         "cmd": [py, "scripts/check_doc_facade.py"], "slow": False, "tools": ["python"]},
         {"key": "test_roundtrip", "desc": "lake exe test_roundtrip",
          "long": "x86-64 decode/encode roundtrip suite (registry gate's ~21 native_decide shards "
                  "are compiled into lake build itself, not re-invoked here)",
          "cmd": [lake, "exe", "test_roundtrip"], "slow": False, "tools": ["lean"]},
-        # --- Spike / Stdlib CLI test suites (REVIEW.md Sec 4.1 item 8): defaultTargets builds
+        # --- Spike / Stdlib CLI test suites (REVIEW.md Sec 4.1 item 9): defaultTargets builds
         # these; building is not running them (the exact distinction item 4 draws for
         # check_gates_axioms). All fast (seconds), all take no CLI args.
         #

@@ -53,6 +53,35 @@ paraphrase loses. Briefly, they cover:
 If a Law and any other document (including this one) ever disagree,
 `docs/REVIEW.md` wins.
 
+## Describing not-yet-built machinery: the `**Status**:` convention
+
+Writing a design document for a target or subsystem that does not exist yet
+is normal and expected here (see Law 5 below) — a new target's design doc
+will necessarily describe machinery, ABI rules, and API contracts that have
+no Lean implementation on the day it's written. That is not a defect. What
+*is* a defect is a document that reads as though the machinery already
+enforces something, with no way for a reader to tell design from reality.
+`scripts/check_doc_facade.py` (TC21) mechanically checks for exactly that
+gap: a backtick-quoted identifier cited inside a MUST/is-implemented-shaped
+claim, absent from the whole `.lean` tree, with no disclosure nearby. It is
+wired into CI as a **required, blocking** gate, so read this before writing
+a design doc for new machinery (this applies to any new target, including
+the Linux target currently in progress under `docs/TARGETS/`):
+
+- If a claim in your design doc names a mechanism that isn't built yet,
+  attach a `**Status**:` sentence next to it, stating plainly that it does
+  not exist in the tree today and, if one exists, the tracking task that
+  will build it (`PA#`/`TC#`/`N#`/`F#`/`G#`/...). `docs/REVIEW.md` Law 9 and
+  Law 11 are the two ratified examples of this pattern.
+- Any of these phrasings in the same paragraph as the claim also satisfies
+  it: "ratified design", "not yet implemented", "does not yet exist",
+  "design-only", "fully designed but dormant", "pending implementation", or
+  "tracked as `PA#`/`TC#`/`N#`/...". Pick whichever reads most naturally.
+- This costs one sentence and is cheap on purpose — the gate exists to make
+  the *absence* of that sentence loud, not to slow down legitimate design
+  work. A document that already says "this is a design, not yet built" is
+  never flagged, no matter how many not-yet-existing identifiers it names.
+
 ## The Stop-and-Design Invariant (Law 5)
 
 > Whenever a task demands any concept, instruction, ABI rule, binary header,

@@ -38,6 +38,7 @@ wiring in a path that would 404 the first time the workflow runs.
 | 4b | Gate policy load-bearing check (Law 10) | `lake exe check_gates_axioms` (run from repo root — building it is not running it) | required | required |
 | 5 | Apache-2.0 header compliance | `python scripts/check_licenses.py` | required | required |
 | 6 | Decision-record integrity (D23/ADR-0035) | `python scripts/check_record.py` | required | required |
+| 7 | Doc-facade linter (TC21) | `python scripts/check_doc_facade.py` | required | required |
 | — | Roundtrip properties | `lake exe test_roundtrip` | required | required |
 | — | Stdlib unit suites | `lake exe test_zlib`, `lake exe test_png`, `lake exe test_smolalloc` | required | required |
 | — | x86-64 semantics fuzzer | `lake exe x86_fuzzer` | required | required |
@@ -58,6 +59,30 @@ wiring in a path that would 404 the first time the workflow runs.
 
 Everything in this table that is runnable was invoked directly in this task's verification
 pass, on this machine, in the foreground, with exit codes captured without a pipe. See §8.
+
+**Item 7 (`check_doc_facade.py`, TC21) rollout: blocking from day one, not a reporting-only
+bake-in period.** A gate this large's own author considered starting new gates in a
+reporting-only mode until an already-noisy tree goes clean, specifically because a concurrent
+Linux-target design workstream (docs/TARGETS/) is actively writing new, legitimately
+not-yet-implemented design prose while this gate ships, and a red CI that punishes honest
+in-progress design work is worse than no gate (Law 13's own warning: a gate people learn to
+ignore protects nothing). That default was overridden here because the actual precondition for
+it didn't hold: running `check_doc_facade.py --self-test` and a full run against this tree, in
+the foreground, found the tree already clean (0 blocking findings) after one fix (the
+`progressProof` instance documented in `scripts/check_doc_facade.py`'s own module docstring and
+`docs/REVIEW.md` Law 9) — there is no backlog of pre-existing violations a reporting-only period
+would be buying time to clean up. The concurrent-work risk is real but is addressed at the
+gate's design level instead: every trigger pattern requires a claim-shaped phrase adjacent to
+the identifier (not bare "MUST", which is ordinary spec-writing vocabulary every design doc
+uses) and honors the `**Status**:` escape hatch, and both were verified empirically against the
+full current `docs/TARGETS/*.md`/`docs/GRAPHICS_ARCHITECTURE.md` tree (including the
+in-progress, deliberately-unimplemented Linux target doc) to confirm zero incidental
+collisions — see that module's docstring for the specific false positive (`` `warningAsError` ``)
+an earlier, broader draft produced and how the design was tightened to eliminate it. Blocking
+immediately is correct precisely because the gate is clean on arrival; if a future change makes
+it newly noisy against legitimate in-progress work, that is itself a finding against this gate's
+precision (Law 13) and should be fixed at the pattern level, not worked around with a
+reporting-only carve-out.
 
 ## 3. Why removing `-Wl,--subsystem,console` from `lakefile.toml` was necessary and safe
 

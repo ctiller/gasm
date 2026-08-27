@@ -158,6 +158,10 @@ jobs:
         shell: pwsh
         run: python scripts/check_record.py
 
+      - name: Doc-facade linter (TC21)
+        shell: pwsh
+        run: python scripts/check_doc_facade.py
+
       - name: Roundtrip properties
         shell: pwsh
         run: lake exe test_roundtrip
@@ -369,6 +373,10 @@ jobs:
       - name: Decision-record integrity (D23/ADR-0035)
         shell: bash
         run: python scripts/check_record.py
+
+      - name: Doc-facade linter (TC21)
+        shell: bash
+        run: python scripts/check_doc_facade.py
 
       - name: Roundtrip properties
         shell: bash
