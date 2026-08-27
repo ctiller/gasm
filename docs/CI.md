@@ -386,3 +386,32 @@ paid for on a fixed, small, predictable schedule instead of on every push.
   deliverables — has **not** landed on this branch. This design invokes every gate directly
   rather than through that not-yet-existing script, per §7's explicit note. Nothing in this
   document should be read as TC5 being complete.
+
+## Reference integrity: why it runs on a schedule, not per push
+
+`scripts/check_references.py --offline` verifies that the bytes in the local
+`.cache/references/` still hash to what `references.json` records. That cache can
+never exist in a fresh CI checkout, because it holds third-party documentation
+prose and D25 forbids committing such prose to the tree. Run per push, the step
+therefore fails structurally (exit 3, cold cache) without ever checking anything.
+
+It now runs in `scheduled.yml` as `--refresh`, which re-fetches each registered
+document and compares it against the recorded hash. That is the one place a
+network fetch is legitimate.
+
+**This is a cadence change, not a dropped gate.** Per-push coverage is unchanged
+and network-free:
+
+- `check_refs.py` fails on any citation whose slug is absent from `references.json`.
+- `check_publishable.py` fails on any third-party prose in the tree, or any
+  citation resolving into `references/`.
+
+What moved is only the part that needs the network: confirming upstream still
+serves what the registry pinned. Drift found by the scheduled job is a real
+finding requiring a human re-pin (`--acknowledge-drift` with `--reviewer` and
+`--review-note`), never a silent hash update.
+
+**Known gap, stated rather than hidden:** nothing yet bounds how stale that
+verification may be — if the scheduled job stops running, no gate notices. A
+staleness bound belongs with the `last_refresh` timestamp design in
+`docs/REFERENCE_INDEX.md`.

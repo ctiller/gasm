@@ -142,9 +142,20 @@ jobs:
       # named as designed-but-not-implemented). Until that scheduled-refresh
       # + staleness-bound design lands, this step fails on a cold cache;
       # that is a known gap, not a regression introduced here.
-      - name: Reference integrity (Law 6)
-        shell: pwsh
-        run: python scripts/check_references.py --offline
+      # Reference integrity (Law 6) -- upstream hash verification runs in
+      # .github/workflows/scheduled.yml, NOT here. check_references.py --offline
+      # compares SHA-256 of a local .cache/references/ against references.json,
+      # and that cache cannot exist in a fresh checkout: it holds third-party
+      # prose, which D25 forbids committing. Running it per-push therefore fails
+      # structurally (exit 3, cold cache) rather than detecting anything.
+      #
+      # This is a cadence change, not a dropped gate. Per-push coverage is
+      # unchanged and network-free: check_refs.py above already fails on any
+      # citation whose slug is absent from references.json, and
+      # check_publishable.py fails on any third-party prose or any citation
+      # resolving into references/. What moves to the schedule is solely the
+      # part that needs the network: verifying the registry's hashes still
+      # match what upstream serves.
 
       - name: Publishability (Law 6 -- no third-party prose)
         shell: pwsh
@@ -358,9 +369,20 @@ jobs:
 
       # See the Windows job above for the full rationale (docs/CI.md #7) of
       # this swap and its named cache-population gap.
-      - name: Reference integrity (Law 6)
-        shell: bash
-        run: python scripts/check_references.py --offline
+      # Reference integrity (Law 6) -- upstream hash verification runs in
+      # .github/workflows/scheduled.yml, NOT here. check_references.py --offline
+      # compares SHA-256 of a local .cache/references/ against references.json,
+      # and that cache cannot exist in a fresh checkout: it holds third-party
+      # prose, which D25 forbids committing. Running it per-push therefore fails
+      # structurally (exit 3, cold cache) rather than detecting anything.
+      #
+      # This is a cadence change, not a dropped gate. Per-push coverage is
+      # unchanged and network-free: check_refs.py above already fails on any
+      # citation whose slug is absent from references.json, and
+      # check_publishable.py fails on any third-party prose or any citation
+      # resolving into references/. What moves to the schedule is solely the
+      # part that needs the network: verifying the registry's hashes still
+      # match what upstream serves.
 
       - name: Publishability (Law 6 -- no third-party prose)
         shell: bash

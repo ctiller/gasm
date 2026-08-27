@@ -61,6 +61,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Upstream reference verification (Law 6). This is the one place a network
+      # fetch is legitimate: --refresh re-fetches every registered document and
+      # compares it against the SHA-256 recorded in references.json. Drift is a
+      # real finding -- upstream changed under a citation -- and must be resolved
+      # by a human re-pin (--acknowledge-drift with --reviewer/--review-note),
+      # never by silently updating the hash.
+      #
+      # It runs here rather than per-push because the cache it needs holds
+      # third-party prose, which D25 forbids committing to the tree.
+      - name: Upstream reference drift (Law 6)
+        shell: bash
+        run: python scripts/check_references.py --refresh
+
       - name: Install elan (Lean toolchain manager, Windows)
         if: runner.os == 'Windows'
         shell: pwsh
