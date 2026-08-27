@@ -341,6 +341,19 @@ Vision anchor: `docs/VISION.md`. Governance: `docs/REVIEW.md` Laws 1–14.
   - Enforced mechanically by `scripts/check_publishable.py`: any content file under
     `references/`, or any citation resolving into it, is a hard failure.
 
+- **D27 — No urgency framing in agent briefs (Craig, 2026-08-27)**: "i would
+  discourage sending \"URGENT\" prompts to agents -- it will only encourage shoddy
+  work / send them the task, but keep things clear for them if it's urgent."
+  The coordinator had opened a brief with "URGENT AND BLOCKING". Pressure framing
+  buys shortcuts, not speed, and the shortcuts it buys are precisely the ones this
+  project cannot afford: skipping the root-cause investigation for the quick patch,
+  narrowing a gate's coverage to make it pass, silencing a loud failure.
+  - **What to do instead**: state the facts that make the task matter (CI is red for
+    every pusher; a team that cannot reach us depends on it) and let the agent draw
+    its own conclusion about priority. Facts inform; adjectives pressure.
+  - Corollary: when a brief IS time-sensitive, the clarity that helps is a precise
+    scope and an explicit statement of which corners may NOT be cut — not emphasis.
+
 ## Phase 0 — Governance docs ✅ (committed: 03eeece)
 
 - [x] `docs/VISION.md` (new): insights 0–2, gate-is-the-product, two trust obligations,
