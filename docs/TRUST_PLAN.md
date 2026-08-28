@@ -29,12 +29,24 @@ Spike 3's 5 gate ~16.** Those three spikes are 68 of 78.
 
 ## What is already established
 
-- **Spike 4's 9 and Spike 5's 7 are categorically blocked**, not slow. Measured, not assumed:
+- **Spike 4's 9 are NOT categorically blocked.** An earlier characterization in this plan said
+  they were; commit `3341d92`'s agent measured it properly and disproved it. Reduction
+  **succeeds** by plain `rfl` through fuel 29 — WSAStartup, socket, bind, listen, accept and
+  the `recv` event, 3 of 5 events — and fails from fuel 30, the first instruction inspecting a
+  `recvHook` product (`cmp rax, 0`). The blocker is `recvHook`
+  (`Gasm/Targets/Windows/Win32API.lean:207`) routing through `@[extern]`
+  `String.toUTF8`/`fromUTF8?`, which the kernel cannot unfold. The program is 130 instructions
+  and the full canonical trace costs **59 steps** — not a scale problem. The remaining gap is
+  roughly **two rewrite lemmas**: what `recvHook` leaves in `RAX`, and what `writeBytes` leaves
+  at the buffer, both stated over an abstract `ByteArray`. Recorded in PA17's Notes.
+- **Spike 5's 7 are categorically blocked**, not slow. Measured, not assumed:
   `decide`/`decide +kernel` fail with reduction-**stuck** errors, not timeouts.
-  - Spike 5 **Wall 1**: `findLongestMatch` (`Stdlib/Zlib/Deflate.lean:944`) is a `while`/`return`
+  - Spike 5 **Wall 1**: `findLongestMatch` (`Stdlib/Zlib/Deflate.lean:944`) was a `while`/`return`
     loop elaborating through `Lean.Loop.forIn` → `repeatM` → an order-theoretic least fixpoint.
-    No equation lemmas, no kernel reduction. `tokenize`, `compressFixed`, `gzipCompress` all
-    inherit it.
+    **Converted to structural fuel recursion in `cdc98bf`** (241,480-pair differential, 0
+    mismatches); `decide +kernel` on `(tokenize _).size > 0` was stuck before and succeeds now.
+    `compressFixed` carries a **second, independent** `while` loop (`Deflate.lean` ~1325) that
+    the conversion did not cover, so `compressFixed` and `gzipCompress` remain stuck.
   - Spike 5 **Wall 2**: `decompress` / `decodeHuffmanStream` are well-founded recursions;
     `Acc.rec` does not reduce, even on the empty token stream.
 - **`Spikes/Spike3SortLines/TraceStepLemmas.lean` is built, oracle-free, and has zero
@@ -81,16 +93,27 @@ Every step's output is reviewed by an independent agent before it counts as done
 - **B1** — Fix HTTP method validation in all three lowerings. None validates the method;
   `FOO / HTTP/1.1` returns 200 where the model returns 400. A real defect with a checked
   witness (`witnessMethodNotValidatedDivergence`). **DISPATCHED.**
-- **B2** — Build the **first induction on `TraceStepLemmas.lean`**. This is the pathfinder
-  step for Tracks A6, B, and C — the module exists and nothing uses it, so its fitness for
-  purpose is unproven. Scope deliberately to one target and one route.
-- **B3** — Generic recv-buffer content proof via `recvHook` / `X86_64Mem.writeBytes`.
-- **B4** — Symbolic case-split through the 3-way `cmp`/`je` route dispatch.
-- **B5** — Connect the dispatch proof to `Stdlib.Http11` parser semantics.
-- **B6** — Retire the 9 Spike 4 trace equivalences. **Retires 9 + ~12 propagated.**
-  Depends on B1–B5. Note the general `∀ request` statement is *false* pre-B1; after B1,
-  re-establish whether it becomes true or whether a stated `method = GET` scope limit is
-  needed — with the excluded case separately witnessed either way.
+- **B2** — **The two rewrite lemmas.** Revised after `3341d92`'s measurement: reduction is not
+  categorically blocked, it stops at fuel 30 on `recvHook`'s `@[extern]` opacity. What is
+  needed is a lemma for what `recvHook` leaves in `RAX`, and one for what
+  `X86_64Mem.writeBytes` leaves at the destination buffer, both stated over an abstract
+  `ByteArray` so the kernel never has to unfold `String.toUTF8`/`fromUTF8?`. This is the
+  highest-leverage step in the plan: **~2 lemmas gate 9 roots and ~12 propagated entries.**
+- **B3** — Discharge the remaining trace steps (fuel 30 → 59) using B2. The full canonical
+  trace is 59 steps over a 130-instruction program, so this is bounded and small — not the
+  96-step hand-trace that Track C faces.
+- **B4** — Retire the 9 Spike 4 trace equivalences. **Retires 9 + ~12 propagated.**
+  Depends on B2–B3.
+- **B5** — Correct the 9 entries' allowlist justification text. They currently cite the
+  route-prefix bug **N8 already fixed** as the live falsity reason. It should cite
+  `spike4GeneralClaimCounterexamples` and the three surviving `Stdlib.Http11.Error` classes:
+  `unsupportedVersion`, `malformedRequestLine`, `invalidTarget`. Bookkeeping, but the ledger's
+  justifications are load-bearing under ADR-0038 and currently say something false.
+
+  **Status of the universal claim, measured by `3341d92`**: still false after B1, and for
+  reasons enumerated by *class* rather than by witness. `parseRequestLine` can fail exactly
+  four ways; the lowerings now implement one (`invalidMethod`). Three survive, each with a
+  live checked counterexample. No theorem was narrowed to accommodate them.
 
 ### Track C — Spike 3 (gates ~16)
 
