@@ -282,6 +282,19 @@ theorem spike4_wasm_trace_equivalence_for_request (req : String) (r : HttpRoute)
   exact spike4_wasm_route_equivalence r
 
 /- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Honest restatement of `spike4_linux_route_equivalence`'s three constituent facts; see
+    `spike4_windows_trace_equivalence_for_request` above for the rationale, which applies
+    identically here. Parity fix: the original PA17 pass added this wrapper for Windows and Wasm
+    but not Linux, even though `spike4_linux_route_equivalence` (below) has the identical
+    `HttpRoute`-proxy-domain shape and the identical "not the real per-request domain" caveat. -/
+theorem spike4_linux_trace_equivalence_for_request (req : String) (r : HttpRoute)
+    (h : req = routeRequestStr r) :
+    (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [req]) == routeModelTrace r) = true := by
+  subst h
+  exact spike4_linux_route_equivalence r
+
+/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
 /- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
 /-!
 **FIXED (N8).** This note used to document a confirmed route-prefix-confusion divergence between
@@ -320,9 +333,14 @@ did, including every literal counterexample this note previously named, but they
 that (PA17's "real prize") requires PA6's read-binder contract and PA7's reactive-program contract to
 land first, per PA17's own sequencing (`after: [PA7, PA8]`), and is out of N8's scope. Two further
 gaps neither N8 nor this file's regression suite closes: (1) `parseRequestLine` returns `none` (400
-Bad Request) for any request line that isn't exactly three space-separated tokens, a response class
-neither lowering can ever emit — so a fully universal `∀ (request : ByteArray)` claim is false for
-this reason alone, independent of routing correctness; (2) the memory-safety half of N8 (the
+Bad Request) for any request line that isn't exactly three space-separated tokens naming one of the
+9 recognized HTTP methods, a response class neither lowering can ever emit (none validates the
+method — every one just assumes the first four bytes are literally `"GET "`) — so a fully universal
+`∀ (request : ByteArray)` claim is false for this reason alone, independent of routing correctness;
+checked with an actual failing witness, not left as prose, by `witnessMethodNotValidatedDivergence`
+below (PA6/PA7/read-binder/Http11-parser having since landed did not change this: it closed the
+*architectural* blockers to attempting a real ∀-domain theorem, not this specific falsehood, which
+is a fact about what the assembly/WASI dispatch itself validates); (2) the memory-safety half of N8 (the
 recv-length validation below) is provably absent from a *real* buffer-overflow/EOF-crash standpoint
 by inspection of the assembly, but not provable as a trace-equivalence fact in this model, for the
 reason the next paragraph explains.
@@ -370,6 +388,62 @@ def spike4RouteFixedOnAllTargets (req : String) : Bool :=
 -- The one path that *should* still route to /status: the exact string, confirming the fix isn't
 -- an over-correction that broke the legitimate case.
 #guard spike4RouteFixedOnAllTargets "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/-- **The fully-general `∀ (request : ByteArray)` claim is FALSE, with a checked witness.** This
+    is gap (1) from the "FIXED (N8)" note above stated as an actual failing input rather than left
+    as prose: `Spec.lean`'s `handleRawRequest` returns a 400 Bad Request response for any request
+    line that does not parse as exactly `<one of 9 methods> <origin-form target> HTTP/1.1`
+    (`parseRequestLine`, delegating to `Stdlib.Http11.parseRequestLine`), but the assembly/WASI
+    routing dispatch on every target never validates the method at all -- it unconditionally
+    assumes the four bytes at offset 0 are `"GET "` and reads the path window starting at offset 4
+    regardless of what actually precedes it. `witnessMethodNotValidatedDivergence` below is such a
+    request: method `"FOO"` is not one of the 9 recognized methods, so the honest model rejects it
+    with 400; but because `"FOO "` is also 4 bytes, the assembly's fixed offset-4 read lands on
+    this request's *real* path (`"/ "`), which the routing dispatch happily classifies as the root
+    route and answers with 200 OK -- a response class the model says this request must never
+    receive. This is independent of and additional to gap (2) (recv atomicity, the empty-string
+    case discharged by `spike4EmptyRecvClosesWithoutCorruption` above): that gap is about *whether*
+    a request reaches the model at all, this one is about the model's own decision on a request
+    that unambiguously does. Per this task's hard requirement not to narrow a domain to dodge a
+    real falsehood: this is the reason a genuinely universal `∀ (request : ByteArray)` trace-
+    equivalence theorem is not merely unproven but unprovable, on every target, until either the
+    model is changed to not require method validation Spike 4's assembly never implements, or the
+    assembly is changed to validate the method (and emit 400) before routing -- neither of which
+    this task's brief authorizes as a proof-side "narrowing". Any future universal theorem must
+    therefore be stated over a domain hypothesis that excludes requests like this one, honestly, in
+    the theorem's own statement (e.g. "method = GET" or "parses to a response the assembly's fixed
+    dispatch structure could ever produce"), not silently. -/
+def witnessMethodNotValidatedDivergence : String :=
+  "FOO / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+-- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -- The model's verdict on the witness:
+-- parsing fails (method "FOO" is not one of Stdlib.Http11.Method's 9 constructors), so the honest
+-- server would answer 400 Bad Request.
+#guard parseRequestLine witnessMethodNotValidatedDivergence == none
+
+-- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -- The checked divergence itself, on all
+-- three lowered targets: each disagrees with the honest model on this one concrete, un-narrowed
+-- request -- the falsifying witness for the fully-general claim, not a domain shrunk to avoid it.
+#guard !spike4RouteFixedOnAllTargets witnessMethodNotValidatedDivergence
+
+-- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -- Pins *what* the divergence is, not just
+-- that one exists: the model's answer is 400 Bad Request (parseRequestLine failure), while all
+-- three targets instead answer with the root route's 200 OK response -- because the fixed offset-4
+-- read lands on this request's genuine "/ " path, which is a legitimate root match by the
+-- dispatch's own (now-correct) byte-comparison logic.
+#guard
+  let modelTrace := serverModelTraceFor witnessMethodNotValidatedDivergence
+  let assemblyTrace :=
+    runAsmTrace (Event := AnyEvent) Windows.spike4Instructions
+      (Windows.spike4Executable.loadWithRequests [witnessMethodNotValidatedDivergence])
+  -- Index 3 is the `send` event in the fixed [listen, accept, recv, send, close] shape both
+  -- traces share (confirmed by the length/shape equality `spike4RouteFixedOnAllTargets`'s
+  -- structure already relies on); `close` at index 4 is identical on both sides and would not
+  -- distinguish them, hence indexing rather than `getLast?`.
+  (modelTrace.drop 3).head? == some (AnyEvent.of (NetEvent.send (formatResponse
+      { statusCode := 400, statusText := "Bad Request", contentType := "text/plain", body := "400 Bad Request\r\n" }))) &&
+  (assemblyTrace.drop 3).head? == some (AnyEvent.of (NetEvent.send (formatResponse (routeRequest { method := "GET", path := "/", version := "HTTP/1.1" }))))
 
 /- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
 /-- Widened-buffer, variable-size negative-control regression (N8's "variable sizes ... do not

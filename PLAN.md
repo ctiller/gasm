@@ -1105,10 +1105,31 @@ libdeflate binaries would be the headline scoreboard.
   over `HttpRoute`/`Bool` genuinely is an exhaustive finite-∀) and **wrong if read as "no
   further action needed"** — each inner constituent theorem is still one `native_decide`
   check against one literal byte string, not the real per-route/per-stdin domain
-  (`∀ request : ByteArray` / `∀ stdin : ByteArray`), and PA17 found that widening Spike4's
-  claim to its real domain is **false**: both the Windows (5-byte `"/stat"` prefix) and
-  WASI (single-byte `'s'` prefix, strictly broader) route dispatches misroute requests
-  outside the three literal test vectors — see `Spikes/Spike4HttpServer/Equivalence.lean`'s
-  "KNOWN DIVERGENCE" note for the confirmed counterexamples. A future spike author should
-  read "Tier 3" as "outer composition legitimate, inner domain still unverified, do not
-  cite as ∀-request/∀-stdin coverage" — not as "legit, no action needed."
+  (`∀ request : ByteArray` / `∀ stdin : ByteArray`). PA17's original pass found this false
+  via the pre-fix routing bug (Windows/Linux's 5-byte `"/stat"` prefix, WASI's single-byte
+  `'s'` prefix); `docs/tasks/N8-spike4-stack-buffer-overflow.md` fixed that bug on all three
+  targets (now an exact 8-byte `"/status "` compare — see `Equivalence.lean`'s "FIXED (N8)"
+  note, which superseded the old "KNOWN DIVERGENCE" note this paragraph used to cite).
+  **The domain-honesty finding survives the fix, for an independent reason**: none of the
+  three lowerings validate the HTTP method before routing — each assumes the first four
+  bytes are literally `"GET "` and reads the path window at a fixed offset regardless of
+  what actually precedes it. `witnessMethodNotValidatedDivergence` (`Equivalence.lean`,
+  added retiring this epic's Spike-4 slice, 2026-08-28) is a checked witness: a request
+  whose method is not one of `Stdlib.Http11.Method`'s 9 constructors (so the honest model
+  answers 400 Bad Request) but whose method token plus delimiting space happens to also be
+  4 bytes (`"FOO "`, same length as `"GET "`), so the fixed offset-4 read lands on a real
+  `"/ "` path and every lowering answers 200 OK instead. So a genuinely universal `∀ (request : ByteArray)` claim remains **false** — not
+  because routing bytes are wrong (they are now provably right, on every witness path this
+  epic's regression suite exercises), but because method validation is a piece of the
+  honest model's behavior no lowering implements. A future spike author should read "Tier 3"
+  as "outer composition legitimate, inner domain still unverified and provably cannot be
+  ∀-request-complete without a lowering-side method-validation fix, do not cite as
+  ∀-request/∀-stdin coverage" — not as "legit, no action needed." The nine grandfathered
+  `native_decide` entries this paragraph concerns (`scripts/gate_allowlist.txt`) are
+  therefore still grandfathered, not retired: PA6's read-binder and the Http11 parser
+  landing removed the *architectural* blockers to attempting a real ∀-domain theorem, but
+  did not make one true, and the *structural* proof of a correctly-narrowed version (e.g.
+  `∀ request, method = GET → ...`) — connecting `X86_64Instruction.step`'s per-instruction
+  semantics to the recv/dispatch/send byte comparisons via the step-lemma technique
+  `Spikes/Spike3SortLines/TraceStepLemmas.lean` supplies — was not attempted to completion
+  in this pass; it remains open, unblocked, and is a plausible next slice.

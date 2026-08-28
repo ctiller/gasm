@@ -104,3 +104,40 @@ what would have caught N8's bugs by construction, not by hand-picked negative te
   because Spike4's reactive contract type and PA8's Environment-quantification mechanism are genuine
   prerequisites, not bureaucratic ordering — attempting this task's Spike4 slice before PA7 lands
   would mean re-doing the outer-contract re-framing PA8 already commits to.
+- 2026-08-28: owner-directed pass on Spike4's slice specifically, ahead of PA7/PA8 landing (all of
+  this task's *architectural* blockers — the routing bug, the 16-byte buffer, the read-binder wiring,
+  a proven Http11 parser — had cleared since 2026-08-27). Findings, none of which retire any of the
+  nine grandfathered `Spikes/Spike4HttpServer/Equivalence.lean` entries:
+  - Confirmed and *fixed the reasoning for* PA17's original falseness finding: `N8` (`f433b31`) fixed
+    the routing-byte bug the original "KNOWN DIVERGENCE" note relied on (now an exact 8-byte
+    `"/status "` compare on all three targets, re-verified against 9 witness paths in
+    `spike4RouteFixedOnAllTargets`'s `#guard`s). But the fully-general `∀ (request : ByteArray)`
+    claim is **still false**, for an independent reason: no lowering validates the HTTP method before
+    routing (each assumes the first 4 bytes are literally `"GET "`). Added
+    `witnessMethodNotValidatedDivergence` (a request with an invalid-but-4-byte method token) as a
+    checked `#guard`-based witness — model says 400 Bad Request, every lowering answers 200 OK. Fed
+    back into `PLAN.md`'s Tier-3 census paragraph per this task's own deliverable.
+  - Parity fix: PA17's original pass added `spike4_windows_trace_equivalence_for_request` and
+    `spike4_wasm_trace_equivalence_for_request` (explicit-hypothesis restatements) but not a Linux
+    analogue despite `spike4_linux_route_equivalence` having the identical shape/caveat; added
+    `spike4_linux_trace_equivalence_for_request` for parity (`#print axioms` confirms it transitively
+    carries exactly the three Linux `native_decide` axioms and no new ones, matching the Windows/Wasm
+    pattern; `lake exe check_gates_axioms` clean at 82/82 allowlisted after adding its entry).
+  - Law-10 trust-order experiment (on `spike4_windows_root_trace_equivalence`): both plain `decide`
+    and `decide +kernel` fail with a genuine reduction-*stuck* error (not a timeout) on the full
+    `windowsTraceRoot == modelTraceRoot` equality — `native_decide` is not avoidable for these nine
+    single-point checks by swapping tactics alone.
+  - Feasibility assessment for the actual prize (a structural theorem over a correctly-narrowed
+    domain, e.g. `∀ request, method = GET → ...`): probed and found *not* fundamentally blocked the
+    way the whole-trace `decide` is — individual concrete `X86_64Instruction.step` calls DO reduce
+    via `decide`/`rfl` (unlike the accumulated 50000-fuel trace), so the
+    `Spikes/Spike3SortLines/TraceStepLemmas.lean` step-peeling technique this task's brief points to
+    is the right tool and is not obviously infeasible. Not attempted to completion this pass: it
+    requires (1) a generic, request-independent lemma for the ~20-instruction listen/accept/recv
+    prefix, (2) connecting `Win32API.lean`'s `recvHook`/`X86_64Mem.writeBytes` to prove the recv
+    buffer's content at the comparison offset equals the request's own bytes (tractable — `recvHook`
+    is straight-line, no well-founded recursion), (3) symbolic case-split reasoning through the
+    three-way `cmp`/`je` dispatch generalized over the 8-byte window instead of one literal, and
+    (4) connecting the result back to `Stdlib.Http11`'s parser semantics for the "well-formed GET
+    line" domain hypothesis. Estimated as substantial (many step-lemma applications, each needing its
+    own side-condition discharge) but not open-ended; a genuine next slice, not a re-audit.
