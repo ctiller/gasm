@@ -538,14 +538,15 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
         {"key": "png_stability_fuzzer", "desc": "lake exe png_stability_fuzzer",
          "long": "PNG parser-stability fuzzer: parse b = r1 -> parse (write r1) = r2 -> r1 = r2. "
                  "No external oracle (unlike every fuzzer above) -- structured-mutation-generated "
-                 "bytes only, self-checked against this codebase's own writer. As of the fuzzer's "
-                 "introduction this gate FAILS: it found a genuine, pre-existing gap (parseIhdr "
-                 "does not validate bitDepth against the standard PNG value set {1,2,4,8,16} or "
-                 "against colorType, so unpackScanlinesToRGBA8's depth dispatch silently drops "
-                 "pixel data for e.g. bitDepth=0) that the fuzzer's own author deliberately did "
-                 "not fix (fixing a format's accept/reject boundary is a design decision, not a "
-                 "trivial patch) -- see the fuzzer's own file header and the task's final report "
-                 "for the exact reproducing bytes.",
+                 "bytes only, self-checked against this codebase's own writer. The fuzzer's own "
+                 "introduction found a genuine, pre-existing gap (parseIhdr did not validate "
+                 "bitDepth against the standard PNG value set {1,2,4,8,16} or against colorType, "
+                 "so unpackScanlinesToRGBA8's depth dispatch silently dropped pixel data for e.g. "
+                 "bitDepth=0, or for bitDepth=16 paired with colorType=indexed); parseIhdr now "
+                 "validates every (bitDepth, colorType) pair against RFC 2083 Sec 4.1.1's legality "
+                 "table (png-rfc2083#section-4.1.1) and unpackScanlinesToRGBA8's dispatch is total "
+                 "(an unhandled depth/colorType combination is an explicit .unsupportedBitDepth "
+                 "error, not a silent no-op), so this gate now passes.",
          "cmd": [lake, "exe", "png_stability_fuzzer"], "slow": True, "tools": ["lean"]},
         {"key": "x86_stability_fuzzer", "desc": "lake exe x86_stability_fuzzer",
          "long": "x86-64 decoder/encoder parser-stability fuzzer: decode b = r1 -> decode "
