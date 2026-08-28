@@ -1,0 +1,39 @@
+# x86-64 Instruction Obligation Gate Allowlist (P4/P5, docs/X86_ISA_EXPANSION_PREREQUISITES.md)
+#
+# Format (one entry per line, `::`-delimited, 5 fields):
+#   <relative-file-path>::<type-decl-name>::<toLean-prefix>::<category>::<justification>
+#
+# - <relative-file-path> is the Gasm/Targets/X86_64/Instructions/<Family>.lean file where the
+#   concrete instruction TYPE lives (documentation only -- neither this file's own parser nor
+#   Tools/CheckX86Obligations.lean matches on it; it exists so a human reading this list can find
+#   the instance without grepping).
+# - <type-decl-name> is the concrete instruction type's Lean name (e.g. `AddR64R64`), also
+#   documentation-only for the same reason.
+# - <toLean-prefix> is the ACTUAL MATCH KEY: the first whitespace-delimited token of that type's
+#   `toLean` rendering (e.g. `add_r64_imm8`). Tools/CheckX86Obligations.lean matches every
+#   `validationOracle = .optedOut` instance it finds against this field.
+# - <category> is `validation-optout` (the only category this obligation has today -- an instance
+#   whose semantics are validated by NEITHER a silicon oracle NOR the NASM encoding oracle). It is
+#   never allowlisted for `.silicon`/`.nasmEncoding` (both carry their own mandatory, non-empty
+#   justification string as DATA on the instance, which is what discharges the obligation for
+#   those two paths -- an allowlist entry is only for the "neither oracle covers this" escape
+#   hatch, mirroring Law 10's `grandfathered` category).
+# - <justification> is free text and may itself contain `::`; parsers here split on the first 4
+#   `::` occurrences only.
+#
+# A line with any other field count, an unknown category, an empty toLean-prefix, or an empty
+# justification is a hard parse failure for Tools/CheckX86Obligations.lean -- never a silently
+# skipped line. A stale entry (matches no current `.optedOut` instance) is also a hard failure,
+# same discipline as scripts/gate_allowlist.txt.
+#
+# CURRENT STATE (2026-08-28): this list is EMPTY, and that is the honest, verified state, not an
+# oversight -- see below.
+#
+# Why zero entries is real enforcement, not an unfinished gate: fixing EncodingFuzzer.lean's
+# generator to be registry-derived (P4(a), see EncodingFuzzer.lean's own header comment) gives
+# every one of the 88 registered instruction forms NASM encoding coverage automatically, so no
+# instance needs the `.optedOut` escape hatch today -- every instance resolves to either
+# `.silicon` (real hardware fuzzing) or `.nasmEncoding` (encoding cross-checked, semantics not
+# silicon-validated, with a mandatory reason recorded on the instance itself). `.optedOut` exists
+# as the honest last resort for a genuinely uncovered future case (e.g. an instruction whose
+# encoding the NASM oracle cannot assemble at all), not as a default anyone reaches for.

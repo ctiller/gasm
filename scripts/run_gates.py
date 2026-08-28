@@ -443,6 +443,18 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
          "long": "x86-64 decode/encode roundtrip suite (registry gate's ~21 native_decide shards "
                  "are compiled into lake build itself, not re-invoked here)",
          "cmd": [lake, "exe", "test_roundtrip"], "slow": False, "tools": ["lean"]},
+        {"key": "check_x86_obligations", "desc": "lake exe check_x86_obligations",
+         "long": "P4/P5 unified x86-64 instruction obligation gate (D30/ADR-0039) -- LOAD-BEARING "
+                 "honesty check on top of Instructions/Base.lean's mandatory validationOracle/"
+                 "costProvenance fields (field PRESENCE is compile-time and enforced by lake build "
+                 "itself; this walks the compiled registry and checks field HONESTY: toUops "
+                 "non-empty, a .silicon claim agrees with canFuzzHardware and clears a fuzz-vector "
+                 "vacuity floor, every reason string clears a minimum length, and every .optedOut "
+                 "instance has a matching, justified scripts/x86_obligation_allowlist.txt entry). "
+                 "Run from the repo root; building it is not running it, the same distinction item "
+                 "4 draws for check_gates_axioms. See Tools/CheckX86Obligations.lean's own module "
+                 "docstring for the full specification.",
+         "cmd": [lake, "exe", "check_x86_obligations"], "slow": False, "tools": ["lean"]},
         # --- Spike / Stdlib CLI test suites (REVIEW.md Sec 4.1 item 9): defaultTargets builds
         # these; building is not running them (the exact distinction item 4 draws for
         # check_gates_axioms). All fast (seconds), all take no CLI args.

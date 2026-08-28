@@ -37,6 +37,7 @@ defaultTargets = [
   "spike3_sort_lines_linux", "test_spike3_linux",
   "spike3_sort_lines_wasm", "test_spike3_wasm",
   "test_smolalloc", "test_zlib", "test_png", "gzip_fuzzer", "perf_fuzzer", "encoding_fuzzer", "test_roundtrip",
+  "check_x86_obligations",
   "spike4_http_windows", "spike4_http_linux", "spike4_http_wasm", "test_spike4",
   "spike5_gzip_windows", "spike5_gunzip_windows",
   "spike5_gzip_linux", "spike5_gunzip_linux",
@@ -81,6 +82,15 @@ root = "Tools.CheckGatesAxioms"
 [[lean_exe]]
 name = "check_refs_coverage"
 root = "Tools.CheckRefsCoverage"
+
+# P4/P5 unified x86-64 instruction obligation gate: every registered instance must declare a
+# named validation oracle (silicon or NASM, or an explicit allowlisted opt-out) and a cost
+# coefficient provenance (cited or an honest model-internal marker). See
+# Tools/CheckX86Obligations.lean for the full specification and
+# docs/X86_ISA_EXPANSION_PREREQUISITES.md P4/P5 for the prerequisite this closes.
+[[lean_exe]]
+name = "check_x86_obligations"
+root = "Tools.CheckX86Obligations"
 
 [[lean_exe]]
 name = "spike1_hello_windows"

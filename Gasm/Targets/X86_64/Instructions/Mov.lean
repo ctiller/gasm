@@ -46,6 +46,8 @@ instance : X86_64Instruction MovR32Imm32 where
   toNASM i := s!"mov {i.dst}, 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
   toLean i := s!"mov_r32 .{i.dst} {formatHex32 i.imm}"
   canFuzzHardware i := hwSafeReg32 i.dst
+  validationOracle i := if hwSafeReg32 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesForImm (reg32To64 i.dst) rng
   roundtripCases :=
     (allReg32List.map (MovR32Imm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (MovR32Imm32.mk .eax ·)) ++
@@ -73,6 +75,8 @@ instance : X86_64Instruction MovR64Imm64 where
   toNASM i := s!"mov {i.dst}, strict qword 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
   toLean i := s!"mov_r64_imm64 .{i.dst} {formatHex64 i.imm}"
   canFuzzHardware i := hwSafeReg64 i.dst
+  validationOracle i := if hwSafeReg64 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesForImm i.dst rng
   roundtripCases :=
     -- Uses the smaller curatedUInt64Cases (not the 17-element curated64BitValues, which is sized
@@ -104,6 +108,8 @@ instance : X86_64Instruction MovR64R64 where
   toNASM i := s!"mov {i.dst}, {i.src}"
   toLean i := s!"mov_r64 .{i.dst} .{i.src}"
   canFuzzHardware i := hwSafeReg64 i.dst && hwSafeReg64 i.src
+  validationOracle i := if hwSafeReg64 i.dst && hwSafeReg64 i.src then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesFor2Regs i.dst i.src rng
   roundtripCases :=
     (allReg64List.map (MovR64R64.mk · .rax)) ++ (allReg64List.map (MovR64R64.mk .rax ·)) ++
@@ -138,9 +144,11 @@ instance : X86_64Instruction MovRspDispByte where
     if i.disp == 0 then
       s!"mov byte [rsp], 0x{String.ofList (Nat.toDigits 16 i.val.toNat)}"
     else
-      s!"mov byte [rsp + {i.disp.toNat}], 0x{String.ofList (Nat.toDigits 16 i.val.toNat)}"
+      s!"mov byte [rsp {formatDisp8 i.disp}], 0x{String.ofList (Nat.toDigits 16 i.val.toNat)}"
   toLean i := s!"mov_rsp_byte {formatHex8 i.disp} {formatHex8 i.val}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "memory-operand or RSP-relative addressing form; HardwareHarness has no scratch-memory-region support yet (PLAN.md Phase 3), and the memory-operand capability contract (P2) is also unbuilt -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (curatedUInt8Cases.map (MovRspDispByte.mk · 0x00)) ++ (curatedUInt8Cases.map (MovRspDispByte.mk 0x00 ·))
@@ -182,9 +190,11 @@ instance : X86_64Instruction MovRspDispImm32 where
     if i.disp == 0 then
       s!"mov dword [rsp], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
     else
-      s!"mov dword [rsp + {i.disp.toNat}], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
+      s!"mov dword [rsp {formatDisp8 i.disp}], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
   toLean i := s!"mov_rsp32 {formatHex8 i.disp} {formatHex32 i.imm}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "memory-operand or RSP-relative addressing form; HardwareHarness has no scratch-memory-region support yet (PLAN.md Phase 3), and the memory-operand capability contract (P2) is also unbuilt -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (curatedUInt8Cases.map (MovRspDispImm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (MovRspDispImm32.mk 0x00 ·))
@@ -228,9 +238,11 @@ instance : X86_64Instruction MovRspDispImm64 where
     if i.disp == 0 then
       s!"mov qword [rsp], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
     else
-      s!"mov qword [rsp + {i.disp.toNat}], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
+      s!"mov qword [rsp {formatDisp8 i.disp}], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
   toLean i := s!"mov_rsp64 {formatHex8 i.disp} {formatHex32 i.imm}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "memory-operand or RSP-relative addressing form; HardwareHarness has no scratch-memory-region support yet (PLAN.md Phase 3), and the memory-operand capability contract (P2) is also unbuilt -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (curatedUInt8Cases.map (MovRspDispImm64.mk · 0x00000000)) ++ (curatedUInt32Cases.map (MovRspDispImm64.mk 0x00 ·))
@@ -282,6 +294,8 @@ instance : X86_64Instruction MovMem8Reg8 where
   toNASM i := s!"mov byte [{i.dstPtr}], {reg64To8BitString i.srcReg}"
   toLean i := s!"mov_mem8 .{i.dstPtr} .{i.srcReg}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "memory-operand or RSP-relative addressing form; HardwareHarness has no scratch-memory-region support yet (PLAN.md Phase 3), and the memory-operand capability contract (P2) is also unbuilt -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (allReg64List.map (MovMem8Reg8.mk · .rax)) ++ (allReg64List.map (MovMem8Reg8.mk .rax ·)) ++
@@ -330,9 +344,11 @@ instance : X86_64Instruction MovMem64DispReg64 where
     if i.disp == 0 then
       s!"mov qword [{i.basePtr}], {i.srcReg}"
     else
-      s!"mov qword [{i.basePtr} + {i.disp.toNat}], {i.srcReg}"
+      s!"mov qword [{i.basePtr} {formatDisp8 i.disp}], {i.srcReg}"
   toLean i := s!"mov_mem64_disp .{i.basePtr} {formatHex8 i.disp} .{i.srcReg}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "memory-operand or RSP-relative addressing form; HardwareHarness has no scratch-memory-region support yet (PLAN.md Phase 3), and the memory-operand capability contract (P2) is also unbuilt -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (allReg64List.map (MovMem64DispReg64.mk · 0 .rax)) ++
@@ -383,9 +399,11 @@ instance : X86_64Instruction MovMem64DispImm32 where
     if i.disp == 0 then
       s!"mov qword [{i.basePtr}], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
     else
-      s!"mov qword [{i.basePtr} + {i.disp.toNat}], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
+      s!"mov qword [{i.basePtr} {formatDisp8 i.disp}], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
   toLean i := s!"mov_mem64_disp_imm .{i.basePtr} {formatHex8 i.disp} {formatHex32 i.imm}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "memory-operand or RSP-relative addressing form; HardwareHarness has no scratch-memory-region support yet (PLAN.md Phase 3), and the memory-operand capability contract (P2) is also unbuilt -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   -- basePtr varies over allReg64ListNoRsp: with basePtr=.rsp, this struct's SIB-base-4 encoding
   -- is byte-identical to the dedicated MovRspDispImm32/64 helpers, which the decoder
@@ -441,9 +459,11 @@ instance : X86_64Instruction MovReg64Mem64Disp where
     if i.disp == 0 then
       s!"mov {i.dstReg}, qword [{i.basePtr}]"
     else
-      s!"mov {i.dstReg}, qword [{i.basePtr} + {i.disp.toNat}]"
+      s!"mov {i.dstReg}, qword [{i.basePtr} {formatDisp8 i.disp}]"
   toLean i := s!"mov_reg64_mem64_disp .{i.dstReg} .{i.basePtr} {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "memory-operand or RSP-relative addressing form; HardwareHarness has no scratch-memory-region support yet (PLAN.md Phase 3), and the memory-operand capability contract (P2) is also unbuilt -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (allReg64List.map (MovReg64Mem64Disp.mk · .rax 0)) ++
@@ -544,9 +564,11 @@ instance : X86_64Instruction MovzxR64Mem8 where
     if i.disp == 0 then
       s!"movzx {i.dstReg}, byte [{i.basePtr}]"
     else
-      s!"movzx {i.dstReg}, byte [{i.basePtr} + {i.disp.toNat}]"
+      s!"movzx {i.dstReg}, byte [{i.basePtr} {formatDisp8 i.disp}]"
   toLean i := s!"movzx_r64_mem8 .{i.dstReg} .{i.basePtr} {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "memory-operand or RSP-relative addressing form; HardwareHarness has no scratch-memory-region support yet (PLAN.md Phase 3), and the memory-operand capability contract (P2) is also unbuilt -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (allReg64List.map (MovzxR64Mem8.mk · .rax 0)) ++
@@ -583,9 +605,17 @@ instance : X86_64Instruction MovReg32RspDisp32 where
   toUops _ := [
     { mnemonic := "MOV.load", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 4, reciprocalThroughput := 0.5 }
   ]
-  toNASM i := s!"mov {i.dstReg}, dword [rsp + {i.disp.toNat}]"
+  -- Signed-displacement formatting is load-bearing here too (see the sibling fix throughout this
+  -- file, found via P4(a)'s registry-derived encoding fuzzer,
+  -- docs/X86_ISA_EXPANSION_PREREQUISITES.md): `{i.disp.toNat}` rendered `0x80` (disp=`0x80`, i.e.
+  -- signed -128) as the POSITIVE literal "128", which does not fit a signed disp8 (-128..127) by
+  -- NASM's reading, forcing it to a disp32 SIB encoding instead of the disp8 SIB form `encode`
+  -- always emits. `formatDisp8` supplies the correct sign.
+  toNASM i := s!"mov {i.dstReg}, dword [rsp {formatDisp8 i.disp}]"
   toLean i := s!"mov_r32_rsp .{i.dstReg} {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "memory-operand or RSP-relative addressing form; HardwareHarness has no scratch-memory-region support yet (PLAN.md Phase 3), and the memory-operand capability contract (P2) is also unbuilt -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (allReg32List.map (MovReg32RspDisp32.mk · 0x00)) ++ (curatedUInt8Cases.map (MovReg32RspDisp32.mk .eax ·)) ++

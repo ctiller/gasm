@@ -51,6 +51,8 @@ instance : X86_64Instruction ImulR64R64 where
   toLean i := s!"imul_r64 .{i.dst} .{i.src}"
   undefinedFlagsMask _ := 0xD4 -- PF, AF, ZF, SF are undefined according to Intel SDM
   canFuzzHardware i := hwSafeReg64 i.dst && hwSafeReg64 i.src
+  validationOracle i := if hwSafeReg64 i.dst && hwSafeReg64 i.src then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesFor2Regs i.dst i.src rng
   roundtripCases :=
     (allReg64List.map (ImulR64R64.mk · .rax)) ++ (allReg64List.map (ImulR64R64.mk .rax ·)) ++

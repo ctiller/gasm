@@ -18,18 +18,8 @@ import Lean
 import Gasm.Core.Types
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Instructions.Base
-import Gasm.Targets.X86_64.Instructions.Add
-import Gasm.Targets.X86_64.Instructions.Sub
-import Gasm.Targets.X86_64.Instructions.Mov
-import Gasm.Targets.X86_64.Instructions.Lea
-import Gasm.Targets.X86_64.Instructions.Xor
-import Gasm.Targets.X86_64.Instructions.Cmp
-import Gasm.Targets.X86_64.Instructions.Jcc
-import Gasm.Targets.X86_64.Instructions.Push
-import Gasm.Targets.X86_64.Instructions.Pop
-import Gasm.Targets.X86_64.Instructions.Div
-import Gasm.Targets.X86_64.Instructions.Call
-import Gasm.Targets.X86_64.Instructions.Ret
+import Gasm.Targets.X86_64.Instructions.Hlt
+import Gasm.Targets.X86_64.Registry
 import Gasm.Targets.X86_64.NASM
 import Gasm.Targets.X86_64.Fuzzer
 
@@ -38,20 +28,6 @@ namespace Gasm.Targets.X86_64.EncodingFuzzer
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.Fuzzer
-
-/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
-/-- All 16 64-bit general-purpose registers for comprehensive encoding coverage. -/
-def allGprs64 : List Reg64 := [
-  .rax, .rcx, .rdx, .rbx, .rsp, .rbp, .rsi, .rdi,
-  .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15
-]
-
-/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
-/-- All 16 32-bit sub-registers. -/
-def allGprs32 : List Reg32 := [
-  .eax, .ecx, .edx, .ebx, .esp, .ebp, .esi, .edi,
-  .r8d, .r9d, .r10d, .r11d, .r12d, .r13d, .r14d, .r15d
-]
 
 /- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
 /-- Result structure for differential encoding verification against NASM oracle. -/
@@ -73,46 +49,109 @@ def formatHexBytes (b : ByteArray) : String :=
     if s.length == 1 then "0" ++ s else s
   String.intercalate " " hexList
 
-/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
-/-- Generates a pseudo-random instruction covering all supported opcode families and register combinations. -/
+/- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p4-blocking-make-per-instruction-validation-obligations-mandatory-and-visible -/
+/-- ALU-with-imm32 family `toLean` prefixes that have a dedicated, shorter x86-64 "accumulator
+    immediate" opcode (`04/05/0C/0D/24/25/2C/2D/34/35/3C/3D/A8/A9 id`, no ModRM byte) whenever the
+    destination is RAX specifically. NASM always prefers that shorter form for `<mnemonic> rax,
+    <imm32>` text over the general ModRM form (`81 /n id`) gasm's `encode` always emits for these
+    types -- see `encodingFuzzerCandidates`'s doc comment for why this is filtered rather than
+    matched in `encode`. Only the imm32-carrying member of each family is listed: the imm8
+    sign-extended forms (`add_r64_imm8` etc., opcode `83 /n ib`) are already the shortest possible
+    encoding for a small immediate on a 64-bit register regardless of which register, so they
+    carry no such hazard and are not excluded. -/
+def accumulatorImm32HazardPrefixes : List String :=
+  ["add_r64_imm32", "sub_r64_imm32", "cmp_r64_imm32", "test_r64_imm32", "or_r64_imm32"]
+
+/- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p4-blocking-make-per-instruction-validation-obligations-mandatory-and-visible -/
+/-- Shift-by-immediate `toLean` prefixes that have a dedicated, shorter "shift by 1" opcode
+    (`D0/D1 /n`, no immediate byte) specifically when the immediate is exactly 1. NASM always
+    prefers that shorter form for `<mnemonic> <reg>, 1` text over the general immediate form
+    (`C1 /n ib`) gasm's `encode` always emits -- see `encodingFuzzerCandidates`'s doc comment. -/
+def shiftByOneHazardPrefixes : List String :=
+  ["shl_r64_imm8", "shr_r64_imm8", "sar_r64_imm8"]
+
+/- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p4-blocking-make-per-instruction-validation-obligations-mandatory-and-visible -/
+/-- `Registry.allEncodableInstructions`, filtered to exclude the classes of FALSE POSITIVE this
+    registry-derived generator surfaced while it was being wired up (P4(a)). All four are the
+    same underlying phenomenon: NASM's assembler prefers the shortest available encoding for
+    semantically-identical assembly text, while gasm's `encode` deterministically emits one fixed
+    encoding per instruction TYPE regardless of operand values. Every excluded case is a valid,
+    standard x86-64 encoding choice on gasm's side too -- not a correctness defect -- but adopting
+    NASM's shorter choice would require `Decoder.lean` to reciprocally recognize the alternate
+    opcode and would perturb the `decide`-checked `RoundtripGate/*.lean` shards' witness sets,
+    which is out of scope for this obligation-gate change:
+      1. `xchg r64, r64` (the WHOLE family, not just an RAX-anchored subset -- widened after
+         empirically finding a second, independent divergence): `xchg r64, rax` (either operand
+         order) hits the 1-byte accumulator-XCHG short form (`90+r`) NASM prefers over the general
+         two-operand ModRM form (`87 /r`); separately, and unrelated to RAX at all, NASM's ModRM
+         reg/rm ROLE ASSIGNMENT for the general form is the mirror image of `XchgR64R64.encode`'s
+         own (confirmed empirically: `xchg r15, r8` assembles to `reg=r15,rm=r8` under NASM, while
+         gasm's `encode dst src` always emits `reg=srcCode,rm=dstCode` -- `reg=r8,rm=r15` for the
+         same instance) -- both are valid encodings of a semantically commutative instruction, but
+         essentially every non-self-paired `XchgR64R64` witness hits ONE of these two divergences,
+         so the family is excluded outright rather than carrying a narrower, RAX-only predicate
+         that would still fail on most witnesses.
+      2. ALU instructions (`accumulatorImm32HazardPrefixes`) with RAX as the destination and an
+         imm32 operand: NASM emits the accumulator-immediate short form instead of the general
+         ModRM form.
+      3. Shift instructions (`shiftByOneHazardPrefixes`) with immediate exactly 1: NASM emits the
+         dedicated shift-by-1 short form instead of the general immediate form.
+      4. `MovReg32RspDisp32` (`mov_r32_rsp`) and `LeaRspDisp32` (`lea_rsp32`) with `disp = 0`:
+         both `encode` implementations unconditionally emit a full displacement (`mod=01`
+         forced-disp8 for the former, `mod=10` forced-disp32 for the latter, even when the value
+         is exactly `0`) -- unlike every sibling RSP/memory form in this file, which special-cases
+         `disp == 0` to the shorter `mod=00` (no displacement byte) form both in `encode` and in
+         `toNASM`. NASM optimizes `[rsp + 0x0]`-shaped text down to the shorter `mod=00` form
+         regardless, so the two diverge whenever the curated `0` witness is picked. Narrower than
+         classes 1-3 (excludes one specific immediate value per family, not the whole family)
+         because every nonzero-disp witness of both types genuinely byte-matches NASM.
+    Filtering here (not from `allEncodableInstructions` itself) keeps roundtrip and
+    hardware-semantics fuzzing covering every witness unchanged; only the NASM encoding
+    differential -- the one oracle these divergences actually affect -- skips them. `toLean`'s
+    rendering is used as the filter key rather than a type-level match (which the erased
+    `AnyX86_64Instruction` existential cannot express) -- see `Instructions/Base.lean`'s
+    `allReg64ListNoRsp` doc comment for the precedent of a decoder-canonicalization mismatch being
+    handled by excluding specific witnesses from one consumer's list rather than by changing
+    `encode` itself. All four classes were found BY running this generator for the first time
+    across the full registry (P4's own point: "an instruction can exist today whose... encoding...
+    nothing has ever checked" -- closing that gap surfaces exactly this kind of previously-blind
+    corner). -/
+def encodingFuzzerCandidates : List AnyX86_64Instruction :=
+  Gasm.Targets.X86_64.Registry.allEncodableInstructions.filter fun instr =>
+    let s := X86_64Instruction.toLean instr
+    let xchgHazard := s.startsWith "xchg_r64"
+    let accumHazard := accumulatorImm32HazardPrefixes.any fun p => s.startsWith (p ++ " .rax ")
+    let shiftOneHazard := shiftByOneHazardPrefixes.any fun p => s.startsWith p && s.endsWith " 0x1"
+    let movR32RspZeroDispHazard := s.startsWith "mov_r32_rsp" && s.endsWith " 0x0"
+    let leaRsp32ZeroDispHazard := s.startsWith "lea_rsp32" && s.endsWith "(0)"
+    !(xchgHazard || accumHazard || shiftOneHazard || movR32RspZeroDispHazard || leaRsp32ZeroDispHazard)
+
+/- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p4-blocking-make-per-instruction-validation-obligations-mandatory-and-visible -/
+/-- Generates a pseudo-random instruction by picking uniformly from
+    `encodingFuzzerCandidates` (registry-derived, see that definition for the one filtered
+    class) -- the SAME registry-derived witness list the roundtrip gate and (via
+    `canFuzzHardware`) the semantics fuzzer already derive their own suites from
+    (`SemanticsFuzzer.lean`'s `hardwareFuzzableInstructions`) -- instead of the 22-way hand-written
+    `match` this replaces (P4(a), `docs/X86_ISA_EXPANSION_PREREQUISITES.md`: that match covered
+    only ≈21 of 88 registered forms and was left behind when the semantics-fuzzer suite was
+    re-derived from the registry, "the exact drift class the registry was built to kill"). Every
+    currently-registered instruction is now exercised here automatically, and a future family
+    only needs its mandatory `roundtripCases` entry (already forced by
+    `Gasm/Targets/X86_64/Registry.lean`'s build-time audit) to be picked up -- no second hand list
+    to remember. The `getD`/pattern-match fallback below is unreachable in practice:
+    `Registry.lean`'s own `run_cmd` audit fails the build if `allEncodableInstructions` is ever
+    empty (and the XCHG filter above cannot empty a 88-form registry down to nothing), so
+    `rng.nextNat candidates.length` always has `candidates.length > 0`; the fallback exists only
+    so this function has no partial-match obligation of its own. -/
 def generateComprehensiveRandomInstruction (rng : FuzzerRng) : Prod AnyX86_64Instruction FuzzerRng :=
-  let (catChoice, rng1) := rng.nextNat 22
-  let (r1Idx, rng2) := rng1.nextNat allGprs64.length
-  let (r2Idx, rng3) := rng2.nextNat allGprs64.length
-  let (r32_1Idx, rng4) := rng3.nextNat allGprs32.length
-  let (r32_2Idx, rng5) := rng4.nextNat allGprs32.length
-  let (imm8Val, rng6) := rng5.nextNat 128
-  let (imm32Val, rng7) := rng6.nextNat 65536
-  let (disp8Val, rng8) := rng7.nextNat 120
-
-  let r1 := allGprs64.getD r1Idx .rax
-  let r2 := allGprs64.getD r2Idx .rdx
-  let r32_1 := allGprs32.getD r32_1Idx .eax
-  let r32_2 := allGprs32.getD r32_2Idx .edx
-
-  match catChoice with
-  | 0  => (add_r64 r1 r2, rng8)
-  | 1  => (add_r64_imm8 r1 (UInt8.ofNat imm8Val), rng8)
-  | 2  => (add_rsp (UInt8.ofNat (imm8Val % 64)), rng8)
-  | 3  => (sub_r64 r1 r2, rng8)
-  | 4  => (sub_r64_imm8 r1 (UInt8.ofNat imm8Val), rng8)
-  | 5  => (sub_rsp (UInt8.ofNat (imm8Val % 64)), rng8)
-  | 6  => (mov_r64 r1 r2, rng8)
-  | 7  => (mov_r32 r32_1 (UInt32.ofNat imm32Val), rng8)
-  | 8  => (mov_rsp_byte (UInt8.ofNat (disp8Val % 32)) (UInt8.ofNat imm8Val), rng8)
-  | 9  => (mov_rsp32 (UInt8.ofNat (disp8Val % 32)) (UInt32.ofNat imm32Val), rng8)
-  | 10 => (mov_rsp64 (UInt8.ofNat (disp8Val % 32)) (UInt32.ofNat imm32Val), rng8)
-  | 11 => (mov_mem8 r1 r2, rng8)
-  | 12 => (lea_rsp r1 (UInt8.ofNat (disp8Val % 64)), rng8)
-  | 13 => (xor_r32 r32_1 r32_2, rng8)
-  | 14 => (cmp_r64 r1 r2, rng8)
-  | 15 => (cmp_r64_imm8 r1 (UInt8.ofNat imm8Val), rng8)
-  | 16 => (push_r64 r1, rng8)
-  | 17 => (pop_r64 r1, rng8)
-  | 18 => (div_r64 r1, rng8)
-  | 19 => (ret_op, rng8)
-  | 20 => (mov_r64_imm64 r1 (UInt64.ofNat imm32Val * 65536 + UInt64.ofNat imm8Val), rng8)
-  | _  => (xor_r32 r32_1 r32_1, rng8)
+  let candidates := encodingFuzzerCandidates
+  let (idx, rng') := rng.nextNat candidates.length
+  match candidates[idx]? with
+  | some instr => (instr, rng')
+  | none =>
+    match candidates with
+    | i :: _ => (i, rng')
+    | [] => (⟨HltOp.mk⟩, rng')
 
 /- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
 /-- Generates a comprehensive random program of the specified length. -/
