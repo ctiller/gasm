@@ -127,7 +127,8 @@ DEFAULT_GATE_TIMEOUT_S = 1800  # 30 min; generous for wasm_fuzzer's real observe
 # asserted anywhere" -- this is where that gap closes. Every oracle's version string is both
 # printed to the console AND carried into the --json summary, so a divergence in gate results
 # across two machines/sessions is attributable to an environment drift, not silently
-# re-litigated as a model bug.)
+# re-litigated as a model bug. TCB T14 extends this to `bv_decide`'s external SAT solver: see
+# detect_cadical() below.)
 # --------------------------------------------------------------------------------------------
 
 def _run_capture(cmd: List[str], cwd: Optional[Path] = None, timeout: float = 30.0):
@@ -264,12 +265,62 @@ def detect_nasm() -> Dict:
                       "Install NASM or set GASM_NASM to its full path."}
 
 
+def detect_cadical() -> Dict:
+    """Resolves the SAT solver `bv_decide` actually invokes (TCB T14), mirroring Lean's own
+    `determineSolver` (`Lean/Meta/Tactic/BVDecide/TacticContext.lean`): prefer `cadical.exe`
+    (or `cadical`) shipped in the SAME directory as the running toolchain's own binaries --
+    pinned by `lean-toolchain` exactly the way `lean.exe`/`lake.exe` are (T1) -- and fall back
+    to a bare `cadical` resolved from PATH, which is UNPINNED BY CONSTRUCTION, only if that
+    bundled binary is absent. Recording which of the two was actually used is the point: T14
+    found that this disclosure did not exist anywhere before this detector.
+
+    The toolchain's own bin/ directory is asked from the running `lean` itself via
+    `lean --print-prefix` rather than assumed from the directory containing
+    `shutil.which("lean")`'s result, because on this platform `lean` on PATH commonly resolves
+    to an elan shim rather than the toolchain binary directly -- the shim's own directory is
+    NOT where `cadical` ships, only the real toolchain prefix's `bin/` is."""
+    lean_exe = shutil.which("lean")
+    bundled_path: Optional[Path] = None
+    if lean_exe:
+        code, out = _run_capture([lean_exe, "--print-prefix"])
+        if code == 0 and out:
+            prefix = out.strip().splitlines()[-1].strip()
+            for candidate_name in ("cadical.exe", "cadical"):
+                candidate = Path(prefix) / "bin" / candidate_name
+                if candidate.exists():
+                    bundled_path = candidate
+                    break
+
+    if bundled_path is not None:
+        code, out = _run_capture([str(bundled_path), "--version"])
+        return {"name": "cadical", "found": code == 0, "path": str(bundled_path),
+                "version": (out or "").strip(),
+                "detail": f"resolved to {bundled_path} -- bundled with the toolchain, pinned "
+                          "by lean-toolchain the same way lean.exe/lake.exe are (TCB T14); "
+                          "this is the path bv_decide's determineSolver prefers"}
+
+    # Bundled binary absent (or `lean --print-prefix` unavailable): fall back to a bare
+    # `cadical` on PATH, exactly as Lean's own determineSolver does -- and exactly as
+    # unpinned as that fallback is by construction (TCB T14).
+    exe = shutil.which("cadical") or shutil.which("cadical.exe")
+    if not exe:
+        return {"name": "cadical", "found": False, "path": None, "version": None,
+                "detail": "no bundled cadical(.exe) found under the toolchain's own bin/ "
+                          "(resolved via `lean --print-prefix`) and no bare 'cadical' "
+                          "resolvable on PATH -- required by any bv_decide occurrence (TCB T14)"}
+    code, out = _run_capture([exe, "--version"])
+    return {"name": "cadical", "found": code == 0, "path": exe, "version": (out or "").strip(),
+            "detail": f"resolved to {exe} via PATH -- the bundled toolchain binary was not "
+                      "found under bin/; this fallback is UNPINNED BY CONSTRUCTION (TCB T14)"}
+
+
 PREREQ_DETECTORS = {
     "python": detect_python,
     "lake": detect_lake,
     "lean": detect_lean,
     "node": detect_node,
     "nasm": detect_nasm,
+    "cadical": detect_cadical,
 }
 
 
@@ -464,7 +515,7 @@ def fmt_seconds(s: Optional[float]) -> str:
 def print_prereq_table(prereqs: Dict[str, Dict], waived: Optional[List[str]] = None) -> None:
     waived = waived or []
     print("=" * 100)
-    print(" ORACLE / TOOLCHAIN VERSIONS (TCB T9 -- recorded so cross-machine drift is attributable)")
+    print(" ORACLE / TOOLCHAIN VERSIONS (TCB T9/T14 -- recorded so cross-machine drift is attributable)")
     print("=" * 100)
     for name, p in prereqs.items():
         status = "OK" if p["found"] else ("WAIVED" if name in waived else "MISSING")
@@ -850,7 +901,7 @@ def main() -> int:
     selected = [g for g in gates if not (args.quick and g["slow"])]
     selected_keys = {g["key"] for g in selected}
 
-    # --- Phase 0: prerequisite detection -- ALWAYS all 5, ALWAYS reported, regardless of mode
+    # --- Phase 0: prerequisite detection -- ALWAYS all 6, ALWAYS reported, regardless of mode
     # or of which gates are selected (M2 fix: detection must never be scoped down by --quick).
     prereqs = detect_all_prereqs()
 
