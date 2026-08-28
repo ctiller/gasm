@@ -61,19 +61,20 @@ theorem splitBytes_isValidReadChunk (bytes : List Byte) (cap : Nat) :
   exact take_eq_take_length_take bytes cap
 
 /- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
-/-- Spike 4's HTTP server issues `recv(client_fd, buf = RSP+0x40, len = 128, flags = 0)`
-(`Spikes/Spike4HttpServer/Windows/Program.lean` step 8, both Windows and Linux targets) --
-`requested = 128` is the syscall's own declared cap, exactly the bound `ReadBinderObligation`
-quantifies over (§2). `docs/tasks/N8-spike4-stack-buffer-overflow.md`'s finding is a 16-byte recv
-buffer under that same 128-byte cap (the stack frame was later widened to the current 128 bytes,
-closing that specific instance -- see `spike4_matched_buffer_obligation_discharges` below for the
-contrast). This theorem makes `docs/READ_BINDER_CONTRACT.md` §5's abstract argument concrete: no
-write-safety postcondition bounded by a 16-byte capacity can be proven for *every* value
-`ReadBinderObligation 128` is honestly obliged to cover, because that domain contains chunks of
-length 17 through 128 a 16-byte buffer cannot absorb. The proof exhibits the witness directly (a
-17-byte chunk) and discharges the negation by the same universal quantifier
+/-- `docs/tasks/N8-spike4-stack-buffer-overflow.md`'s audit finding: Spike 4's `recv`/`read`
+calls passed `len = 128` (the syscall's own declared cap, exactly the bound
+`ReadBinderObligation` quantifies over, §2) against a stack recv buffer allocated only 16 bytes.
+This is a concrete instance of the mismatch `docs/READ_BINDER_CONTRACT.md` §5 describes in the
+abstract: no write-safety postcondition bounded by a 16-byte capacity can be proven for *every*
+value `ReadBinderObligation 128` is honestly obliged to cover, because that domain contains
+chunks of length 17 through 128 a 16-byte buffer cannot absorb. The proof exhibits the witness
+directly (a 17-byte chunk) and discharges the negation by the same universal quantifier
 `ReadBinderObligation` states -- no `decide`/`native_decide` stands in for the quantifier itself;
-only the two closed arithmetic facts (`17 ≤ 128`, `¬ (17 ≤ 16)`) are decided. -/
+only the two closed arithmetic facts (`17 ≤ 128`, `¬ (17 ≤ 16)`) are decided. N8's actual fix
+(landed independently, `f433b31`, while this file was being written) widened the buffer to 256
+bytes with `len` widened to match, rather than capping the read at 16 --
+`spike4_matched_buffer_obligation_discharges_256` below states that shape of fix as the
+dischargeable contrast, at the exact numbers that landed. -/
 theorem spike4_unsafe_buffer_obligation_undischargeable :
     ¬ ReadBinderObligation 128 (fun bytes => bytes.length ≤ 16) := by
   intro h
@@ -82,18 +83,28 @@ theorem spike4_unsafe_buffer_obligation_undischargeable :
   omega
 
 /- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
-/-- The contrast case, using Spike 4's actual current stack layout
-(`Spikes/Spike4HttpServer/Windows/Program.lean`'s live 128-byte recv buffer, `RSP+0x40..0xBF`,
-matching the `len = 128` passed to `recv`): once the buffer's capacity equals the syscall's
-declared cap, the same shape of obligation is trivially dischargeable -- every element of the
-128-bounded domain is, by definition, no more than 128 bytes. This is the fix
+/-- The contrast case, generalized over any cap: once a buffer's capacity equals the syscall's
+declared cap, the same shape of obligation is trivially dischargeable -- every element of a
+`cap`-bounded domain is, by definition, no more than `cap` bytes. This is the fix
 `docs/READ_BINDER_CONTRACT.md` §5 names ("making `requested` itself bounded by `bufferCapacity`
 at the call site... is what makes the obligation dischargeable again"), stated as a proof rather
 than an assertion; read together with `spike4_unsafe_buffer_obligation_undischargeable` above,
 the pair is the "previously provable now correctly fails / previously unprovable now provable"
 demonstration this wiring exists to deliver. -/
-theorem spike4_matched_buffer_obligation_discharges :
-    ReadBinderObligation 128 (fun bytes => bytes.length ≤ 128) :=
+theorem spike4_matched_buffer_obligation_discharges (cap : Nat) :
+    ReadBinderObligation cap (fun bytes => bytes.length ≤ cap) :=
   fun _bytes h => h
+
+/- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
+/-- N8's actual landed fix (`f433b31`, `Spikes/Spike4HttpServer/Windows/Program.lean`'s current
+stack layout: a 256-byte recv buffer at `RSP+0x40..0x13F`, with `recv`'s `len` argument widened
+to match -- that file's own comment: "recv's `len` argument below always equals this buffer's
+size, so the write can never exceed it"): `spike4_matched_buffer_obligation_discharges`
+specialized to the exact number the fix that actually shipped uses, closing the loop from
+`spike4_unsafe_buffer_obligation_undischargeable`'s 16-byte counterexample to what this
+repository's Spike 4 does today. -/
+theorem spike4_matched_buffer_obligation_discharges_256 :
+    ReadBinderObligation 256 (fun bytes => bytes.length ≤ 256) :=
+  spike4_matched_buffer_obligation_discharges 256
 
 end Gasm.Effects

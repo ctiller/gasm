@@ -74,6 +74,7 @@ overflow-written past the cap or silently dropped. -/
 def splitBytes (bytes : List Byte) (cap : Nat) : List Byte × List Byte :=
   (bytes.take cap, bytes.drop cap)
 
+/- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
 /-- The N2 safety invariant (MODEL_DEBT.md §C1): whatever `splitBytes` hands back as the delivered half, it never
 exceeds the declared cap -- a `recv`/`ReadFile` hook built on `splitBytes` cannot write more
 than its caller's own declared bound into memory, by construction, for any queued source and
