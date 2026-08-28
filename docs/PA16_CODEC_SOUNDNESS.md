@@ -543,6 +543,32 @@ Direct instantiation of L7 at two concrete `ByteArray` literals.
 
 ## 5. The `partial def` obstacle — empirical evidence
 
+> **Correction (2026-08-28, `findLongestMatch` structural-recursion pass).** Two things in this
+> section are out of date on the pinned toolchain and should not be relied on.
+>
+> 1. **P0 landed.** No `partial def` remains in `Stdlib/Zlib/Deflate.lean`. The evidence below is
+>    still accurate *about* `partial def`; what changed is that nothing in the codec is one.
+> 2. **`while` loops were never in the same class**, and this section's closing sentence ("the
+>    obstacle is real and total — nothing beyond `native_decide`/`decide` on closed ground
+>    instances works today") wrongly generalized to them. A `while` loop in `Id` elaborates to
+>    `Lean.Loop.forIn` → `repeatM` → an order-theoretic least fixpoint, and
+>    `Init.Internal.Order.While` exports a one-step unfolding lemma
+>    `Lean.Loop.forIn_eq_of_monadTail`, with `Lean.Order.instMonadTailId` supplying the `Id`
+>    instance. A `while` loop is therefore inductable — verified by proving `findLongestMatch`'s
+>    inner match-extension loop equal to a structural fuel form and deriving its match-validity
+>    spec, kernel-checked on the standard three axioms.
+>
+> What remains true, and is why `findLongestMatch` was **converted** to structural fuel recursion
+> rather than bridged: a `while` loop still does not *reduce* in the kernel, so `decide` is
+> unavailable on anything downstream of one, and each such loop would otherwise cost its own
+> bridging scaffold in every future proof that touches it.
+>
+> **The conversion buys proof tractability only, not `decide`.** A second and independent wall
+> stands: `decompress`/`decodeHuffmanStream` are well-founded recursions, and `Acc.rec` does not
+> reduce — `decide +kernel` on `decompress (flushBitWriter (emitFixedBlock #[]))` is stuck even
+> for the *empty* token stream. Any claim that removing a `while` loop unblocks `decide`
+> end-to-end is false.
+
 Verified directly against the pinned toolchain (`leanprover/lean4:v4.33.1`, `lean-toolchain`) with
 `lake env lean` on minimal standalone examples and, separately, directly on the real
 `Stdlib.Zlib.Deflate` declarations (both runs done in the foreground during this investigation,
@@ -593,10 +619,11 @@ Lean pattern, not a research question.
   + `List.forIn_pure_yield_eq_foldl`) transfers **directly** to every genuine `for i in [a:b]` loop
   in the Zlib/PNG codec: `decodeStoredBlock`'s copy loop, `compress`'s/`compressFixed`'s literal
   emission when *not* matching, `encodeImageRGBA8`'s row loop, `unpackScanlinesToRGBA8`'s per-pixel
-  loops. It does **not** directly transfer to `findLongestMatch` (a `while`/`return`-shaped loop,
-  L3) or to any of the five P0 functions (not `for`-range loops, and opaque besides) — new bridging
-  lemmas are needed there, though the *technique* (restate as an explicit recursive form, then
-  induct) is the same in spirit.
+  loops. It does **not** directly transfer to any of the five P0 functions (not `for`-range loops)
+  — new bridging lemmas are needed there, though the *technique* (restate as an explicit recursive
+  form, then induct) is the same in spirit. `findLongestMatch` no longer needs it at all: it was
+  converted to structural fuel recursion (`matchExtend`/`matchScan`, 2026-08-28) and now carries
+  ordinary equation lemmas, so L3 is a plain induction rather than a bridging exercise.
 - **PA10's four `.get!`/`.push` bridge lemmas** (`ByteArray.get!_eq_getElem_bang`,
   `get!_push_lt`, `get!_push_eq`, `ext_get!`, `Stdlib/Png/Equivalence.lean:38-82`) are
   general-purpose (not PNG-specific, per that file's own header comment) and directly reusable by
