@@ -190,12 +190,36 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
     return (s, .next)
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- Runs a full instruction sequence under the WASI system model and returns the observable event trace. -/
-def runWasiTrace (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List String := []) : List AnyEvent :=
+/-- Runs a full instruction sequence under the WASI system model and returns the FULL,
+    fuel-honest `WasmRunResult`: `.ok (finalState, _)` if a genuine stopping point was reached
+    within `fuel`, `.error partialState` if fuel ran out first. This is the one whole-program
+    entry point in this codebase that does NOT collapse fuel exhaustion away (contrast
+    `runWasiTrace` below, kept for source-compatibility with every existing trace-equality
+    theorem) -- every load-bearing `traceEquivalence` proof in `Spikes/*/Wasm/Equivalence.lean`
+    is paired with a `#guard !(runWasiTraceState ...).isError` check proving its own program never
+    hits the `.error` arm, closing exactly the soundness gap TCB.md's "Fuel exhaustion
+    indistinguishable from clean termination" finding diagnoses for the sibling
+    `Gasm/Targets/X86_64/Semantics.lean`'s `runProgramTraceWithLoops` (see `WasmRunResult`'s own
+    docstring in `Gasm/Targets/Wasm/Semantics.lean`). -/
+def runWasiTraceState (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List String := []) (fuel : Nat := defaultWasmFuel) : WasmRunResult :=
   let initMem := initWasmMemory segments
   let s : WasmMachineState := { memory := initMem, stdin := stdin, incomingRequests := incomingRequests }
-  let (finalState, _) := evalInstrs instrs s (wasiHostCall imports)
-  finalState.events
+  evalInstrs fuel instrs s (wasiHostCall imports)
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Runs a full instruction sequence under the WASI system model and returns the observable event
+    trace alone -- the historical return shape every existing `Spikes/*/Wasm/Equivalence.lean`
+    trace-equality theorem is written against, preserved unchanged (same signature, same
+    behaviour for any run within `fuel`) so none of them need editing. Extracts `.events` from
+    whichever machine state `runWasiTraceState` returns, completed or fuel-exhausted alike --
+    ONLY sound because every real program this codebase ships is separately proven
+    (`runWasiTraceState`'s own docstring) never to exhaust the default fuel; a caller that cannot
+    rely on that proof (e.g. a hypothetical future program known to run long enough to matter)
+    must use `runWasiTraceState` directly instead of this convenience wrapper. -/
+def runWasiTrace (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List String := []) : List AnyEvent :=
+  match runWasiTraceState instrs segments stdin imports incomingRequests with
+  | .ok (finalState, _) => finalState.events
+  | .error partialState => partialState.events
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- Typeclass defining how an abstract environment `Env` is loaded into initial WASI state. -/

@@ -70,6 +70,13 @@ theorem spike5_wasm_gzip_trace_equivalence :
     (wasmTraceCompress == canonicalCompressTrace.map Inject.inject) = true := by
   native_decide
 
+-- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witness (see the identical
+-- check and its rationale in Spikes/Spike1Hello/Wasm/Equivalence.lean): proves the actual Spike 5
+-- compression program never exhausts `defaultWasmFuel` under `runWasiTraceState`, rather than
+-- merely assuming it.
+#guard !Gasm.Targets.Wasm.WasmRunResult.isError
+  (runWasiTraceState spike5WasmInstructions spike5DataSegments)
+
 /- REF: docs/SPIKES/SPIKE5_GZIP.md#5-semantic-trace-equivalence-verification-contract -/
 /-- Universal Soundness Theorem: GZIP compression followed by decompression losslessly recovers the original bytes. -/
 theorem gzip_roundtrip_soundness_inst :

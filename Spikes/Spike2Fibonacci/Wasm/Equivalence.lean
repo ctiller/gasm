@@ -55,6 +55,13 @@ theorem spike2_wasm_canonical_effect_trace_equivalence :
      runModelTrace (fibonacciWasmSpec : TraceM AnyEvent Unit)) = true := by
   native_decide
 
+-- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witness (see the identical
+-- check and its rationale in Spikes/Spike1Hello/Wasm/Equivalence.lean): proves the actual Spike 2
+-- program -- which DOES contain a real `.loop` (the iterative Fibonacci routine) -- never
+-- exhausts `defaultWasmFuel` under `runWasiTraceState`, rather than merely assuming it.
+#guard !Gasm.Targets.Wasm.WasmRunResult.isError
+  (Gasm.Targets.WASI.runWasiTraceState spike2WasmInstructions spike2DataSegments)
+
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- First-class VerifiedWasmProgram contract instantiation for Spike 2 (Fibonacci Wasm). -/

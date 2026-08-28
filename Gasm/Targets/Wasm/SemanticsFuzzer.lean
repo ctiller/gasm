@@ -44,6 +44,17 @@ structure WasmInstructionDiffResult where
   failedCount  : Nat
   errorMessage : Option String := none
   skipped      : Bool := false
+  -- REF: wasm-exec-runtime#administrative-instructions -- count of vectors this case could not
+  -- verify because the fuel-bounded interpreter core (`Semantics.lean`'s `evalInstrMatch`/
+  -- `evalInstrs`/`evalLoop`) ran out of fuel on that specific vector (observable via
+  -- `stepWasm`'s collapsed `WasmMachineState.fuelExhausted` flag -- see that field's own
+  -- docstring). Distinct from BOTH `passed` and a hard failure: a fuel-exhausted vector answers
+  -- neither "the model and host agree" nor "they disagree," so it is excluded from both
+  -- `totalInstrsPassed`/`totalInstrsFailed` and reported separately as inconclusive (never
+  -- silently folded into a PASS, which given `defaultWasmFuel`'s enormous headroom relative to
+  -- every case in this suite should always print `0` in practice -- see each case's own fuel
+  -- budget; a nonzero count here is itself a finding, not routine noise).
+  inconclusive : Nat := 0
   deriving Inhabited
 
 /- REF: wasm-syntax-instructions#instructions -/
@@ -1027,15 +1038,30 @@ def verifyWasmDiffCase (tc : WasmDiffCase) (rng : FuzzerRng) (maxStates : Nat :=
   -- must report SKIP, never PASS. `reportWasmDiffResult` relies on `skipped` to keep it out of
   -- both `totalInstrsPassed` and the printed [PASS] line.
   if statesToTest.isEmpty then
-    return (WasmInstructionDiffResult.mk false tc.name 0 0 (some "SKIP: 0 fuzzable host states for this case (0 vectors tested, not a pass)") true, nextRng)
+    return (WasmInstructionDiffResult.mk false tc.name 0 0 (some "SKIP: 0 fuzzable host states for this case (0 vectors tested, not a pass)") true 0, nextRng)
 
   let mut failed := 0
+  let mut inconclusive := 0
   let mut firstErr : Option String := none
 
   for i in [0:statesToTest.length] do
     let initS := statesToTest[i]!
     let modelS := stepWasm tc.instr initS
     let resultTypes := tc.resultTypesFor initS
+
+    -- REF: wasm-exec-runtime#administrative-instructions -- a fuel-exhausted vector (see
+    -- `WasmInstructionDiffResult.inconclusive`'s own docstring) answers neither "model and host
+    -- agree" nor "they disagree": comparing a partial, mid-execution state against the host would
+    -- be comparing apples to a run that was never given the chance to finish, and passing OR
+    -- failing it either way would misrepresent what was actually verified. Skip straight to the
+    -- next vector without touching `failed` or spawning a host process for this one at all.
+    if modelS.fuelExhausted then
+      -- Tracked structurally via `inconclusive` (surfaced unconditionally by
+      -- `reportWasmDiffResult`, regardless of the case's overall pass/fail) rather than through
+      -- `firstErr`/`errorMessage`, which stay reserved for genuine mismatches -- an inconclusive
+      -- vector must never mask, or be masked by, a real failure found on a different vector.
+      inconclusive := inconclusive + 1
+      continue
 
     let mut skipHost := false
     if !modelS.trapped then
@@ -1084,28 +1110,34 @@ def verifyWasmDiffCase (tc : WasmDiffCase) (rng : FuzzerRng) (maxStates : Nat :=
               firstErr := some s!"Case '{tc.name}' vector {i+1}: Stack count mismatch! Model={(repr modelS.stack).pretty}, Host={(repr hostResults).pretty}"
 
   let passed := failed == 0
-  pure (WasmInstructionDiffResult.mk passed tc.name statesToTest.length failed firstErr false, nextRng)
+  pure (WasmInstructionDiffResult.mk passed tc.name statesToTest.length failed firstErr false inconclusive, nextRng)
 
 /- REF: docs/TARGETS/WASM_ORACLE_HARNESS.md#7-per-case-verification-and-reporting -/
 /-- Prints one case's PASS/FAIL/SKIP line and folds it into the running totals. A `skipped`
 result (see `WasmInstructionDiffResult`) is reported distinctly from both PASS and FAIL and never
 increments `passedCount` — TC17 (TCB.md T11-b; docs/REVIEW.md Law 13): a zero-vector case must
-never read as a clean pass. -/
-def reportWasmDiffResult (res : WasmInstructionDiffResult) (passedCount failedCount skippedCount vectorsTested : Nat) : IO (Nat × Nat × Nat × Nat) := do
+never read as a clean pass. Likewise, any `inconclusive` (fuel-exhausted) vectors are surfaced on
+their own line UNCONDITIONALLY -- regardless of whether the case's OTHER vectors made it an
+overall PASS or FAIL -- so a fuel-exhausted vector can never be silently absorbed into either
+verdict; see `WasmInstructionDiffResult.inconclusive`'s own docstring. -/
+def reportWasmDiffResult (res : WasmInstructionDiffResult) (passedCount failedCount skippedCount vectorsTested : Nat) (inconclusiveCount : Nat := 0) : IO (Nat × Nat × Nat × Nat × Nat) := do
   let vectorsTested' := vectorsTested + res.totalTested
+  let inconclusiveCount' := inconclusiveCount + res.inconclusive
+  if res.inconclusive > 0 then
+    IO.println s!"  [INCONCLUSIVE] {res.mnemonic}: {res.inconclusive} of {res.totalTested} vector(s) ran out of fuel (defaultWasmFuel) before reaching a stopping point -- neither compared against the host nor counted as pass/fail."
   if res.skipped then
     let padLen := 32 - min 32 res.mnemonic.length
     let skipReason := res.errorMessage.getD "no fuzzable host states"
     IO.println s!"  [SKIP] {res.mnemonic.pushn ' ' padLen} (0 test vectors — {skipReason})"
-    pure (passedCount, failedCount, skippedCount + 1, vectorsTested')
+    pure (passedCount, failedCount, skippedCount + 1, vectorsTested', inconclusiveCount')
   else if res.passed then
     let padLen := 32 - min 32 res.mnemonic.length
     IO.println s!"  [PASS] {res.mnemonic.pushn ' ' padLen} ({res.totalTested} test vectors verified exact)"
-    pure (passedCount + 1, failedCount, skippedCount, vectorsTested')
+    pure (passedCount + 1, failedCount, skippedCount, vectorsTested', inconclusiveCount')
   else
     let errStr := res.errorMessage.getD "Unknown failure"
     IO.println s!"  [FAIL] {res.mnemonic}:\n{errStr}"
-    pure (passedCount, failedCount + 1, skippedCount, vectorsTested')
+    pure (passedCount, failedCount + 1, skippedCount, vectorsTested', inconclusiveCount')
 
 /- REF: docs/VISION.md#32-the-models-must-be-faithful-to-reality -/
 /-- The number of distinct host Wasm engines this build's oracle actually executed against.
@@ -1138,6 +1170,7 @@ def runWasmSemanticsFuzzerSuite (iterationsPerInstr : Nat := 50) (initialSeed : 
   let mut totalInstrsFailed := 0
   let mut totalInstrsSkipped := 0
   let mut totalVectorsTested := 0
+  let mut totalInconclusive := 0
 
   let candidateLeafCases := match instrFilter with
     | some filterStr => allLeafDiffCases.filter (fun (c : WasmDiffCase) => c.name.toLower.contains filterStr.toLower)
@@ -1146,11 +1179,12 @@ def runWasmSemanticsFuzzerSuite (iterationsPerInstr : Nat := 50) (initialSeed : 
   for tc in candidateLeafCases do
     let (res, nextRng) ← verifyWasmDiffCase tc curRng iterationsPerInstr
     curRng := nextRng
-    let (p, f, s, v) ← reportWasmDiffResult res totalInstrsPassed totalInstrsFailed totalInstrsSkipped totalVectorsTested
+    let (p, f, s, v, ic) ← reportWasmDiffResult res totalInstrsPassed totalInstrsFailed totalInstrsSkipped totalVectorsTested totalInconclusive
     totalInstrsPassed := p
     totalInstrsFailed := f
     totalInstrsSkipped := s
     totalVectorsTested := v
+    totalInconclusive := ic
 
   let candidateControlFlowCases := match instrFilter with
     | some filterStr => allControlFlowCases.filter (fun (c : WasmDiffCase) => c.name.toLower.contains filterStr.toLower)
@@ -1164,11 +1198,12 @@ def runWasmSemanticsFuzzerSuite (iterationsPerInstr : Nat := 50) (initialSeed : 
   for tc in candidateControlFlowCases do
     let (res, nextRng) ← verifyWasmDiffCase tc curRng iterationsPerInstr
     curRng := nextRng
-    let (p, f, s, v) ← reportWasmDiffResult res totalInstrsPassed totalInstrsFailed totalInstrsSkipped totalVectorsTested
+    let (p, f, s, v, ic) ← reportWasmDiffResult res totalInstrsPassed totalInstrsFailed totalInstrsSkipped totalVectorsTested totalInconclusive
     totalInstrsPassed := p
     totalInstrsFailed := f
     totalInstrsSkipped := s
     totalVectorsTested := v
+    totalInconclusive := ic
 
   let candidateMemoryLimitCases := match instrFilter with
     | some filterStr => allMemoryLimitCases.filter (fun (c : WasmDiffCase) => c.name.toLower.contains filterStr.toLower)
@@ -1182,11 +1217,12 @@ def runWasmSemanticsFuzzerSuite (iterationsPerInstr : Nat := 50) (initialSeed : 
   for tc in candidateMemoryLimitCases do
     let (res, nextRng) ← verifyWasmDiffCase tc curRng iterationsPerInstr
     curRng := nextRng
-    let (p, f, s, v) ← reportWasmDiffResult res totalInstrsPassed totalInstrsFailed totalInstrsSkipped totalVectorsTested
+    let (p, f, s, v, ic) ← reportWasmDiffResult res totalInstrsPassed totalInstrsFailed totalInstrsSkipped totalVectorsTested totalInconclusive
     totalInstrsPassed := p
     totalInstrsFailed := f
     totalInstrsSkipped := s
     totalVectorsTested := v
+    totalInconclusive := ic
 
   let candidateCount := candidateLeafCases.length + candidateControlFlowCases.length + candidateMemoryLimitCases.length
   IO.println "--------------------------------------------------------------------------------"
@@ -1196,7 +1232,7 @@ def runWasmSemanticsFuzzerSuite (iterationsPerInstr : Nat := 50) (initialSeed : 
     IO.println "A fuzzer run that exercises zero vectors has verified nothing — this is a hard FAIL, not a clean PASS (TCB.md T11-b; docs/REVIEW.md Law 13)."
     IO.println "================================================================================"
     return (totalInstrsPassed, max 1 (totalInstrsFailed + totalInstrsSkipped), totalVectorsTested)
-  IO.println s!"Summary: {totalInstrsPassed} passed, {totalInstrsFailed} failed, {totalInstrsSkipped} skipped ({totalVectorsTested} total test vectors)"
+  IO.println s!"Summary: {totalInstrsPassed} passed, {totalInstrsFailed} failed, {totalInstrsSkipped} skipped ({totalVectorsTested} total test vectors, {totalInconclusive} inconclusive [fuel-exhausted])"
   IO.println s!"[Evidentiary Scope] Validated on exactly {enginesValidated} host engine(s) (Node.js WebAssembly runtime)."
   IO.println "================================================================================"
   pure (totalInstrsPassed, totalInstrsFailed, totalVectorsTested)
@@ -1205,18 +1241,17 @@ def runWasmSemanticsFuzzerSuite (iterationsPerInstr : Nat := 50) (initialSeed : 
 /-- **General form (PA12) of the former `trapShortCircuitGuard_inst` ground instance, universally
     quantified over EVERY instruction, not just the one 5-instruction example.** Once a state is
     trapped, `evalInstr`'s guard (`Semantics.lean`: `if s.trapped || s.exitCode.isSome then (s,
-    .next) else evalInstrMatch instr s hostCall`) makes evaluating ANY instruction a no-op: the
-    state and control signal come back completely unchanged. Structural proof, zero oracle: this
-    became provable only after `Semantics.lean` was refactored (PA12) to pull the guard check out
-    of the `evalInstr`/`evalInstrs`/`evalLoop` `mutual partial` group into this thin, ordinary
-    (non-`partial`) wrapper -- `evalInstr` is a ONE-LINE `if`, calling the still-opaque
-    `evalInstrMatch` only in the branch this proof never has to enter, so `unfold`/`simp` succeed
-    without needing any visibility into the opaque mutual recursion at all. Before that refactor,
-    `evalInstr` itself was compiled to an `opaque` constant (Lean's actual, empirically-confirmed
-    handling of `partial def` -- not merely "kernel `Acc.rec` reduction gets stuck," which still
-    permits equational unfolding, but a genuine absence of any defining equation for ANY tactic to
-    use), so no structural proof of anything about it was possible at all; that opacity is why
-    `trapShortCircuitGuard_inst` needed `native_decide` in the first place. -/
+    .next) else collapseWasmRunResult (evalInstrMatch fuel instr s hostCall)`) makes evaluating ANY
+    instruction a no-op: the state and control signal come back completely unchanged. Structural
+    proof, zero oracle: this became provable only after `Semantics.lean` was refactored (PA12) to
+    pull the guard check out of the `evalInstr`/`evalInstrs`/`evalLoop` `mutual partial` group into
+    this thin, ordinary (non-`partial`) wrapper -- `evalInstr` is a ONE-LINE `if`, so `unfold`/
+    `simp` succeed without needing any visibility into `evalInstrMatch`'s own body at all. (Update,
+    fuel conversion (2026-08-27): `evalInstrMatch`/`evalInstrs`/`evalLoop` are no longer opaque
+    either -- see `evalInstr_trapped_next`'s own honest-scope-note sibling below, which this
+    fuel conversion has now made STALE in the other direction: the residual scope limit it
+    describes no longer holds. Left as recorded history of why this theorem was originally shaped
+    the way it is, not as a claim about the group's opacity today.) -/
 theorem evalInstr_trapped_next (instr : WasmInstr) (s : WasmMachineState)
     (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
     (h : s.trapped = true) :
@@ -1225,24 +1260,21 @@ theorem evalInstr_trapped_next (instr : WasmInstr) (s : WasmMachineState)
   simp [h]
 
 /- REF: wasm-exec-runtime#administrative-instructions
-   **Honest scope note for `evalInstr_trapped_next` above.** The ORIGINAL ground instance
-    (`stepWasm` over a 5-instruction `.block` body, i.e. a `List WasmInstr` run through
-    `evalInstrs`/`evalLoop`, not a single `evalInstr` call) cannot be generalized the same way:
-    `evalInstrs` and `evalLoop` remain inside the `mutual partial` group (confirmed empirically --
-    `unfold evalInstrs` still fails after the same refactor), because they are genuinely,
-    inescapably mutually recursive with each other -- a `.block`/`.if_else` body can contain a
-    `.loop`, whose repeated iteration (`evalLoop`'s own `.br 0` self-call on the SAME body) has no
-    structurally-decreasing measure at all (a real Wasm infinite loop must be able to not
-    terminate), so Lean cannot produce equations for that group without a `Fuel`/`CCPO`-style
-    rewrite of the whole interpreter -- a substantially larger, semantics-changing project outside
-    PA12's scope, not a proof-engineering exercise. `evalInstr_trapped_next` is therefore the
-    maximal structural generalization available today: it is the single-instruction case the
-    5-instruction example was built from, proven for literally every `WasmInstr`, not a narrower
-    substitute for the original claim. The concrete 5-instruction scenario itself is preserved
-    below as a `#guard` control vector (Law 13) instead of a `native_decide` theorem: `#guard`
-    evaluates via the same compiled/interpreted execution `native_decide` used, but as a
-    compile-time check with no stored declaration and no axiom, so it needs no
-    `scripts/gate_allowlist.txt` entry at all. -/
+   **Honest scope note for `evalInstr_trapped_next` above (UPDATED 2026-08-27, fuel conversion).**
+    At the time PA12 wrote this theorem, the ORIGINAL ground instance (`stepWasm` over a
+    5-instruction `.block` body, i.e. a `List WasmInstr` run through `evalInstrs`/`evalLoop`, not a
+    single `evalInstr` call) could not be generalized the same way, because `evalInstrs`/`evalLoop`
+    were still inside the `mutual partial` group and hence still `opaque`. That is no longer true:
+    `Semantics.lean`'s fuel-based conversion (following `Gasm/Targets/X86_64/Semantics.lean`'s
+    `runProgramTraceWithLoops` shape) made the whole group an ordinary, non-`partial`,
+    structurally-recursive definition (`#print evalInstrs` now shows a `Nat.brecOn`-based term, not
+    `opaque`) -- see `Spikes/Spike1Hello/Wasm/Equivalence.lean`'s
+    `spike1_wasm_canonical_effect_trace_equivalence`, which now closes with `decide +kernel`
+    against exactly this previously-opaque group. This theorem's own generalization to the full
+    `evalInstrs`/`evalLoop` case (not just single-instruction `evalInstr`) is left as a genuine,
+    now-tractable follow-up rather than done here as a side effect of the fuel-conversion pass; the
+    concrete 5-instruction scenario below remains a `#guard` control vector (Law 13) rather than a
+    `native_decide`/`decide` theorem for that reason, not because it is still unprovable. -/
 #guard (stepWasm
 
     (.block (.val .i32) [.i32_const 5, .i32_const 0, .i32_div_u, .i32_const 999, .i32_add])

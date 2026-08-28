@@ -65,6 +65,13 @@ theorem spike3_wasm_canonical_effect_trace_equivalence :
     (runWasiTrace spike3WasmInstructions spike3DataSegments defaultSampleInput ["fd_read", "fd_write", "proc_exit"] == specTraceCanonical) = true := by
   native_decide
 
+-- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witness (see the identical
+-- check and its rationale in Spikes/Spike1Hello/Wasm/Equivalence.lean): proves the actual Spike 3
+-- program on its canonical sample input never exhausts `defaultWasmFuel` under
+-- `runWasiTraceState`, rather than merely assuming it.
+#guard !Gasm.Targets.Wasm.WasmRunResult.isError
+  (runWasiTraceState spike3WasmInstructions spike3DataSegments defaultSampleInput ["fd_read", "fd_write", "proc_exit"])
+
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- Test environment domain for Spike 3 WebAssembly execution. -/
 inductive Spike3SampleEnv where
