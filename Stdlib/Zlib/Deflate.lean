@@ -47,14 +47,45 @@ def mkBitReader (bytes : ByteArray) : BitReader :=
 
 /- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
 /-- Ensures at least `n` bits are available in the bit buffer (up to 24 bits). -/
-partial def ensureBits (r : BitReader) (n : Nat) : BitReader :=
+def ensureBits (r : BitReader) (n : Nat) : BitReader :=
   let rec loop (cur : BitReader) : BitReader :=
     if cur.bitCount >= n || cur.bytePos >= cur.bytes.size then cur
     else
       let nextByte := cur.bytes.get! cur.bytePos
       let newBuf := (cur.bitBuf.toNat ||| (nextByte.toNat <<< cur.bitCount)).toUInt32
       loop { cur with bytePos := cur.bytePos + 1, bitBuf := newBuf, bitCount := cur.bitCount + 8 }
+  termination_by cur.bytes.size - cur.bytePos
+  decreasing_by simp_all; omega
   loop r
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Total number of unconsumed bits remaining in a `BitReader`: bits already buffered
+    plus 8 bits for every unread byte. This is the natural termination measure for any
+    loop that consumes bits from a `BitReader` via `readBits`/`decodeHuffmanSymbol`. -/
+def remainingBits (r : BitReader) : Nat :=
+  r.bitCount + 8 * (r.bytes.size - r.bytePos)
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- `ensureBits.loop` only moves bits from the unread byte suffix into the bit buffer;
+    it never consumes or fabricates bits, so `remainingBits` is invariant. Proved via
+    `ensureBits.loop`'s own `.induct` principle, available now that `ensureBits` is
+    well-founded rather than `partial` (its equation lemma makes this statable at all). -/
+theorem ensureBits_loop_remainingBits (n : Nat) (cur : BitReader) :
+    remainingBits (ensureBits.loop n cur) = remainingBits cur := by
+  induction cur using ensureBits.loop.induct (n := n) with
+  | case1 x hx => rw [ensureBits.loop.eq_1, if_pos hx]
+  | case2 x hx nextByte newBuf ih =>
+    rw [ensureBits.loop.eq_1, if_neg hx, ih]
+    simp only [Bool.or_eq_true, decide_eq_true_eq, not_or] at hx
+    simp only [remainingBits]
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- `ensureBits` (the top-level wrapper) preserves `remainingBits`. -/
+theorem ensureBits_remainingBits (r : BitReader) (n : Nat) :
+    remainingBits (ensureBits r n) = remainingBits r := by
+  rw [ensureBits.eq_1]
+  exact ensureBits_loop_remainingBits n r
 
 /- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
 /-- Reads `n` bits (LSB-first) from the bitstream. -/
@@ -69,13 +100,33 @@ def readBits (r : BitReader) (n : Nat) : Except ZlibError (BitReader × Nat) :=
     .ok ({ r' with bitBuf := newBuf, bitCount := newCount }, val)
 
 /- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- A successful `readBits r n` consumes exactly `n` bits: `remainingBits` drops by `n`.
+    This is the "successful `readBits` strictly shrinks the measure" fact needed to
+    justify well-founded recursion over any loop that decodes a `BitReader` stream. -/
+theorem readBits_remainingBits (r : BitReader) (n : Nat) (rOut : BitReader) (v : Nat)
+    (hok : readBits r n = .ok (rOut, v)) :
+    remainingBits rOut + n = remainingBits r := by
+  have heq : remainingBits (ensureBits r n) = remainingBits r := ensureBits_remainingBits r n
+  unfold readBits at hok
+  dsimp only at hok
+  split at hok
+  · simp at hok
+  · rename_i hge
+    obtain ⟨hok1, _⟩ := Prod.mk.injEq .. |>.mp (Except.ok.injEq .. |>.mp hok)
+    simp only [remainingBits] at heq ⊢
+    have hbc : rOut.bitCount = (ensureBits r n).bitCount - n := by rw [← hok1]
+    have hbp : rOut.bytePos = (ensureBits r n).bytePos := by rw [← hok1]
+    have hbs : rOut.bytes.size = (ensureBits r n).bytes.size := by rw [← hok1]
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
 /-- Drops remaining bits in the current byte, byte-aligning the reader. -/
 def alignToByte (r : BitReader) : BitReader :=
   { r with bitBuf := 0, bitCount := 0 }
 
 /- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
 /-- Decodes a single Huffman symbol from the bitstream using a decode tree. -/
-partial def decodeHuffmanSymbol (r : BitReader) (tree : HuffmanTable) : Except ZlibError (BitReader × Nat) :=
+def decodeHuffmanSymbol (r : BitReader) (tree : HuffmanTable) : Except ZlibError (BitReader × Nat) :=
   let rec step (curR : BitReader) (node : HuffmanNode) : Except ZlibError (BitReader × Nat) :=
     match node with
     | HuffmanNode.leaf sym => .ok (curR, sym)
@@ -83,10 +134,16 @@ partial def decodeHuffmanSymbol (r : BitReader) (tree : HuffmanTable) : Except Z
       match readBits curR 1 with
       | .error e => .error e
       | .ok (nextR, bit) =>
-        let nextNode := if bit == 0 then l else rOpt
-        match nextNode with
-        | some n => step nextR n
-        | none => .error .corruptedHuffmanTree
+        if bit == 0 then
+          match l with
+          | some n => step nextR n
+          | none => .error .corruptedHuffmanTree
+        else
+          match rOpt with
+          | some n => step nextR n
+          | none => .error .corruptedHuffmanTree
+  termination_by node
+  decreasing_by all_goals simp_all; omega
   step r tree.root
 
 /- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
@@ -207,8 +264,25 @@ partial def decodeHuffmanStream (r : BitReader) (litTable distTable : HuffmanTab
   .ok (curR, curOut)
 
 /- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Pushes `n` copies of `val` onto the end of `arr` (equivalent to the imperative
+    `for _ in [0:n] do arr := arr.push val`, expressed as structural recursion on `n`
+    so its `.size` effect is provable by induction). -/
+def pushRepeated (arr : Array Nat) (val : Nat) (n : Nat) : Array Nat :=
+  match n with
+  | 0 => arr
+  | n + 1 => pushRepeated (arr.push val) val n
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `pushRepeated` grows the array by exactly `n` elements. -/
+theorem pushRepeated_size (arr : Array Nat) (val n : Nat) :
+    (pushRepeated arr val n).size = arr.size + n := by
+  induction n generalizing arr with
+  | zero => simp [pushRepeated]
+  | succ n ih => simp [pushRepeated, ih, Array.size_push]; omega
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
 /-- Decodes a dynamic Huffman block header (BTYPE = 10) and returns the constructed tables. -/
-partial def decodeDynamicTables (r : BitReader) : Except ZlibError (BitReader × HuffmanTable × HuffmanTable) := do
+def decodeDynamicTables (r : BitReader) : Except ZlibError (BitReader × HuffmanTable × HuffmanTable) := do
   let (r1, hlitVal) ← readBits r 5
   let (r2, hdistVal) ← readBits r1 5
   let (r3, hclenVal) ← readBits r2 4
@@ -225,40 +299,47 @@ partial def decodeDynamicTables (r : BitReader) : Except ZlibError (BitReader ×
   let clenTable := buildHuffmanTable clenArr 7
 
   let totalLengths := hlit + hdist
-  let mut lengths : Array Nat := Array.mkEmpty totalLengths
-  while lengths.size < totalLengths do
-    let (nextR, sym) ← decodeHuffmanSymbol curR clenTable
-    curR := nextR
-    if sym <= 15 then
-      lengths := lengths.push sym
-    else if sym == 16 then
-      if lengths.isEmpty then throw .corruptedHuffmanTree
-      let lastVal := lengths[lengths.size - 1]!
-      let (rRepeat, extra) ← readBits curR 2
-      curR := rRepeat
-      let repeatCount := extra + 3
-      for _ in [0:repeatCount] do
-        lengths := lengths.push lastVal
-    else if sym == 17 then
-      let (rRepeat, extra) ← readBits curR 3
-      curR := rRepeat
-      let repeatCount := extra + 3
-      for _ in [0:repeatCount] do
-        lengths := lengths.push 0
-    else if sym == 18 then
-      let (rRepeat, extra) ← readBits curR 7
-      curR := rRepeat
-      let repeatCount := extra + 11
-      for _ in [0:repeatCount] do
-        lengths := lengths.push 0
-    else
-      throw .corruptedHuffmanTree
+  let rec go (br : BitReader) (lengths : Array Nat) :
+      Except ZlibError (BitReader × Array Nat) :=
+    if lengths.size < totalLengths then
+      match decodeHuffmanSymbol br clenTable with
+      | .error e => .error e
+      | .ok (nextR, sym) =>
+        if sym <= 15 then
+          go nextR (lengths.push sym)
+        else if sym == 16 then
+          if lengths.isEmpty then .error .corruptedHuffmanTree
+          else
+            let lastVal := lengths[lengths.size - 1]!
+            match readBits nextR 2 with
+            | .error e => .error e
+            | .ok (rRepeat, extra) =>
+              go rRepeat (pushRepeated lengths lastVal (extra + 3))
+        else if sym == 17 then
+          match readBits nextR 3 with
+          | .error e => .error e
+          | .ok (rRepeat, extra) =>
+            go rRepeat (pushRepeated lengths 0 (extra + 3))
+        else if sym == 18 then
+          match readBits nextR 7 with
+          | .error e => .error e
+          | .ok (rRepeat, extra) =>
+            go rRepeat (pushRepeated lengths 0 (extra + 11))
+        else
+          .error .corruptedHuffmanTree
+    else .ok (br, lengths)
+  termination_by totalLengths - lengths.size
+  decreasing_by
+    all_goals simp_all [pushRepeated_size]
+    all_goals omega
+
+  let (finalR, lengths) ← go curR (Array.mkEmpty totalLengths)
 
   let litLengths := lengths.extract 0 hlit
   let distLengths := lengths.extract hlit totalLengths
   let litTable := buildHuffmanTable litLengths 15
   let distTable := buildHuffmanTable distLengths 15
-  .ok (curR, litTable, distTable)
+  .ok (finalR, litTable, distTable)
 
 /- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
 /-- Core RFC 1951 INFLATE decompressor. -/
