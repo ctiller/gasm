@@ -36,9 +36,15 @@ it does mean "a Instructions/<Foo>.lean file that exists on disk but isn't impor
 umbrella" is now a build-failing, exit-1, named-offender condition instead of a silent gap that
 depends on someone remembering the convention.
 
-Exit 0 if the umbrella's imports exactly match the instruction family files on disk (minus
-Base.lean, which is shared infrastructure, not itself a family). Exit 1, naming the exact
-symmetric difference, otherwise.
+A file counts as a "family" needing umbrella coverage iff it declares at least one
+`instance : X86_64Instruction <Type>` -- detected structurally (regex over the file's own text),
+not via a hand-maintained exclusion list, so a new piece of shared infrastructure (like
+Base.lean or Obligations.lean, neither of which declares such an instance) never needs this
+script itself edited to stay correct; only files that actually register a decodable/encodable
+instruction are required to appear in the umbrella's import list.
+
+Exit 0 if the umbrella's imports exactly match the instruction family files on disk. Exit 1,
+naming the exact symmetric difference, otherwise.
 """
 
 import re
@@ -50,9 +56,14 @@ INSTRUCTIONS_DIR = REPO_ROOT / "Gasm" / "Targets" / "X86_64" / "Instructions"
 UMBRELLA_FILE = REPO_ROOT / "Gasm" / "Targets" / "X86_64" / "Instructions.lean"
 IMPORT_PREFIX = "Gasm.Targets.X86_64.Instructions."
 
-# Base.lean is shared REX/ModR/M-parsing infrastructure every family imports, not itself a family
-# with an X86_64Instruction instance to audit -- excluded from both sides of the comparison.
-NOT_A_FAMILY = {"Base"}
+# Matches `instance : X86_64Instruction Foo where` and `instance : X86_64Instruction Foo := ...`
+# -- deliberately permissive about the RHS, since only "does this file register at least one
+# instance" matters here, not the instance's own shape.
+INSTANCE_DECL_RE = re.compile(r"^\s*instance\s*:\s*X86_64Instruction\b", re.MULTILINE)
+
+
+def is_family_file(path: Path) -> bool:
+    return bool(INSTANCE_DECL_RE.search(path.read_text(encoding="utf-8")))
 
 
 def families_on_disk() -> set[str]:
@@ -62,11 +73,14 @@ def families_on_disk() -> set[str]:
     return {
         p.stem
         for p in INSTRUCTIONS_DIR.glob("*.lean")
-        if p.stem not in NOT_A_FAMILY
+        if is_family_file(p)
     }
 
 
-def families_imported_by_umbrella() -> set[str]:
+def imports_in_umbrella() -> set[str]:
+    """Every `Instructions.<Name>` this file imports, raw -- includes non-family infra imports
+    like Base/Obligations, which is fine; `main` below only checks the directions that matter
+    (a family missing from this set, or an import pointing at a file that no longer exists)."""
     if not UMBRELLA_FILE.is_file():
         print(f"error: {UMBRELLA_FILE} does not exist", file=sys.stderr)
         sys.exit(1)
@@ -79,29 +93,35 @@ def families_imported_by_umbrella() -> set[str]:
         module = m.group(1)
         if module.startswith(IMPORT_PREFIX):
             imported.add(module[len(IMPORT_PREFIX):])
-    return imported - NOT_A_FAMILY
+    return imported
 
 
 def main() -> int:
-    on_disk = families_on_disk()
-    imported = families_imported_by_umbrella()
+    all_files_on_disk = {p.stem for p in INSTRUCTIONS_DIR.glob("*.lean")}
+    families = families_on_disk()
+    imported = imports_in_umbrella()
 
-    missing_from_umbrella = sorted(on_disk - imported)
-    stale_in_umbrella = sorted(imported - on_disk)
+    # A family (declares an X86_64Instruction instance) that this umbrella doesn't import at all
+    # -- the actual audit-completeness hole this script exists to close.
+    missing_from_umbrella = sorted(families - imported)
+    # An import naming a file that no longer exists on disk (stale, e.g. after a rename/delete)
+    # -- imports of legitimate non-family infra (Base, Obligations, ...) are NOT flagged here,
+    # since those files existing on disk is what matters, not whether they're themselves a family.
+    stale_in_umbrella = sorted(imported - all_files_on_disk)
 
     if not missing_from_umbrella and not stale_in_umbrella:
         print(
-            f"OK: Instructions.lean's {len(imported)} family imports exactly match "
-            f"the {len(on_disk)} Instructions/*.lean family files on disk "
-            f"(excluding {sorted(NOT_A_FAMILY)})."
+            f"OK: Instructions.lean imports all {len(families)} instruction family files on "
+            f"disk (of {len(all_files_on_disk)} total Instructions/*.lean files); no stale "
+            "imports."
         )
         return 0
 
     print("Instructions.lean umbrella completeness check FAILED.", file=sys.stderr)
     if missing_from_umbrella:
         print(
-            "  On disk but NOT imported by Instructions.lean (invisible to the "
-            f"Registry.lean audit): {missing_from_umbrella}",
+            "  Declares an X86_64Instruction instance but is NOT imported by Instructions.lean "
+            f"(invisible to the Registry.lean audit): {missing_from_umbrella}",
             file=sys.stderr,
         )
     if stale_in_umbrella:
