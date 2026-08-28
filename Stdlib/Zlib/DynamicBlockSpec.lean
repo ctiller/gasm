@@ -1117,4 +1117,185 @@ def hclenF (clenLengths : Array Nat) : Nat :=
   (List.range' 0 19).foldl
     (fun n i => if clenLengths[clenOrder[i]!]! > 0 then max n (i + 1) else n) 4
 
+/-
+## `buildDynPlan` in named form, and the code-length-alphabet scan facts.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The literal/length code lengths of the plan. -/
+theorem buildDynPlan_litLengths (tokens : Array LZToken) :
+    (buildDynPlan tokens).litLengths =
+      packageMergeLengths (padFrequencies (tokenFrequencies tokens).1) 15 := rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The distance code lengths of the plan. -/
+theorem buildDynPlan_distLengths (tokens : Array LZToken) :
+    (buildDynPlan tokens).distLengths =
+      packageMergeLengths (padFrequencies (tokenFrequencies tokens).2) 15 := rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- HLIT is the trimmed literal/length count. -/
+theorem buildDynPlan_hlit (tokens : Array LZToken) :
+    (buildDynPlan tokens).hlit = trimmedSize (buildDynPlan tokens).litLengths 257 := rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- HDIST is the trimmed distance count. -/
+theorem buildDynPlan_hdist (tokens : Array LZToken) :
+    (buildDynPlan tokens).hdist = trimmedSize (buildDynPlan tokens).distLengths 1 := rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The RLE stream is the encoding of the truncated concatenated lengths. -/
+theorem buildDynPlan_rleTokens (tokens : Array LZToken) :
+    (buildDynPlan tokens).rleTokens = rleCodeLengths
+      ((buildDynPlan tokens).litLengths.toList.take (buildDynPlan tokens).hlit ++
+       (buildDynPlan tokens).distLengths.toList.take (buildDynPlan tokens).hdist) := rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The code-length-alphabet lengths come from package-merge over the RLE frequencies. -/
+theorem buildDynPlan_clenLengths (tokens : Array LZToken) :
+    (buildDynPlan tokens).clenLengths =
+      packageMergeLengths (padFrequencies (clenFreqF (buildDynPlan tokens).rleTokens)) 7 := by
+  show (buildDynPlan tokens).clenLengths = _
+  conv => lhs; unfold buildDynPlan
+  simp only [Id.run]
+  rw [forIn_yield_eq_foldl _ (fun (f : Array Nat) (t : Nat × Nat × Nat) =>
+      f.set! t.1 (f[t.1]! + 1)) (fun a s => rfl)]
+  simp only [pure_bind]
+  rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- HCLEN is the permuted trim scan. -/
+theorem buildDynPlan_hclen (tokens : Array LZToken) :
+    (buildDynPlan tokens).hclen = hclenF (buildDynPlan tokens).clenLengths := by
+  have ite_pure_yield : ∀ {c : Prop} [Decidable c] (a b : Nat),
+      (if c then (pure (ForInStep.yield a) : Id (ForInStep Nat)) else pure (ForInStep.yield b)) =
+        pure (ForInStep.yield (if c then a else b)) := by
+    intro c _ a b
+    split <;> rfl
+  have hclen_eq : ∀ (cl : Array Nat),
+      (Id.run do
+        let mut n := 4
+        for i in [0:19] do
+          if cl[clenOrder[i]!]! > 0 then n := max n (i + 1)
+        return n) = hclenF cl := by
+    intro cl
+    simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size, ite_pure_yield,
+      List.forIn_pure_yield_eq_foldl, Id.run, pure_bind, Nat.sub_zero, Nat.div_one,
+      Nat.add_sub_cancel]
+    rfl
+  rw [buildDynPlan_clenLengths]
+  unfold hclenF clenFreqF
+  conv => lhs; unfold buildDynPlan
+  simp only [Id.run, Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
+    ite_pure_yield, List.forIn_pure_yield_eq_foldl, pure_bind, Nat.sub_zero, Nat.div_one,
+    Nat.add_sub_cancel]
+  rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The clen frequency fold keeps its 19 slots. -/
+theorem clenFreqF_size (rle : List (Nat × Nat × Nat)) : (clenFreqF rle).size = 19 := by
+  unfold clenFreqF
+  have hgen : ∀ (l : List (Nat × Nat × Nat)) (f : Array Nat),
+      (l.foldl (fun f t => f.set! t.1 (f[t.1]! + 1)) f).size = f.size := by
+    intro l
+    induction l with
+    | nil => intro f; rfl
+    | cons t l ih =>
+      intro f
+      rw [List.foldl_cons, ih, size_set!]
+  rw [hgen, Array.size_replicate]
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Every RLE token's symbol ends with a positive clen frequency. -/
+theorem clenFreqF_covers (rle : List (Nat × Nat × Nat)) (hb19 : ∀ t ∈ rle, t.1 < 19) :
+    ∀ t ∈ rle, 0 < (clenFreqF rle)[t.1]! := by
+  have hmono : ∀ (l : List (Nat × Nat × Nat)) (f : Array Nat) (i : Nat),
+      f[i]! ≤ (l.foldl (fun f t => f.set! t.1 (f[t.1]! + 1)) f)[i]! := by
+    intro l
+    induction l with
+    | nil => intro f i; exact Nat.le_refl _
+    | cons t l ih =>
+      intro f i
+      have h1 := getElem!_set!_incr f i t.1
+      have h2 := ih (f.set! t.1 (f[t.1]! + 1)) i
+      rw [List.foldl_cons]
+      omega
+  have hsize : ∀ (l : List (Nat × Nat × Nat)) (f : Array Nat),
+      (l.foldl (fun f t => f.set! t.1 (f[t.1]! + 1)) f).size = f.size := by
+    intro l
+    induction l with
+    | nil => intro f; rfl
+    | cons t l ih =>
+      intro f
+      rw [List.foldl_cons, ih, size_set!]
+  have hgen : ∀ (l : List (Nat × Nat × Nat)) (f : Array Nat),
+      (∀ t ∈ l, t.1 < f.size) →
+      ∀ t ∈ l, 0 < (l.foldl (fun f t => f.set! t.1 (f[t.1]! + 1)) f)[t.1]! := by
+    intro l
+    induction l with
+    | nil => intro f _ t ht; simp at ht
+    | cons t0 l ih =>
+      intro f hb t ht
+      rw [List.foldl_cons]
+      rcases List.mem_cons.mp ht with hta | htl
+      · subst hta
+        have hset : 0 < (f.set! t.1 (f[t.1]! + 1))[t.1]! := by
+          rw [getElem!_set!_eq _ _ _ (hb t (by simp))]
+          omega
+        have := hmono l (f.set! t.1 (f[t.1]! + 1)) t.1
+        omega
+      · exact ih (f.set! t0.1 (f[t0.1]! + 1))
+          (fun t' ht' => by rw [size_set!]; exact hb t' (by simp [ht'])) t htl
+  intro t ht
+  unfold clenFreqF
+  exact hgen rle (Array.replicate 19 0)
+    (fun t' ht' => by
+      rw [Array.size_replicate]
+      exact hb19 t' ht') t ht
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `hclenF` bounds. -/
+theorem hclenF_bounds (cl : Array Nat) : 4 ≤ hclenF cl ∧ hclenF cl ≤ 19 := by
+  unfold hclenF
+  refine ⟨trim_fold_ge _ _ _, ?_⟩
+  apply trim_fold_le
+  · omega
+  · intro i hi
+    rw [← List.range_eq_range'] at hi
+    have := List.mem_range.mp hi
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Beyond the HCLEN scan, the permuted lengths are zero. -/
+theorem hclenF_covers (cl : Array Nat) :
+    ∀ i, i < 19 → hclenF cl ≤ i → cl[clenOrder[i]!]! = 0 := by
+  intro i h19 hle
+  rcases Nat.eq_zero_or_pos cl[clenOrder[i]!]! with h0 | hpos
+  · exact h0
+  · exfalso
+    unfold hclenF at hle
+    have := trim_fold_covers (fun i => cl[clenOrder[i]!]!) (List.range' 0 19) 4 i
+      (by rw [← List.range_eq_range']; exact List.mem_range.mpr h19) hpos
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `clenOrder` hits only indices below 19. -/
+theorem clenOrder_lt : ∀ i, i < 19 → clenOrder[i]! < 19 := by decide
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `clenOrder` is injective on its domain. -/
+theorem clenOrder_inj : ∀ i, i < 19 → ∀ j, j < 19 → clenOrder[i]! = clenOrder[j]! → i = j := by
+  decide
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Every code-length index is hit by `clenOrder` (Bool form for kernel decidability). -/
+theorem clenOrder_surj_bool : ∀ j, j < 19 →
+    ((List.range 19).any (fun i => clenOrder[i]! == j)) = true := by decide
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Every code-length index is hit by `clenOrder`. -/
+theorem clenOrder_surj (j : Nat) (hj : j < 19) : ∃ i, i < 19 ∧ clenOrder[i]! = j := by
+  obtain ⟨i, hi, hb⟩ := List.any_eq_true.mp (clenOrder_surj_bool j hj)
+  exact ⟨i, List.mem_range.mp hi, eq_of_beq hb⟩
+
 end Stdlib.Zlib
