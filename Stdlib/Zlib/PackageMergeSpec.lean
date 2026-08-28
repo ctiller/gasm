@@ -536,4 +536,318 @@ theorem itemVal_ghostLevels (leaves : List PMNode)
       rw [hpack, Nat.pow_succ]
       omega
 
+/-
+## Generic finite-sum bookkeeping: pointwise bounds, delta sums, double counting.
+All hand-rolled inductions — this project deliberately uses core Lean only.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Pointwise-zero maps sum to zero. -/
+theorem sum_map_zero {α : Type} (f : α → Nat) : ∀ (l : List α),
+    (∀ x ∈ l, f x = 0) → (l.map f).sum = 0 := by
+  intro l
+  induction l with
+  | nil => intro _; rfl
+  | cons a l ih =>
+    intro h
+    rw [List.map_cons, List.sum_cons, h a (by simp), ih (fun x hx => h x (by simp [hx]))]
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Pointwise-bounded maps have bounded sums. -/
+theorem sum_map_le {α : Type} (f g : α → Nat) : ∀ (l : List α),
+    (∀ x ∈ l, f x ≤ g x) → (l.map f).sum ≤ (l.map g).sum := by
+  intro l
+  induction l with
+  | nil => intro _; exact Nat.le_refl _
+  | cons a l ih =>
+    intro h
+    rw [List.map_cons, List.sum_cons, List.map_cons, List.sum_cons]
+    have h1 := h a (by simp)
+    have h2 := ih (fun x hx => h x (by simp [hx]))
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Sums split over pointwise addition. -/
+theorem sum_map_add {α : Type} (f g : α → Nat) : ∀ (l : List α),
+    (l.map (fun x => f x + g x)).sum = (l.map f).sum + (l.map g).sum := by
+  intro l
+  induction l with
+  | nil => rfl
+  | cons a l ih =>
+    rw [List.map_cons, List.sum_cons, List.map_cons, List.sum_cons, List.map_cons,
+      List.sum_cons, ih]
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Pointwise-equal maps have equal sums. -/
+theorem sum_map_congr {α : Type} (f g : α → Nat) : ∀ (l : List α),
+    (∀ x ∈ l, f x = g x) → (l.map f).sum = (l.map g).sum := by
+  intro l
+  induction l with
+  | nil => intro _; rfl
+  | cons a l ih =>
+    intro h
+    rw [List.map_cons, List.sum_cons, List.map_cons, List.sum_cons, h a (by simp),
+      ih (fun x hx => h x (by simp [hx]))]
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Summing a guarded constant counts the guard. -/
+theorem sum_map_ite_const {α : Type} (p : α → Bool) (v : Nat) : ∀ (l : List α),
+    (l.map (fun x => if p x then v else 0)).sum = l.countP p * v := by
+  intro l
+  induction l with
+  | nil => simp
+  | cons a l ih =>
+    rw [List.map_cons, List.sum_cons, ih, List.countP_cons]
+    by_cases h : p a
+    · rw [if_pos h, if_pos h, Nat.add_mul]
+      omega
+    · rw [if_neg h, if_neg h]
+      simp
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Delta sum over `List.range`: only the hit index contributes. -/
+theorem sum_map_delta_range (v : Nat → Nat) : ∀ (N a : Nat), a < N →
+    ((List.range N).map (fun s => if s = a then v s else 0)).sum = v a := by
+  intro N
+  induction N with
+  | zero => intro a ha; omega
+  | succ N ih =>
+    intro a ha
+    rw [List.range_succ, List.map_append, List.sum_append]
+    rcases Nat.lt_or_ge a N with h | h
+    · rw [ih a h]
+      have hne : ¬ (N = a) := by omega
+      simp [hne]
+    · have haN : a = N := by omega
+      subst haN
+      have hzero : ((List.range a).map (fun s => if s = a then v s else 0)).sum = 0 := by
+        apply sum_map_zero
+        intro x hx
+        have hxa := List.mem_range.mp hx
+        rw [if_neg (by omega)]
+      rw [hzero]
+      simp
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Delta sum over `List.range' 1 W`: only the hit level contributes. -/
+theorem sum_map_delta_range' (v : Nat → Nat) : ∀ (W a : Nat), 1 ≤ a → a ≤ W →
+    ((List.range' 1 W).map (fun j => if j = a then v j else 0)).sum = v a := by
+  intro W
+  induction W with
+  | zero => intro a h1 h2; omega
+  | succ W ih =>
+    intro a h1 h2
+    rw [List.range'_1_concat, List.map_append, List.sum_append]
+    rcases Nat.lt_or_ge a (W + 1) with h | h
+    · rw [ih a h1 (by omega)]
+      have hne : ¬ (1 + W = a) := by omega
+      simp [hne]
+    · have haW : a = 1 + W := by omega
+      have hzero : ((List.range' 1 W).map (fun j => if j = a then v j else 0)).sum = 0 := by
+        apply sum_map_zero
+        intro x hx
+        have hxa := List.mem_range'_1.mp hx
+        rw [if_neg (by omega)]
+      rw [hzero, haW]
+      simp
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- **Double counting**: a sum over annotations regroups as a sum over symbols and levels
+    weighted by multiplicities. -/
+theorem sum_flat_eq_sum_counts (W N : Nat) (f : Nat × Nat → Nat) :
+    ∀ (F : List (Nat × Nat)), (∀ e ∈ F, e.1 < N ∧ 1 ≤ e.2 ∧ e.2 ≤ W) →
+    (F.map f).sum =
+      ((List.range N).map (fun s =>
+        ((List.range' 1 W).map (fun j => F.count (s, j) * f (s, j))).sum)).sum := by
+  intro F
+  induction F with
+  | nil =>
+    intro _
+    rw [List.map_nil, List.sum_nil]
+    symm
+    apply sum_map_zero
+    intro s _
+    apply sum_map_zero
+    intro j _
+    simp
+  | cons e F ih =>
+    intro h
+    have he := h e (by simp)
+    have hF := ih (fun x hx => h x (by simp [hx]))
+    rw [List.map_cons, List.sum_cons, hF]
+    -- split each count into the tail count plus the head indicator
+    have hsplit : ∀ s j, (e :: F).count (s, j) * f (s, j) =
+        F.count (s, j) * f (s, j) + (if e = (s, j) then f e else 0) := by
+      intro s j
+      rw [List.count_cons]
+      by_cases he' : e = (s, j)
+      · rw [if_pos (beq_iff_eq.mpr he'), if_pos he', Nat.add_mul, he']
+        simp
+      · rw [if_neg (fun hcon => he' (eq_of_beq hcon)), if_neg he']
+        simp
+    have houter : ∀ s, ((List.range' 1 W).map (fun j => (e :: F).count (s, j) * f (s, j))).sum =
+        ((List.range' 1 W).map (fun j => F.count (s, j) * f (s, j))).sum +
+          ((List.range' 1 W).map (fun j => if e = (s, j) then f e else 0)).sum := by
+      intro s
+      rw [← sum_map_add]
+      apply sum_map_congr
+      intro j _
+      exact hsplit s j
+    rw [sum_map_congr _ _ _ (fun s _ => houter s), sum_map_add]
+    -- the indicator double sum contributes exactly f e
+    have hdelta : ((List.range N).map (fun s =>
+        ((List.range' 1 W).map (fun j => if e = (s, j) then f e else 0)).sum)).sum = f e := by
+      have hone : ∀ s, ((List.range' 1 W).map (fun j => if e = (s, j) then f e else 0)).sum =
+          if s = e.1 then f e else 0 := by
+        intro s
+        by_cases hs : s = e.1
+        · rw [if_pos hs]
+          have hinner : ∀ j : Nat, (if e = (s, j) then f e else 0) =
+              (if j = e.2 then f e else 0) := by
+            intro j
+            by_cases hj : j = e.2
+            · rw [if_pos hj, if_pos (by rw [hs, hj])]
+            · rw [if_neg hj, if_neg (fun hcon => hj (congrArg Prod.snd hcon).symm)]
+          rw [sum_map_congr _ _ _ (fun j _ => hinner j)]
+          exact sum_map_delta_range' (fun _ => f e) W e.2 he.2.1 he.2.2
+        · rw [if_neg hs]
+          apply sum_map_zero
+          intro j _
+          rw [if_neg (fun hcon => hs (congrArg Prod.fst hcon).symm)]
+      rw [sum_map_congr _ _ _ (fun s _ => hone s)]
+      exact sum_map_delta_range (fun _ => f e) N e.1 he.1
+    rw [hdelta]
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- **Distinct-level value bound**: a 0/1 level-indicator's weighted sum is maximized by
+    the deepest levels, giving `≤ 2^W - 2^(W - count)` — with `count ≤ W` for free. -/
+theorem indicator_sum_bound : ∀ (W : Nat) (c : Nat → Nat), (∀ j, c j ≤ 1) →
+    ((List.range' 1 W).map c).sum ≤ W ∧
+    ((List.range' 1 W).map (fun j => c j * 2 ^ (j - 1))).sum ≤
+      2 ^ W - 2 ^ (W - ((List.range' 1 W).map c).sum) := by
+  intro W
+  induction W with
+  | zero =>
+    intro c _
+    exact ⟨Nat.le_refl _, by simp⟩
+  | succ W ih =>
+    intro c hc
+    obtain ⟨ihl, ihs⟩ := ih c hc
+    rw [List.range'_1_concat, List.map_append, List.sum_append, List.map_append,
+      List.sum_append]
+    have hlast : (([1 + W] : List Nat).map (fun j => c j * 2 ^ (j - 1))).sum
+        = c (1 + W) * 2 ^ W := by
+      have he : 1 + W - 1 = W := by omega
+      simp [he]
+    have hlastc : (([1 + W] : List Nat).map c).sum = c (1 + W) := by
+      simp
+    rw [hlast, hlastc]
+    obtain ⟨l', hl'⟩ : ∃ x, ((List.range' 1 W).map c).sum = x := ⟨_, rfl⟩
+    rw [hl'] at ihl ihs ⊢
+    have hcW := hc (1 + W)
+    rcases Nat.le_one_iff_eq_zero_or_eq_one.mp hcW with h0 | h1
+    · -- the top level is unused
+      rw [h0]
+      refine ⟨by omega, ?_⟩
+      have hpow1 : (2 : Nat) ^ (W + 1 - (l' + 0)) = 2 * 2 ^ (W - l') := by
+        rw [show W + 1 - (l' + 0) = (W - l') + 1 from by omega, Nat.pow_succ]
+        omega
+      have hpow2 : (2 : Nat) ^ (W + 1) = 2 * 2 ^ W := by
+        rw [Nat.pow_succ]
+        omega
+      have hmono : (2 : Nat) ^ (W - l') ≤ 2 ^ W := Nat.pow_le_pow_right (by omega) (by omega)
+      have h2 : (2 : Nat) ^ (W - l') ≥ 1 := Nat.one_le_two_pow
+      omega
+    · -- the top level is used: the bound is exact-tight
+      rw [h1]
+      refine ⟨by omega, ?_⟩
+      have hpow1 : (2 : Nat) ^ (W + 1 - (l' + 1)) = 2 ^ (W - l') := by
+        congr 1
+        omega
+      have hpow2 : (2 : Nat) ^ (W + 1) = 2 * 2 ^ W := by
+        rw [Nat.pow_succ]
+        omega
+      have hmono : (2 : Nat) ^ (W - l') ≤ 2 ^ W := Nat.pow_le_pow_right (by omega) (by omega)
+      have h2 : (2 : Nat) ^ (W - l') ≥ 1 := Nat.one_le_two_pow
+      omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Regrouping per-level counts of one symbol into that symbol's total multiplicity. -/
+theorem count_pairs_sum (W s : Nat) : ∀ (F : List (Nat × Nat)),
+    (∀ e ∈ F, 1 ≤ e.2 ∧ e.2 ≤ W) →
+    ((List.range' 1 W).map (fun j => F.count (s, j))).sum = F.countP (fun e => e.1 == s) := by
+  intro F
+  induction F with
+  | nil =>
+    intro _
+    rw [List.countP_nil]
+    apply sum_map_zero
+    intro j _
+    simp
+  | cons e F ih =>
+    intro h
+    have he := h e (by simp)
+    rw [List.countP_cons, ← ih (fun x hx => h x (by simp [hx]))]
+    have hsplit : ∀ j, (e :: F).count (s, j) =
+        F.count (s, j) + (if e = (s, j) then 1 else 0) := by
+      intro j
+      rw [List.count_cons]
+      by_cases he' : e = (s, j)
+      · rw [if_pos (beq_iff_eq.mpr he'), if_pos he']
+      · rw [if_neg (fun hcon => he' (eq_of_beq hcon)), if_neg he']
+    rw [sum_map_congr _ _ _ (fun j _ => hsplit j), sum_map_add]
+    congr 1
+    by_cases hs : e.1 = s
+    · have hinner : ∀ j : Nat, (if e = (s, j) then 1 else 0) =
+          (if j = e.2 then 1 else 0) := by
+        intro j
+        by_cases hj : j = e.2
+        · rw [if_pos hj, if_pos (by rw [← hs, hj])]
+        · rw [if_neg hj, if_neg (fun hcon => hj (congrArg Prod.snd hcon).symm)]
+      rw [sum_map_congr _ _ _ (fun j _ => hinner j),
+        sum_map_delta_range' (fun _ => 1) W e.2 he.1 he.2]
+      simp [hs]
+    · have hzero : ((List.range' 1 W).map (fun j => if e = (s, j) then 1 else 0)).sum = 0 := by
+        apply sum_map_zero
+        intro j _
+        rw [if_neg (fun hcon => hs (congrArg Prod.fst hcon))]
+      rw [hzero]
+      have : (e.1 == s) = false := by
+        simp [hs]
+      rw [this]
+      simp
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- If an implication holds pointwise and the counts agree, the converse holds pointwise. -/
+theorem countP_eq_of_imp {α : Type} (p q : α → Bool) : ∀ (l : List α),
+    (∀ x ∈ l, p x = true → q x = true) → l.countP p = l.countP q →
+    ∀ x ∈ l, q x = true → p x = true := by
+  intro l
+  induction l with
+  | nil => intro _ _ x hx; simp at hx
+  | cons a l ih =>
+    intro himp hcnt x hx hqx
+    have hmono : l.countP p ≤ l.countP q :=
+      List.countP_mono_left (fun y hy => himp y (by simp [hy]))
+    rw [List.countP_cons, List.countP_cons] at hcnt
+    by_cases hpa : p a = true
+    · have hqa : q a = true := himp a (by simp) hpa
+      rw [if_pos hpa, if_pos hqa] at hcnt
+      have hcnt' : l.countP p = l.countP q := by omega
+      rcases List.mem_cons.mp hx with hxa | hxl
+      · subst hxa
+        exact hpa
+      · exact ih (fun y hy => himp y (by simp [hy])) hcnt' x hxl hqx
+    · rw [if_neg hpa] at hcnt
+      by_cases hqa : q a = true
+      · rw [if_pos hqa] at hcnt
+        omega
+      · rw [if_neg hqa] at hcnt
+        rcases List.mem_cons.mp hx with hxa | hxl
+        · subst hxa
+          exact absurd hqx hqa
+        · exact ih (fun y hy => himp y (by simp [hy])) (by omega) x hxl hqx
+
 end Stdlib.Zlib
