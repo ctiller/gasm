@@ -7,8 +7,8 @@ after: [TC2]
 related: [TC9, TC20]
 bar: ""
 track: wasm
-priority: 8.0
-priority_set: 2026-08-28T00:06:33Z
+priority: 8.6
+priority_set: 2026-08-28T02:00:00Z
 design: inline
 design_review: waived-mechanical
 date: 2026-08-28
@@ -67,3 +67,12 @@ The Wasm differential fuzzer (`Fuzzable.lean:136-158`) generates memory operatio
 ## Notes
 
 - 2026-08-28: Task created following comprehensive codebase security audit finding silent memory growth on OOB writes in `Gasm/Targets/Wasm/Semantics.lean:92`.
+- 2026-08-28 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): priority raised 8.0 → 8.6. The owner's
+  "checked models" clause (alongside "no axioms, strong verification") names this task directly:
+  `docs/ORACLE_DEBT.md` Part 4 flags that every Wasm-target grandfathered/finite-forall proof in the
+  allowlist (Spike1/2/3/5 Wasm entries) is currently a proof about a model this task documents as
+  non-conformant to the real WebAssembly spec — an axiom-free proof of the wrong model is not the
+  trustable state the owner described. `docs/tasks/PA12-wasm-trap-guard-and-leb128-witness.md` and
+  `docs/tasks/PA15-fibonacci-loop-invariant-induction.md` are
+  `related` to this task for exactly that reason (not hard `after` edges, since neither routine they
+  touch performs an out-of-bounds access today).

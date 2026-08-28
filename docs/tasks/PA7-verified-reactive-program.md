@@ -7,8 +7,8 @@ after: [PA5]
 related: []
 bar: ""
 track: proof-arch
-priority: 6.5
-priority_set: 2026-08-27T18:25:47Z
+priority: 8.4
+priority_set: 2026-08-28T02:00:00Z
 design: ""
 design_review: ""
 date: 2026-08-27
@@ -174,6 +174,10 @@ Two concrete downstream consumers depend on this task, per `TASKS.md`'s edges:
 ## Notes
 
 - 2026-08-27: priority 6.5 — VerifiedReactiveProgram inner/outer pairs are required before N5 (Spike4 re-verification) and G9 (Spike7 design) can proceed.
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): priority raised 6.5 → 8.4. Also now a
+  direct prerequisite for `docs/tasks/PA8-law9-migration.md`'s Spike4 slice and
+  `docs/tasks/PA17-spike3-spike4-domain-honesty.md` (6 of the 37 grandfathered entries), both
+  top-priority per the owner's zero-axiom mandate.
 
 _(none yet — first entries append here as work begins; this is Law-5-class proof-architecture
 work — consolidate Notes into a real docs/ design doc before implementation, and route it through a

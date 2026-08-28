@@ -7,8 +7,8 @@ after: [N1]
 related: []
 bar: ""
 track: networking
-priority: 9.0
-priority_set: 2026-08-27T18:25:47Z
+priority: 9.3
+priority_set: 2026-08-28T02:00:00Z
 design: ""
 design_review: ""
 date: 2026-08-27
@@ -217,6 +217,10 @@ need, per N1's own scoping of C3, not the full Win32 surface).
 ## Notes
 
 - 2026-08-27: priority 9.0 — MODEL_DEBT top-10 #1: 'read as the universal binder' is unsound without this — a ∀-read-result contract proven against today's always-maximal-read hook is vacuous; also closes TCB T6 (IAT/loader convention, ranked #6).
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): priority raised 9.0 → 9.3. Already
+  near the top of the frontier; nudged further since it now doubly gates the oracle-debt chain
+  (PA5 → PA6 → PA8/PA17) the owner has named top priority, on top of its original networking-track
+  rationale.
 
 _(none yet — first entries append here as work begins; this is Law-5-class networking-model work
 — consolidate Notes into a real docs/ design doc before implementation, and route it through a

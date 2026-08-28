@@ -7,8 +7,8 @@ after: [PA3, PA4]
 related: [TC14]
 bar: ""
 track: proof-arch
-priority: 6.7
-priority_set: 2026-08-27T18:25:47Z
+priority: 7.8
+priority_set: 2026-08-28T02:00:00Z
 design: ""
 design_review: ""
 date: 2026-08-27
@@ -166,6 +166,10 @@ not documented as a known limitation.
 
 - 2026-08-27: priority 6.7 — VerifiedProgram-as-derived-theorem is where PA3's step lemmas and PA4's capabilities finally compose into the same bytes<->instructions link TC14 builds from the emitter side.
 - 2026-08-27: related: [TC14] — PA9 (VerifiedProgram as a derived theorem from routine contracts + linker facts) and TC14 (the PE-parser/`codeMatches` connection theorem) are the proof-side and emitter-side halves of the same missing link: neither currently connects proven instructions to the bytes that actually ship.
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): priority raised 6.7 → 7.8. Named in
+  `docs/ORACLE_DEBT.md` Part 4 as part of the architecture chain PA17's Spike3/Spike4 domain-honesty
+  closure ultimately wants, though not a hard `after` edge for PA17 itself; raised in proportion to
+  the oracle-debt epic's overall priority without claiming a blocking relationship that isn't there.
 
 _(none yet — first entries append here as work begins; this is Law-5-class proof-architecture
 work — consolidate Notes into a real docs/ design doc before implementation, and route it through a

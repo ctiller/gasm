@@ -7,8 +7,8 @@ after: [PA5, N2]
 related: []
 bar: ""
 track: proof-arch
-priority: 6.8
-priority_set: 2026-08-27T18:25:47Z
+priority: 8.6
+priority_set: 2026-08-28T02:00:00Z
 design: ""
 design_review: ""
 date: 2026-08-27
@@ -159,6 +159,9 @@ so that:
 ## Notes
 
 - 2026-08-27: priority 6.8 — read-binder contract shape is the direct proof-side consumer of N2's short-read model; gates PA8's Law-9 migration.
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): priority raised 6.8 → 8.6. Direct
+  prerequisite for PA8 (8 grandfathered entries covered) and PA17 (8 more, Spike3-Windows/Spike4
+  domain honesty) — both now top-priority per the owner's zero-axiom mandate.
 
 _(none yet — first entries append here as work begins; this is Law-5-class proof-architecture
 work — consolidate Notes into a real docs/ design doc before implementation, and route it through a

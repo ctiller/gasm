@@ -7,8 +7,8 @@ after: [PA2, N2]
 related: [N2]
 bar: ""
 track: proof-arch
-priority: 7.0
-priority_set: 2026-08-27T18:25:47Z
+priority: 8.8
+priority_set: 2026-08-28T02:00:00Z
 design: ""
 design_review: ""
 date: 2026-08-27
@@ -213,6 +213,10 @@ layer up.
 
 - 2026-08-27: priority 7.0 — canonicalizeTrace unblocks PA6, PA7, and (via N2) the whole read-binder proof line — a mid-DAG chokepoint.
 - 2026-08-27: related: [N2] — beyond the existing `after: N2` build-order edge, PA5's causal-stamped observation normal form and N2's short-read model share the same underlying concern (what counts as one observable unit of a read result); flagged here so a fresh agent sees the conceptual overlap, not just the sequencing.
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): priority raised 7.0 → 8.8. This task
+  gates PA6, which gates PA8 (8 grandfathered entries) and PA17 (8 more), per the coverage matrix in
+  `docs/ORACLE_DEBT.md` Part 2 — the owner has named oracle-debt closure the top priority, and this
+  is a mid-DAG chokepoint on the largest single existing-task contribution to it.
 
 _(none yet — first entries append here as work begins; this is Law-5-class proof-architecture
 work — consolidate Notes into a real docs/ design doc before implementation, and route it through a

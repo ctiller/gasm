@@ -7,8 +7,8 @@ after: [TC5]
 related: [PA1]
 bar: ""
 track: trust-core
-priority: 6.5
-priority_set: 2026-08-27T18:25:47Z
+priority: 7.2
+priority_set: 2026-08-28T02:00:00Z
 design: ""
 design_review: ""
 date: 2026-08-27
@@ -167,6 +167,12 @@ not conflate the two tiers in this task's acceptance criteria.
 
 - 2026-08-27: priority 6.5 — connection-theorem linter operationalizes Law 12 tree-wide and gates F6 (zlib-to-infinity); PA1 is its first real test case.
 - 2026-08-27: related: [PA1] — PA1's crc32 pathfinder is explicitly a Law-12 connection-theorem shape (table-driven spec vs. inline per-bit assembly); it is the first real test case TC12's linter should be checked against once both exist.
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): priority raised 6.5 → 7.2. Its
+  known-twins list should also register the gzip-roundtrip duplication between
+  `Stdlib/Zlib/Equivalence.lean` and `Spikes/Spike5Gzip/Equivalence.lean`, and the
+  `bit_reversal_8_involution_inst`/`reverse_bits_8_involutive_inst` duplication, both surfaced by
+  `docs/ORACLE_DEBT.md`'s audit (see `docs/tasks/PA16-codec-roundtrip-universal-soundness.md` and
+  `docs/tasks/PA18-small-domain-decide-migration.md`).
 
 _(none yet — first entries append here as work begins; the connection-theorem registry format
 is new model surface (nothing like it exists yet) and is explicitly named in PLAN.md's Phase-2
