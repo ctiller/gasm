@@ -1,0 +1,39 @@
+# Orphan-Module Reachability Allowlist (scripts/check_orphan_modules.py)
+#
+# Format (one entry per line, `::`-delimited, 5 fields):
+#   <relative-file-path>::<category>::<added-date>::<added-by>::<justification>
+#
+# - <relative-file-path> is the whole tracked `.lean` module being exempted from the
+#   "reachable from a lakefile.toml root" requirement (an exemption applies to a whole
+#   module, like scripts/license_allowlist.txt's per-file entries and unlike
+#   scripts/gate_allowlist.txt's per-declaration ones).
+# - <added-date> is an ISO-8601 date (YYYY-MM-DD); <added-by> identifies who/what
+#   added the entry (a person, or the reviewing agent/tool run).
+# - Justification is free text and may itself contain `::`; the parser splits with a
+#   bounded field count so that never breaks the format.
+#
+# category is one of:
+#   deliberate-standalone - the module is intentionally outside every declared root
+#                            for a recorded, load-bearing reason (e.g. a measured
+#                            build-time cost), and is built by an explicit named
+#                            command rather than through an umbrella. The
+#                            justification must name where that reason is recorded
+#                            and how the module is actually built.
+#   pending-wiring         - a known orphan with an open, named task to wire it in.
+#                            Reported every run, never hidden, never silently
+#                            exempted from the count. Migration backlog, not a
+#                            permanent exemption.
+#
+# A line with any other field count, an unknown category, an empty path, an empty
+# justification, or a duplicate path is a hard parse failure, never a silently-skipped
+# line. A STALE entry -- one whose file is no longer orphaned, or no longer a tracked
+# `.lean` file -- is also a hard failure: a standing exemption for a defect that is
+# gone is a pre-authorization for its return.
+#
+# Do not widen this file to reach green. Every allowlist in this repository is either
+# empty or fully justified, and that property is worth more than a green run. The
+# defect class this gate exists to catch (see the script's module docstring: three
+# instances, one of which shipped 671 lines of proof that nothing compiled) is
+# precisely the class that a casually-widened allowlist would let back in.
+
+Gasm/Targets/X86_64/RoundtripGate/DispatchExhaustive.lean::deliberate-standalone::2026-08-28::orphan-gate author (Law 13 ratchet)::Kept out of every umbrella by an explicit, measured design decision recorded in docs/TARGETS/X86_64.md ("Drift from the original sketch: DispatchExhaustive.lean is deliberately *not* wired into the default Gasm build") and docs/tasks/B3-stage-b-decoder-modularization.md's Notes. Exhaustively kernel-checking the real dispatcher against all ~1611 registered witnesses costs ~100s of wall time by itself; wiring it into RoundtripGate.lean's aggregator (which Registry.lean, and so Gasm, imports) measured a single-family edit's rebuild cascade going from 14 modules / ~30s to 15 modules / ~177s -- worse than the pre-Stage-B baseline of 39 modules / ~130s on the wall-time metric Stage B exists to improve. The module is a complete, zero-sorry, zero-new-axiom proof and is built directly by `lake build Gasm.Targets.X86_64.RoundtripGate.DispatchExhaustive`. NAMED, NOT PAPERED OVER: that command is what X86_64.md calls "recommended as an explicit CI step, not yet wired as one", and it is still not wired into .github/workflows/ or lakefile.toml's defaultTargets, so this proof is not in fact checked by any CI run today. That is a real open gap in the B3 follow-up list, distinct from the orphan class this gate enforces (which is "no build root can ever reach it"; here a named root command exists and is deliberately unwired for cost). This entry exempts the module from umbrella reachability only; it does not assert the proof is being checked.

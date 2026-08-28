@@ -180,6 +180,17 @@ jobs:
         shell: pwsh
         run: python scripts/check_doc_facade.py
 
+      # Law 13 ratchet for a defect class that has now shipped three times (the
+      # script's module docstring names all three commits): a committed `.lean`
+      # file that no lakefile.toml root reaches transitively, so `lake build`
+      # never compiles it and nothing checks any proof inside it -- including
+      # `lake exe check_gates_axioms` above, whose environment walk only sees the
+      # umbrella closure. Needs no build of its own: it reads lakefile.toml's
+      # declared roots and the tracked tree's import edges, nothing else.
+      - name: Orphan-module reachability gate (Law 13)
+        shell: pwsh
+        run: python scripts/check_orphan_modules.py
+
       - name: Roundtrip properties
         shell: pwsh
         run: lake exe test_roundtrip
@@ -451,6 +462,13 @@ jobs:
       - name: Doc-facade linter (TC21)
         shell: bash
         run: python scripts/check_doc_facade.py
+
+      # See the Windows job above for this gate's full rationale (Law 13; three
+      # shipped instances of the class). Run on both platforms because it is
+      # pure Python over `git ls-files` plus lakefile.toml and costs ~1s.
+      - name: Orphan-module reachability gate (Law 13)
+        shell: bash
+        run: python scripts/check_orphan_modules.py
 
       - name: Roundtrip properties
         shell: bash

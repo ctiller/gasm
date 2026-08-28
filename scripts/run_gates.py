@@ -439,6 +439,17 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "docs/REVIEW.md naming a script/lake-exe gate that is missing or not wired into "
                  "this table (the check_licenses.py-was-never-wired-in shape, found this week)",
          "cmd": [py, "scripts/check_doc_facade.py"], "slow": False, "tools": ["python"]},
+        {"key": "check_orphan_modules", "desc": "python scripts/check_orphan_modules.py",
+         "long": "Law 13 ratchet: every tracked .lean file must be reachable, transitively, from "
+                 "a root lakefile.toml declares. An orphan is a committed file that `lake build` "
+                 "never compiles, so no proof, `sorry` or axiom inside it is checked by anything "
+                 "-- including by check_gates_axioms above, whose environment walk only sees the "
+                 "umbrella closure. Three shipped instances of this class (d5c1171, 7414099, "
+                 "Stdlib/Zlib/CanonicalTableSpec.lean) are what made it a gate; the script's "
+                 "module docstring has the full specification, including why the roots are "
+                 "derived from lakefile.toml rather than hardcoded and why enumeration is "
+                 "`git ls-files` rather than a filesystem walk. Needs no build.",
+         "cmd": [py, "scripts/check_orphan_modules.py"], "slow": False, "tools": ["python"]},
         {"key": "test_roundtrip", "desc": "lake exe test_roundtrip",
          "long": "x86-64 decode/encode roundtrip suite (registry gate's ~21 native_decide shards "
                  "are compiled into lake build itself, not re-invoked here)",
