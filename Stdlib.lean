@@ -58,6 +58,7 @@ import Stdlib.Fmt.Roundtrip
 import Stdlib.Zlib
 import Stdlib.Gzip
 import Stdlib.Png
+import Stdlib.Png.RoundtripSoundness
 
 
 
