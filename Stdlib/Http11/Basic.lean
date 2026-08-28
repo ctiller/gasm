@@ -575,4 +575,84 @@ theorem all_not_crlf_of_all_isFieldValueByte {bs : List UInt8}
     (h : bs.all isFieldValueByte = true) : ∀ b ∈ bs, b ≠ CR ∧ b ≠ LF :=
   fun b hb => isFieldValueByte_not_crlf (List.all_eq_true.mp h b hb)
 
+
+/- REF: docs/STDLIB_HTTP11.md#24-token-and-field-value-character-classes -/
+/-- A `tchar` byte is never `SP` -- needed so a method or header-name's wire bytes never
+    themselves contain the delimiter used to split them out. -/
+theorem isTChar_ne_sp {b : UInt8} (h : isTChar b = true) : b ≠ SP := by
+  unfold isTChar at h; intro hc; subst hc; exact absurd h (by decide)
+
+/- REF: docs/STDLIB_HTTP11.md#24-token-and-field-value-character-classes -/
+/-- A `tchar` byte is never `:` -- needed so a header-name's wire bytes never themselves
+    contain the delimiter `splitHeaderLine` scans for. -/
+theorem isTChar_ne_colon {b : UInt8} (h : isTChar b = true) : b ≠ COLON := by
+  unfold isTChar at h; intro hc; subst hc; exact absurd h (by decide)
+
+/- REF: docs/STDLIB_HTTP11.md#24-token-and-field-value-character-classes -/
+/-- A visible-US-ASCII byte is never `SP` -- needed so a request-target's wire bytes never
+    themselves contain the delimiter used to split it out. -/
+theorem isVChar_ne_sp {b : UInt8} (h : isVChar b = true) : b ≠ SP := by
+  unfold isVChar at h; intro hc; subst hc; exact absurd h (by decide)
+
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
+/-- Bridges a digit byte's `UInt8` range facts to `Nat`, via `UInt8.le_iff_toNat_le` -- `omega`
+    does not natively relate `UInt8` comparisons to the literal `Nat` values they denote. -/
+theorem digit_range_toNat {b : UInt8} (h1 : 0x30 ≤ b) (h2 : b ≤ 0x39) :
+    48 ≤ b.toNat ∧ b.toNat ≤ 57 := by
+  constructor
+  · have := UInt8.le_iff_toNat_le.mp h1; simpa using this
+  · have := UInt8.le_iff_toNat_le.mp h2; simpa using this
+
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
+/-- Every digit byte is visible US-ASCII -- needed so `Content-Length`'s digits pass the
+    header field-value character class. -/
+theorem digit_is_vchar {b : UInt8} (h1 : 0x30 ≤ b) (h2 : b ≤ 0x39) : isVChar b = true := by
+  obtain ⟨hlo, hhi⟩ := digit_range_toNat h1 h2
+  unfold isVChar
+  have g1 : b ≥ (0x21 : UInt8) := by rw [ge_iff_le, UInt8.le_iff_toNat_le]; simp; omega
+  have g2 : b ≤ (0x7E : UInt8) := by rw [UInt8.le_iff_toNat_le]; simp; omega
+  simp [g1, g2]
+
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
+/-- Every digit byte is neither `SP` nor `HTAB` -- needed so `Content-Length`'s digits satisfy
+    `noOwsEdges`. -/
+theorem digit_ne_sp_htab {b : UInt8} (h1 : 0x30 ≤ b) (h2 : b ≤ 0x39) : b ≠ SP ∧ b ≠ HTAB := by
+  obtain ⟨hlo, hhi⟩ := digit_range_toNat h1 h2
+  constructor
+  · intro hc; subst hc; unfold SP at hlo hhi; simp at hlo hhi
+  · intro hc; subst hc; unfold HTAB at hlo hhi; simp at hlo hhi
+
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
+theorem natToDigitBytes_ne_nil (n : Nat) : natToDigitBytes n ≠ [] := by
+  unfold natToDigitBytes; split <;> simp
+
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
+/-- `Content-Length`'s digits always satisfy the header field-value character class -- one of
+    the two `writeContentLengthLine` round-trip obligations. -/
+theorem natToDigitBytes_validFieldValue (n : Nat) : validFieldValue (natToDigitBytes n) = true := by
+  unfold validFieldValue
+  apply List.all_eq_true.mpr
+  intro b hb
+  obtain ⟨hlo, hhi⟩ := natToDigitBytes_range n b hb
+  unfold isFieldValueByte
+  simp [digit_is_vchar hlo hhi]
+
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
+/-- `Content-Length`'s digits never have a leading/trailing `SP`/`HTAB` -- the other
+    `writeContentLengthLine` round-trip obligation. -/
+theorem natToDigitBytes_noOwsEdges (n : Nat) : noOwsEdges (natToDigitBytes n) = true := by
+  unfold noOwsEdges
+  have hne := natToDigitBytes_ne_nil n
+  cases hh : (natToDigitBytes n).head? with
+  | none => exact absurd (List.head?_eq_none_iff.mp hh) hne
+  | some b0 =>
+    cases hl : (natToDigitBytes n).getLast? with
+    | none => exact absurd (List.getLast?_eq_none_iff.mp hl) hne
+    | some b1 =>
+      obtain ⟨hb0lo, hb0hi⟩ := natToDigitBytes_range n b0 (List.mem_of_mem_head? hh)
+      obtain ⟨hb1lo, hb1hi⟩ := natToDigitBytes_range n b1 (List.mem_of_getLast? hl)
+      have e0 := digit_ne_sp_htab hb0lo hb0hi
+      have e1 := digit_ne_sp_htab hb1lo hb1hi
+      simp [e0.1, e0.2, e1.1, e1.2]
+
 end Stdlib.Http11
