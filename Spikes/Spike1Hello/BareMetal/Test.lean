@@ -18,6 +18,7 @@ import Lean
 import Gasm.Effects.Trace
 import Gasm.Targets.BareMetal.Device
 import Gasm.Targets.BareMetal.Executable
+import Gasm.Targets.BareMetal.QEMU
 import Spikes.Spike1Hello.Spec
 import Spikes.Spike1Hello.BareMetal.Program
 import Spikes.Spike1Hello.BareMetal.Equivalence
@@ -31,7 +32,8 @@ open Spikes.Spike1Hello.BareMetal
 /-- CLI Test Target: Verifies Bare Metal x86-64 execution via in-Lean trace checking and QEMU hardware runner.
     Exit codes: `0` = in-Lean check passed AND QEMU executed and verified the binary;
     `1` = verification failure (in-Lean mismatch or QEMU output mismatch);
-    `2` = QEMU not found on PATH. -/
+    `2` = QEMU not found (see `findQemuPath`: `GASM_QEMU` env var, PATH, or standard
+    install locations). -/
 def main : IO UInt32 := do
   IO.println "[*] 1. In-Lean Formal Verification..."
   let inLeanTrace := runBareMetalTrace spike1BareMetalInstructions spike1BareMetalExecutable.load
@@ -47,9 +49,19 @@ def main : IO UInt32 := do
   if !(← (System.FilePath.mk elfPath).pathExists) then
     IO.FS.writeBinFile elfPath (emitVerifiedBareMetalExecutable spike1VerifiedBareMetalProgram)
 
+  -- Resolution order (see Gasm.Targets.BareMetal.findQemuPath): explicit GASM_QEMU env var,
+  -- then PATH, then standard Windows/Linux install locations. `none` means the oracle is
+  -- genuinely absent -- reported as exit 2 (hardware validation did NOT run), never silently
+  -- treated as a pass, per docs/SPIKES.md §4 item 5's honest-runner convention.
+  match ← findQemuPath with
+  | none =>
+    IO.println "[!] SKIP: qemu-system-x86_64 not found (checked GASM_QEMU, PATH, and standard install locations)."
+    IO.println "    Host-runtime QEMU validation did NOT run. The in-Lean formal trace check above passed, but external QEMU validation was skipped."
+    return 2
+  | some qemuPath =>
   try
     let child ← IO.Process.spawn {
-      cmd := "qemu-system-x86_64"
+      cmd := qemuPath
       args := #["-kernel", elfPath, "-serial", "stdio", "-display", "none", "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"]
       stdout := .piped
       stderr := .piped
@@ -72,6 +84,6 @@ def main : IO UInt32 := do
       IO.println s!"    Exit Code: {exitCode} (expected 1)"
       return 1
   catch e =>
-    IO.println s!"[!] SKIP: Could not launch qemu-system-x86_64: {e}"
+    IO.println s!"[!] SKIP: Could not launch {qemuPath}: {e}"
     IO.println "    Host-runtime QEMU validation did NOT run. The in-Lean formal trace check above passed, but external QEMU validation was skipped."
     return 2

@@ -265,6 +265,56 @@ def detect_nasm() -> Dict:
                       "Install NASM or set GASM_NASM to its full path."}
 
 
+def detect_qemu() -> Dict:
+    """Mirrors detect_nasm()'s resolution order, applied to Gasm/Targets/BareMetal/QEMU.lean's
+    `findQemuPath`: GASM_QEMU override -> PATH -> standard Windows install location (winget's
+    default, `C:\\Program Files\\qemu\\qemu-system-x86_64.exe`) -> standard Linux package-manager
+    location (`/usr/bin/qemu-system-x86_64`, where `apt-get install qemu-system-x86` puts it).
+    Same explicit-override-does-not-fall-through divergence as detect_nasm(), for the same
+    reason: a broken GASM_QEMU must be reported as NOT FOUND, never silently substituted by a
+    different, working qemu-system-x86_64 this detector happened to also find -- that would be a
+    false provenance record for what test_spike1_baremetal will actually invoke.
+    Required by test_spike1_baremetal (Spikes/Spike1Hello/BareMetal/Test.lean), the QEMU hardware
+    runner for the bare-metal x86-64 target -- see docs/TARGETS/BARE_METAL.md §7."""
+    override = os.environ.get("GASM_QEMU")
+    if override:
+        code, out = _run_capture([override, "--version"])
+        if code == 0:
+            banner = (out or "").strip().splitlines()[0] if out else ""
+            return {"name": "qemu", "found": True, "path": override, "version": banner,
+                    "detail": f"resolved to {override} (via GASM_QEMU override)"}
+        return {"name": "qemu", "found": False, "path": None, "version": None,
+                "detail": f"GASM_QEMU={override!r} is set but did not respond to `--version` "
+                          f"(returncode={code}); NOT falling through to another candidate -- "
+                          "an explicit, broken override must abort, not silently substitute a "
+                          "different QEMU than the one the gate would actually be told to use."}
+
+    candidates: List[str] = []
+    which_qemu = shutil.which("qemu-system-x86_64") or shutil.which("qemu-system-x86_64.exe")
+    if which_qemu:
+        candidates.append(which_qemu)
+    candidates.append(r"C:\Program Files\qemu\qemu-system-x86_64.exe")
+    candidates.append(r"C:\Program Files (x86)\qemu\qemu-system-x86_64.exe")
+    candidates.append("/usr/bin/qemu-system-x86_64")
+
+    tried = []
+    for cand in candidates:
+        if cand in tried:
+            continue
+        tried.append(cand)
+        code, out = _run_capture([cand, "--version"])
+        if code == 0:
+            banner = (out or "").strip().splitlines()[0] if out else ""
+            return {"name": "qemu", "found": True, "path": cand, "version": banner,
+                    "detail": f"resolved to {cand}"}
+    return {"name": "qemu", "found": False, "path": None, "version": None,
+            "detail": "qemu-system-x86_64 not found on PATH, GASM_QEMU, or any standard install "
+                      f"location (tried: {', '.join(tried) if tried else '<none>'}); required by "
+                      "test_spike1_baremetal's hardware runner "
+                      "(Gasm/Targets/BareMetal/QEMU.lean). Install QEMU or set GASM_QEMU to its "
+                      "full path."}
+
+
 def detect_cadical() -> Dict:
     """Resolves the SAT solver `bv_decide` actually invokes (TCB T14), mirroring Lean's own
     `determineSolver` (`Lean/Meta/Tactic/BVDecide/TacticContext.lean`): prefer `cadical.exe`
@@ -320,6 +370,7 @@ PREREQ_DETECTORS = {
     "lean": detect_lean,
     "node": detect_node,
     "nasm": detect_nasm,
+    "qemu": detect_qemu,
     "cadical": detect_cadical,
 }
 
@@ -418,8 +469,12 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
          "long": "emits spike1_hello_baremetal.elf -- prerequisite artifact for test_spike1_baremetal below",
          "cmd": [lake, "exe", "spike1_hello_baremetal"], "slow": False, "tools": ["lean"]},
         {"key": "test_spike1_baremetal", "desc": "lake exe test_spike1_baremetal",
-         "long": "Spike 1 (Hello World) Bare Metal target test (in-Lean trace + QEMU execution)",
-         "cmd": [lake, "exe", "test_spike1_baremetal"], "slow": False, "tools": ["lean"]},
+         "long": "Spike 1 (Hello World) Bare Metal target test (in-Lean trace + QEMU execution); "
+                 "requires the qemu prerequisite (see detect_qemu()) so a missing QEMU aborts "
+                 "this run rather than being reported as an ordinary gate FAIL indistinguishable "
+                 "from a real verification defect -- consistent with how nasm/node are enforced "
+                 "for encoding_fuzzer/wasm_fuzzer above.",
+         "cmd": [lake, "exe", "test_spike1_baremetal"], "slow": False, "tools": ["lean", "qemu"]},
         {"key": "spike2_fibonacci_windows", "desc": "lake exe spike2_fibonacci_windows",
          "long": "emits fib.exe -- prerequisite artifact for test_spike2_windows below",
          "cmd": [lake, "exe", "spike2_fibonacci_windows"], "slow": False, "tools": ["lean"]},

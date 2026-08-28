@@ -231,6 +231,17 @@ jobs:
       # cannot give a trustworthy cycle-count signal. It stays a local and
       # (once available) vendor-hardware-runner gate, not a hosted-runner one.
 
+      # test_spike1_baremetal (the bare-metal x86-64 target's QEMU hardware
+      # runner, docs/TARGETS/BARE_METAL.md) is deliberately NOT invoked on
+      # this job either -- it runs on the Linux job instead (see that job's
+      # "Install QEMU" step for the full rationale). QEMU emulates the guest
+      # ELF64 identically regardless of host OS, so which host runs it does
+      # not change what's being verified; Chocolatey's `qemu` package on
+      # Windows is a much larger install (full GUI/SDL stack) than apt's
+      # headless `qemu-system-x86` for a runner that only ever passes
+      # `-display none`. One platform closing this loop is sufficient
+      # evidence, so it is not duplicated here.
+
       - name: Emit Spike 1 (Windows PE) -- required before test_spike1_windows
         if: github.event_name != 'push'
         shell: pwsh
@@ -342,6 +353,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nasm
 
+      # qemu-system-x86_64 is the hardware runner for the bare-metal x86-64 target
+      # (docs/TARGETS/BARE_METAL.md §7, test_spike1_baremetal). It goes on the Linux
+      # job, not Windows: it emulates a flat-physical-memory x86-64 guest regardless
+      # of host OS, so which host runs it doesn't change what's being verified, and
+      # `apt-get install qemu-system-x86` is a small, fast package here versus
+      # Chocolatey's much larger `qemu` package on Windows (it pulls in a full GUI
+      # stack this headless `-display none` runner never touches). One platform
+      # running it is sufficient evidence; see Gasm/Targets/BareMetal/QEMU.lean's
+      # findQemuPath for the GASM_QEMU-override / PATH / standard-location
+      # resolution this step's install location satisfies.
+      - name: Install QEMU (bare-metal x86-64 target's hardware runner)
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+
       - name: Record oracle versions (TCB T9 -- pin & record, never drift silently)
         shell: bash
         run: |
@@ -350,6 +377,7 @@ jobs:
           node --version
           python3 --version
           nasm -v
+          qemu-system-x86_64 --version
 
       - name: lake build (all defaultTargets, 380 jobs)
         shell: bash
@@ -461,6 +489,18 @@ jobs:
         if: github.event_name != 'push'
         shell: bash
         run: lake exe test_spike2_wasm
+
+      # Bare-metal x86-64 target (docs/TARGETS/BARE_METAL.md): unlike the Windows PE
+      # spikes, this one genuinely EXECUTES here, not just emits -- QEMU emulates the
+      # ELF64 guest directly, no host-native loader involved, so Linux closes this
+      # loop completely rather than emit-only (contrast with the Windows-PE emit
+      # steps below). Test.lean self-emits spike1_hello_baremetal.elf if missing, so
+      # no separate emit step is needed (unlike Spike 1/2's Windows PE ordering trap,
+      # docs/CI.md #7).
+      - name: "Spike 1 -- Bare Metal x86-64 QEMU execution (oracle: qemu-system-x86_64)"
+        if: github.event_name != 'push'
+        shell: bash
+        run: lake exe test_spike1_baremetal
 
       # Spike emitters (write PE bytes to a file; no execution) still run
       # here for signal that the emission code path itself doesn't fault,
