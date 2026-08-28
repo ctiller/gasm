@@ -77,7 +77,7 @@ theorem fib_iter_asm_soundness (n : Nat) (hn : n ≤ 124) :
 theorem spike2_canonical_effect_trace_equivalence :
     (runAsmTrace (Event := AnyEvent) spike2Instructions spike2Executable.load ==
      runModelTrace (fibonacciSpec : TraceM AnyEvent Unit)) = true := by
-  decide +kernel
+  native_decide
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/

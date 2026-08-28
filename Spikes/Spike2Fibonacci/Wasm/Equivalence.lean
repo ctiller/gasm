@@ -53,7 +53,7 @@ theorem fib_iter_wasm_soundness :
 theorem spike2_wasm_canonical_effect_trace_equivalence :
     (runWasiTrace spike2WasmInstructions spike2DataSegments ==
      runModelTrace (fibonacciWasmSpec : TraceM AnyEvent Unit)) = true := by
-  decide +kernel
+  native_decide
 
 -- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witness (see the identical
 -- check and its rationale in Spikes/Spike1Hello/Wasm/Equivalence.lean): proves the actual Spike 2

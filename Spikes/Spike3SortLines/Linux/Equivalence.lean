@@ -62,13 +62,13 @@ def modelTraceCanonical : List AnyEvent :=
 /-- Constructive proof of semantic trace equivalence between high-level sorting spec and lowered machine execution on canonical input. -/
 theorem spike3_canonical_effect_trace_equivalence_inst :
     (asmTraceCanonical == modelTraceCanonical) = true := by
-  decide
+  native_decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive proof of semantic trace equivalence on empty input. -/
 theorem spike3_empty_effect_trace_equivalence_inst :
     (runAsmTrace (Event := AnyEvent) spike3Instructions spike3Executable.load == modelTraceEmpty) = true := by
-  decide
+  native_decide
 
 /- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
 /-- Loader instance for Bool environment on Linux. -/
