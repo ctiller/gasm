@@ -1,0 +1,187 @@
+# Stdlib.Http11 — A Proof-Carrying HTTP/1.1 Message Parser and Writer
+
+## 1. Overview & Scope
+
+`Stdlib/Http11/` is a small, total, proof-carrying HTTP/1.1 message library: a structured
+request/response type, a byte-string parser (`Except Http11.Error _`), and a canonical byte
+writer, together with a machine-checked roundtrip theorem connecting them. It exists to close a
+real defect class: `Spikes/Spike4HttpServer`'s per-target assembly lowerings performed ad-hoc,
+inline byte comparisons to route requests (a fixed-offset 5-byte immediate compare against
+`"/stat"` on Windows/Linux x86_64, a single-byte compare against `'s'` on Wasm), so `GET /static`
+matched the `/status` route and returned its 200 response instead of a 404. No parser, no
+structured request-target, and no theorem meant that class of bug had no proof obligation to
+violate. This library gives request/response parsing a real type and a real theorem so a
+transposed offset or a truncated prefix comparison becomes a proof failure, not a silent
+misroute.
+
+### 1.1 What This Library Models
+
+Request-line and status-line parsing/writing, header-field parsing/writing, and a
+`Content-Length`-declared message body, for the origin-form request-target shape (`"/" path
+["?" query]`) and a fixed `HTTP/1.1` version token. `Method` is a closed enumeration of the nine
+registered HTTP methods (`GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `CONNECT`, `OPTIONS`, `TRACE`,
+`PATCH`) — sufficient for a routing server, and closed so the roundtrip theorem needs no token
+grammar for it. Header field names and values are restricted to the `tchar` token grammar and
+visible-US-ASCII field-content respectively (§2.4) — a conservative, decidable subset of what
+RFC 9112 permits.
+
+### 1.2 Deliberate Omissions
+
+Not modeled, and rejected rather than silently mishandled: `Transfer-Encoding: chunked` (only a
+declared `Content-Length` body is supported — a request/response with no body has an implicit
+zero-length body, i.e. the writer always emits `Content-Length`, never omits it), HTTP/1.0 and
+HTTP/2, absolute-form / authority-form / asterisk-form request-targets (origin-form only),
+obs-fold header continuation lines, obs-text (bytes 0x80–0xFF) in field values, and trailers.
+Each of these is an explicit parse error (`Http11.Error`, §3.1), never a hang and never a silent
+accept — the honest posture for code that parses untrusted network input. This is a real, named
+scope limit, not a hidden gap: a future extension that adds any of these needs new grammar and a
+re-proof of the roundtrip theorem, not a loosening of an existing check.
+
+## 2. Wire Grammar
+
+### 2.1 Request Line
+
+`method SP request-target SP "HTTP/1.1" CRLF`. `request-target` is origin-form: a non-empty byte
+sequence whose first byte is `'/'` and whose every byte is visible US-ASCII (§2.4) — this
+excludes the space and CR/LF bytes that would otherwise make the request-line ambiguous to split,
+so target validity is exactly what makes splitting the line on single space bytes total and
+unambiguous.
+
+### 2.2 Status Line
+
+`"HTTP/1.1" SP status-code SP reason-phrase CRLF`. `status-code` is exactly three decimal digits,
+100–599. `reason-phrase` is a (possibly empty) run of visible-US-ASCII-or-space bytes with no
+leading/trailing whitespace, same grammar as a header field-value (§2.4).
+
+### 2.3 Header Fields
+
+Zero or more `field-name ":" SP field-value CRLF` lines, each written and parsed independently
+(no header-value list folding, no combining of repeated field names), followed by the header
+section terminator `CRLF` (the "blank line"). `field-name` is a `tchar` token (§2.4);
+`field-value` has no leading/trailing space or horizontal tab and contains no CR or LF byte.
+
+### 2.4 Token And Field-Value Character Classes
+
+`tchar` (used for `Method` names and header field names): `DIGIT`, `ALPHA`, and
+`` !#$%&'*+-.^_`|~ ``. Visible US-ASCII (used for the request-target and, together with SP/HTAB,
+header field-values): bytes 0x21–0x7E inclusive. Header field-values additionally permit internal
+SP (0x20) and HTAB (0x09) bytes, but never as the first or last byte of the value — the same "no
+leading/trailing OWS in the canonical form" rule a writer needs to make its output re-parse to
+itself.
+
+### 2.5 Message Body And Content-Length
+
+The writer always synthesizes exactly one `Content-Length` header from the structured value's own
+`body : ByteArray` field — it is never supplied by the caller as an ordinary header (a structured
+`Request`/`Response` value's header list is invariant-checked to contain no `content-length`
+header, case-insensitively), so there is exactly one source of truth for body length and no
+possibility of a mismatched or duplicated `Content-Length`. The parser reads headers until the
+blank line, extracts and removes the (exactly one, required) `content-length` header from the
+parsed list to recover the declared length `n`, then requires exactly `n` bytes to remain after
+the blank line — not fewer (truncated body), not more (trailing garbage past a declared length is
+rejected, not silently accepted as part of the next message).
+
+## 3. Parser Behavior
+
+### 3.1 Error Taxonomy
+
+`Http11.Error` names each rejection reason precisely: `headersNotTerminated` (no `CRLF CRLF` blank
+line found — includes a request truncated mid-headers), `malformedRequestLine` /
+`malformedStatusLine` (wrong field count when splitting on space), `unknownMethod`,
+`invalidTarget`, `unsupportedVersion`, `malformedHeaderLine` (no `": "` separator),
+`invalidHeaderName`, `invalidHeaderValue`, `missingContentLength`, `duplicateContentLength`,
+`malformedContentLength` (non-digit or empty value), `bodyLengthMismatch` (declared length does
+not match the bytes actually remaining), `invalidStatusCode`, `invalidReasonPhrase`. Every
+rejection is total and immediate — the parser is built entirely from structurally recursive
+functions over `List UInt8` (never `partial def`), so it terminates on every input, well-formed or
+adversarial, with no possibility of a hang.
+
+### 3.2 Rejected Input
+
+Concretely, and non-exhaustively: a request line with the wrong number of space-separated fields
+(`"GET / HTTP/1.1 extra\r\n..."`, `"GET /\r\n..."`); a method outside the nine registered tokens;
+a request-target that is empty, does not start with `/`, or contains a space/CR/LF; any version
+token other than the literal `HTTP/1.1`; a header line with no `": "` separator or an empty name;
+a header value with leading/trailing whitespace embedded improperly; two headers both named
+`content-length` (case-insensitively); a missing `Content-Length` header; a non-numeric or empty
+`Content-Length` value; a body shorter or longer than the declared `Content-Length`; input with no
+`CRLF CRLF` blank line at all. See `Stdlib/Http11/Test.lean` for a concrete regression vector per
+case.
+
+## 4. Writer / Canonical Serialization
+
+`writeRequest` / `writeResponse` produce exactly one canonical byte string per structured value:
+start line, each header field in list order as `name ": " value CRLF`, the synthesized
+`Content-Length` header, the blank line, then the body bytes verbatim. There is no other
+serialization this library ever produces for a given structured value — "canonical" here means
+literally deterministic, not merely RFC-conformant.
+
+## 5. Formal Theorems
+
+### 5.1 Write-Then-Parse Roundtrip Theorems
+
+`Stdlib.Http11.request_roundtrip : ∀ (r : Request), parseRequest (writeRequest r) = .ok r` and
+the corresponding `response_roundtrip` for `Response`, universally quantified over every
+structured value the (proof-carrying) `Request`/`Response` types can express — not a
+`native_decide` check over sample literals. This is the honest direction: writing produces
+canonical bytes, and parsing recovers exactly the value that produced them.
+`write (parse b) = b` is not claimed and is false in general for HTTP (header case, optional
+whitespace, and header order all admit multiple byte-strings for one structured value) — see
+`docs/STDLIB_ZLIB.md#63-canonical-15-roundtrip-soundness-theorems` for the same distinction drawn
+for the zlib/gzip codecs this library's proof style follows.
+
+### 5.2 Parse-Reencode Stability Theorems
+
+`Stdlib.Http11.request_parse_reencode_stable : ∀ (b : ByteArray) (r₁ r₂ : Request), parseRequest b
+= .ok r₁ → parseRequest (writeRequest r₁) = .ok r₂ → r₁ = r₂` (and `response_parse_reencode_stable`
+likewise) range over *every* byte string, not just ones produced by the writer — including
+malformed, adversarial, or ambiguous input. This is the theorem that would catch a lossy parser:
+one that accepts `b`, discards information the writer cannot reproduce, and so reparses its own
+canonical rewrite into a different value. It is proved here as a direct corollary of §5.1's
+universal roundtrip theorem plus the parser's own determinism (both are pure functions of their
+input): instantiating §5.1 at `r₁` gives `parseRequest (writeRequest r₁) = .ok r₁` unconditionally,
+which the second hypothesis (`... = .ok r₂`) then forces to equal `.ok r₂` by injectivity of
+`Except.ok`. §5.1 is therefore this theorem's non-vacuity floor exactly as intended: on its own,
+§5.2 would be satisfiable by a parser that always returns `.error` (the hypothesis `parseRequest b
+= .ok r₁` would simply never fire), but §5.1 independently forbids that parser, since it requires
+`writeRequest r` to parse successfully for every `r`. Both are stated and proved, never one
+without the other.
+
+## 6. Spike4 Migration
+
+### 6.1 The Routing Defect This Library Makes Unrepresentable
+
+The defect (§1) was a byte-offset assumption baked directly into hand-written assembly with no
+structured request-target to check against and no proof that the comparison implemented "does the
+target equal `/status`" rather than "do the target's first five bytes equal `/stat`". Routing
+through `Stdlib.Http11.parseRequest` and matching on the resulting `Request.target` (a validated,
+whole-value comparison, not a fixed-width prefix load) makes the transposed-length/truncated-match
+shape of bug impossible to reintroduce at the call site that uses this library: there is no
+"compare N bytes at a fixed offset" step left to get wrong, because the target is already a
+complete, parsed value by the time routing logic runs.
+
+### 6.2 Migration Status And Remaining Work
+
+`Spikes/Spike4HttpServer/Spec.lean`'s pure functional model (`parseRequestLine`, `routeRequest`)
+routes through this library as of this migration: `parseRequestLine` delegates to
+`Stdlib.Http11.parseRequest` and `routeRequest` matches on the parsed `Request.target` value
+rather than re-implementing ad-hoc string splitting. The per-target assembly lowerings
+(`Spikes/Spike4HttpServer/{Windows,Linux,Wasm}/{Program,Emit}.lean`) are **not** migrated by this
+change — each hand-emits its own instruction stream (x86_64 machine code or a Wasm module) with no
+mechanism today for that code generation to call into a Lean-level parser at proof time the way
+`Stdlib/Zlib`'s per-target `Equivalence.lean` files establish trace equivalence between a spec
+function and an emitted program; building that bridge for `Http11` is comparable in scope to the
+existing Zlib per-target equivalence proofs (each several hundred to low-thousands of lines) and
+was out of scope to complete alongside authoring the library itself. **Migration plan**: (1) give
+each target's routing block the same request-target comparison shape the fixed assembly bug
+already needs fixed directly (matching the full byte-length of the target, not a fixed-width
+prefix) — this is the immediate, target-local fix, tracked separately as it was concurrently
+in flight on this same file when this library was authored; (2) once complete, add a trace/byte
+equivalence proof per target relating the emitted routing logic to `Stdlib.Http11.parseRequest` +
+`routeRequest`'s output, mirroring `Stdlib/Zlib/Equivalence.lean`'s structure, so the assembly is
+verified against this library's parser rather than merely alongside it. `test_spike4`
+(`Spikes/Spike4HttpServer/Test.lean`) carries a regression test asserting `GET /static` and
+`GET /search` route to 404 through the (now library-backed) `Spec.lean` model, so the defect class
+this library exists to close cannot silently regress at the model layer; per-target binary
+verification of the same two paths remains the responsibility of `test_spike4`'s target-specific
+process-exec checks once step (1) above lands on each target.
