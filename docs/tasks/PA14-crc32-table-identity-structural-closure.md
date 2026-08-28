@@ -1,7 +1,7 @@
 ---
 id: PA14
 title: G8bf_table structural closure — CRC table/bit-loop identity without a SAT certificate
-status: ready
+status: done
 blocked_on: ""
 after: []
 related: [PA1, PA13]
@@ -96,3 +96,16 @@ different reason — sheer size, not new-mathematics risk).
   ranked below the ready-now mechanical closures (PA10-PA13, PA15, PA18) because this is the one item
   in the ledger most likely to need either new mathematics or new Lean tooling rather than more
   engineering hours; starving the cheap wins to chase this first would be the wrong sequencing.
+- 2026-08-28: **done**, and closed structurally rather than abandoned — the outcome this task
+  explicitly did not assume. Landed in commit `3ca668d`. Neither of the two routes the Context
+  section surveyed was needed: no GF(2)-polynomial library was built, and no 8-fold `omega`
+  unfolding was written. The route that worked is a third one — `Gbf poly` is XOR-linear for fixed
+  `poly` (`Gbf_additive`, since both the shift term and the branch-free feedback mask distribute
+  over XOR), so `Gbf8` is too (`Gbf8_additive`); splitting `x` into low byte and high bits by XOR
+  (`and_xor_compl`) reduces the identity to showing the high-bits branch runs all 8 steps as a pure
+  shift (`Gbf8_high_part`, by induction over a hand-rolled `iterGbf` since this project has no
+  `Nat.iterate`) and that that shift equals `x >>> 8` (`and_high_shr8`). `G8bf_table` is gone from
+  `scripts/gate_allowlist.txt`. Verified 2026-08-28 on `main`: `#print axioms G8bf_table` and
+  `#print axioms crc32ByteStep_eq_G8` report only `[propext, Classical.choice, Quot.sound]` --
+  no `_native.*`/`bv_decide.ax_*` component on either.
+  Status flipped in a later change (the implementing commit left this front-matter on `ready`).

@@ -129,6 +129,83 @@ def agreeOutsideMemory (s1 s2 : X86_64MachineState) : Prop :=
 -- §3.4 lemma set: the theory every future memory proof needs, proved once.
 --------------------------------------------------------------------------------------------------
 
+-- The three `UInt64` bit-algebra lemmas below exist so `read64_write64_same` can close
+-- STRUCTURALLY rather than by a `bv_decide` SAT certificate. Per `docs/REVIEW.md` Law 10's
+-- four-rung trust-cost ordering, `bv_decide` is rung 4 (trusted, not kernel-checked: `TCB.md`
+-- T14 established that `LratCert.toReflectionProof` asserts its result through the same
+-- `Lean.Meta.nativeEqTrue` routine `native_decide` uses, so the kernel never replays the LRAT
+-- certificate). A structural proof is rung 1 and needs no `scripts/gate_allowlist.txt` entry at
+-- all. This is the same `BitVec.eq_of_getLsbD_eq` playbook PA13/PA14 used to take
+-- `Stdlib/Zlib/CRC32Equivalence.lean` to zero `bv_decide`, applied at 64 bits.
+--
+-- The route deliberately avoids per-bit-index case analysis over all 64 positions (the
+-- obstruction a prior reviewer hit applying `BitVec.eq_of_getLsbD_eq` to the goal directly):
+-- `shr_and_shl` moves every byte-selection shift into a MASK CONSTANT, after which the whole
+-- eight-way little-endian reassembly is a single `AND`-over-`OR` collapse against a mask that
+-- `decide` evaluates to `-1`. Only `shr_and_shl` and `and_or_and` reason bitwise, and each
+-- splits on one condition, not sixty-four.
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- Truncating a `UInt64` to its low byte and zero-extending back is exactly masking with
+    `0xFF`. Bridges `read`'s `UInt8`-valued byte ladder into the pure mask algebra the
+    reassembly identity below is stated in. -/
+theorem toUInt8_toUInt64_eq_and (x : UInt64) : x.toUInt8.toUInt64 = x &&& 0xFF := by
+  apply UInt64.toNat_inj.mp
+  have h : x.toNat &&& (2 ^ 8 - 1) = x.toNat % 2 ^ 8 := Nat.and_two_pow_sub_one_eq_mod x.toNat 8
+  rw [show (2 ^ 8 - 1 : Nat) = 255 from rfl, show (2 ^ 8 : Nat) = 256 from rfl] at h
+  rw [UInt64.toNat_and]
+  simp [h]
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- Shifting a value down by `s`, masking, and shifting back up by `s` is the same as masking
+    the original value with the shifted-up mask -- the identity that turns each byte-selection
+    step of a little-endian ladder into a plain `AND` against a constant. Proved by `BitVec`
+    extensionality with a single split on whether the bit index is below the shift amount (no
+    64-way enumeration): above it, both sides read bit `i` of `v` and bit `i - s` of the mask;
+    below it, both sides are `false`. Needs no `s < 64` side condition -- `UInt64`'s shift
+    semantics reduce the amount mod 64 on both sides identically. -/
+theorem shr_and_shl (v m s : UInt64) : ((v >>> s) &&& m) <<< s = v &&& (m <<< s) := by
+  apply UInt64.eq_of_toBitVec_eq
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [UInt64.toBitVec_and, UInt64.toBitVec_shiftLeft, UInt64.toBitVec_shiftRight,
+    BitVec.getLsbD_and]
+  by_cases h : i < s.toNat % 64
+  · simp [h]
+  · have he : s.toNat % 64 + (i - s.toNat % 64) = i := by omega
+    simp [h, hi, he]
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- `AND` distributes over `OR` on a shared left operand, so a chain of masked reads of the same
+    value collapses into one mask (a per-bit case split on `v`'s bit closes it). -/
+theorem and_or_and (v m1 m2 : UInt64) : (v &&& m1) ||| (v &&& m2) = v &&& (m1 ||| m2) := by
+  apply UInt64.eq_of_toBitVec_eq
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [UInt64.toBitVec_and, UInt64.toBitVec_or, BitVec.getLsbD_and, BitVec.getLsbD_or]
+  cases v.toBitVec.getLsbD i <;> simp
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- Little-endian reassembly: `OR`-ing a `UInt64`'s eight bytes back into their own positions
+    reconstructs it. This is the whole arithmetic content of `read64_write64_same` -- everything
+    else in that proof is address-disequality bookkeeping. Via `toUInt8_toUInt64_eq_and` and
+    `shr_and_shl` each summand becomes `v &&& (0xFF <<< 8k)`; `and_or_and` folds the eight masks
+    into one, which `decide` evaluates to `-1` (all ones), and `UInt64.and_neg_one` finishes. -/
+theorem le_bytes_reassemble (v : UInt64) :
+    v.toUInt8.toUInt64 |||
+    ((v >>> 8).toUInt8.toUInt64 <<< 8) |||
+    ((v >>> 16).toUInt8.toUInt64 <<< 16) |||
+    ((v >>> 24).toUInt8.toUInt64 <<< 24) |||
+    ((v >>> 32).toUInt8.toUInt64 <<< 32) |||
+    ((v >>> 40).toUInt8.toUInt64 <<< 40) |||
+    ((v >>> 48).toUInt8.toUInt64 <<< 48) |||
+    ((v >>> 56).toUInt8.toUInt64 <<< 56) = v := by
+  simp only [toUInt8_toUInt64_eq_and, shr_and_shl, and_or_and]
+  rw [show ((0xFF : UInt64) ||| (0xFF <<< (8 : UInt64)) ||| (0xFF <<< (16 : UInt64))
+      ||| (0xFF <<< (24 : UInt64)) ||| (0xFF <<< (32 : UInt64)) ||| (0xFF <<< (40 : UInt64))
+      ||| (0xFF <<< (48 : UInt64)) ||| (0xFF <<< (56 : UInt64))) = -1 from by decide]
+  exact UInt64.and_neg_one
+
 /- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
 /-- Width decomposition + read-over-write, same address, at the width the 14 memory forms
     overwhelmingly use: a 64-bit write is read back byte-for-byte by a same-address 64-bit read
@@ -136,11 +213,36 @@ def agreeOutsideMemory (s1 s2 : X86_64MachineState) : Prop :=
     `docs/MEMORY_HOOK.md` §3.4). Address-offset disequalities among `{a, ..., a+7}` need no
     no-overflow side condition (unlike `readByte_write_disjoint`'s external `a'`): the offsets are
     bounded constants ≤ 7, and no two of `a+i`/`a+j` for `i ≠ j ≤ 7` can collide mod 2⁶⁴ regardless
-    of `a`'s value. -/
+    of `a`'s value -- each such disequality is discharged by `simp` (via `UInt64.add_right_inj`)
+    inline in the `simp only` set below, which collapses `write`'s eight-way `if` ladder to the
+    byte each read position actually selects. What remains is `le_bytes_reassemble`. Structural
+    throughout: no `bv_decide`, hence no `scripts/gate_allowlist.txt` entry (Law 10 rung 1). -/
 theorem X86_64Mem.read64_write64_same (a : Address) (v : UInt64) (m : X86_64Memory) :
     X86_64Mem.read .w64 a (X86_64Mem.write .w64 a v m) = v := by
-  simp only [X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte]
-  bv_decide
+  simp only [X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte,
+    beq_self_eq_true, if_true,
+    show (a == a + 1) = false by simp, show (a == a + 2) = false by simp,
+    show (a == a + 3) = false by simp, show (a == a + 4) = false by simp,
+    show (a == a + 5) = false by simp, show (a == a + 6) = false by simp,
+    show (a == a + 7) = false by simp,
+    show (a + 1 == a) = false by simp, show (a + 2 == a) = false by simp,
+    show (a + 3 == a) = false by simp, show (a + 4 == a) = false by simp,
+    show (a + 5 == a) = false by simp, show (a + 6 == a) = false by simp,
+    show (a + 7 == a) = false by simp,
+    show (a + 2 == a + 1) = false by simp, show (a + 3 == a + 1) = false by simp,
+    show (a + 4 == a + 1) = false by simp, show (a + 5 == a + 1) = false by simp,
+    show (a + 6 == a + 1) = false by simp, show (a + 7 == a + 1) = false by simp,
+    show (a + 3 == a + 2) = false by simp, show (a + 4 == a + 2) = false by simp,
+    show (a + 5 == a + 2) = false by simp, show (a + 6 == a + 2) = false by simp,
+    show (a + 7 == a + 2) = false by simp,
+    show (a + 4 == a + 3) = false by simp, show (a + 5 == a + 3) = false by simp,
+    show (a + 6 == a + 3) = false by simp, show (a + 7 == a + 3) = false by simp,
+    show (a + 5 == a + 4) = false by simp, show (a + 6 == a + 4) = false by simp,
+    show (a + 7 == a + 4) = false by simp,
+    show (a + 6 == a + 5) = false by simp, show (a + 7 == a + 5) = false by simp,
+    show (a + 7 == a + 6) = false by simp,
+    Bool.false_eq_true, if_false]
+  exact le_bytes_reassemble v
 
 -- `X86_64Mem.readByte_initRegion` and `X86_64Mem.readByte_zero` live in `MemoryCell.lean`
 -- (byte-granular, no `MemRef`/state dependency needed) rather than duplicated here.

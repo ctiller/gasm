@@ -168,17 +168,16 @@ Spikes/Spike5Gzip/Linux/Emit.lean::main::main::axiom-only::downstream `main` cal
 Spikes/Spike5Gzip/Linux/GunzipEmit.lean::main::main::axiom-only::downstream `main` calls emitVerifiedLinuxExecutable spike5GunzipLinuxVerifiedProgram, transitively citing the already-grandfathered spike5_linux_gunzip_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
 Spikes/Spike2Fibonacci/Linux/Test.lean::main::main::axiom-only::downstream `main` exercises spike2LinuxVerifiedProgram, transitively citing the already-grandfathered Spikes.Spike2Fibonacci.Linux.spike2_canonical_effect_trace_equivalence; same propagation shape as the sibling Emit.lean::main and Spike3's Linux Test.lean::main entries; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
 
-# --- MH1 (docs/tasks/MH1-semantic-memory-hook.md): one bv_decide occurrence. ---
-# X86_64Mem.read64_write64_same is a byte-decomposition/reconstruction identity over the
-# COMPLETE finite (a : Address, v : UInt64) domain, exactly the shape ADR-0037/D28 ratified
-# bv_decide's admissibility for (docs/adr/0037-ratify-bv-decide-trust-tier.md). After
-# `simp only` unfolds `read`/`write`/`readByte`, every read hits a written branch, so `m`
-# (the pre-write memory, an infinite-domain function) drops out of the goal entirely --
-# the certified proposition is purely over the two finite bitvector parameters, matching
-# the same "typed parameter over a finite bitvector type" corroboration shape
-# scripts/check_gates.py's bv_decide detector requires. Not converted to a PA13/PA14-style
-# structural proof (the codebase's current preference, Law 10's four-rung ordering): this is
-# the only live bv_decide dependency in the tree as of this change; a future task could do
-# the BitVec-extensionality rewrite PA13/PA14 modeled for CRC32Equivalence.lean if desired.
-Gasm/Targets/X86_64/Memory.lean::X86_64Mem.read64_write64_same::Gasm.Targets.X86_64.X86_64Mem.read64_write64_same::finite-forall::bv_decide SAT certificate over the complete (Address, UInt64) domain; ratified under ADR-0037/D28 (docs/REVIEW.md Law 10's four-rung trust-cost ordering, rung 4).
-Gasm/Targets/X86_64/Memory.lean::push64_pop64_roundtrip::Gasm.Targets.X86_64.push64_pop64_roundtrip::axiom-only::downstream citer of X86_64Mem.read64_write64_same (the allowlisted bv_decide finite-forall entry above) via its first component's proof; transitively carries the same axiom and no new ones; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean).
+# --- MH1 (docs/tasks/MH1-semantic-memory-hook.md): RETIRED, no entries remain. ---
+# X86_64Mem.read64_write64_same (Gasm/Targets/X86_64/Memory.lean) carried the tree's last
+# live bv_decide in proof position, allowlisted `finite-forall` under ADR-0037/D28, together
+# with its downstream `axiom-only` citer push64_pop64_roundtrip. Both entries are now gone:
+# the lemma was re-proven structurally (BitVec extensionality via BitVec.eq_of_getLsbD_eq,
+# plus `decide` on one closed 64-bit mask constant), exactly the rewrite the previous version
+# of this comment named as the future task, using the same playbook PA13/PA14 applied to
+# Stdlib/Zlib/CRC32Equivalence.lean. `#print axioms` on both declarations now reports only
+# [propext, Classical.choice, Quot.sound], so neither needs a Law 10 allowance at all
+# (docs/REVIEW.md Law 10: a structural proof is rung 1; `decide` is rung 2 and kernel-checked,
+# which is why the mask constant needs no entry either). This retires MH1's bv_decide debt;
+# at the time of this change scripts/check_gates.py reported zero bv_decide occurrences in the
+# whole tree.

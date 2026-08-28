@@ -1,7 +1,7 @@
 ---
 id: PA13
 title: CRC32 bit-trick lemmas without a SAT certificate — and_one_cases, G_eq_Gbf, xor_byte_shr8
-status: ready
+status: done
 blocked_on: ""
 after: []
 related: [PA1, PA14]
@@ -90,3 +90,14 @@ covers it separately as the one genuinely hard case in this group.
   that a structural bitvector proof is a reasonable bet, distinct from `G8bf_table`'s genuinely harder
   case (PA14). Closing these three shrinks the axiom set on `crc32ByteStep_eq_G8` even if PA14 does
   not land soon.
+- 2026-08-28: **done.** Landed in commit `3ca668d` ("feat(zlib): close all four CRC32 bv_decide
+  certificates structurally (PA13, PA14)"). `and_one_cases` closes via `UInt32.toNat_and` +
+  `Nat.and_one_is_mod` + `omega`; `G_eq_Gbf` case-splits on `and_one_cases` and rewrites each branch
+  with `UInt32.and_zero`/`UInt32.zero_sub`/`UInt32.and_neg_one`; `xor_byte_shr8` closes by
+  `BitVec.eq_of_getLsbD_eq` (the zero-extended byte's bits at index ≥ 8 are `false`). All three are
+  gone from `scripts/gate_allowlist.txt`. Verified 2026-08-28 on `main`: `Stdlib/Zlib/`
+  `CRC32Equivalence.lean` contains no `bv_decide` in proof position, and `#print axioms` on
+  `and_one_cases`, `G_eq_Gbf`, `xor_byte_shr8`, `G8_eq_Gbf8` and `crc32ByteStep_eq_G8` reports only
+  standard axioms (a subset of `[propext, Classical.choice, Quot.sound]`; `and_one_cases` and
+  `xor_byte_shr8` do not even need `Classical.choice`). Status flipped in a later change (the implementing
+  commit updated the code and the allowlist but left this front-matter on `ready`).
