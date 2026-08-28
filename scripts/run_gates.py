@@ -356,6 +356,12 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
          "long": "Spike 1 (Hello World) Wasm target test (in-Lean trace + host runtime; "
                  "exit 2 = no host Wasm runner found, per Law 13(4))",
          "cmd": [lake, "exe", "test_spike1_wasm"], "slow": False, "tools": ["lean"]},
+        {"key": "spike1_hello_baremetal", "desc": "lake exe spike1_hello_baremetal",
+         "long": "emits spike1_hello_baremetal.elf -- prerequisite artifact for test_spike1_baremetal below",
+         "cmd": [lake, "exe", "spike1_hello_baremetal"], "slow": False, "tools": ["lean"]},
+        {"key": "test_spike1_baremetal", "desc": "lake exe test_spike1_baremetal",
+         "long": "Spike 1 (Hello World) Bare Metal target test (in-Lean trace + QEMU execution)",
+         "cmd": [lake, "exe", "test_spike1_baremetal"], "slow": False, "tools": ["lean"]},
         {"key": "spike2_fibonacci_windows", "desc": "lake exe spike2_fibonacci_windows",
          "long": "emits fib.exe -- prerequisite artifact for test_spike2_windows below",
          "cmd": [lake, "exe", "spike2_fibonacci_windows"], "slow": False, "tools": ["lean"]},

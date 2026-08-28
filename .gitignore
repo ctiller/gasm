@@ -9,6 +9,7 @@
 broken.txt
 *.wasm
 *.wat
+*.elf
 
 # Native linker/debug byproducts (belt-and-braces: normally confined to
 # .lake/, but guard against anything emitted at the repo root too)

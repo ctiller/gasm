@@ -28,6 +28,7 @@ defaultTargets = [
   "check_gates_axioms", "check_refs_coverage",
   "spike1_hello_windows", "test_spike1_windows",
   "spike1_hello_wasm", "test_spike1_wasm",
+  "spike1_hello_baremetal", "test_spike1_baremetal",
   "spike2_fibonacci_windows", "test_spike2_windows",
   "spike2_fibonacci_wasm", "test_spike2_wasm",
   "spike3_sort_lines_windows", "test_spike3_windows",
@@ -83,6 +84,14 @@ root = "Spikes.Spike1Hello.Wasm.Emit"
 [[lean_exe]]
 name = "test_spike1_wasm"
 root = "Spikes.Spike1Hello.Wasm.Test"
+
+[[lean_exe]]
+name = "spike1_hello_baremetal"
+root = "Spikes.Spike1Hello.BareMetal.Emit"
+
+[[lean_exe]]
+name = "test_spike1_baremetal"
+root = "Spikes.Spike1Hello.BareMetal.Test"
 
 [[lean_exe]]
 name = "spike2_fibonacci_windows"

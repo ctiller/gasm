@@ -1,0 +1,54 @@
+/-
+Copyright 2026 Craig Tiller
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-/
+
+import Lean
+import Gasm.Core.Types
+import Gasm.Targets.X86_64.Registers
+import Gasm.Targets.X86_64.Instructions.Base
+
+namespace Gasm.Targets.X86_64.Instructions
+
+open Gasm.Core
+open Gasm.Targets.X86_64
+
+/- REF: intel-sdm#vol=2;instr=HLT;part=description -/
+/-- HLT instruction: stops instruction execution and places the processor in a HALT state. -/
+structure HltOp where
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=HLT;part=operation -/
+instance : X86_64Instruction HltOp where
+  encode _ := ByteArray.mk #[0xF4]
+
+  step _ s :=
+    -- Stops machine execution; flagged as faulted/halted to terminate trace/loop evaluators
+    { s with rip := s.rip + 1, faulted := true }
+
+  toUops _ := [
+    { mnemonic := "HLT", uopClass := .intALU, eligiblePorts := [.p0], latencyCycles := 1, reciprocalThroughput := 1.0 }
+  ]
+  toNASM _ := "hlt"
+  toLean _ := "hlt_op"
+  canFuzzHardware _ := false
+  generateFuzzStates _ rng := ([], rng)
+  roundtripCases := [HltOp.mk]
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- HLT helper. -/
+def hlt_op : AnyX86_64Instruction :=
+  ⟨HltOp.mk⟩
+
+end Gasm.Targets.X86_64.Instructions

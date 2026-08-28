@@ -19,6 +19,8 @@ import Spikes.Spike1Hello.Windows.Program
 import Spikes.Spike1Hello.Windows.Equivalence
 import Spikes.Spike1Hello.Wasm.Program
 import Spikes.Spike1Hello.Wasm.Equivalence
+import Spikes.Spike1Hello.BareMetal.Program
+import Spikes.Spike1Hello.BareMetal.Equivalence
 
 import Spikes.Spike2Fibonacci.Spec
 import Spikes.Spike2Fibonacci.Windows.Program

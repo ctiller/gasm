@@ -679,5 +679,41 @@
     "last_reviewed": "2026-08-27",
     "reviewer": "craig.tiller@gmail.com",
     "review_note": "Initial registration at time of references/ migration."
+  },
+  {
+    "slug": "elf-sysv-psabi",
+    "corpus": "abi",
+    "title": "System V Application Binary Interface AMD64 Architecture Processor Supplement (With LP64 and ILP32 Programming Models) Version 1.0",
+    "url": "https://gitlab.com/x86-psABIs/x86-64-ABI/-/raw/master/x86-64-ABI-annual.pdf",
+    "archive_url": "https://archive.org/details/x86-64-abi-annual",
+    "media_type": "pdf",
+    "sha256": "4b6f7902d25be39dc7a988d8b671a5c68b6b231ff088f121d51b3e8a4bb285e6",
+    "fetched_date": "2026-08-28",
+    "edition": "Version 1.0, January 2021",
+    "page_count": 140,
+    "license": "cc-by-4.0",
+    "distribution": "attribution-required",
+    "anchor_mode": "pdf-locator",
+    "last_reviewed": "2026-08-28",
+    "reviewer": "craig.tiller@gmail.com",
+    "review_note": "System V AMD64 ABI specification covering 64-bit ELF file format, object files, segment types (PT_LOAD, PT_NOTE), and standard execution models."
+  },
+  {
+    "slug": "uart-pc16550d",
+    "corpus": "hardware",
+    "title": "PC16550D Universal Asynchronous Receiver/Transmitter with FIFOs",
+    "url": "https://www.ti.com/lit/ds/symlink/pc16550d.pdf",
+    "archive_url": "https://archive.org/details/pc16550d",
+    "media_type": "pdf",
+    "sha256": "d4625b8a07f0f62b7cf80ff3691fa6d0309fbcfb3b90aa9dc44c9ebdc4fc5ef0",
+    "fetched_date": "2026-08-28",
+    "edition": "National Semiconductor Corporation, June 1995",
+    "page_count": 28,
+    "license": "ti-unmodified-only",
+    "distribution": "unmodified-copy-only",
+    "anchor_mode": "pdf-locator",
+    "last_reviewed": "2026-08-28",
+    "reviewer": "craig.tiller@gmail.com",
+    "review_note": "National Semiconductor PC16550D UART datasheet covering COM port register mappings (THR, RBR, IER, IIR, FCR, LCR, MCR, LSR, MSR, SCR), DLAB divisors, and FIFO control."
   }
 ]

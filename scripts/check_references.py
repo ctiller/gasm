@@ -149,6 +149,7 @@ LICENSE_VOCAB = {
     "zlib-license": "attribution-required",
     "mit-or-unlicense": "attribution-required",
     "cc-by-4.0": "attribution-required",
+    "ti-unmodified-only": "unmodified-copy-only",
 }
 DISTRIBUTION_VOCAB = {"unmodified-copy-only", "no-restriction", "attribution-required", "unclear"}
 ANCHOR_MODES = {"heading", "pdf-locator", "json-pointer", "rfc-section", "c-symbol"}

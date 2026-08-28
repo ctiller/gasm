@@ -150,6 +150,7 @@ verdicts `docs/THIRD_PARTY_LICENSES.md` already reached:
 | `zlib-license` | LodePNG | `attribution-required` |
 | `mit-or-unlicense` | stb_image / stb_image_write | `attribution-required` |
 | `cc-by-4.0` | MicrosoftDocs/win32 | `attribution-required` |
+| `ti-unmodified-only` | TI / National Semiconductor datasheets | `unmodified-copy-only` |
 
 ### 1.4 What `anchor_bearing` collapses into
 

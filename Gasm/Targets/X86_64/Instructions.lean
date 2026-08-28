@@ -61,3 +61,6 @@ import Gasm.Targets.X86_64.Instructions.Sub
 import Gasm.Targets.X86_64.Instructions.Test
 import Gasm.Targets.X86_64.Instructions.Xchg
 import Gasm.Targets.X86_64.Instructions.Xor
+import Gasm.Targets.X86_64.Instructions.In
+import Gasm.Targets.X86_64.Instructions.Out
+import Gasm.Targets.X86_64.Instructions.Hlt

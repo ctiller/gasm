@@ -63,6 +63,7 @@ inductive SymbolicInstr where
   | jbe        : String → SymbolicInstr
   | jleNear    : String → SymbolicInstr
   | leaSymbol  : Reg64 → String → SymbolicInstr
+  | movData32  : Reg32 → String → SymbolicInstr
   | callSymbol : String → SymbolicInstr
   | callLabel  : String → SymbolicInstr
   deriving Inhabited
@@ -156,6 +157,10 @@ def jbe_label (target : String) : SymbolicInstr := .jbe target
 def lea_data (dst : Reg64) (symbolName : String) : SymbolicInstr := .leaSymbol dst symbolName
 
 /- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
+/-- Shorthand constructor for symbolic 32-bit absolute MOV immediate. -/
+def mov_data_32 (dst : Reg32) (symbolName : String) : SymbolicInstr := .movData32 dst symbolName
+
+/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
 /-- Shorthand constructor for symbolic indirect CALL through IAT symbol. -/
 def call_import (symbolName : String) : SymbolicInstr := .callSymbol symbolName
 
@@ -189,6 +194,7 @@ def estimatedSize (s : SymbolicInstr) : Nat :=
   | .jaNear _        => 6 -- 0F 87 rel32
   | .jbe _           => 2 -- 76 rel8
   | .leaSymbol _ _   => 7 -- REX 8D ModRM disp32
+  | .movData32 _ _   => 5 -- B8+r imm32
   | .callSymbol _    => 6 -- FF 15 disp32
   | .callLabel _     => 5 -- E8 disp32
 
@@ -348,6 +354,10 @@ def assembleProgram (baseRip : Address) (program : List SymbolicInstr) (external
       let nextRip := curRip + 7
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [lea_rip dst disp])
+    | .movData32 dst target :: rest =>
+      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let nextRip := curRip + 5
+      emit nextRip rest (acc ++ [mov_r32 dst targetAddr.toUInt32])
     | .callSymbol target :: rest =>
       let targetAddr := lookupSymbol allSymbols target |>.getD curRip
       let nextRip := curRip + 6
