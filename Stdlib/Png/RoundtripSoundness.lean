@@ -481,4 +481,78 @@ theorem parseChunk_inv (bytes : ByteArray) (pos : Nat) (t : String) (d : ByteArr
         pos + 8 + d.size + 4) : Except PngError (PngChunk × Nat)) = _
     rw [show pos + 8 + d.size + 4 = pos + (d.size + 12) from by omega]
 
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- The 13-byte IHDR payload `endPng` assembles. -/
+def ihdrPayload (h : PngHeader) : ByteArray :=
+  ((((((((((((ByteArray.empty.push ((h.width.toUInt32 >>> 24) &&& 0xFF).toUInt8).push
+    ((h.width.toUInt32 >>> 16) &&& 0xFF).toUInt8).push
+    ((h.width.toUInt32 >>> 8) &&& 0xFF).toUInt8).push
+    (h.width.toUInt32 &&& 0xFF).toUInt8).push
+    ((h.height.toUInt32 >>> 24) &&& 0xFF).toUInt8).push
+    ((h.height.toUInt32 >>> 16) &&& 0xFF).toUInt8).push
+    ((h.height.toUInt32 >>> 8) &&& 0xFF).toUInt8).push
+    (h.height.toUInt32 &&& 0xFF).toUInt8).push
+    h.bitDepth.toUInt8).push
+    h.colorType.toNat.toUInt8).push
+    h.compressionMethod.toUInt8).push
+    h.filterMethod.toUInt8).push
+    h.interlaceMethod.toUInt8
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- `endPng`'s output is the signature and the three chunks, in order. -/
+theorem endPng_eq (w : PngWriter) (hrow : w.currentRow = w.header.height) :
+    endPng w = .ok (((pngSignature ++ mkChunk "IHDR" (ihdrPayload w.header)) ++
+      mkChunk "IDAT" (Stdlib.Zlib.zlibCompress w.rawStream)) ++
+      mkChunk "IEND" ByteArray.empty) := by
+  unfold endPng
+  simp only [Bind.bind, Except.bind, pure, Except.pure]
+  rw [hrow, bne_self_eq_false, if_neg (by simp)]
+  rw [byteArray_forIn_push_except pngSignature ByteArray.empty]
+  split
+  case h_1 err heq =>
+    exact absurd heq (by simp)
+  case h_2 v heq =>
+  have hv : v = ByteArray.empty ++ pngSignature := by
+    simp at heq
+    exact heq.symm
+  rw [hv, ByteArray.empty_append]
+  rw [show mkChunk "IHDR"
+      (((((((((((((ByteArray.empty.push ((w.header.width.toUInt32 >>> 24) &&& 0xFF).toUInt8).push
+        ((w.header.width.toUInt32 >>> 16) &&& 0xFF).toUInt8).push
+        ((w.header.width.toUInt32 >>> 8) &&& 0xFF).toUInt8).push
+        (w.header.width.toUInt32 &&& 0xFF).toUInt8).push
+        ((w.header.height.toUInt32 >>> 24) &&& 0xFF).toUInt8).push
+        ((w.header.height.toUInt32 >>> 16) &&& 0xFF).toUInt8).push
+        ((w.header.height.toUInt32 >>> 8) &&& 0xFF).toUInt8).push
+        (w.header.height.toUInt32 &&& 0xFF).toUInt8).push
+        w.header.bitDepth.toUInt8).push
+        w.header.colorType.toNat.toUInt8).push
+        w.header.compressionMethod.toUInt8).push
+        w.header.filterMethod.toUInt8).push
+        w.header.interlaceMethod.toUInt8)
+      = mkChunk "IHDR" (ihdrPayload w.header) from rfl]
+  rw [byteArray_forIn_push_except (mkChunk "IHDR" (ihdrPayload w.header)) pngSignature]
+  split
+  case h_1 err heq =>
+    exact absurd heq (by simp)
+  case h_2 v2 heq2 =>
+  have hv2 : v2 = pngSignature ++ mkChunk "IHDR" (ihdrPayload w.header) := by
+    simp at heq2
+    exact heq2.symm
+  rw [hv2]
+  rw [byteArray_forIn_push_except (mkChunk "IDAT" (Stdlib.Zlib.zlibCompress w.rawStream))
+    (pngSignature ++ mkChunk "IHDR" (ihdrPayload w.header))]
+  split
+  case h_1 err heq =>
+    exact absurd heq (by simp)
+  case h_2 v3 heq3 =>
+  have hv3 : v3 = (pngSignature ++ mkChunk "IHDR" (ihdrPayload w.header)) ++
+      mkChunk "IDAT" (Stdlib.Zlib.zlibCompress w.rawStream) := by
+    simp at heq3
+    exact heq3.symm
+  rw [hv3]
+  rw [byteArray_forIn_push_except (mkChunk "IEND" ByteArray.empty)
+    ((pngSignature ++ mkChunk "IHDR" (ihdrPayload w.header)) ++
+      mkChunk "IDAT" (Stdlib.Zlib.zlibCompress w.rawStream))]
+
 end Stdlib.Png
