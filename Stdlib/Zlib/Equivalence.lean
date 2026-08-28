@@ -574,4 +574,260 @@ theorem flushBitWriter_bits (w : BitWriter)
     have e0 : w.bitCount = 0 := by omega
     simp [e0, natBits]
 
+/-
+## PA16 L1b: bitstream reader ghost algebra (read-consume)
+
+Read-side dual of L1a above, unblocked by P0's conversion of `ensureBits` to well-founded
+recursion. `readerBits` is the ghost sequence of unconsumed bits; `ensureBits` preserves it
+(buffering moves bits, never consumes them), and a successful `readBits r n` returns exactly
+the value whose LSB-first bits are the first `n` elements of the sequence, leaving the rest —
+with the reader's operating invariant re-established so reads compose. All rung-1.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Ghost denotation of a `BitReader`: the unconsumed bit sequence — buffered bits first
+    (LSB-first), then the bits of every unread byte in stream order. -/
+def readerBits (r : BitReader) : List Bool :=
+  natBits r.bitCount r.bitBuf.toNat ++
+    (r.bytes.data.toList.drop r.bytePos).flatMap fun b => natBits 8 b.toNat
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Every `natBits` window has exactly its stated width. -/
+theorem natBits_length (n : Nat) : ∀ v, (natBits n v).length = n := by
+  induction n with
+  | zero => intro v; rfl
+  | succ n ih => intro v; simp [natBits, ih]
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- A value below `2^n` is recovered exactly from its `n`-bit LSB-first window — the
+    injectivity half of the ghost encoding, used to transport a written value across the
+    writer→reader correspondence. -/
+theorem bitsVal_natBits_of_lt : ∀ (n v : Nat), v < 2 ^ n →
+    (natBits n v).foldr (fun b acc => (if b then 1 else 0) + 2 * acc) 0 = v := by
+  intro n
+  induction n with
+  | zero =>
+    intro v hv
+    simp [Nat.pow_zero] at hv
+    simp [natBits, hv]
+  | succ n ih =>
+    intro v hv
+    have hpow : 2 ^ (n + 1) = 2 ^ n * 2 := by rw [Nat.pow_succ]
+    simp only [natBits, List.foldr_cons]
+    rw [ih (v / 2) (by rw [hpow] at hv; omega)]
+    have hb : (if (v % 2 == 1) = true then 1 else 0) = v % 2 := by
+      rcases Nat.mod_two_eq_zero_or_one v with h | h <;> simp [h]
+    rw [hb]
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- `natBits` windows are injective below `2^n`. -/
+theorem natBits_inj {n a b : Nat} (ha : a < 2 ^ n) (hb : b < 2 ^ n)
+    (h : natBits n a = natBits n b) : a = b := by
+  have h1 := bitsVal_natBits_of_lt n a ha
+  have h2 := bitsVal_natBits_of_lt n b hb
+  rw [← h1, ← h2, h]
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Splits any bit window at position `m`: low `m` bits of the residue, then the shifted
+    remainder. `natBits_append` specialized through Euclidean decomposition. -/
+theorem natBits_split (m n v : Nat) :
+    natBits (m + n) v = natBits m (v % 2 ^ m) ++ natBits n (v / 2 ^ m) := by
+  have hdec : v = v % 2 ^ m + (v / 2 ^ m) * 2 ^ m := (Nat.mod_add_div' v (2 ^ m)).symm
+  conv => lhs; rw [hdec]
+  exact natBits_append n m (v % 2 ^ m) (v / 2 ^ m) (Nat.mod_lt v (Nat.two_pow_pos m))
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Disjoint-sum bound: a value below `2^m` plus a `k`-bit value shifted by `m` stays below
+    `2^(m+k)` — the no-`UInt32`-overflow fact both bitstream directions rely on. -/
+theorem add_mul_pow_lt {a v m k : Nat} (ha : a < 2 ^ m) (hv : v < 2 ^ k) :
+    a + v * 2 ^ m < 2 ^ (m + k) := by
+  have h1 : v * 2 ^ m ≤ (2 ^ k - 1) * 2 ^ m := Nat.mul_le_mul_right _ (by omega)
+  have h2 : (2 ^ k - 1) * 2 ^ m = 2 ^ k * 2 ^ m - 1 * 2 ^ m := by rw [Nat.sub_mul]
+  have h3 : 2 ^ m ≤ 2 ^ k * 2 ^ m := Nat.le_mul_of_pos_left _ (Nat.two_pow_pos k)
+  have h4 : 2 ^ (m + k) = 2 ^ k * 2 ^ m := by rw [Nat.pow_add, Nat.mul_comm]
+  rw [h4]
+  omega
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- The reader/writer `UInt32` buffer composition in `Nat` terms: given the operating
+    invariant and no 32-bit overflow, `buf ||| v <<< cnt` round-trips through `UInt32`
+    as the exact sum `buf + v * 2^cnt`. -/
+theorem buf_or_shift_toNat {buf v cnt k : Nat} (hbuf : buf < 2 ^ cnt) (hv : v < 2 ^ k)
+    (h32 : cnt + k ≤ 32) : ((buf ||| v <<< cnt).toUInt32).toNat = buf + v * 2 ^ cnt := by
+  have hlor : buf ||| v <<< cnt = buf + v * 2 ^ cnt := lor_shiftLeft_eq_add hbuf
+  have hlt : buf + v * 2 ^ cnt < 2 ^ 32 := by
+    have h1 := add_mul_pow_lt hbuf hv
+    have h2 : (2 : Nat) ^ (cnt + k) ≤ 2 ^ 32 := Nat.pow_le_pow_right (by omega) h32
+    omega
+  simp [Nat.toUInt32, hlor, UInt32.toNat_ofNat']
+  omega
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- `ensureBits.loop` ghost preservation + invariant maintenance: buffering never changes
+    the unconsumed bit sequence, keeps the buffered value inside the buffered count, keeps
+    the buffered count below `n + 8`, leaves the byte source untouched, and stops only with
+    `n` bits buffered or the source exhausted. Requires `n ≤ 24` (RFC-1951-side truth: the
+    largest single read is 13 extra bits; the buffer is 32 bits wide). -/
+theorem ensureBits_loop_spec (n : Nat) (hn : n ≤ 24) (cur : BitReader) :
+    cur.bitBuf.toNat < 2 ^ cur.bitCount → cur.bitCount < n + 8 →
+    readerBits (ensureBits.loop n cur) = readerBits cur ∧
+    (ensureBits.loop n cur).bitBuf.toNat < 2 ^ (ensureBits.loop n cur).bitCount ∧
+    (ensureBits.loop n cur).bitCount < n + 8 ∧
+    (ensureBits.loop n cur).bytes = cur.bytes ∧
+    ((ensureBits.loop n cur).bitCount ≥ n ∨
+      (ensureBits.loop n cur).bytePos ≥ (ensureBits.loop n cur).bytes.size) := by
+  induction cur using ensureBits.loop.induct (n := n) with
+  | case1 x hx =>
+    intro hinv hcnt
+    rw [ensureBits.loop.eq_1, if_pos hx]
+    simp only [Bool.or_eq_true, decide_eq_true_eq] at hx
+    exact ⟨rfl, hinv, hcnt, rfl, hx⟩
+  | case2 x hx nextByte newBuf ih =>
+    intro hinv hcnt
+    simp only [Bool.or_eq_true, decide_eq_true_eq, not_or] at hx
+    have hxc : x.bitCount < n := by omega
+    have hxp : x.bytePos < x.bytes.size := by omega
+    have hbyte : nextByte.toNat < 2 ^ 8 := UInt8.toNat_lt nextByte
+    have hnewNat : newBuf.toNat = x.bitBuf.toNat + nextByte.toNat * 2 ^ x.bitCount :=
+      buf_or_shift_toNat hinv hbyte (by omega)
+    have hinv' : newBuf.toNat < 2 ^ (x.bitCount + 8) := by
+      rw [hnewNat]; exact add_mul_pow_lt hinv hbyte
+    have ih' := ih hinv' (by show x.bitCount + 8 < n + 8; omega)
+    rw [ensureBits.loop.eq_1, if_neg (by simp only [Bool.or_eq_true, decide_eq_true_eq, not_or]; omega)]
+    refine ⟨?_, ih'.2.1, ih'.2.2.1, ih'.2.2.2.1, ?_⟩
+    · rw [ih'.1]
+      -- readerBits of the buffered-one-more-byte state equals readerBits x
+      show natBits (x.bitCount + 8) newBuf.toNat ++
+          (x.bytes.data.toList.drop (x.bytePos + 1)).flatMap (fun b => natBits 8 b.toNat) =
+        natBits x.bitCount x.bitBuf.toNat ++
+          (x.bytes.data.toList.drop x.bytePos).flatMap (fun b => natBits 8 b.toNat)
+      have hlen : x.bytePos < x.bytes.data.toList.length := by
+        rw [Array.length_toList]
+        exact hxp
+      have hdrop : x.bytes.data.toList.drop x.bytePos =
+          x.bytes.data.toList[x.bytePos] :: x.bytes.data.toList.drop (x.bytePos + 1) :=
+        List.drop_eq_getElem_cons hlen
+      have hgetEq : x.bytes.data.toList[x.bytePos]'hlen = nextByte := by
+        show x.bytes.data.toList[x.bytePos]'hlen = x.bytes.get! x.bytePos
+        rw [ByteArray.get!_eq_getElem x.bytes x.bytePos hxp]
+        rw [Array.getElem_toList]
+        exact ByteArray.getElem_eq_getElem_data.symm
+      rw [hdrop, hgetEq, List.flatMap_cons, hnewNat,
+        natBits_append 8 x.bitCount x.bitBuf.toNat nextByte.toNat hinv,
+        List.append_assoc]
+    · rcases ih'.2.2.2.2 with h | h
+      · exact Or.inl h
+      · exact Or.inr h
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- L1b, the read-consume law (`docs/PA16_CODEC_SOUNDNESS.md` §4 L1): under the reader's
+    operating invariant (buffered value inside the buffered count, fewer than 8 buffered
+    bits — `mkBitReader`'s initial state, re-established by every successful read) and the
+    format-honest width bound `n ≤ 24`, a reader holding at least `n` unconsumed bits
+    successfully reads a value `v < 2^n` whose LSB-first window is exactly the first `n`
+    ghost bits, leaving exactly the remaining ghost bits — with the invariant restored. -/
+theorem readBits_spec (r : BitReader) (n : Nat)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8)
+    (hn : n ≤ 24) (hlen : n ≤ (readerBits r).length) :
+    ∃ r' v, readBits r n = .ok (r', v) ∧
+      v < 2 ^ n ∧
+      natBits n v = (readerBits r).take n ∧
+      readerBits r' = (readerBits r).drop n ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  have hens : ensureBits r n = ensureBits.loop n r := ensureBits.eq_1 r n
+  obtain ⟨hbits, einv, ecnt, ebytes, hexit⟩ := ensureBits_loop_spec n hn r hinv (by omega)
+  rw [← hens] at hbits einv ecnt ebytes hexit
+  -- the ensured reader holds at least n buffered bits
+  have hbcnt : n ≤ (ensureBits r n).bitCount := by
+    rcases hexit with h | h
+    · exact h
+    · have hdropnil :
+          (ensureBits r n).bytes.data.toList.drop (ensureBits r n).bytePos = [] := by
+        apply List.drop_eq_nil_of_le
+        rw [Array.length_toList]
+        exact h
+      have : (readerBits (ensureBits r n)).length = (ensureBits r n).bitCount := by
+        simp [readerBits, hdropnil, natBits_length]
+      rw [hbits] at this
+      omega
+  have hdivNat : (((ensureBits r n).bitBuf.toNat >>> n).toUInt32).toNat =
+      (ensureBits r n).bitBuf.toNat / 2 ^ n := by
+    have hshift : (ensureBits r n).bitBuf.toNat >>> n = (ensureBits r n).bitBuf.toNat / 2 ^ n :=
+      Nat.shiftRight_eq_div_pow _ n
+    have hlt : (ensureBits r n).bitBuf.toNat / 2 ^ n < 2 ^ 32 := by
+      have h1 : (2 : Nat) ^ (ensureBits r n).bitCount ≤ 2 ^ 32 :=
+        Nat.pow_le_pow_right (by omega) (by omega)
+      have h2 : (ensureBits r n).bitBuf.toNat / 2 ^ n ≤ (ensureBits r n).bitBuf.toNat :=
+        Nat.div_le_self _ _
+      omega
+    simp [Nat.toUInt32, hshift, UInt32.toNat_ofNat']
+    omega
+  have hsplit := natBits_split n ((ensureBits r n).bitCount - n) (ensureBits r n).bitBuf.toNat
+  rw [show n + ((ensureBits r n).bitCount - n) = (ensureBits r n).bitCount by omega] at hsplit
+  have hread : readBits r n =
+      .ok ({ ensureBits r n with
+              bitBuf := ((ensureBits r n).bitBuf.toNat >>> n).toUInt32,
+              bitCount := (ensureBits r n).bitCount - n },
+        (ensureBits r n).bitBuf.toNat &&& ((1 <<< n) - 1)) := by
+    simp only [readBits]
+    rw [if_neg (by omega)]
+  refine ⟨_, _, hread, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · -- value bound
+    have h1n : (1 : Nat) <<< n = 2 ^ n := by rw [Nat.shiftLeft_eq, Nat.one_mul]
+    rw [h1n, Nat.and_two_pow_sub_one_eq_mod]
+    exact Nat.mod_lt _ (Nat.two_pow_pos n)
+  · -- the value's window is the ghost prefix
+    have h1n : (1 : Nat) <<< n = 2 ^ n := by rw [Nat.shiftLeft_eq, Nat.one_mul]
+    rw [h1n, Nat.and_two_pow_sub_one_eq_mod, ← hbits]
+    show natBits n ((ensureBits r n).bitBuf.toNat % 2 ^ n) = (readerBits (ensureBits r n)).take n
+    rw [readerBits, hsplit, List.append_assoc]
+    rw [List.take_left' (by rw [natBits_length])]
+  · -- the rest is the ghost suffix
+    rw [← hbits]
+    show natBits ((ensureBits r n).bitCount - n)
+        (((ensureBits r n).bitBuf.toNat >>> n).toUInt32).toNat ++ _ =
+      (readerBits (ensureBits r n)).drop n
+    rw [hdivNat, readerBits, hsplit, List.append_assoc]
+    rw [List.drop_left' (by rw [natBits_length])]
+  · -- invariant: new buffered value inside new count
+    show (((ensureBits r n).bitBuf.toNat >>> n).toUInt32).toNat <
+      2 ^ ((ensureBits r n).bitCount - n)
+    rw [hdivNat]
+    have hdecomp : (2 : Nat) ^ (ensureBits r n).bitCount =
+        2 ^ ((ensureBits r n).bitCount - n) * 2 ^ n := by
+      rw [← Nat.pow_add]
+      congr 1
+      omega
+    rw [Nat.div_lt_iff_lt_mul (Nat.two_pow_pos n)]
+    rw [hdecomp] at einv
+    exact einv
+  · -- invariant: new count below 8
+    show (ensureBits r n).bitCount - n < 8
+    omega
+  · -- bytes untouched
+    show (ensureBits r n).bytes = r.bytes
+    exact ebytes
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- `mkBitReader`'s ghost sequence is the byte buffer's bit sequence, and its operating
+    invariant holds initially. -/
+theorem readerBits_mkBitReader (bs : ByteArray) :
+    readerBits (mkBitReader bs) = bytesBits bs ∧
+    (mkBitReader bs).bitBuf.toNat < 2 ^ (mkBitReader bs).bitCount ∧
+    (mkBitReader bs).bitCount < 8 := by
+  refine ⟨?_, by simp [mkBitReader], by simp [mkBitReader]⟩
+  simp [readerBits, mkBitReader, bytesBits, natBits]
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- L1c, the writer↔reader correspondence: a reader over a flushed writer's bytes sees
+    exactly the writer's ghost bit sequence followed by the byte-alignment zero padding —
+    the composition point where L1a's write-append meets L1b's read-consume. -/
+theorem readerBits_of_flushed (w : BitWriter)
+    (hbuf : w.bitBuf.toNat < 2 ^ w.bitCount) (hcnt : w.bitCount < 8) :
+    readerBits (mkBitReader (flushBitWriter w)) =
+      writerBits w ++ List.replicate ((8 - w.bitCount) % 8) false := by
+  rw [(readerBits_mkBitReader (flushBitWriter w)).1]
+  exact flushBitWriter_bits w hbuf hcnt
+
 end Stdlib.Zlib
