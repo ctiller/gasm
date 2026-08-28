@@ -222,6 +222,54 @@ theorem readByte_zero (a : Address) : readByte zero a = 0 := rfl
 @[simp] theorem read_zero (w : MemWidth) (a : Address) : read w a zero = 0 := by
   cases w <;> simp [read, readByte_zero]
 
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- Width decomposition: a width-`w` read is determined entirely by its `w.bytes` individual byte
+    reads -- the fact every `readsWithin` frame lemma needs to lift a byte-granular `agreeOn`
+    hypothesis up to the width the instruction's `step` actually reads at. -/
+theorem read_congr (w : MemWidth) (a : Address) (m1 m2 : X86_64Memory)
+    (h : ∀ k : Nat, k < w.bytes → readByte m1 (a + k.toUInt64) = readByte m2 (a + k.toUInt64)) :
+    read w a m1 = read w a m2 := by
+  cases w with
+  | w8 =>
+    have h0 : readByte m1 a = readByte m2 a := by simpa using h 0 (by decide)
+    simp [read, h0]
+  | w16 =>
+    have h0 : readByte m1 a = readByte m2 a := by simpa using h 0 (by decide)
+    have h1 : readByte m1 (a+1) = readByte m2 (a+1) := by simpa using h 1 (by decide)
+    simp [read, h0, h1]
+  | w32 =>
+    have h0 : readByte m1 a = readByte m2 a := by simpa using h 0 (by decide)
+    have h1 : readByte m1 (a+1) = readByte m2 (a+1) := by simpa using h 1 (by decide)
+    have h2 : readByte m1 (a+2) = readByte m2 (a+2) := by simpa using h 2 (by decide)
+    have h3 : readByte m1 (a+3) = readByte m2 (a+3) := by simpa using h 3 (by decide)
+    simp [read, h0, h1, h2, h3]
+  | w64 =>
+    have h0 : readByte m1 a = readByte m2 a := by simpa using h 0 (by decide)
+    have h1 : readByte m1 (a+1) = readByte m2 (a+1) := by simpa using h 1 (by decide)
+    have h2 : readByte m1 (a+2) = readByte m2 (a+2) := by simpa using h 2 (by decide)
+    have h3 : readByte m1 (a+3) = readByte m2 (a+3) := by simpa using h 3 (by decide)
+    have h4 : readByte m1 (a+4) = readByte m2 (a+4) := by simpa using h 4 (by decide)
+    have h5 : readByte m1 (a+5) = readByte m2 (a+5) := by simpa using h 5 (by decide)
+    have h6 : readByte m1 (a+6) = readByte m2 (a+6) := by simpa using h 6 (by decide)
+    have h7 : readByte m1 (a+7) = readByte m2 (a+7) := by simpa using h 7 (by decide)
+    simp [read, h0, h1, h2, h3, h4, h5, h6, h7]
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- `read_congr` restated with a `read .w8`-shaped hypothesis instead of `readByte` -- the exact
+    shape `agreeOn` (Memory.lean) supplies, so `readsWithin` frame lemmas can apply it directly
+    without a manual `readByte`/`read .w8` conversion at each call site. -/
+theorem read_congr' (w : MemWidth) (a : Address) (m1 m2 : X86_64Memory)
+    (h : ∀ k : Nat, k < w.bytes → read .w8 (a + k.toUInt64) m1 = read .w8 (a + k.toUInt64) m2) :
+    read w a m1 = read w a m2 := by
+  have h' : ∀ k : Nat, k < w.bytes → readByte m1 (a + k.toUInt64) = readByte m2 (a + k.toUInt64) := by
+    intro k hk
+    have hk2 := h k hk
+    simp only [read] at hk2
+    apply UInt8.toNat_inj.mp
+    have := congrArg UInt64.toNat hk2
+    simpa using this
+  exact read_congr w a m1 m2 h'
+
 end X86_64Mem
 
 end Gasm.Targets.X86_64
