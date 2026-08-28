@@ -52,26 +52,67 @@ def instructionAtRip (baseRip : UInt64) (instructions : List X86_64Instr) (targe
   loop baseRip instructions
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Computes byte offsets for each instruction in a sequence, eliminating O(M*N) re-encoding in the simulator. -/
+def indexInstructions (baseRip : UInt64) (instructions : List X86_64Instr) : List (UInt64 × X86_64Instr) :=
+  let rec loop (curRip : UInt64) : List X86_64Instr → List (UInt64 × X86_64Instr)
+    | [] => []
+    | instr :: rest =>
+      let sz := (X86_64Instruction.encode instr).size
+      (curRip, instr) :: loop (curRip + sz.toUInt64) rest
+  loop baseRip instructions
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Resolves an instruction from pre-indexed address-instruction pairs without re-encoding. -/
+def instructionAtRipIndexed : List (UInt64 × X86_64Instr) → UInt64 → Option X86_64Instr
+  | [], _ => none
+  | (rip, instr) :: rest, targetRip =>
+    if rip == targetRip then some instr
+    else instructionAtRipIndexed rest targetRip
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Proves that recursive indexing loop matches the linear instruction search loop. -/
+theorem instructionAtRipIndexed_loop_eq (curRip : UInt64) (instructions : List X86_64Instr) (targetRip : UInt64) :
+    instructionAtRipIndexed (indexInstructions.loop curRip instructions) targetRip =
+    instructionAtRip.loop targetRip curRip instructions := by
+  induction instructions generalizing curRip with
+  | nil => rfl
+  | cons i rest ih =>
+    unfold indexInstructions.loop instructionAtRip.loop instructionAtRipIndexed
+    split
+    · rfl
+    · exact ih (curRip + (X86_64Instruction.encode i).size.toUInt64)
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Proves that pre-indexed instruction lookup is strictly equivalent to dynamic linear search for all programs and addresses. -/
+theorem instructionAtRipIndexed_eq_instructionAtRip (baseRip : UInt64) (instructions : List X86_64Instr) (targetRip : UInt64) :
+    instructionAtRipIndexed (indexInstructions baseRip instructions) targetRip =
+    instructionAtRip baseRip instructions targetRip := by
+  exact instructionAtRipIndexed_loop_eq baseRip instructions targetRip
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Trace evaluator executing an x86-64 program with dynamic branches, loops, and external API interception. -/
 def runProgramTraceWithLoops {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
     (baseRip : UInt64) (instructions : List X86_64Instr) (fuel : Nat) (s : X86_64MachineState) : List Event :=
-  match fuel with
-  | 0 => []
-  | fuel + 1 =>
-    match instructionAtRip baseRip instructions s.rip with
-    | none => []
-    | some instr =>
-      let s' := X86_64Instruction.step instr s
-      match interceptor.interceptCall s'.rip s' with
-      | some (s_hooked, some evt) =>
-        if s_hooked.faulted then [evt]
-        else evt :: runProgramTraceWithLoops baseRip instructions fuel s_hooked
-      | some (s_hooked, none) =>
-        if s_hooked.faulted then []
-        else runProgramTraceWithLoops baseRip instructions fuel s_hooked
-      | none =>
-        if s'.faulted then []
-        else runProgramTraceWithLoops baseRip instructions fuel s'
+  let indexed := indexInstructions baseRip instructions
+  let rec loop (fuel : Nat) (s : X86_64MachineState) : List Event :=
+    match fuel with
+    | 0 => []
+    | fuel + 1 =>
+      match instructionAtRipIndexed indexed s.rip with
+      | none => []
+      | some instr =>
+        let s' := X86_64Instruction.step instr s
+        match interceptor.interceptCall s'.rip s' with
+        | some (s_hooked, some evt) =>
+          if s_hooked.faulted then [evt]
+          else evt :: loop fuel s_hooked
+        | some (s_hooked, none) =>
+          if s_hooked.faulted then []
+          else loop fuel s_hooked
+        | none =>
+          if s'.faulted then []
+          else loop fuel s'
+  loop fuel s
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Trace evaluator executing a list of lowered x86-64 instructions with dynamic control flow. -/
@@ -82,15 +123,18 @@ def runAsmTrace {Event : Type} [ExternalCallInterceptor X86_64 Event]
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Executes an x86-64 instruction sequence supporting branches and loops with fuel-based termination. -/
 def runProgramWithLoops (baseRip : UInt64) (instructions : List X86_64Instr) (fuel : Nat) (s : X86_64MachineState) : X86_64MachineState :=
-  match fuel with
-  | 0 => s
-  | fuel + 1 =>
-    match instructionAtRip baseRip instructions s.rip with
-    | none => s
-    | some instr =>
-      let s' := X86_64Instruction.step instr s
-      if s'.faulted then s'
-      else runProgramWithLoops baseRip instructions fuel s'
+  let indexed := indexInstructions baseRip instructions
+  let rec loop (fuel : Nat) (s : X86_64MachineState) : X86_64MachineState :=
+    match fuel with
+    | 0 => s
+    | fuel + 1 =>
+      match instructionAtRipIndexed indexed s.rip with
+      | none => s
+      | some instr =>
+        let s' := X86_64Instruction.step instr s
+        if s'.faulted then s'
+        else loop fuel s'
+  loop fuel s
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Initializes a clean x86-64 machine state for function invocation with arguments. -/

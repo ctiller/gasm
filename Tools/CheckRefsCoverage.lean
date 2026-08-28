@@ -624,8 +624,13 @@ def runGate : IO UInt32 := do
   let mut unloadable : Array (Name × String) := #[]
   let selfExe ← IO.appPath
   let cwd ← IO.currentDir
-  for (target, targetFile) in missing do
-    match ← spawnAndGetResultPayload selfExe cwd #["--scan-module", toString target, targetFile.toString] with
+  let concurrency ← defaultScanConcurrency
+  let workerResults ← runWorkerPool missing concurrency fun (target, targetFile) => do
+    let payloadRes ← spawnAndGetResultPayload selfExe cwd #["--scan-module", toString target, targetFile.toString]
+    pure (target, targetFile, payloadRes)
+
+  for (target, targetFile, payloadRes) in workerResults do
+    match payloadRes with
     | .error spawnErr =>
       unloadable := unloadable.push (target, spawnErr)
     | .ok payload =>
