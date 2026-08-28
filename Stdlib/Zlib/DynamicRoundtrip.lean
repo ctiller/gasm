@@ -433,4 +433,207 @@ theorem decodeClenArray_spec (cl : Array Nat) (hcl : ∀ i, i < 19 → cl[clenOr
       exact hok'
     · rw [hbytes', hbytes1]
 
+/-
+## L2h, decoder side: the code-length parsing loop reconstructs exactly the RLE'd
+## sequence, and `decodeDynamicTables` rebuilds the plan's tables.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- A nonempty backing list means a nonempty array. -/
+theorem isEmpty_false_of_toList {arr : Array Nat} {done : List Nat}
+    (h : arr.toList = done) (hne : done ≠ []) : arr.isEmpty = false := by
+  have hlen : 0 < done.length := List.length_pos_iff.mpr hne
+  have hsz : arr.size = done.length := by
+    rw [← Array.length_toList, h]
+  have hz : ¬ arr.size = 0 := by omega
+  simp [Array.isEmpty, hz]
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- **L2h decoder loop**: fed exactly the RLE stream's bits, `decodeDynamicTables.go`
+    reconstructs the full code-length sequence, consuming exactly those bits. The decode
+    table may be built from any `get!`-pointwise-equal copy of the encoder's clen array. -/
+theorem decodeDynamicTables_go_spec (clA clB : Array Nat)
+    (hpt : ∀ i : Nat, clA[i]! = clB[i]!) (hkc : kraftOk clA 7)
+    (totalLengths : Nat) (full : List Nat) (hfull : full.length = totalLengths) :
+    ∀ (ts : List (Nat × Nat × Nat)) (done : List Nat) (br : BitReader)
+      (arr : Array Nat) (rest : List Bool),
+    rleOk ts done full →
+    arr.toList = done →
+    (∀ t ∈ ts, 0 < clA[t.1]! ∧ clA[t.1]! ≤ 7) →
+    readerBits br = rleBitsF clA ts ++ rest →
+    br.bitBuf.toNat < 2 ^ br.bitCount → br.bitCount < 8 →
+    ∃ br' arr',
+      decodeDynamicTables.go (buildHuffmanTable clB 7) totalLengths br arr = .ok (br', arr') ∧
+      arr'.toList = full ∧ readerBits br' = rest ∧
+      br'.bitBuf.toNat < 2 ^ br'.bitCount ∧ br'.bitCount < 8 ∧ br'.bytes = br.bytes := by
+  intro ts
+  induction ts with
+  | nil =>
+    intro done br arr rest hok htl _ hbits hinv hcnt
+    have hdone : done = full := hok
+    have hsz : ¬ arr.size < totalLengths := by
+      rw [← Array.length_toList, htl, hdone, hfull]
+      omega
+    refine ⟨br, arr, ?_, by rw [htl, hdone], by simpa [rleBitsF] using hbits, hinv, hcnt, rfl⟩
+    rw [decodeDynamicTables.go.eq_def, if_neg hsz]
+  | cons t ts ih =>
+    intro done br arr rest hok htl hsyms hbits hinv hcnt
+    obtain ⟨sym, eb, ev⟩ := t
+    have hsymA := hsyms (sym, eb, ev) (by simp)
+    have hlen := rleOk_length _ _ _ hok
+    have hguard : arr.size < totalLengths := by
+      rw [← Array.length_toList, htl, ← hfull]
+      exact hlen.2 (by simp)
+    -- the clen symbol decode
+    have hbits1 : readerBits br = codeBits (canonicalCode clA 7 sym) clA[sym]! ++
+        (natBits eb ev ++ (rleBitsF clA ts ++ rest)) := by
+      rw [hbits]
+      unfold rleBitsF
+      rw [List.flatMap_cons]
+      simp [List.append_assoc]
+    obtain ⟨r1, hok1, hrest1, hinv1, hcnt1, hbytes1⟩ :=
+      decodeHuffmanSymbol_canonical clA clB 7 hpt hkc hsymA.1 hsymA.2 br _ hbits1 hinv hcnt
+    rw [decodeDynamicTables.go.eq_def, if_pos hguard]
+    -- reduce the symbol-decode match
+    rcases hok with ⟨h15, heb, hev, hrec⟩ | ⟨h16, heb, hev, hne, hrec⟩ |
+      ⟨h17, heb, hev, hrec⟩ | ⟨h18, heb, hev, hrec⟩
+    · -- literal length 0–15
+      subst heb
+      subst hev
+      have hrest1' : readerBits r1 = rleBitsF clA ts ++ rest := by
+        rw [hrest1]
+        simp [natBits]
+      have hstep := ih (done ++ [sym]) r1 (arr.push sym) rest hrec
+        (by rw [Array.toList_push, htl])
+        (fun t' ht' => hsyms t' (by simp [ht'])) hrest1' hinv1 hcnt1
+      obtain ⟨br', arr', hgo, htl', hrest', hinv', hcnt', hbytes'⟩ := hstep
+      refine ⟨br', arr', ?_, htl', hrest', hinv', hcnt', by rw [hbytes', hbytes1]⟩
+      split
+      · rename_i e heq
+        rw [heq] at hok1
+        exact absurd hok1 (by simp)
+      · rename_i nextR sym' heq
+        rw [heq] at hok1
+        simp only [Except.ok.injEq, Prod.mk.injEq] at hok1
+        obtain ⟨hh1, hh2⟩ := hok1
+        subst hh1
+        rw [hh2, if_pos (by omega : sym ≤ 15)]
+        exact hgo
+    · -- 16: repeat previous
+      subst h16
+      subst heb
+      have hne' : arr.isEmpty = false := isEmpty_false_of_toList htl hne
+      obtain ⟨r2, hok2, hrest2, hinv2, hcnt2, hbytes2⟩ :=
+        readBits_exact r1 2 ev (rleBitsF clA ts ++ rest)
+          (by show ev < 2 ^ 2; omega) (by omega) (by rw [hrest1]) hinv1 hcnt1
+      have hlast : arr[arr.size - 1]! = done.getLastD 0 := by
+        rw [getElem!_eq_toList_getD, htl, ← Array.length_toList, htl,
+          getLastD_eq_getD 0 done hne]
+      have hstep := ih (done ++ List.replicate (ev + 3) (done.getLastD 0)) r2
+        (pushRepeated arr (arr[arr.size - 1]!) (ev + 3)) rest hrec
+        (by rw [pushRepeated_toList, htl, hlast])
+        (fun t' ht' => hsyms t' (by simp [ht'])) hrest2 hinv2 hcnt2
+      obtain ⟨br', arr', hgo, htl', hrest', hinv', hcnt', hbytes'⟩ := hstep
+      refine ⟨br', arr', ?_, htl', hrest', hinv', hcnt',
+        by rw [hbytes', hbytes2, hbytes1]⟩
+      split
+      · rename_i e heq
+        rw [heq] at hok1
+        exact absurd hok1 (by simp)
+      · rename_i nextR sym' heq
+        rw [heq] at hok1
+        simp only [Except.ok.injEq, Prod.mk.injEq] at hok1
+        obtain ⟨hh1, hh2⟩ := hok1
+        subst hh1
+        subst hh2
+        rw [if_neg (by omega : ¬ (16 : Nat) ≤ 15),
+          if_pos (by decide : ((16 : Nat) == 16) = true),
+          if_neg (by rw [Array.isEmpty] at hne' ⊢; simp at hne' ⊢; omega)]
+        split
+        · rename_i e heq2
+          rw [heq2] at hok2
+          exact absurd hok2 (by simp)
+        · rename_i rRepeat extra heq2
+          rw [heq2] at hok2
+          simp only [Except.ok.injEq, Prod.mk.injEq] at hok2
+          obtain ⟨hh1, hh2⟩ := hok2
+          subst hh1
+          subst hh2
+          exact hgo
+    · -- 17: short zero run
+      subst h17
+      subst heb
+      obtain ⟨r2, hok2, hrest2, hinv2, hcnt2, hbytes2⟩ :=
+        readBits_exact r1 3 ev (rleBitsF clA ts ++ rest)
+          (by show ev < 2 ^ 3; omega) (by omega) (by rw [hrest1]) hinv1 hcnt1
+      have hstep := ih (done ++ List.replicate (ev + 3) 0) r2
+        (pushRepeated arr 0 (ev + 3)) rest hrec
+        (by rw [pushRepeated_toList, htl])
+        (fun t' ht' => hsyms t' (by simp [ht'])) hrest2 hinv2 hcnt2
+      obtain ⟨br', arr', hgo, htl', hrest', hinv', hcnt', hbytes'⟩ := hstep
+      refine ⟨br', arr', ?_, htl', hrest', hinv', hcnt',
+        by rw [hbytes', hbytes2, hbytes1]⟩
+      split
+      · rename_i e heq
+        rw [heq] at hok1
+        exact absurd hok1 (by simp)
+      · rename_i nextR sym' heq
+        rw [heq] at hok1
+        simp only [Except.ok.injEq, Prod.mk.injEq] at hok1
+        obtain ⟨hh1, hh2⟩ := hok1
+        subst hh1
+        subst hh2
+        rw [if_neg (by omega : ¬ (17 : Nat) ≤ 15),
+          if_neg (by decide : ¬ ((17 : Nat) == 16) = true),
+          if_pos (by decide : ((17 : Nat) == 17) = true)]
+        split
+        · rename_i e heq2
+          rw [heq2] at hok2
+          exact absurd hok2 (by simp)
+        · rename_i rRepeat extra heq2
+          rw [heq2] at hok2
+          simp only [Except.ok.injEq, Prod.mk.injEq] at hok2
+          obtain ⟨hh1, hh2⟩ := hok2
+          subst hh1
+          subst hh2
+          exact hgo
+    · -- 18: long zero run
+      subst h18
+      subst heb
+      obtain ⟨r2, hok2, hrest2, hinv2, hcnt2, hbytes2⟩ :=
+        readBits_exact r1 7 ev (rleBitsF clA ts ++ rest)
+          (by show ev < 2 ^ 7; omega) (by omega) (by rw [hrest1]) hinv1 hcnt1
+      have hstep := ih (done ++ List.replicate (ev + 11) 0) r2
+        (pushRepeated arr 0 (ev + 11)) rest hrec
+        (by rw [pushRepeated_toList, htl])
+        (fun t' ht' => hsyms t' (by simp [ht'])) hrest2 hinv2 hcnt2
+      obtain ⟨br', arr', hgo, htl', hrest', hinv', hcnt', hbytes'⟩ := hstep
+      refine ⟨br', arr', ?_, htl', hrest', hinv', hcnt',
+        by rw [hbytes', hbytes2, hbytes1]⟩
+      split
+      · rename_i e heq
+        rw [heq] at hok1
+        exact absurd hok1 (by simp)
+      · rename_i nextR sym' heq
+        rw [heq] at hok1
+        simp only [Except.ok.injEq, Prod.mk.injEq] at hok1
+        obtain ⟨hh1, hh2⟩ := hok1
+        subst hh1
+        subst hh2
+        rw [if_neg (by omega : ¬ (18 : Nat) ≤ 15),
+          if_neg (by decide : ¬ ((18 : Nat) == 16) = true),
+          if_neg (by decide : ¬ ((18 : Nat) == 17) = true),
+          if_pos (by decide : ((18 : Nat) == 18) = true)]
+        split
+        · rename_i e heq2
+          rw [heq2] at hok2
+          exact absurd hok2 (by simp)
+        · rename_i rRepeat extra heq2
+          rw [heq2] at hok2
+          simp only [Except.ok.injEq, Prod.mk.injEq] at hok2
+          obtain ⟨hh1, hh2⟩ := hok2
+          subst hh1
+          subst hh2
+          exact hgo
+
 end Stdlib.Zlib
