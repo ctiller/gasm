@@ -19,10 +19,11 @@ Tools/GateSubprocess.lean - shared per-module standalone-scan subprocess protoco
 
 WHY THIS FILE EXISTS. Tools/CheckGatesAxioms.lean (Law 10) and
 Tools/CheckRefsCoverage.lean (Law 1/3) both close the identical TC15 module-
-coverage blind spot the same way: `discoverProjectModules` walks Gasm/Stdlib/
-Spikes ON DISK to find every project module, the baseline `importModules
-#[Gasm, Stdlib, Spikes]` only reaches a subset of them, and each module NOT
-in that subset must still be scanned somehow. Both tools import each such
+coverage blind spot the same way: `discoverProjectModules` enumerates every
+tracked Gasm/Stdlib/Spikes module the build compiles (`enumerateProjectModules`
+below), the baseline `importModules #[Gasm, Stdlib, Spikes]` only reaches a
+subset of them, and each module NOT in that subset must still be scanned
+somehow. Both tools import each such
 module standalone, and -- this is the part this file exists for -- both do
 it via ONE FRESH OS PROCESS PER MODULE (this same executable, re-invoked as
 `--scan-module <dotted name>`), never a fresh `Environment` value inside the
@@ -52,17 +53,29 @@ too would force one tool's payload shape onto the other for no benefit; what
 was genuinely duplicated -- byte-for-byte, before this file existed -- was
 the spawn/capture/error-classification plumbing itself, which is what a
 project's Law 12 ("duplicated-but-unlinked logic is a defect") is about.
-Similarly, `discoverProjectModules`, `isProjectModule`, `isExactlyModule`,
-and friends remain independently defined in each tool (they predate this
-file, mirrored intentionally per each tool's own header) -- extracting those
-too was judged not worth the extra churn against Tools/CheckGatesAxioms.lean,
-an already CI-verified gate, for this task's actual scope.
+Similarly, `isProjectModule`, `isExactlyModule`, and friends remain
+independently defined in each tool (they predate this file, mirrored
+intentionally per each tool's own header) -- extracting those too was judged
+not worth the extra churn against Tools/CheckGatesAxioms.lean, an already
+CI-verified gate, for that task's actual scope. `discoverProjectModules` was
+in that list until the enumeration half of it moved here: the two copies had
+independently drifted into the same filesystem-walk defect, which is exactly
+the Law 12 case ("duplicated-but-unlinked logic is a defect") this file
+exists for. Each tool still owns its own `discoverProjectModules`, since the
+two need different return shapes (`Name` vs `Name × FilePath`), but both now
+get their file list from `enumerateProjectModules` here.
 
 `resultMarker`, `setupSearchPath`, and `nameOfDotted` are included alongside
 `spawnAndGetResultPayload` because they are the other pieces every
 `--scan-module` worker needs and every parent's spawn loop needs, and were
 themselves byte-identical duplicates between the two tools' worker/parent
 halves before this file existed.
+
+MODULE ENUMERATION IS ALSO SHARED NOW (`enumerateProjectModules`, below).
+Both tools' `discoverProjectModules` used to call
+`System.FilePath.walkDir` -- and that, not the subprocess plumbing, turned
+out to be the duplicated defect. See that function's own doc comment for why
+enumeration is `git ls-files` and never a filesystem walk.
 -/
 import Lean
 
@@ -131,6 +144,339 @@ def spawnAndGetResultPayload (selfExe : System.FilePath) (cwd : System.FilePath)
       pure (Except.ok ((line.drop resultMarker.length).toString))
   catch e =>
     pure (Except.error s!"failed to spawn scan subprocess: {e.toString}")
+
+/-- Every TRACKED `.lean` file in the repository, as repo-root-relative,
+forward-slash paths, exactly as `git ls-files` prints them.
+
+ENUMERATION IS `git ls-files`, NEVER A FILESYSTEM WALK. This is a load-bearing
+design property shared with `scripts/check_orphan_modules.py` (see that
+script's own docstring for the fuller argument), not a convenience:
+
+1. TRACKED-ONLY IS THE CORRECT SEMANTICS. What both gates that call this are
+   actually asserting is a property of the tree CI checks out. A *committed*
+   `.lean` with no `.olean` is exactly the blind spot they refuse to hide (a
+   reviewed, unbuilt, therefore unverified module -- TC15/TCB.md T2). An
+   *untracked* `.lean` is an agent mid-edit: not yet claimed to be anything,
+   and never present in any CI checkout.
+
+   This distinction is not hypothetical. Both tools walked the filesystem
+   until this fix, and on 2026-08-28 `lake exe check_gates_axioms` returned
+   exit 1 and exit 0 roughly an hour apart on the same code, because
+   `Stdlib/Zlib/CanonicalTableSpec.lean` was one agent's untracked
+   work-in-progress during the first run and committed by the second. Both
+   runs were correct about what they measured; they measured different trees.
+   The failure named an unloadable module rather than the real cause, so the
+   reader chases the wrong thing -- and ADR-0035 records what an unexplained
+   red costs: it trains people to stop reading failures.
+
+2. Several agents write to this tree concurrently. A filesystem walk makes any
+   one of them's uncommitted scratch file everybody else's red build.
+
+3. This repository contains nested git worktrees under `.claude/worktrees/`,
+   each a full copy of the tree. A recursive walk sees every file several
+   times over; that previously produced 86 phantom CI failures.
+
+NARROWING ENUMERATION IS NOT WEAKENING THE CHECK. A *tracked* module with no
+loadable `.olean` still hard-fails at the call site (both tools' `unloadable`
+handling) -- that is TC15/T2 and it stays load-bearing. Only the set of files
+considered changes, from "whatever is on disk right now" to "what is
+committed".
+
+FAIL-CLOSED: a `git` that cannot be run, a non-zero `git ls-files`, or an
+empty result all throw rather than returning `#[]`. An empty enumeration
+would make the callers' module-coverage check vacuously green, which is the
+one outcome a coverage gate must never produce silently. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def trackedLeanFiles : IO (Array String) := do
+  let out ←
+    try
+      IO.Process.output { cmd := "git", args := #["ls-files", "-z", "--", "*.lean"] }
+    catch e =>
+      throw (IO.userError s!"could not run `git ls-files` to enumerate project modules: {e.toString}\n\
+        This gate enumerates the TRACKED tree (the one CI checks out) and deliberately has no \
+        filesystem-walk fallback -- a walk goes red on any agent's uncommitted work-in-progress. \
+        Run it from the repo root of a git checkout, with `git` on PATH.")
+  if out.exitCode != 0 then
+    throw (IO.userError s!"`git ls-files` exited {out.exitCode} while enumerating project modules: {out.stderr}")
+  -- `-z` NUL-delimits, so a path containing a quote/space/non-ASCII byte is
+  -- never shell-quoted or mangled the way `git ls-files`'s default output
+  -- would be. Paths come back forward-slash-separated on every platform;
+  -- `System.FilePath.components` normalizes to the platform separator before
+  -- splitting, so callers' path->module-name conversion is unaffected.
+  let selected := (out.stdout.split (· == '\x00')).toStringList.filter (·.endsWith ".lean")
+  if selected.isEmpty then
+    throw (IO.userError s!"`git ls-files` reported no tracked .lean files at all -- \
+      refusing to report vacuously complete module coverage. Run this gate from the repo root.")
+  return selected.toArray
+
+/-- `Gasm/Zlib/Spec.lean` -> `Gasm.Zlib.Spec`. Operates on the forward-slash,
+repo-relative form `trackedLeanFiles` returns, so it is platform-independent
+(unlike a `System.FilePath.components` round-trip, which normalizes to the
+host separator first). Lake's own path<->module mapping. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def dottedModuleOfRelPath (rel : String) : String :=
+  (rel.dropEnd ".lean".length).toString.replace "/" "."
+
+/-- One build root declared by `lakefile.toml`, plus which target declared it. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+structure LakeBuildRoot where
+  module     : String
+  targetKind : String   -- "lean_lib" | "lean_exe"
+  targetName : String
+deriving Inhabited
+
+/-- Every double-quoted string in a TOML scalar-or-array right-hand side. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def tomlQuotedStrings (s : String) : List String := Id.run do
+  let mut out : List String := []
+  let mut idx := 0
+  for part in s.splitOn "\"" do
+    if idx % 2 == 1 then
+      out := out ++ [part]
+    idx := idx + 1
+  return out
+
+/-- One `[[lean_lib]]`/`[[lean_exe]]` array-of-tables entry, as raw key -> raw-RHS
+pairs. Deliberately a small hand parser rather than a TOML library: this repo's
+`lakefile.toml` is flat and comment-heavy, and the only keys ever read back are
+`name`, `roots`, and `root`. Mirrors `scripts/check_orphan_modules.py`'s
+`_parse_tables` for the same reasons it gives. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+structure LakeRawTable where
+  kind : String
+  keys : Array (String × String)
+deriving Inhabited
+
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def parseLakeTables (text : String) : Array LakeRawTable := Id.run do
+  let mut out : Array LakeRawTable := #[]
+  let mut cur : Option LakeRawTable := none
+  for rawLine in (text.replace "\r\n" "\n").splitOn "\n" do
+    let line := rawLine.trimAscii.toString
+    if line.startsWith "#" then
+      continue
+    if line == "[[lean_lib]]" || line == "[[lean_exe]]" then
+      if let some t := cur then out := out.push t
+      cur := some { kind := if line == "[[lean_lib]]" then "lean_lib" else "lean_exe", keys := #[] }
+      continue
+    if line.startsWith "[" then
+      -- Any other table header (including `[[lean_exe]]`-shaped ones this tool
+      -- does not model) ends the current table rather than silently absorbing
+      -- its keys.
+      if let some t := cur then out := out.push t
+      cur := none
+      continue
+    match cur with
+    | none => continue
+    | some t =>
+      match line.splitOn "=" with
+      | k :: v :: rest =>
+        let key := k.trimAscii.toString
+        if !key.isEmpty then
+          cur := some { t with keys := t.keys.push (key, String.intercalate "=" (v :: rest)) }
+      | _ => continue
+  if let some t := cur then out := out.push t
+  return out
+
+/-- Parses `lakefile.toml`'s `[[lean_lib]] roots` and `[[lean_exe]] root`
+declarations into the full set of build roots.
+
+NOTHING HERE IS HARDCODED, on purpose, and that is the whole point of this
+function: the two gates that call it used to model the build as exactly three
+`[[lean_lib]]` umbrellas (`Gasm`/`Stdlib`/`Spikes`) and nothing else. That model
+is wrong in both directions. It understates what `lake build` compiles -- a
+`[[lean_exe]]` root is a real build root, and Lake produces its `.olean` exactly
+as it does for a library umbrella -- so every `Spikes/*/Emit.lean`,
+`Spikes/*/Test.lean` and fuzzer CLI looked to those gates like a module outside
+any declared target rather than what it is, the root of one. And a hardcoded root
+list is this defect one level up: declare a new `[[lean_lib]]` and its whole
+subtree would be silently unmodelled forever. Same derivation, same reasons, as
+`scripts/check_orphan_modules.py`'s `derive_build_roots`. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def deriveLakeBuildRoots (text : String) : Array LakeBuildRoot × Array String := Id.run do
+  let mut roots : Array LakeBuildRoot := #[]
+  let mut errors : Array String := #[]
+  for t in parseLakeTables text do
+    let get (k : String) : Option String := (t.keys.find? (·.1 == k)).map (·.2)
+    let name := ((get "name").bind (fun v => (tomlQuotedStrings v).head?)).getD "<unnamed>"
+    let rootKey := if t.kind == "lean_lib" then "roots" else "root"
+    let declared := ((get rootKey).map tomlQuotedStrings).getD []
+    if declared.isEmpty then
+      errors := errors.push
+        s!"lakefile.toml: [[{t.kind}]] '{name}' declares no parseable `{rootKey}`"
+    for m in declared do
+      roots := roots.push { module := m, targetKind := t.kind, targetName := name }
+  if roots.isEmpty then
+    errors := errors.push
+      "lakefile.toml: no [[lean_lib]]/[[lean_exe]] roots parsed at all -- refusing to model an \
+       empty build (with no roots every module would look unbuilt, and this gate's module-coverage \
+       check would be vacuous)"
+  return (roots, errors)
+
+/-- The modules `rel` imports.
+
+Lean requires the import section to precede every other command in a file, so
+this walks the header and STOPS at the first line that is neither blank, nor a
+comment, nor an `import`/`prelude`. That bound is what keeps prose out: this tree
+contains doc-comment lines beginning with the word "import" at column 0 (this
+very file's neighbours do), and an unbounded sweep would invent import edges out
+of them. Block comments (`/- ... -/`, including the Apache-2.0 header every file
+opens with) are tracked by nesting depth. Mirrors
+`scripts/check_orphan_modules.py`'s `imports_of` exactly. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def importsOfFile (rel : String) : IO (Array String) := do
+  let text ← IO.FS.readFile (System.FilePath.mk rel)
+  let mut found : Array String := #[]
+  -- `Int`, not `Nat`: a stray `-/` would truncate a `Nat` at zero and silently
+  -- shift every subsequent line's comment state.
+  let mut depth : Int := 0
+  for rawLine in (text.replace "\r\n" "\n").splitOn "\n" do
+    let line := rawLine.trimAscii.toString
+    let opens : Int := ((line.splitOn "/-").length - 1 : Nat)
+    let closes : Int := ((line.splitOn "-/").length - 1 : Nat)
+    if depth > 0 then
+      depth := depth + opens - closes
+      continue
+    if line.isEmpty || line.startsWith "--" then
+      continue
+    if line.startsWith "/-" then
+      depth := depth + opens - closes
+      continue
+    if line == "prelude" then
+      continue
+    if line.startsWith "import " then
+      let rest := (line.drop "import ".length).trimAscii.toString
+      let rest := if rest.startsWith "all " then (rest.drop 4).trimAscii.toString else rest
+      if !rest.isEmpty && rest.all (fun c => c.isAlphanum || c == '_' || c == '.') then
+        found := found.push rest
+      continue
+    break
+  return found
+
+/-- What `enumerateProjectModules` computes: the project modules a declared
+`lakefile.toml` target actually builds, and the ones it does not. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+structure ProjectModuleEnumeration where
+  /-- Tracked project `.lean` files (under the caller's source roots) that are
+  reachable, transitively, from some `lakefile.toml` build root -- i.e. exactly
+  the ones `lake build` compiles and therefore the ones this gate can and must
+  scan. Repo-relative, forward-slash. -/
+  files       : Array System.FilePath
+  /-- Tracked project modules reachable from NO declared root. `lake build`
+  never compiles these, so no `.olean` exists to scan and the calling gate
+  cannot say anything about them -- and must not pretend a bare exit 1 said
+  something. `scripts/check_orphan_modules.py` owns this defect class and names
+  the file, its umbrella, and the exact `import` line to add. -/
+  unbuilt     : Array System.FilePath
+  libRoots    : Nat
+  exeRoots    : Nat
+  errors      : Array String
+deriving Inhabited
+
+/-- Enumerates the project modules `lake build` actually compiles.
+
+THE MODEL THIS REPLACES, AND WHY. Both calling gates used to take "every
+project `.lean` file that exists" as the set of modules they must be able to
+load, and treat any failure to load one as a hard, unexplained failure. That
+model has no notion of what the build system was ever asked to compile, which
+made it wrong in two directions at once:
+
+- It counted the ~48 modules that are `[[lean_exe]]` roots (or reached only
+  through one) as sitting outside every declared target, when each is the root
+  of a declared target and is compiled by `lake build` like any other.
+- It counted `Gasm/Targets/X86_64/RoundtripGate/DispatchExhaustive.lean` -- a
+  genuine orphan that no root reaches, so nothing compiles it -- as a bare
+  exit 1 with "0 NOT allowlisted" / "0 uncited" beside it. Two gates red at
+  once, neither naming a cause. `scripts/orphan_allowlist.txt`'s own entry for
+  that file records this as an open question and names this fix as one of its
+  two resolutions.
+
+The closure is therefore derived from EVERY declared target -- both
+`[[lean_lib]] roots` and `[[lean_exe]] root` -- over `import` edges among
+TRACKED files, which is the same model `scripts/check_orphan_modules.py` uses
+and the same one TCB.md T2 / TC15 call for. Reachability is a transitive graph
+walk, not a flat membership test: a module reached via an intermediate import
+is correctly in scope.
+
+This does NOT weaken the module-coverage check. Everything the build compiles
+stays in `files`, and a module in `files` that loads into neither the baseline
+environment nor a standalone import is still a hard failure at the call site --
+that is TC15/T2 and it stays load-bearing. What changes is that a module the
+build was never asked to compile is reported as such, by name, pointing at the
+gate that owns it, instead of being indistinguishable from a real one. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def enumerateProjectModules (sourceRoots : List String) : IO ProjectModuleEnumeration := do
+  let allFiles ← trackedLeanFiles
+  let mut moduleToPath : Std.HashMap String String := {}
+  for rel in allFiles do
+    moduleToPath := moduleToPath.insert (dottedModuleOfRelPath rel) rel
+
+  let lakefilePath : System.FilePath := "lakefile.toml"
+  if !(← lakefilePath.pathExists) then
+    throw (IO.userError "lakefile.toml not found -- run this gate from the repo root.")
+  let lakefileText ← IO.FS.readFile lakefilePath
+  let (roots, rootErrors) := deriveLakeBuildRoots lakefileText
+  let mut errors := rootErrors
+
+  -- A declared root with no tracked file is a hard error, not a skipped root:
+  -- lakefile.toml and the tree disagree about what exists, and dropping it
+  -- would shrink the reachable set and manufacture "unbuilt" modules downstream.
+  for r in roots do
+    if !moduleToPath.contains r.module then
+      errors := errors.push
+        s!"lakefile.toml: [[{r.targetKind}]] '{r.targetName}' declares root module \
+           '{r.module}', but no tracked file for it exists"
+
+  -- BFS from every declared root over `import` edges among tracked files.
+  let mut reached : Std.HashSet String := {}
+  let mut frontier : Array String := #[]
+  for r in roots do
+    if moduleToPath.contains r.module && !reached.contains r.module then
+      reached := reached.insert r.module
+      frontier := frontier.push r.module
+  while !frontier.isEmpty do
+    let mut next : Array String := #[]
+    for m in frontier do
+      match moduleToPath[m]? with
+      | none => pure ()
+      | some rel =>
+        for imported in ← importsOfFile rel do
+          if moduleToPath.contains imported && !reached.contains imported then
+            reached := reached.insert imported
+            next := next.push imported
+    frontier := next
+
+  let underSourceRoot (p : String) : Bool :=
+    sourceRoots.any (fun r => p == r ++ ".lean" || p.startsWith (r ++ "/"))
+  let mut files : Array System.FilePath := #[]
+  let mut unbuilt : Array System.FilePath := #[]
+  for rel in allFiles do
+    if underSourceRoot rel then
+      if reached.contains (dottedModuleOfRelPath rel) then
+        files := files.push (System.FilePath.mk rel)
+      else
+        unbuilt := unbuilt.push (System.FilePath.mk rel)
+
+  if files.isEmpty then
+    throw (IO.userError s!"no tracked .lean file under {sourceRoots} is reachable from any \
+      lakefile.toml build root -- refusing to report vacuously complete module coverage.")
+
+  return {
+    files := files, unbuilt := unbuilt,
+    libRoots := (roots.filter (·.targetKind == "lean_lib")).size,
+    exeRoots := (roots.filter (·.targetKind == "lean_exe")).size,
+    errors := errors
+  }
 
 /-- Resolves gate subprocess concurrency from `GASM_SCAN_CONCURRENCY` env var, defaulting to 8. -/
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/

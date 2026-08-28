@@ -45,8 +45,10 @@ could hide from a regex.
 
 ARCHITECTURE (mirrors Tools/CheckGatesAxioms.lean's Law 10 tool almost
 exactly -- see that file's header for the fuller rationale of each piece
-reused here): `discoverProjectModules` walks `Gasm/`, `Stdlib/`, `Spikes/`
-ON DISK (not via any import closure) to find every project module; `runGate`
+reused here): `discoverProjectModules` enumerates every TRACKED `.lean` file
+under `Gasm/`, `Stdlib/`, `Spikes/` via `git ls-files` (not via any import
+closure, and not via a filesystem walk -- see `enumerateProjectModules` in
+Tools/GateSubprocess.lean); `runGate`
 does the baseline `importModules #[Gasm, Stdlib, Spikes]` scan, then
 per-module standalone scans for whatever the baseline's closure did not
 reach, exactly as CheckGatesAxioms.lean does for Law 10 (same TC15 module-
@@ -253,26 +255,27 @@ CheckGatesAxioms.lean's `moduleNameOfPath` exactly. -/
 def moduleNameOfPath (p : System.FilePath) : Name :=
   (p.withExtension "").components.foldl Name.mkStr Name.anonymous
 
-/-- Enumerates every project module FROM DISK, paired with its file path (so
-the text-scanning phase below never has to reconstruct a path from a `Name`
--- it reuses the exact `System.FilePath` this walk already found). Mirrors
-CheckGatesAxioms.lean's `discoverProjectModules`, independent of any import
-closure for the same reason: it is the ground truth the compiled
-environment(s) are cross-checked against. -/
+/-- Enumerates every project module from the TRACKED TREE (`git ls-files`),
+paired with its file path (so the text-scanning phase below never has to
+reconstruct a path from a `Name` -- it reuses the exact `System.FilePath` the
+enumeration already produced). Mirrors CheckGatesAxioms.lean's
+`discoverProjectModules`, independent of any import closure for the same
+reason: it is the ground truth the compiled environment(s) are cross-checked
+against.
+
+Restricted to modules some `lakefile.toml` target actually builds -- every
+`[[lean_lib]] roots` and every `[[lean_exe]] root`, not the three umbrella libs
+this tool used to assume were the whole build.
+
+This used to be a `System.FilePath.walkDir` recursion over every project file
+that exists, and this gate went red from the same single uncommitted file that
+reddened `lake exe check_gates_axioms` on 2026-08-28, and from the same single
+unbuilt orphan -- the identical two defects, in the identical place. See
+`enumerateProjectModules` (Tools/GateSubprocess.lean) for the full argument
+and for why neither fix weakens the module-coverage check below. -/
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
-def discoverProjectModules : IO (Array (Name × System.FilePath)) := do
-  let mut out : Array (Name × System.FilePath) := #[]
-  for root in projectRootDirs do
-    let umbrella : System.FilePath := root ++ ".lean"
-    if ← umbrella.pathExists then
-      out := out.push (Name.mkSimple root, umbrella)
-    let rootDir : System.FilePath := root
-    if ← rootDir.pathExists then
-      let entries ← System.FilePath.walkDir rootDir
-      for entry in entries do
-        if entry.extension == some "lean" then
-          out := out.push (moduleNameOfPath entry, entry)
-  return out
+def discoverProjectModules : IO ProjectModuleEnumeration :=
+  enumerateProjectModules projectRootDirs
 
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
 def sepLine : String :=
@@ -596,7 +599,8 @@ def runGate : IO UInt32 := do
 
   let ctx : Core.Context := { fileName := "CheckRefsCoverage", fileMap := default }
 
-  let discovered ← discoverProjectModules
+  let enumeration ← discoverProjectModules
+  let discovered := enumeration.files.map (fun p => (moduleNameOfPath p, p))
   let fileOfModule : Std.HashMap Name System.FilePath :=
     discovered.foldl (init := {}) (fun m (n, p) => m.insert n p)
 
@@ -689,11 +693,24 @@ def runGate : IO UInt32 := do
 
   IO.println ""
   IO.println "--- MODULE COVERAGE (TC15-style closure, mirrors CheckGatesAxioms.lean) ---"
-  IO.println s!"[*] {discovered.size} project module(s) found on disk under {projectRootDirs}."
+  IO.println s!"[*] {discovered.size} tracked project module(s) under {projectRootDirs} are built by a"
+  IO.println s!"    declared lakefile.toml target ({enumeration.libRoots} [[lean_lib]] root(s), \
+{enumeration.exeRoots} [[lean_exe]] root(s))."
   IO.println s!"[*] {baselineProjectCount} reachable via the baseline Gasm/Stdlib/Spikes import graph;"
   IO.println s!"    {coveredStandalone} more loaded standalone to close the blind spot."
-  IO.println s!"[*] Total in scope: {baselineProjectCount + coveredStandalone} / {discovered.size} discovered."
+  IO.println s!"[*] Total in scope: {baselineProjectCount + coveredStandalone} / {discovered.size} in the build closure."
   IO.println s!"[*] Import phase: {elapsedImportMs}ms."
+  -- See CheckGatesAxioms.lean's identical block: a tracked module no declared
+  -- target reaches is never compiled, so no `.olean` exists for this tool to
+  -- scan and a bare exit 1 here would name no cause. `check_orphan_modules.py`
+  -- owns that defect class and names the exact fix.
+  if !enumeration.unbuilt.isEmpty then
+    IO.println ""
+    IO.println s!"[*] {enumeration.unbuilt.size} tracked project module(s) are reached by NO declared"
+    IO.println "    lakefile.toml root, so nothing compiles them and this gate cannot scan them:"
+    for p in enumeration.unbuilt do
+      IO.println s!"    - {p}"
+    IO.println "    Not a failure here -- `python scripts/check_orphan_modules.py` owns this class."
 
   IO.println ""
   IO.println "--- SCAN RESULT ---"
@@ -704,6 +721,17 @@ def runGate : IO UInt32 := do
   IO.println s!"    {uncited.size} uncited with no matching entry."
 
   let mut failed := false
+
+  -- lakefile.toml and the tracked tree disagreeing about what exists would
+  -- silently shrink the build closure and narrow this gate's scope -- a hard
+  -- failure, same discipline as CheckGatesAxioms.lean's identical block.
+  if !enumeration.errors.isEmpty then
+    failed := true
+    IO.println ""
+    IO.println s!"[!] FAILED: {enumeration.errors.size} lakefile.toml build-root error(s) -- the"
+    IO.println "    declared targets and the tracked tree disagree about what exists:"
+    for e in enumeration.errors do
+      IO.println s!"    - {e}"
 
   if !unloadable.isEmpty then
     failed := true

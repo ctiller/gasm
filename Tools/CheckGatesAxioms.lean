@@ -86,19 +86,27 @@ transitively `import` -- historically 138 of 170 project modules, with 32
 plus their non-CLI engine modules, `NASM.lean`, `RoundtripTests.lean`,
 `Stdlib/**/Test.lean`, `GzipFuzzer.lean`) sitting outside every umbrella's
 import graph and therefore invisible to the scan. `discoverProjectModules`
-below walks `Gasm/`, `Stdlib/`, `Spikes/` ON DISK (not via any import
-closure, so it cannot inherit the blind spot it exists to catch) to find
-every `.lean` file that constitutes a project module. `main` then: (1) does
-the baseline scan exactly as before; (2) for every disk-discovered module
+below enumerates every TRACKED `.lean` file under `Gasm/`, `Stdlib/`,
+`Spikes/` via `git ls-files` -- not via any import closure, so it cannot
+inherit the blind spot it exists to catch, and not via a filesystem walk,
+which is what used to make this gate go red on an agent's uncommitted
+work-in-progress (see `enumerateProjectModules` in
+Tools/GateSubprocess.lean), and restricted to what a declared lakefile.toml
+target actually builds. `main` then: (1) does
+the baseline scan exactly as before; (2) for every enumerated module
 NOT in the baseline's `env.allImportedModuleNames`, scans it standalone --
-see SUBPROCESS ISOLATION below for how; (3) If any disk-discovered module
-can be loaded into NEITHER the baseline environment NOR standalone (e.g. its
-`.olean` was never built because no `lean_lib`/`lean_exe` root reaches it),
-that is exactly the kind of blind spot this task closes: the tool FAILS
-LOUDLY rather than silently omitting it. Corollary: this gate's completeness
-now depends on a prior full build (`lake build`) having produced every
-project module's `.olean` -- consistent with TCB T13's "gate runner does one
-clean-tree build before sign-off."
+see SUBPROCESS ISOLATION below for how; (3) If any enumerated module
+can be loaded into NEITHER the baseline environment NOR standalone -- i.e. a
+module `lake build` was asked to compile and whose `.olean` is nevertheless
+absent or unreadable -- that is exactly the kind of blind spot this task
+closes: the tool FAILS LOUDLY rather than silently omitting it. Corollary:
+this gate's completeness depends on a prior full build (`lake build`) having
+produced every such module's `.olean` -- consistent with TCB T13's "gate
+runner does one clean-tree build before sign-off." A module NO declared root
+reaches is a different defect (nothing compiles it at all) owned by
+`scripts/check_orphan_modules.py`, which names the file, its umbrella and the
+exact `import` line; this tool reports those by name and does not fold them
+into an exit 1 it cannot explain.
 
 SUBPROCESS ISOLATION (CI resource-exhaustion fix, see docs/CI.md): each of
 the 32-ish disk-discovered-but-not-baseline modules is scanned in its OWN,
@@ -292,26 +300,34 @@ import resolution would assign it (`Gasm.Targets.X86_64.NASM`). Assumes the
 def moduleNameOfPath (p : System.FilePath) : Name :=
   (p.withExtension "").components.foldl Name.mkStr Name.anonymous
 
-/-- Enumerates every project module FROM DISK: the three root umbrella
-files (`Gasm.lean`, `Stdlib.lean`, `Spikes.lean`) plus every `.lean` file
-found by recursively walking `projectRootDirs`. This is deliberately
-independent of any import closure -- it is the ground truth `main` cross-
-checks the compiled environment(s) against, so it cannot itself have the
-blind spot it exists to catch. -/
+/-- Enumerates every project module the build actually compiles, from the
+TRACKED TREE: every tracked `.lean` file under `projectRootDirs` (per
+`git ls-files`) that some `lakefile.toml` build root reaches transitively.
+This is deliberately independent of the tool's own IMPORT CLOSURE -- it is the
+ground truth `main` cross-checks the compiled environment(s) against, so it
+cannot itself have the blind spot it exists to catch.
+
+Two defects were fixed here, both in `enumerateProjectModules`
+(Tools/GateSubprocess.lean), which see for the full argument:
+
+1. This used to be a `System.FilePath.walkDir` recursion. A walk sees any
+   agent's UNCOMMITTED `.lean` too, so one person's open editor reddened this
+   gate for everyone -- and reddened it by naming an unloadable module rather
+   than the real cause (the 2026-08-28 `CanonicalTableSpec.lean` incident:
+   exit 1 and exit 0 an hour apart on the same code).
+2. It then took EVERY such file as a module this tool must be able to load.
+   That has no notion of what `lake build` was ever asked to compile: it
+   counted the `[[lean_exe]]` roots (every `Spikes/*/Emit.lean`,
+   `*/Test.lean`, every fuzzer CLI) as outside any declared target when each
+   IS one, and it counted a genuine orphan no root reaches as a bare exit 1
+   with no named cause.
+
+Neither fix weakens the module-coverage check below: a module in scope that
+loads into neither the baseline environment nor a standalone import is still
+a hard failure. That is TC15/T2 and it stays load-bearing. -/
 /- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
-def discoverProjectModules : IO (Array Name) := do
-  let mut names : Array Name := #[]
-  for root in projectRootDirs do
-    let umbrella : System.FilePath := root ++ ".lean"
-    if ← umbrella.pathExists then
-      names := names.push (Name.mkSimple root)
-    let rootDir : System.FilePath := root
-    if ← rootDir.pathExists then
-      let entries ← System.FilePath.walkDir rootDir
-      for entry in entries do
-        if entry.extension == some "lean" then
-          names := names.push (moduleNameOfPath entry)
-  return names
+def discoverProjectModules : IO ProjectModuleEnumeration :=
+  enumerateProjectModules projectRootDirs
 
 /- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/
@@ -579,7 +595,8 @@ def runGate : IO UInt32 := do
   -- the on-disk ground truth; `baselineModules` is what the single import
   -- above actually pulled in. Anything in the former but not the latter was,
   -- before this fix, silently invisible to the whole scan above.
-  let discovered ← discoverProjectModules
+  let enumeration ← discoverProjectModules
+  let discovered := enumeration.files.map moduleNameOfPath
   let mut baselineModules : Std.HashSet Name := {}
   for m in env.allImportedModuleNames do
     baselineModules := baselineModules.insert m
@@ -643,10 +660,25 @@ def runGate : IO UInt32 := do
 
   IO.println ""
   IO.println "--- MODULE COVERAGE (TC15 / TCB.md T2) ---"
-  IO.println s!"[*] {discovered.size} project module(s) found on disk under {projectRootDirs}."
+  IO.println s!"[*] {discovered.size} tracked project module(s) under {projectRootDirs} are built by a"
+  IO.println s!"    declared lakefile.toml target ({enumeration.libRoots} [[lean_lib]] root(s), \
+{enumeration.exeRoots} [[lean_exe]] root(s))."
   IO.println s!"[*] {baselineProjectCount} reachable via the baseline Gasm/Stdlib/Spikes import graph;"
   IO.println s!"    {coveredStandalone.size} more loaded standalone to close the blind spot."
-  IO.println s!"[*] Total in scope: {baselineProjectCount + coveredStandalone.size} / {discovered.size} discovered."
+  IO.println s!"[*] Total in scope: {baselineProjectCount + coveredStandalone.size} / {discovered.size} in the build closure."
+  -- A tracked project module NO declared target reaches is not this gate's to
+  -- report as a failure: `lake build` never compiles it, so no `.olean` exists
+  -- to scan and an exit 1 here would say nothing about why. It IS a real
+  -- defect, and `scripts/check_orphan_modules.py` is the gate that owns it --
+  -- naming the file, its umbrella, and the exact `import` line to add.
+  if !enumeration.unbuilt.isEmpty then
+    IO.println ""
+    IO.println s!"[*] {enumeration.unbuilt.size} tracked project module(s) are reached by NO declared"
+    IO.println "    lakefile.toml root, so nothing compiles them and this gate cannot scan them:"
+    for p in enumeration.unbuilt do
+      IO.println s!"    - {p}"
+    IO.println "    This is NOT reported as a failure here -- `python scripts/check_orphan_modules.py`"
+    IO.println "    is the gate that owns this defect class and names the exact fix for each."
 
   IO.println ""
   IO.println "--- SCAN RESULT ---"
@@ -655,7 +687,19 @@ def runGate : IO UInt32 := do
 
   let mut failed := false
 
-  -- Ground truth (`discovered`, walked straight off disk) says these
+  -- lakefile.toml and the tracked tree disagreeing about what exists (an
+  -- unparseable target, a declared root with no file) is a hard failure: it
+  -- would otherwise shrink the build closure below and silently narrow this
+  -- gate's scope, which is the one failure mode a coverage gate must not have.
+  if !enumeration.errors.isEmpty then
+    failed := true
+    IO.println ""
+    IO.println s!"[!] FAILED: {enumeration.errors.size} lakefile.toml build-root error(s) -- the"
+    IO.println "    declared targets and the tracked tree disagree about what exists:"
+    for e in enumeration.errors do
+      IO.println s!"    - {e}"
+
+  -- Ground truth (`discovered`, the tracked build closure) says these
   -- modules exist; neither the baseline import nor a standalone import of
   -- each could load them (almost certainly: no `lean_lib`/`lean_exe` root
   -- reaches them, so `lake build` never produced a `.olean` for them at
