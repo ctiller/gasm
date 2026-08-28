@@ -1,7 +1,7 @@
 ---
 id: PA5
 title: canonicalizeTrace — causal-stamped observation normal form
-status: ready
+status: implementing
 blocked_on: ""
 after: [PA2, N2]
 related: [N2]
@@ -221,3 +221,20 @@ layer up.
 _(none yet — first entries append here as work begins; this is Law-5-class proof-architecture
 work — consolidate Notes into a real docs/ design doc before implementation, and route it through a
 fresh-agent design review before any implementation dispatch; do not waive review on this track.)_
+- 2026-08-28 (F2 status audit): `status: ready` -> `implementing`. **This task was named in an
+  earlier audit as one of eight whose work was "demonstrably complete". That assessment is wrong
+  and is corrected here.** `Gasm/Effects/CanonicalizeTrace.lean` has landed and is real work
+  (`CausalEvent`, `stampSingleThreaded`, `canonicalizeCausalTrace`, `canonicalizeTrace`,
+  `netEvent_mergeKey_none`, and the concrete `ack_after_read_ne_ack_before_read` barrier witness),
+  but the module's own closing comment block ("What remains (PA5, honestly scoped)", `:192-226`)
+  enumerates five acceptance criteria it does NOT meet, and the tree confirms each: (a)
+  `FileSystemEvent.write` coalescing is unimplemented -- `mergeKey` recognizes only the
+  `ConsoleEvent` domain; (b) console/file **read** events are still not first-class trace events,
+  so PLAN.md's promoted "FileSystemEvent lacks open/read events" finding is not closed; (c)
+  `VerifiedProgram.traceEquivalence` (`Gasm/Core/Verification.lean:88-90`) and
+  `VerifiedRoutine.traceEquivalence` (`:112-117`) still use raw `==`, which is the migration
+  SYSTEM_EFFECTS §6.3 makes mandatory and is the largest single deliverable on this task; (d) the
+  general forall-quantified "coalescing never crosses a barrier" theorem is not proved -- only the
+  concrete instance; (e) no design doc and no fresh-agent design review exist, both of which this
+  Law-5-class task requires before implementation. `implementing` (not `done`, not `ready`) is
+  what the tree supports.

@@ -1,7 +1,7 @@
 ---
 id: N8
 title: Fix Spike 4 HTTP Server stack buffer overflow and uninitialized memory read
-status: ready
+status: done
 blocked_on: ""
 after: [N3]
 related: [N4, N5]
@@ -80,3 +80,18 @@ Therefore, the stack overflow and short-read bugs are completely invisible to th
 ## Notes
 
 - 2026-08-28: Task created following comprehensive codebase security audit finding stack buffer overflow at `Spikes/Spike4HttpServer/Windows/Program.lean:133`.
+- 2026-08-28 (F2 status audit, verified against the tree at `3341d92`): `status: ready` -> `done`.
+  Closed by `f433b31` ("fix(spike4): stack buffer overflow, uninitialized read, route-prefix bug
+  (N8)"). All four deliverables verified present in the tree rather than taken from the commit
+  message: (1) stack layout resized -- `Spikes/Spike4HttpServer/Windows/Program.lean:95-104` now
+  allocates a 256-byte recv buffer at `[RSP+0x40..0x13F]`, pushes WSADATA out to `0x140`, and
+  sizes the frame at 736 bytes (`sub_rsp32 736`), with `recv`'s `len` argument at `:147` equal to
+  that buffer's size; (2) recv return-value validation at `:151` onward branches to teardown on
+  `RAX <= 0` before any request byte is read; (3) the route compare at `:185` tests the full
+  8-byte `0x207375746174732F` (`"/status "`) instead of the 5-byte `"/stat"` mask, so `/static`
+  and `/status_check` no longer misroute; (4) the variable-size differential checks landed as
+  `#guard spike4SecondConnectionUnaffectedByFirst` at 1/15/37/120/250 bytes plus
+  `spike4EmptyRecvClosesWithoutCorruption`, in `Spikes/Spike4HttpServer/Equivalence.lean` rather
+  than `Test.lean` as the task text guessed -- same substance, different file. The Linux and Wasm
+  lowerings received the identical three fixes in the same commit. HTTP method validation, a
+  separate defect found later, is TRUST_PLAN B1 (`3341d92`), not N8.

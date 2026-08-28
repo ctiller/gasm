@@ -1,7 +1,7 @@
 ---
 id: MH1
 title: Semantic memory hook — sealed memory field, width API, access descriptors, fault plumbing
-status: ready
+status: done
 blocked_on: ""
 after: []
 related: [PA4, PA2, TC18, B3]
@@ -91,3 +91,27 @@ do not exist; `Gasm/Targets/Windows/Win32API.lean`'s hooks and the linkers'
 _(none yet — first entries append here as work begins; consolidated design already
 exists at `docs/MEMORY_HOOK.md`; route through a fresh-agent design review before
 implementation dispatch per the task-lifecycle convention.)_
+- 2026-08-28 (F2 status audit, verified against the tree at `3341d92`, not against a report):
+  `status: ready` -> `done`. Every named deliverable is present on `main`. Verified by artifact,
+  not by claim: `Gasm/Targets/X86_64/MemoryCell.lean` (`MemWidth`, `MemAccessKind`, sealed
+  `X86_64Memory` with `private mk ::` / `private raw`, width-indexed `read`/`write`, `initRegion`,
+  `writeBytes`, the read-over-write lemma set) landed in `d49f611`/`ea6ee16`;
+  `Gasm/Targets/X86_64/Memory.lean` (`MemRef`, `MemRef.effectiveAddress`, `MemAccessSpec`,
+  footprint algebra, `push64_pop64_roundtrip`) in `4f21b84`; `memAccesses` as a defaultless
+  typeclass field with 76 explicit `:= []` instances in `2369cd4`/`0897e32`; the
+  `writesWithin`/`readsWithin` frame shards for all 14 memory forms plus the shared
+  `registerOnly_*` batch lemma in `153f4fd`/`cf225d2`/`55b87ad`, with the soundness fix and the
+  Law 13 negative control (`Gasm/Targets/X86_64/MemoryFrame/NegativeControl.lean`) in `c717eeb`;
+  the five `X86_64MachineState` helpers reduced to `abbrev`s over the hook in `3eb55cf`
+  (`Registers.lean:265-297`); `Win32API.lean`'s hook writes and `loadMemory` routed through
+  `X86_64Mem.write`/`writeBytes`/`initRegion` (`:113,130,226,347`); `faulted : Bool` replaced by
+  `fault : Option X86_64Fault` (`Registers.lean:66,84`, `Div.lean:44,52`). Merged as `27ab4ed`;
+  the last `bv_decide` in the lemma set retired in `37f915d`.
+- 2026-08-28: residual noted honestly rather than folded into the close. Two things are NOT
+  claimed by this `done`: (1) `Gasm/Targets/X86_64/MemoryFrameAudit.lean:87` records a
+  `frameCoverageDebtCeiling := 74` -- the 74 register-only forms have the batch lemma available
+  but are not individually instantiated against it. MH1's deliverable asked for the batch lemma,
+  which exists; driving that ceiling to zero is branch `f3a7224`, not on `main` (F3's business).
+  (2) MH1's "full `scripts/run_gates.py` green" criterion is not currently demonstrable, because
+  the axiom/reference gates are red tree-wide for a module-enumeration modelling gap unrelated to
+  this task (fixed by `234d652`). Neither residual is MH1 work.

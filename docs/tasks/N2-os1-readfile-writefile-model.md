@@ -225,3 +225,14 @@ need, per N1's own scoping of C3, not the full Win32 surface).
 _(none yet — first entries append here as work begins; this is Law-5-class networking-model work
 — consolidate Notes into a real docs/ design doc before implementation, and route it through a
 fresh-agent design review before any implementation dispatch.)_
+- 2026-08-28 (F2 status audit): `status: ready` verified CORRECT and left unchanged. **This task
+  was named in an earlier audit as one of eight whose work was "demonstrably complete". That
+  assessment is wrong.** Nothing has been built. Verified against the tree at `3341d92`:
+  `readFileHook` (`Gasm/Targets/Windows/Win32API.lean`) still computes `count := min maxLen avail`
+  and unconditionally sets `RAX := 1`, never reads the handle in `RCX`, and cannot express a short
+  read, console line buffering, or `ERROR_BROKEN_PIPE` -- the exact C1 shape this task exists to
+  replace. `virtualAllocHook` still returns the constant `0x20000000` regardless of its arguments
+  (C4). There is no handle table, no `GetLastError`/`SetLastError`, and no native differential
+  harness anywhere in the tree. The task is additionally gated by `after: [N1]`, and N1 is
+  `designing` with `design_review: "needs-rework 2026-08-27"`, so `task_frontier.py` does not
+  serve N2 as frontier work today in any case.
