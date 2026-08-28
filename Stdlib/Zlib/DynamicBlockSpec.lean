@@ -756,4 +756,365 @@ theorem rleCodeLengths_ok (L : List Nat) (hval : ∀ v ∈ L, v ≤ 15) :
       (by simp)
     exact h
 
+/-
+## `buildDynPlan` component characterizations: token frequencies, trimmed sizes, the
+## code-length-alphabet frequency count, and the HCLEN scan.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Out-of-bounds `set!` is a no-op. -/
+theorem set!_oob {α : Type} (arr : Array α) (j : Nat) (v : α) (h : ¬ j < arr.size) :
+    arr.set! j v = arr := by
+  simp [Array.set!, Array.setIfInBounds]
+  omega
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- A cell never shrinks under a counting `set!`. -/
+theorem getElem!_set!_incr (arr : Array Nat) (i j : Nat) :
+    arr[i]! ≤ (arr.set! j (arr[j]! + 1))[i]! := by
+  by_cases hj : j < arr.size
+  · by_cases hij : j = i
+    · subst hij
+      rw [getElem!_set!_eq _ _ _ hj]
+      omega
+    · rw [getElem!_set!_ne _ _ _ _ hij]
+      omega
+  · rw [set!_oob _ _ _ hj]
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The token-frequency accumulation step. -/
+def tfStep (s : Array Nat × Array Nat) (t : LZToken) : Array Nat × Array Nat :=
+  match t with
+  | .lit b => (s.1.set! b.toNat (s.1[b.toNat]! + 1), s.2)
+  | .ref len dist =>
+      (s.1.set! (encodeLength len).1 (s.1[(encodeLength len).1]! + 1),
+       s.2.set! (encodeDistance dist).1 (s.2[(encodeDistance dist).1]! + 1))
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- A `forIn` whose body always yields is the corresponding `foldl` — stated over an
+    abstract body so the rewrite site's own (auto-generated) match never needs restating. -/
+theorem forIn_yield_eq_foldl {α σ : Type} (B : α → σ → Id (ForInStep σ)) (g : σ → α → σ)
+    (hB : ∀ a s, B a s = pure (ForInStep.yield (g s a))) :
+    ∀ (l : List α) (s : σ), (forIn (m := Id) l s B) = pure (l.foldl g s) := by
+  intro l
+  induction l with
+  | nil => intro s; rfl
+  | cons a l ih =>
+    intro s
+    rw [List.forIn_cons, hB]
+    simp only [pure_bind]
+    exact ih (g s a)
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `tokenFrequencies` in `foldl` form. -/
+theorem tokenFrequencies_eq (tokens : Array LZToken) :
+    tokenFrequencies tokens =
+      ((tokens.toList.foldl tfStep (Array.replicate 286 0, Array.replicate 30 0)).1.set! 256
+        ((tokens.toList.foldl tfStep (Array.replicate 286 0, Array.replicate 30 0)).1[256]! + 1),
+       (tokens.toList.foldl tfStep (Array.replicate 286 0, Array.replicate 30 0)).2) := by
+  conv => lhs; unfold tokenFrequencies
+  simp only [Id.run, ← Array.forIn_toList]
+  rw [forIn_yield_eq_foldl _ tfStep (by intro t s; cases t <;> rfl) tokens.toList]
+  simp only [pure_bind]
+  rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The frequency fold preserves the two alphabet sizes. -/
+theorem tfFold_sizes : ∀ (l : List LZToken) (s : Array Nat × Array Nat),
+    (l.foldl tfStep s).1.size = s.1.size ∧ (l.foldl tfStep s).2.size = s.2.size := by
+  intro l
+  induction l with
+  | nil => intro s; exact ⟨rfl, rfl⟩
+  | cons t l ih =>
+    intro s
+    rw [List.foldl_cons]
+    have h := ih (tfStep s t)
+    cases t with
+    | lit b =>
+      rw [h.1, h.2]
+      exact ⟨size_set! .., rfl⟩
+    | ref len dist =>
+      rw [h.1, h.2]
+      exact ⟨size_set! .., size_set! ..⟩
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Cells never shrink along the frequency fold. -/
+theorem tfFold_mono : ∀ (l : List LZToken) (s : Array Nat × Array Nat) (i : Nat),
+    s.1[i]! ≤ (l.foldl tfStep s).1[i]! ∧ s.2[i]! ≤ (l.foldl tfStep s).2[i]! := by
+  intro l
+  induction l with
+  | nil => intro s i; exact ⟨Nat.le_refl _, Nat.le_refl _⟩
+  | cons t l ih =>
+    intro s i
+    rw [List.foldl_cons]
+    have h := ih (tfStep s t) i
+    have hstep : s.1[i]! ≤ (tfStep s t).1[i]! ∧ s.2[i]! ≤ (tfStep s t).2[i]! := by
+      cases t with
+      | lit b => exact ⟨getElem!_set!_incr .., Nat.le_refl _⟩
+      | ref len dist => exact ⟨getElem!_set!_incr .., getElem!_set!_incr ..⟩
+    exact ⟨Nat.le_trans hstep.1 h.1, Nat.le_trans hstep.2 h.2⟩
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Every processed token's symbol cells end positive, provided they are in bounds. -/
+theorem tfFold_covers : ∀ (l : List LZToken) (s : Array Nat × Array Nat),
+    (∀ t ∈ l,
+      (∀ b : UInt8, t = .lit b → b.toNat < s.1.size) ∧
+      (∀ len dist, t = .ref len dist →
+        (encodeLength len).1 < s.1.size ∧ (encodeDistance dist).1 < s.2.size)) →
+    ∀ t ∈ l,
+      (∀ b : UInt8, t = .lit b → 0 < (l.foldl tfStep s).1[b.toNat]!) ∧
+      (∀ len dist, t = .ref len dist →
+        0 < (l.foldl tfStep s).1[(encodeLength len).1]! ∧
+        0 < (l.foldl tfStep s).2[(encodeDistance dist).1]!) := by
+  intro l
+  induction l with
+  | nil => intro s _ t ht; simp at ht
+  | cons t0 l ih =>
+    intro s hb t ht
+    rw [List.foldl_cons]
+    have hsz := tfFold_sizes l (tfStep s t0)
+    rcases List.mem_cons.mp ht with hta | htl
+    · subst hta
+      constructor
+      · intro b hb'
+        subst hb'
+        have hbnd := (hb _ (by simp)).1 b rfl
+        have hpos : 0 < (tfStep s (LZToken.lit b)).1[b.toNat]! := by
+          show 0 < (s.1.set! b.toNat (s.1[b.toNat]! + 1))[b.toNat]!
+          rw [getElem!_set!_eq _ _ _ hbnd]
+          omega
+        have := (tfFold_mono l (tfStep s (LZToken.lit b)) b.toNat).1
+        omega
+      · intro len dist hr
+        subst hr
+        have hbnd := (hb _ (by simp)).2 len dist rfl
+        have hpos1 : 0 < (tfStep s (LZToken.ref len dist)).1[(encodeLength len).1]! := by
+          show 0 < (s.1.set! (encodeLength len).1 (s.1[(encodeLength len).1]! + 1))[(encodeLength len).1]!
+          rw [getElem!_set!_eq _ _ _ hbnd.1]
+          omega
+        have hpos2 : 0 < (tfStep s (LZToken.ref len dist)).2[(encodeDistance dist).1]! := by
+          show 0 < (s.2.set! (encodeDistance dist).1 (s.2[(encodeDistance dist).1]! + 1))[(encodeDistance dist).1]!
+          rw [getElem!_set!_eq _ _ _ hbnd.2]
+          omega
+        have hm1 := (tfFold_mono l (tfStep s (LZToken.ref len dist)) (encodeLength len).1).1
+        have hm2 := (tfFold_mono l (tfStep s (LZToken.ref len dist)) (encodeDistance dist).1).2
+        exact ⟨by omega, by omega⟩
+    · -- later token: sizes shift through the step
+      apply ih (tfStep s t0) _ t htl
+      intro t' ht'
+      have hb' := hb t' (by simp [ht'])
+      constructor
+      · intro b hb''
+        have := hb'.1 b hb''
+        cases t0 with
+        | lit b0 =>
+          show b.toNat < (s.1.set! b0.toNat _).size
+          rw [size_set!]
+          exact this
+        | ref l0 d0 =>
+          show b.toNat < (s.1.set! (encodeLength l0).1 _).size
+          rw [size_set!]
+          exact this
+      · intro len dist hr
+        have := hb'.2 len dist hr
+        cases t0 with
+        | lit b0 =>
+          refine ⟨?_, ?_⟩
+          · show (encodeLength len).1 < (s.1.set! b0.toNat _).size
+            rw [size_set!]
+            exact this.1
+          · exact this.2
+        | ref l0 d0 =>
+          refine ⟨?_, ?_⟩
+          · show (encodeLength len).1 < (s.1.set! (encodeLength l0).1 _).size
+            rw [size_set!]
+            exact this.1
+          · show (encodeDistance dist).1 < (s.2.set! (encodeDistance d0).1 _).size
+            rw [size_set!]
+            exact this.2
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- **`tokenFrequencies` specification**: alphabet sizes, the always-counted end-of-block
+    symbol, and positivity for every emitted symbol. -/
+theorem tokenFrequencies_spec (tokens : Array LZToken)
+    (hok : ∀ t ∈ tokens.toList, tokenRangesOk t) :
+    (tokenFrequencies tokens).1.size = 286 ∧
+    (tokenFrequencies tokens).2.size = 30 ∧
+    0 < (tokenFrequencies tokens).1[256]! ∧
+    (∀ b : UInt8, (LZToken.lit b) ∈ tokens.toList →
+      0 < (tokenFrequencies tokens).1[b.toNat]!) ∧
+    (∀ len dist, (LZToken.ref len dist) ∈ tokens.toList →
+      0 < (tokenFrequencies tokens).1[(encodeLength len).1]! ∧
+      0 < (tokenFrequencies tokens).2[(encodeDistance dist).1]!) := by
+  rw [tokenFrequencies_eq]
+  have hsz := tfFold_sizes tokens.toList (Array.replicate 286 0, Array.replicate 30 0)
+  rw [Array.size_replicate, Array.size_replicate] at hsz
+  have hbnds : ∀ t ∈ tokens.toList,
+      (∀ b : UInt8, t = .lit b →
+        b.toNat < (Array.replicate 286 (0 : Nat), Array.replicate 30 (0 : Nat)).1.size) ∧
+      (∀ len dist, t = .ref len dist →
+        (encodeLength len).1 < (Array.replicate 286 (0 : Nat), Array.replicate 30 (0 : Nat)).1.size ∧
+        (encodeDistance dist).1 < (Array.replicate 286 (0 : Nat), Array.replicate 30 (0 : Nat)).2.size) := by
+    intro t ht
+    constructor
+    · intro b _
+      show b.toNat < (Array.replicate 286 (0 : Nat)).size
+      rw [Array.size_replicate]
+      have := b.toNat_lt
+      omega
+    · intro len dist hr
+      have hrange := hok t ht
+      rw [hr] at hrange
+      obtain ⟨h3, h258, h1d, h32768⟩ := hrange
+      have hL := encodeLength_spec len (by omega) h3
+      have hD := encodeDistance_spec' dist h1d h32768
+      constructor
+      · show (encodeLength len).1 < (Array.replicate 286 (0 : Nat)).size
+        rw [Array.size_replicate]
+        omega
+      · show (encodeDistance dist).1 < (Array.replicate 30 (0 : Nat)).size
+        rw [Array.size_replicate]
+        omega
+  have hcov := tfFold_covers tokens.toList (Array.replicate 286 0, Array.replicate 30 0) hbnds
+  have h256 : 256 < (tokens.toList.foldl tfStep
+      (Array.replicate 286 0, Array.replicate 30 0)).1.size := by
+    rw [hsz.1]
+    omega
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  · dsimp only
+    rw [size_set!, hsz.1]
+  · exact hsz.2
+  · dsimp only
+    rw [getElem!_set!_eq _ _ _ h256]
+    omega
+  · intro b hb
+    have h := (hcov _ hb).1 b rfl
+    dsimp only
+    by_cases h256b : (256 : Nat) = b.toNat
+    · rw [← h256b, getElem!_set!_eq _ _ _ h256]
+      omega
+    · rw [getElem!_set!_ne _ _ _ _ h256b]
+      exact h
+  · intro len dist hr
+    have h := (hcov _ hr).2 len dist rfl
+    constructor
+    · dsimp only
+      by_cases h256b : (256 : Nat) = (encodeLength len).1
+      · rw [← h256b, getElem!_set!_eq _ _ _ h256]
+        omega
+      · rw [getElem!_set!_ne _ _ _ _ h256b]
+        exact h.1
+    · exact h.2
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Trim-scan folds only grow the running bound. -/
+theorem trim_fold_ge (g : Nat → Nat) : ∀ (l : List Nat) (n₀ : Nat),
+    n₀ ≤ l.foldl (fun n i => if g i > 0 then max n (i + 1) else n) n₀ := by
+  intro l
+  induction l with
+  | nil => intro n₀; exact Nat.le_refl _
+  | cons a l ih =>
+    intro n₀
+    rw [List.foldl_cons]
+    by_cases h : g a > 0
+    · rw [if_pos h]
+      have := ih (max n₀ (a + 1))
+      have hle : n₀ ≤ max n₀ (a + 1) := Nat.le_max_left ..
+      omega
+    · rw [if_neg h]
+      exact ih n₀
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Trim-scan folds stay below any bound dominating the seed and all hits. -/
+theorem trim_fold_le (g : Nat → Nat) (B : Nat) : ∀ (l : List Nat) (n₀ : Nat),
+    n₀ ≤ B → (∀ i ∈ l, i + 1 ≤ B) →
+    l.foldl (fun n i => if g i > 0 then max n (i + 1) else n) n₀ ≤ B := by
+  intro l
+  induction l with
+  | nil => intro n₀ h _; exact h
+  | cons a l ih =>
+    intro n₀ h hall
+    rw [List.foldl_cons]
+    by_cases hg : g a > 0
+    · rw [if_pos hg]
+      exact ih _ (by have := hall a (by simp); omega) (fun i hi => hall i (by simp [hi]))
+    · rw [if_neg hg]
+      exact ih _ h (fun i hi => hall i (by simp [hi]))
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Trim-scan folds cover every hit. -/
+theorem trim_fold_covers (g : Nat → Nat) : ∀ (l : List Nat) (n₀ : Nat) (i : Nat),
+    i ∈ l → 0 < g i →
+    i + 1 ≤ l.foldl (fun n i => if g i > 0 then max n (i + 1) else n) n₀ := by
+  intro l
+  induction l with
+  | nil => intro n₀ i hi; simp at hi
+  | cons a l ih =>
+    intro n₀ i hi hg
+    rw [List.foldl_cons]
+    rcases List.mem_cons.mp hi with hia | hil
+    · subst hia
+      rw [if_pos hg]
+      have h1 := trim_fold_ge g l (max n₀ (i + 1))
+      have h2 : i + 1 ≤ max n₀ (i + 1) := Nat.le_max_right ..
+      omega
+    · by_cases hga : g a > 0
+      · rw [if_pos hga]
+        exact ih _ i hil hg
+      · rw [if_neg hga]
+        exact ih _ i hil hg
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `trimmedSize` in `foldl` form. -/
+theorem trimmedSize_eq (arr : Array Nat) (k : Nat) :
+    trimmedSize arr k = (List.range' 0 arr.size).foldl
+      (fun n i => if arr[i]! > 0 then max n (i + 1) else n) k := by
+  have ite_pure_yield : ∀ {c : Prop} [Decidable c] (a b : Nat),
+      (if c then (pure (ForInStep.yield a) : Id (ForInStep Nat)) else pure (ForInStep.yield b)) =
+        pure (ForInStep.yield (if c then a else b)) := by
+    intro c _ a b
+    split <;> rfl
+  conv => lhs; unfold trimmedSize
+  simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size, ite_pure_yield,
+    List.forIn_pure_yield_eq_foldl, Id.run, pure_bind, Nat.sub_zero, Nat.div_one,
+    Nat.add_sub_cancel]
+  rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- **`trimmedSize` specification**: floored at `atLeast`, capped by the array size, and
+    zero everywhere at or beyond the trim point. -/
+theorem trimmedSize_spec (arr : Array Nat) (k : Nat) :
+    k ≤ trimmedSize arr k ∧ trimmedSize arr k ≤ max k arr.size ∧
+    (∀ i : Nat, trimmedSize arr k ≤ i → arr[i]! = 0) := by
+  rw [trimmedSize_eq]
+  refine ⟨trim_fold_ge _ _ _, ?_, ?_⟩
+  · apply trim_fold_le
+    · exact Nat.le_max_left ..
+    · intro i hi
+      rw [← List.range_eq_range'] at hi
+      have := List.mem_range.mp hi
+      have h2 : arr.size ≤ max k arr.size := Nat.le_max_right ..
+      omega
+  · intro i hle
+    by_cases hi : i < arr.size
+    · rcases Nat.eq_zero_or_pos arr[i]! with h0 | hpos
+      · exact h0
+      · exfalso
+        have := trim_fold_covers (fun i => arr[i]!) (List.range' 0 arr.size) k i
+          (by rw [← List.range_eq_range']; exact List.mem_range.mpr hi) hpos
+        omega
+    · exact getElem!_oob arr i hi
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The code-length-alphabet frequency fold. -/
+def clenFreqF (rle : List (Nat × Nat × Nat)) : Array Nat :=
+  rle.foldl (fun f t => f.set! t.1 (f[t.1]! + 1)) (Array.replicate 19 0)
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The HCLEN scan over the permuted code-length lengths. -/
+def hclenF (clenLengths : Array Nat) : Nat :=
+  (List.range' 0 19).foldl
+    (fun n i => if clenLengths[clenOrder[i]!]! > 0 then max n (i + 1) else n) 4
+
 end Stdlib.Zlib
