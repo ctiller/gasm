@@ -943,4 +943,186 @@ theorem decodeHuffmanSymbol_spec (table : HuffmanTable) (path : List Bool) (sym 
   rw [decodeHuffmanSymbol]
   exact decodeHuffmanSymbol_step_spec path table.root sym r rest hwalk hbits hinv hcnt
 
+/-
+## PA16 L2-fixed: the two closed RFC 1951 §3.2.6 tables invert their own codes
+
+The general decode law (`decodeHuffmanSymbol_spec`) needs, per table, the closed fact that
+each symbol's emitted bit path (`emitHuffSymbol` writes `reverseBits code len` LSB-first,
+i.e. the canonical code MSB-first per RFC 1951 §3.1.1) walks the decode tree back to that
+same symbol. For the two fixed tables this is a finite, closed proposition: 288 + 32
+symbols of a compile-time constant construction. `decide` cannot evaluate the `Id.run`/
+`for` loops directly (`Std.Range.forIn'.loop` is well-founded recursion, opaque to kernel
+reduction), so each check first normalizes the loops to `List.foldl` with the same
+`Std.Legacy.Range` simp set `encode_distance_bounds_inst` already uses, then decides the
+resulting structural computation.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
+/-- Ghost bit path emitted for `sym` by `emitHuffSymbol` under `table`: the canonical code
+    bit-reversed for LSB-first packing, as a `List Bool` window. Empty for absent symbols
+    (`emitHuffSymbol` likewise emits nothing). -/
+def symbolBits (t : HuffmanTable) (sym : Nat) : List Bool :=
+  match t.codes[sym]! with
+  | some (code, len) => natBits len (reverseBits code len)
+  | none => []
+
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
+/-- `symbolBits` unfolding for a present symbol. -/
+theorem symbolBits_eq (t : HuffmanTable) (sym code len : Nat)
+    (hc : t.codes[sym]! = some (code, len)) :
+    symbolBits t sym = natBits len (reverseBits code len) := by
+  unfold symbolBits
+  rw [hc]
+
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
+/-- The per-symbol Bool check whose `decide`-closure certifies one table: every symbol
+    below `n` has a code of positive length ≤ 9 whose bit-reversal fits its width and
+    whose emitted path decodes back to the symbol. -/
+def tableCheck (t : HuffmanTable) (n : Nat) : Bool :=
+  (List.range n).all fun sym =>
+    match t.codes[sym]! with
+    | some (code, len) =>
+      decide (0 < len) && decide (len ≤ 9) && decide (reverseBits code len < 2 ^ len) &&
+        (treeWalk t.root (natBits len (reverseBits code len)) == some sym)
+    | none => false
+
+set_option maxRecDepth 40000 in
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
+/-- Closed check of the 288-symbol RFC 1951 §3.2.6 fixed literal/length table. -/
+theorem fixedLit_check : tableCheck fixedLitLenTable 288 = true := by
+  simp only [tableCheck, fixedLitLenTable, fixedLitLenLengths, buildHuffmanTable,
+    reverseBits, Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
+    List.forIn_pure_yield_eq_foldl, Id.run, pure_bind]
+  decide
+
+set_option maxRecDepth 20000 in
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
+/-- Closed check of the 32-symbol RFC 1951 §3.2.6 fixed distance table. -/
+theorem fixedDist_check : tableCheck fixedDistTable 32 = true := by
+  simp only [tableCheck, fixedDistTable, fixedDistLengths, buildHuffmanTable,
+    reverseBits, Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
+    List.forIn_pure_yield_eq_foldl, Id.run, pure_bind]
+  decide
+
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
+/-- Extraction of a passed `tableCheck` into per-symbol propositional facts. -/
+theorem tableCheck_spec {t : HuffmanTable} {n : Nat} (hcheck : tableCheck t n = true)
+    {sym : Nat} (hsym : sym < n) :
+    ∃ code len, t.codes[sym]! = some (code, len) ∧ 0 < len ∧ len ≤ 9 ∧
+      reverseBits code len < 2 ^ len ∧
+      treeWalk t.root (natBits len (reverseBits code len)) = some sym := by
+  have h := List.all_eq_true.mp hcheck sym (List.mem_range.mpr hsym)
+  revert h
+  cases hc : t.codes[sym]! with
+  | none => intro h; simp at h
+  | some cl =>
+    obtain ⟨code, len⟩ := cl
+    intro h
+    simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h
+    exact ⟨code, len, rfl, h.1.1.1, h.1.1.2, h.1.2, h.2⟩
+
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
+/-- L2-fixed, literal/length side: every fixed literal/length symbol's emitted path
+    decodes back to it, with the emission-side bounds needed by `writerBits_writeBits`. -/
+theorem fixedLit_symbol_spec {sym : Nat} (hsym : sym < 288) :
+    ∃ code len, fixedLitLenTable.codes[sym]! = some (code, len) ∧ 0 < len ∧ len ≤ 9 ∧
+      reverseBits code len < 2 ^ len ∧
+      treeWalk fixedLitLenTable.root (natBits len (reverseBits code len)) = some sym :=
+  tableCheck_spec fixedLit_check hsym
+
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
+/-- L2-fixed, distance side. -/
+theorem fixedDist_symbol_spec {sym : Nat} (hsym : sym < 32) :
+    ∃ code len, fixedDistTable.codes[sym]! = some (code, len) ∧ 0 < len ∧ len ≤ 9 ∧
+      reverseBits code len < 2 ^ len ∧
+      treeWalk fixedDistTable.root (natBits len (reverseBits code len)) = some sym :=
+  tableCheck_spec fixedDist_check hsym
+
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
+/-- L2-fixed decode form, literal/length side: a reader whose ghost bits start with a
+    fixed literal/length symbol's emitted path decodes exactly that symbol, consumes
+    exactly the path, and re-establishes the reader invariant. -/
+theorem decodeHuffmanSymbol_fixedLit {sym : Nat} (hsym : sym < 288) (r : BitReader)
+    (rest : List Bool) (hbits : readerBits r = symbolBits fixedLitLenTable sym ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', decodeHuffmanSymbol r fixedLitLenTable = .ok (r', sym) ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  obtain ⟨code, len, hc, _, _, _, hwalk⟩ := fixedLit_symbol_spec hsym
+  rw [symbolBits_eq _ _ _ _ hc] at hbits
+  exact decodeHuffmanSymbol_spec _ _ _ _ _ hwalk hbits hinv hcnt
+
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
+/-- L2-fixed decode form, distance side. -/
+theorem decodeHuffmanSymbol_fixedDist {sym : Nat} (hsym : sym < 32) (r : BitReader)
+    (rest : List Bool) (hbits : readerBits r = symbolBits fixedDistTable sym ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', decodeHuffmanSymbol r fixedDistTable = .ok (r', sym) ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  obtain ⟨code, len, hc, _, _, _, hwalk⟩ := fixedDist_symbol_spec hsym
+  rw [symbolBits_eq _ _ _ _ hc] at hbits
+  exact decodeHuffmanSymbol_spec _ _ _ _ _ hwalk hbits hinv hcnt
+
+/-
+## PA16 L6-adjacent: length/distance code algebra shared by encoder and decoder
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- One-level `ite` peeling under an arbitrary explicit motive — the general-motive form
+    of `ite_fst_le`, for conjunction goals over a nested threshold-band `if` chain. -/
+theorem ite_spec {c : Prop} [Decidable c] {α : Sort _} {P : α → Prop} (a b : α)
+    (ha : c → P a) (hb : ¬c → P b) : P (if c then a else b) := by
+  split
+  · exact ha ‹_›
+  · exact hb ‹_›
+
+set_option maxRecDepth 4000 in
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- `encodeLength` agrees with the decoder's `lengthTable` on every valid match length:
+    the symbol lands in `[257, 285]`, the extra-bits value fits its width, and base plus
+    extra reconstructs the length exactly. Closed 256-case check (RFC 1951 §3.2.5). -/
+theorem encodeLength_spec :
+    ∀ len : Nat, len < 259 → 3 ≤ len →
+      257 ≤ (encodeLength len).1 ∧ (encodeLength len).1 ≤ 285 ∧
+      (encodeLength len).2.1 ≤ 5 ∧
+      (encodeLength len).2.2 < 2 ^ (encodeLength len).2.1 ∧
+      lengthTable[(encodeLength len).1 - 257]!.1 + (encodeLength len).2.2 = len ∧
+      lengthTable[(encodeLength len).1 - 257]!.2 = (encodeLength len).2.1 := by
+  decide
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- The `encodeDistance` consistency predicate, named so `ite_spec`'s motive is explicit
+    (higher-order motive inference misresolves on the 27-band nested `ite` chain). -/
+def EDP (dist : Nat) (t : Nat × Nat × Nat) : Prop :=
+  t.1 ≤ 29 ∧ t.2.1 ≤ 13 ∧ t.2.2 < 2 ^ t.2.1 ∧
+  distanceTable[t.1]!.1 + t.2.2 = dist ∧ distanceTable[t.1]!.2 = t.2.1
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- `encodeDistance` agrees with the decoder's `distanceTable` on every valid distance:
+    the code is ≤ 29 (so the decoder's `distSym ≥ 30` guard passes), the extra-bits value
+    fits its width (≤ 13 bits), and base plus extra reconstructs the distance exactly.
+    Proven structurally by band-peeling (RFC 1951 §3.2.5's 30 distance bands), not by
+    enumerating the 32768 distances — `decide` at that scale exceeds the kernel budget
+    (see `encode_distance_bounds_inst`). -/
+theorem encodeDistance_spec (dist : Nat) (h1 : 1 ≤ dist) (h2 : dist ≤ 32768) :
+    EDP dist (encodeDistance dist) := by
+  unfold encodeDistance
+  repeat' (apply ite_spec (P := EDP dist) <;> intro h)
+  all_goals
+    first
+    | (simp [EDP, distanceTable]; omega)
+    | (have hd : dist = 1 ∨ dist = 2 ∨ dist = 3 ∨ dist = 4 := by omega
+       rcases hd with rfl | rfl | rfl | rfl <;> simp [EDP, distanceTable])
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- `encodeDistance_spec` with the conjunction unfolded (same proposition, `EDP` is
+    definitionally transparent). -/
+theorem encodeDistance_spec' (dist : Nat) (h1 : 1 ≤ dist) (h2 : dist ≤ 32768) :
+    (encodeDistance dist).1 ≤ 29 ∧ (encodeDistance dist).2.1 ≤ 13 ∧
+    (encodeDistance dist).2.2 < 2 ^ (encodeDistance dist).2.1 ∧
+    distanceTable[(encodeDistance dist).1]!.1 + (encodeDistance dist).2.2 = dist ∧
+    distanceTable[(encodeDistance dist).1]!.2 = (encodeDistance dist).2.1 :=
+  encodeDistance_spec dist h1 h2
+
 end Stdlib.Zlib
