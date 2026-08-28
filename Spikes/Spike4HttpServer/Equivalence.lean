@@ -66,32 +66,32 @@ def modelTrace404 : List AnyEvent :=
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Windows x86_64 concrete machine execution trace on Root (/) request. -/
 def windowsTraceRoot : List AnyEvent :=
-  runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests ["GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Windows x86_64 concrete machine execution trace on /status request. -/
 def windowsTraceStatus : List AnyEvent :=
-  runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests ["GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Windows x86_64 concrete machine execution trace on 404 request. -/
 def windowsTrace404 : List AnyEvent :=
-  runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests ["GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req "GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- WebAssembly WASI execution trace on Root (/) request. -/
 def wasmTraceRoot : List AnyEvent :=
-  runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports ["GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"]
+  runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- WebAssembly WASI execution trace on /status request. -/
 def wasmTraceStatus : List AnyEvent :=
-  runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports ["GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"]
+  runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- WebAssembly WASI execution trace on 404 request. -/
 def wasmTrace404 : List AnyEvent :=
-  runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports ["GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"]
+  runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req "GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"]
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
@@ -138,17 +138,17 @@ theorem spike4_wasm_404_trace_equivalence :
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Linux x86_64 concrete machine execution trace on Root (/) request. -/
 def linuxTraceRoot : List AnyEvent :=
-  runAsmTrace (Event := AnyEvent) Spikes.Spike4HttpServer.Linux.spike4Instructions (Spikes.Spike4HttpServer.Linux.spike4Executable.loadWithRequests ["GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  runAsmTrace (Event := AnyEvent) Spikes.Spike4HttpServer.Linux.spike4Instructions (Spikes.Spike4HttpServer.Linux.spike4Executable.loadWithRequests [req "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Linux x86_64 concrete machine execution trace on /status request. -/
 def linuxTraceStatus : List AnyEvent :=
-  runAsmTrace (Event := AnyEvent) Spikes.Spike4HttpServer.Linux.spike4Instructions (Spikes.Spike4HttpServer.Linux.spike4Executable.loadWithRequests ["GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  runAsmTrace (Event := AnyEvent) Spikes.Spike4HttpServer.Linux.spike4Instructions (Spikes.Spike4HttpServer.Linux.spike4Executable.loadWithRequests [req "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Linux x86_64 concrete machine execution trace on 404 request. -/
 def linuxTrace404 : List AnyEvent :=
-  runAsmTrace (Event := AnyEvent) Spikes.Spike4HttpServer.Linux.spike4Instructions (Spikes.Spike4HttpServer.Linux.spike4Executable.loadWithRequests ["GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  runAsmTrace (Event := AnyEvent) Spikes.Spike4HttpServer.Linux.spike4Instructions (Spikes.Spike4HttpServer.Linux.spike4Executable.loadWithRequests [req "GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
@@ -176,11 +176,11 @@ theorem spike4_linux_404_trace_equivalence :
 -- route exercised above: proves each actual run never exhausts `defaultWasmFuel` under
 -- `runWasiTraceState`, rather than merely assuming it.
 #guard !Gasm.Targets.Wasm.WasmRunResult.isError
-  (runWasiTraceState spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports ["GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  (runWasiTraceState spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 #guard !Gasm.Targets.Wasm.WasmRunResult.isError
-  (runWasiTraceState spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports ["GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  (runWasiTraceState spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 #guard !Gasm.Targets.Wasm.WasmRunResult.isError
-  (runWasiTraceState spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports ["GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  (runWasiTraceState spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req "GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- **Domain-honesty note (PA17).** The real per-connection domain Law 9's read-binder clause
@@ -211,10 +211,10 @@ inductive HttpRoute where
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
 /-- Maps routing enum to raw HTTP request text. -/
-def routeRequestStr : HttpRoute → String
-  | .root => "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
-  | .status => "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"
-  | .notFound => "GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"
+def routeRequestStr : HttpRoute → ByteArray
+  | .root => req "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  | .status => req "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  | .notFound => req "GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
 /-- Maps routing enum to expected high-level monadic trace. -/
@@ -258,11 +258,10 @@ theorem spike4_linux_route_equivalence (r : HttpRoute) :
     standing in for it -- the domain-honesty shape `docs/SPIKES/SPIKE4_HTTP_SERVER.md` §4 records
     when a genuinely universal `∀ (request : ByteArray)` statement is not reachable in this task:
     "for all inputs satisfying P, with P stated." `P` here is deliberately narrow and is not the
-    real per-route domain (see the surviving general-claim counterexamples below, which is why it
-    cannot honestly be widened to arbitrary request bytes). -/
-theorem spike4_windows_trace_equivalence_for_request (req : String) (r : HttpRoute)
-    (h : req = routeRequestStr r) :
-    (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req]) == routeModelTrace r) = true := by
+    real per-route domain. -/
+theorem spike4_windows_trace_equivalence_for_request (request : ByteArray) (r : HttpRoute)
+    (h : request = routeRequestStr r) :
+    (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [request]) == routeModelTrace r) = true := by
   subst h
   exact spike4_windows_route_equivalence r
 
@@ -271,9 +270,9 @@ theorem spike4_windows_trace_equivalence_for_request (req : String) (r : HttpRou
 /-- Honest restatement of `spike4_wasm_route_equivalence`'s three constituent facts; see
     `spike4_windows_trace_equivalence_for_request` immediately above for the rationale, which
     applies identically here. -/
-theorem spike4_wasm_trace_equivalence_for_request (req : String) (r : HttpRoute)
-    (h : req = routeRequestStr r) :
-    (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req] == (routeModelTrace r).map Inject.inject) = true := by
+theorem spike4_wasm_trace_equivalence_for_request (request : ByteArray) (r : HttpRoute)
+    (h : request = routeRequestStr r) :
+    (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [request] == (routeModelTrace r).map Inject.inject) = true := by
   subst h
   exact spike4_wasm_route_equivalence r
 
@@ -359,25 +358,25 @@ immediately after it is unaffected.
     Used below to re-check every literal counterexample the (now-fixed) route-prefix bug's
     "KNOWN DIVERGENCE" note used to name, so the bug documented above cannot silently return on any
     target. -/
-def spike4RouteFixedOnAllTargets (req : String) : Bool :=
-  let expected := serverModelTraceFor req
-  (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req]) == expected) &&
-  (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [req]) == expected) &&
-  (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req] == expected.map Inject.inject)
+def spike4RouteFixedOnAllTargets (request : ByteArray) : Bool :=
+  let expected := serverModelTraceFor request
+  (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [request]) == expected) &&
+  (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [request]) == expected) &&
+  (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [request] == expected.map Inject.inject)
 
 -- Every prefix-confusion witness the pre-fix "KNOWN DIVERGENCE" note named, plus the two
 -- specifically called out in docs/SPIKES/SPIKE4_HTTP_SERVER.md's routing-bug writeup.
-#guard spike4RouteFixedOnAllTargets "GET /static HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "GET /search HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "GET /status_check HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "GET /statx HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "GET /statuses HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "GET /s HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "GET /shop HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "GET /settings HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets (req "GET /static HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "GET /search HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "GET /status_check HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "GET /statx HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "GET /statuses HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "GET /s HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "GET /shop HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "GET /settings HTTP/1.1\r\nHost: localhost\r\n\r\n")
 -- The one path that *should* still route to /status: the exact string, confirming the fix isn't
 -- an over-correction that broke the legitimate case.
-#guard spike4RouteFixedOnAllTargets "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets (req "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
 /-!
@@ -422,8 +421,8 @@ the method was one reason among several, not the last one. See
     Retained under its original name because the guard below is the checked record of the flip --
     it read `!spike4RouteFixedOnAllTargets ...` before the method-validation fix and reads
     `spike4RouteFixedOnAllTargets ...` after it. -/
-def witnessMethodNotValidatedDivergence : String :=
-  "FOO / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+def witnessMethodNotValidatedDivergence : ByteArray :=
+  req "FOO / HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
 -- The model's verdict is unchanged: parsing fails, so the honest server answers 400 Bad Request.
 #guard parseRequestLine witnessMethodNotValidatedDivergence == none
@@ -433,8 +432,8 @@ def witnessMethodNotValidatedDivergence : String :=
 
 /- REF: docs/STDLIB_HTTP11.md#21-request-line -/
 /-- A well-formed request line for a given method and target. -/
-def spike4MethodRequest (m : Stdlib.Http11.Method) (path : String) : String :=
-  s!"{methodToString m} {path} HTTP/1.1\r\nHost: localhost\r\n\r\n"
+def spike4MethodRequest (m : Stdlib.Http11.Method) (path : String) : ByteArray :=
+  req s!"{methodToString m} {path} HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
 /-- Every one of `Stdlib.Http11.Method`'s nine tokens, on one target path, agrees with the model on
@@ -451,11 +450,11 @@ def spike4AllMethodsRouteCorrectly (path : String) : Bool :=
 -- `GETX`/`CONNECTX` specifically pin that the masked compare tests the *delimiter* too, so no
 -- token can match as a mere prefix of a longer word; `GE`/`OPTION` pin the truncated-token
 -- direction; `get` pins case sensitivity.
-#guard spike4RouteFixedOnAllTargets "GETX / HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "CONNECTX / HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "GE / HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "OPTION / HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard spike4RouteFixedOnAllTargets "get / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets (req "GETX / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "CONNECTX / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "GE / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "OPTION / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard spike4RouteFixedOnAllTargets (req "get / HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- **The fully-general `∀ (request : ByteArray)` trace-equivalence claim is still FALSE after the
@@ -481,26 +480,26 @@ def spike4AllMethodsRouteCorrectly (path : String) : Bool :=
     The list is organised by `Stdlib.Http11.Error` constructor rather than by hand-picked string, so
     that "which classes survive" is answerable by construction instead of by testing whichever
     request someone happened to think of. -/
-def spike4GeneralClaimCounterexamples : List (Stdlib.Http11.Error × String × String) :=
+def spike4GeneralClaimCounterexamples : List (Stdlib.Http11.Error × String × ByteArray) :=
   [ (.unsupportedVersion, "version other than HTTP/1.1",
-      "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n"),
+      req "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n"),
     (.malformedRequestLine, "two-field request line (no version)",
-      "GET /\r\nHost: localhost\r\n\r\n"),
+      req "GET /\r\nHost: localhost\r\n\r\n"),
     (.malformedRequestLine, "four-field request line (trailing junk)",
-      "GET / HTTP/1.1 extra\r\nHost: localhost\r\n\r\n"),
+      req "GET / HTTP/1.1 extra\r\nHost: localhost\r\n\r\n"),
     (.malformedRequestLine, "doubled SP between method and target",
-      "GET  / HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+      req "GET  / HTTP/1.1\r\nHost: localhost\r\n\r\n"),
     (.invalidTarget, "absolute-form target (not origin-form)",
-      "GET http://example.com/ HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+      req "GET http://example.com/ HTTP/1.1\r\nHost: localhost\r\n\r\n"),
     (.invalidTarget, "target with no leading slash",
-      "GET status HTTP/1.1\r\nHost: localhost\r\n\r\n") ]
+      req "GET status HTTP/1.1\r\nHost: localhost\r\n\r\n") ]
 
 /- REF: docs/STDLIB_HTTP11.md#31-error-taxonomy -/
 /-- The request line as `Stdlib.Http11.parseRequestLine` sees it, kept separate from
     `Spec.parseRequestLine` (which discards the error constructor into `none`) so the witnesses
     below can be pinned to the specific rejection class they stand for. -/
-def spike4RequestLineError (req : String) : Option Stdlib.Http11.Error :=
-  match Stdlib.Http11.parseRequestLine (((req.splitOn "\r\n").headD "").toUTF8.toList) with
+def spike4RequestLineError (request : ByteArray) : Option Stdlib.Http11.Error :=
+  match Stdlib.Http11.parseRequestLine (requestLineBytes request) with
   | .error e => some e
   | .ok _ => none
 
@@ -554,11 +553,11 @@ def spike4RequestLineErrorTaxonomy : List Stdlib.Http11.Error :=
     This does not assert anything about the garbage connection's own response content (Spec.lean has
     no defined behavior for non-"GET path HTTP/1.1" lines other than 400, which neither lowering
     emits -- a pre-existing, N8-independent gap; see the note above `spike4RouteFixedOnAllTargets`). -/
-def spike4SecondConnectionUnaffectedByFirst (garbageReq : String) : Bool :=
-  let canonicalRoot := "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+def spike4SecondConnectionUnaffectedByFirst (garbageReq : ByteArray) : Bool :=
+  let canonicalRoot := req "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
   let expectedTail : List AnyEvent :=
     [ AnyEvent.of (NetEvent.accept "127.0.0.1"),
-      AnyEvent.of (NetEvent.recv canonicalRoot),
+      AnyEvent.of (NetEvent.recv (bytesToPayload canonicalRoot)),
       AnyEvent.of (NetEvent.send (formatResponse (routeRequest { method := "GET", path := "/", version := "HTTP/1.1" }))),
       AnyEvent.of (NetEvent.close 101) ]
   let check (trace : List AnyEvent) : Bool :=
@@ -571,11 +570,11 @@ def spike4SecondConnectionUnaffectedByFirst (garbageReq : String) : Bool :=
   check (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [garbageReq, canonicalRoot])) &&
   check (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [garbageReq, canonicalRoot])
 
-#guard spike4SecondConnectionUnaffectedByFirst "X"                                    -- 1 byte
-#guard spike4SecondConnectionUnaffectedByFirst (String.ofList (List.replicate 15 'A'))    -- 15 bytes
-#guard spike4SecondConnectionUnaffectedByFirst (String.ofList (List.replicate 37 'B'))    -- 37 bytes, deliberately not the canonical valid 37-byte string
-#guard spike4SecondConnectionUnaffectedByFirst (String.ofList (List.replicate 120 'C'))   -- 120 bytes
-#guard spike4SecondConnectionUnaffectedByFirst (String.ofList (List.replicate 250 'D'))   -- 250 bytes, within 8 bytes of the widened 256-byte buffer's capacity
+#guard spike4SecondConnectionUnaffectedByFirst (req "X")                                    -- 1 byte
+#guard spike4SecondConnectionUnaffectedByFirst (req (String.ofList (List.replicate 15 'A')))    -- 15 bytes
+#guard spike4SecondConnectionUnaffectedByFirst (req (String.ofList (List.replicate 37 'B')))    -- 37 bytes, deliberately not the canonical valid 37-byte string
+#guard spike4SecondConnectionUnaffectedByFirst (req (String.ofList (List.replicate 120 'C')))   -- 120 bytes
+#guard spike4SecondConnectionUnaffectedByFirst (req (String.ofList (List.replicate 250 'D')))   -- 250 bytes, within 8 bytes of the widened 256-byte buffer's capacity
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md -/
 /-- Pins the fixed assembly's own behavior for a `recv`/`read` that returns exactly `0` (the one
@@ -591,12 +590,205 @@ def spike4EmptyRecvClosesWithoutCorruption : Bool :=
       AnyEvent.of (NetEvent.accept "127.0.0.1"),
       AnyEvent.of (NetEvent.recv ""),
       AnyEvent.of (NetEvent.close 101) ]
-  (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [""]) == emptyOnlyExpected) &&
-  (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [""]) == emptyOnlyExpected) &&
-  (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [""] == emptyOnlyExpected.map Inject.inject) &&
-  spike4SecondConnectionUnaffectedByFirst ""
+  (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req ""]) == emptyOnlyExpected) &&
+  (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [req ""]) == emptyOnlyExpected) &&
+  (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req ""] == emptyOnlyExpected.map Inject.inject) &&
+  spike4SecondConnectionUnaffectedByFirst (req "")
 
 #guard spike4EmptyRecvClosesWithoutCorruption
+
+/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/tasks/PA6-read-binder-contract.md -/
+/-!
+## The general per-request claim (F1)
+
+Everything above this point is pointwise: a `native_decide` check, or a `#guard`, against one
+literal request. This section states the claim Law 9 actually demands -- one quantified over
+`∀ (request : ByteArray)`, the real per-connection domain -- and reports exactly what is true of
+it.
+
+**Why this section could not exist before F1.** The request queue was `incomingRequests :
+List String`. A Lean `String` is a sequence of Unicode scalar values, so that queue could not hold
+an arbitrary octet stream at all; there was no term of the right type to quantify over, and
+`serverModelTraceFor`/`loadWithRequests` had no `ByteArray` domain to be applied to. The nine
+`grandfathered` single-vector `native_decide` checks above were not a stylistic choice -- the
+general statement had nowhere to live. Changing the queue's element type to `ByteArray` is what
+makes the three `Prop`s below *typecheck*; it is a Law 9 fix at the root, not a convenience.
+
+**What is now known.** Three claims, in decreasing strength:
+
+  1. `Spike4GeneralTraceEquivalence` -- unrestricted. **Provably false** (`spike4_general_claim_false`).
+  2. `Spike4WellFormedTraceEquivalence` -- restricted to requests whose request *line* parses.
+     **Also provably false** (`spike4_wellformed_claim_false`), and this is a finding F1 surfaced:
+     the reason is not parsing at all, it is the recv cap. See below.
+  3. `Spike4BoundedWellFormedTraceEquivalence` -- additionally bounded by the smallest declared
+     recv cap. **Open**: neither proved nor refuted. The precise obstruction to proving it is
+     recorded on the declaration itself.
+
+**The fourth counterexample class: declared recv caps disagree.** `spike4GeneralClaimCounterexamples`
+above is organised by `Stdlib.Http11.Error` constructor, and three of the four constructors survive
+as live divergences. That taxonomy is *incomplete*, and F1 is what made the gap visible: there is a
+fourth class that produces no request-line error whatsoever, so no `Http11.Error` constructor names
+it. The four participants declare four recv caps, and they are not the same number:
+
+  * model (`Spec.httpServerMonadic`): `MonadNetwork.recv clientConn 1024`
+  * Windows lowering (`Windows/Program.lean`): `mov r8d, 256`
+  * Linux lowering (`Linux/Program.lean`): `mov edx, 256`
+  * WASI lowering (`Wasm/Program.lean`): `i32.const 1024`
+
+Measured, and reproduced by `spike4CapDivergenceProfile` below: **each target's agreement with the
+model breaks at exactly its own declared cap plus one byte** -- Windows and Linux at 257, WASI at
+1025 -- for perfectly well-formed requests. This is the `READ_BINDER_CONTRACT.md` §5 "Spike 4's
+buffer/cap mismatch is invisible to any proof" gap, now visible as a concrete divergence rather
+than a documented worry. It is *pre-existing* and not introduced by F1: all four cap constants are
+N2-era and untouched by this change. It was invisible only because every request vector in this
+file is under 256 bytes and the general claim could not be stated.
+
+**This is worse than a scope limit, and is stated here rather than folded into a hypothesis.** The
+three lowerings do not merely each disagree with the model -- for a request of 257..1024 bytes they
+**disagree with each other**: WASI still matches the model while Windows and Linux do not
+(`spike4TargetsDisagreeWithEachOther` below is the checked witness). A capped read splits one
+logical request across two `recv` events on the x86 targets and delivers it as one on WASI, so the
+*number* of `NetEvent.recv` events in the trace is target-dependent. Cross-target trace equality at
+the boundary is therefore not merely unproven; it is false. That is the recv-*atomicity* half of
+`MODEL_DEBT.md` §C1 -- distinct from the recv-*length* half N2 closed -- exhibited concretely.
+-/
+
+/- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
+/-- The four declared recv caps, transcribed from the four sites named in the note above, so that
+    a change to any one of them shows up here as a broken check rather than as silent drift. -/
+def spike4DeclaredRecvCaps : List (String × Nat) :=
+  [("model", 1024), ("windows", 256), ("linux", 256), ("wasm", 1024)]
+
+/- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
+/-- The smallest cap any participant declares. Requests at or below this length are read
+    atomically by every participant, so no cap mismatch can arise. -/
+def spike4MinDeclaredRecvCap : Nat :=
+  (spike4DeclaredRecvCaps.map Prod.snd).foldr min 1024
+
+#guard spike4MinDeclaredRecvCap == 256
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Per-target agreement with the honest model, kept separate rather than `&&`-ed together (as
+    `spike4RouteFixedOnAllTargets` does) so the cap divergence's *shape* -- which targets break and
+    at which length -- is observable instead of collapsing into one `false`. -/
+def spike4PerTargetAgreement (request : ByteArray) : Bool × Bool × Bool :=
+  let expected := serverModelTraceFor request
+  ((runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [request]) == expected),
+   (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [request]) == expected),
+   (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [request] == expected.map Inject.inject))
+
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- A well-formed `GET /` request padded with `n` header bytes, so total length is `n + 23`. The
+    request *line* is fixed and valid for every `n`; only the total byte count varies. This is what
+    isolates the cap mismatch from every parsing concern. -/
+def spike4PaddedRequest (n : Nat) : ByteArray :=
+  req ("GET / HTTP/1.1\r\nX: " ++ String.ofList (List.replicate n 'h') ++ "\r\n\r\n")
+
+#guard (spike4PaddedRequest 234).size == 257
+#guard (parseRequestLine (spike4PaddedRequest 234)).isSome
+
+/- REF: docs/tasks/PA6-read-binder-contract.md -/
+/-- The measured cap-divergence profile: `(size, windows, linux, wasm)` agreement with the model at
+    each length that matters. Every entry is a *well-formed* request, so nothing here is explained
+    by the request-line taxonomy above. Each target breaks at exactly `its declared cap + 1`. -/
+def spike4CapDivergenceProfile : List (Nat × (Bool × Bool × Bool)) :=
+  [255, 256, 257, 1024, 1025].map (fun sz =>
+    (sz, spike4PerTargetAgreement (spike4PaddedRequest (sz - 23))))
+
+-- Windows and Linux agree with the model up to their declared 256 and break at 257; WASI, whose
+-- declared cap matches the model's 1024, holds until 1025. If any cap constant changes, this fails.
+#guard spike4CapDivergenceProfile ==
+  [ (255,  (true,  true,  true)),
+    (256,  (true,  true,  true)),
+    (257,  (false, false, true)),
+    (1024, (false, false, true)),
+    (1025, (false, false, false)) ]
+
+/- REF: docs/tasks/PA6-read-binder-contract.md -/
+/-- **The three lowerings disagree with each other, not just with the model.** At 257 bytes -- one
+    past the x86 targets' declared cap, well inside WASI's -- WASI reproduces the model's trace and
+    the two x86 targets do not. A cross-target trace-equality claim is therefore *false* at the
+    boundary, not merely unproven. -/
+def spike4TargetsDisagreeWithEachOther : Bool :=
+  let (w, l, s) := spike4PerTargetAgreement (spike4PaddedRequest 234)
+  !w && !l && s
+
+#guard spike4TargetsDisagreeWithEachOther
+
+/- REF: docs/tasks/PA6-read-binder-contract.md -/
+/-- The witness the falsity theorems below are proved from: a 257-byte request whose request line
+    is impeccable and which every lowering nevertheless handles differently from the model (x86) or
+    from its siblings (all three). -/
+def spike4CapMismatchWitness : ByteArray :=
+  spike4PaddedRequest 234
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- **The honest general claim, unrestricted.** For every byte string a client could send, all
+    three lowerings reproduce the model's trace. This is the statement Law 9's read-binder clause
+    asks Spike 4 for. It typechecks only because `incomingRequests` is now `List ByteArray`.
+
+    It is FALSE -- see `spike4_general_claim_false`. Stated anyway, and named, because a false
+    claim that is written down and refuted is a ledger entry; the same claim left unstated because
+    its domain had no type is a Law 9 violation hiding as an absence. -/
+def Spike4GeneralTraceEquivalence : Prop :=
+  ∀ (request : ByteArray), spike4RouteFixedOnAllTargets request = true
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- **Restricted to requests whose request line parses.** This is the hypothesis the note above
+    `spike4GeneralClaimCounterexamples` predicted would be the honest narrowing: it excludes
+    exactly the three surviving `Stdlib.Http11.Error` classes.
+
+    It is ALSO FALSE (`spike4_wellformed_claim_false`), which is the finding F1 produced. The
+    request-line taxonomy was not the whole obstruction; the recv-cap mismatch is a fourth class
+    that no `Http11.Error` constructor can name, because the requests witnessing it parse fine. -/
+def Spike4WellFormedTraceEquivalence : Prop :=
+  ∀ (request : ByteArray),
+    (parseRequestLine request).isSome = true → spike4RouteFixedOnAllTargets request = true
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- **The open claim.** Well-formed request line, and short enough that every participant reads it
+    atomically (`≤ spike4MinDeclaredRecvCap = 256`). Both hypotheses are forced by a witnessed
+    counterexample -- neither is a silent narrowing.
+
+    **Status: open. Neither proved nor refuted.** Not refuted: every probe run against it agrees,
+    including nine methods x four routes, the six invalid method tokens, all eight route-prefix
+    witnesses, and adversarial short requests carrying NUL and non-UTF-8 bytes in header positions
+    (byte strings that could not previously be *expressed*, let alone checked).
+
+    **The precise obstruction to proving it.** The domain is infinite, so no `decide` or
+    `native_decide` can discharge it -- those are exactly the tactics the nine `grandfathered`
+    entries use, and why swapping one for the other retires nothing. Closing it requires a
+    *structural* argument: that `runAsmTrace` over the emulated x86-64 instruction sequence
+    implements `parseRequestLine`/`routeRequest` for an arbitrary input buffer, by induction on
+    the machine's execution rather than by evaluating it on a literal. That is a whole-program
+    refinement proof against `Gasm/Targets/X86_64/Semantics.lean`, and nothing in this repository
+    currently provides an induction principle for `runAsmTrace` over a symbolic input. It is not
+    blocked by term reduction: F1 removed `ByteArray.toList` (blocker 1) and `String.splitOn`
+    (blocker 2) from this path, and `String.toUTF8`/`String.fromUTF8?` were measured to reduce and
+    were never blockers. Reduction was never the binding constraint on a `∀`-quantified claim. -/
+def Spike4BoundedWellFormedTraceEquivalence : Prop :=
+  ∀ (request : ByteArray),
+    (parseRequestLine request).isSome = true →
+    request.size ≤ spike4MinDeclaredRecvCap →
+    spike4RouteFixedOnAllTargets request = true
+
+/- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
+/-- `Spike4WellFormedTraceEquivalence` is false, *proved* rather than asserted in a comment, from
+    the cap-mismatch witness: a 257-byte request whose request line parses and which the Windows
+    and Linux lowerings answer differently from the model. -/
+theorem spike4_wellformed_claim_false : ¬ Spike4WellFormedTraceEquivalence := by
+  intro h
+  have hwf : (parseRequestLine spike4CapMismatchWitness).isSome = true := by native_decide
+  have hbad : spike4RouteFixedOnAllTargets spike4CapMismatchWitness = false := by native_decide
+  rw [h spike4CapMismatchWitness hwf] at hbad
+  exact Bool.noConfusion hbad
+
+/- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
+/-- The unrestricted claim is false a fortiori: it implies the well-formed-restricted one. No new
+    `native_decide` -- this is a structural consequence of the theorem above. -/
+theorem spike4_general_claim_false : ¬ Spike4GeneralTraceEquivalence := fun h =>
+  spike4_wellformed_claim_false (fun request _ => h request)
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 instance : EnvironmentLoader HttpRoute where

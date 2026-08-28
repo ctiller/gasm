@@ -138,20 +138,16 @@ def sysReadHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) 
       let s' := { (s.setGpr64 .rax 0) with rip := nextRip }
       (s', none)
     | req :: rest =>
-      let (delivered, remaining) := splitBytes req.toUTF8.toList requested
-      let count := delivered.length
-      let deliveredArr := ByteArray.mk delivered.toArray
-      let incomingRequests' :=
-        match String.fromUTF8? (ByteArray.mk remaining.toArray) with
-        | some r => if remaining.isEmpty then rest else r :: rest
-        | none => rest
-      let deliveredStr := (String.fromUTF8? deliveredArr).getD req
+      -- F1: shared delivery step -- see `Win32API.lean`'s `recvHook` and
+      -- `Gasm.Effects.recvDeliver_lossless`.
+      let (delivered, incomingRequests') := recvDeliver req requested rest
+      let count := delivered.size
       let s' := { (s.setGpr64 .rax count.toUInt64) with
         rip := nextRip,
         incomingRequests := incomingRequests',
-        memory := X86_64Mem.writeBytes bufAddr delivered s.memory
+        memory := X86_64Mem.writeBytes bufAddr (toByteList delivered) s.memory
       }
-      (s', some (Inject.inject (NetEvent.recv deliveredStr)))
+      (s', some (Inject.inject (NetEvent.recv (bytesToPayload delivered))))
   else
     -- Invalid fd: return -EBADF (-9)
     let s' := { (s.setGpr64 .rax 0xFFFFFFFFFFFFFFF7) with rip := nextRip }

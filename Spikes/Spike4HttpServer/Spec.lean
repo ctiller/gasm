@@ -54,28 +54,49 @@ def methodToString : Stdlib.Http11.Method → String
   | .TRACE => "TRACE" | .PATCH => "PATCH"
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
-/-- Pure functional HTTP 1.1 Request-Line Parser. Delegates field-splitting to
-    `Stdlib.Http11.parseRequestLine` (`Stdlib/Http11/Parser.lean`) -- the proven library
-    `docs/STDLIB_HTTP11.md#1-overview-scope`'s routing defect motivated -- rather than
-    re-implementing ad-hoc string splitting here. Only the request-*line*-level parser is used
-    (not the full `parseRequest`, which additionally requires a `Content-Length` header and an
-    exact-length body neither this spike's request vectors nor its wire format carry); this
-    function only ever needed the first line. Behavior is identical to the prior hand-rolled
-    version on every existing request vector (verified: same method/target/version for every
-    well-formed 3-field `GET` request line this spike's Test.lean/Equivalence.lean exercise,
-    including every `N8` route-fix witness path), while now also rejecting a method outside the
-    closed 9-method grammar, a non-origin-form target, or a version other than the literal
-    `HTTP/1.1` -- validation the prior hand-rolled version silently skipped. -/
-def parseRequestLine (req : String) : Option HttpRequest :=
-  let lines := req.splitOn "\r\n"
-  match lines.head? with
-  | none => none
-  | some reqLine =>
-    match Stdlib.Http11.parseRequestLine reqLine.toUTF8.toList with
-    | .error _ => none
-    | .ok (m, target) =>
-        some { method := methodToString m, path := String.fromUTF8! (ByteArray.mk target.toArray),
-               version := "HTTP/1.1" }
+/-- The request *line* of a raw request: the bytes up to the first `CR LF`, or the whole byte
+    string when there is none. Split with `Stdlib.Http11.takeLine` -- a byte-level, *structurally*
+    recursive scan -- rather than `String.splitOn "\r\n" |>.head?`, and reaching the bytes via
+    `Gasm.Effects.toByteList` rather than `ByteArray.toList`. Both choices are F1 requirements,
+    for two independent reasons:
+      * **Domain (the Law 9 reason).** This is defined on every `ByteArray`, including byte
+        strings no Lean `String` can hold. `∀ (request : ByteArray)` needs a parser whose domain
+        is actually `ByteArray`.
+      * **Reducibility.** `String.splitOn` bottoms out in `splitOnAux` and `ByteArray.toList` in
+        `toList.loop`, both `@[irreducible]` well-founded recursions that do not reduce in the
+        kernel -- Spike 4 reduction blockers 2 and 1 respectively (`docs/TRUST_PLAN.md`).
+        `takeLine`, `List.range` and `List.map` all reduce.
+    The `none` fallback matches `splitOn "\r\n" |>.head?` exactly on an unterminated request, so
+    no existing vector's verdict changes. -/
+def requestLineBytes (req : ByteArray) : List UInt8 :=
+  let bs := toByteList req
+  match Stdlib.Http11.takeLine bs with
+  | some (line, _) => line
+  | none => bs
+
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
+/-- Pure functional HTTP 1.1 Request-Line Parser, **over raw request bytes** (F1). Delegates
+    field-splitting to `Stdlib.Http11.parseRequestLine` (`Stdlib/Http11/Parser.lean`) -- the proven
+    library `docs/STDLIB_HTTP11.md#1-overview--scope`'s routing defect motivated -- rather than
+    re-implementing ad-hoc splitting here. Only the request-*line*-level parser is used (not the
+    full `parseRequest`, which additionally requires a `Content-Length` header and an exact-length
+    body neither this spike's request vectors nor its wire format carry); this function only ever
+    needed the first line. It rejects a method outside the closed 9-method grammar, a
+    non-origin-form target, or a version other than the literal `HTTP/1.1`.
+
+    F1 changed only the *domain*: `ByteArray` in place of `String`. `Stdlib.Http11.parseRequestLine`
+    was already byte-typed, so this removes a `String` round trip rather than adding one -- the
+    pre-F1 body read `reqLine.toUTF8.toList`, encoding back to the bytes it had just decoded from.
+    Behaviour is identical on every request vector this spike exercises (checked: same
+    method/target/version for every well-formed request line in Test.lean and Equivalence.lean,
+    including every `N8` route-fix witness path and every `spike4GeneralClaimCounterexamples`
+    witness). -/
+def parseRequestLine (req : ByteArray) : Option HttpRequest :=
+  match Stdlib.Http11.parseRequestLine (requestLineBytes req) with
+  | .error _ => none
+  | .ok (m, target) =>
+      some { method := methodToString m, path := String.fromUTF8! (ByteArray.mk target.toArray),
+             version := "HTTP/1.1" }
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
 /-- Pure HTTP 1.1 Route Dispatcher. -/
@@ -102,8 +123,8 @@ def badRequestResponse : HttpResponse :=
   { statusCode := 400, statusText := "Bad Request", contentType := "text/plain", body := "400 Bad Request\r\n" }
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
-/-- End-to-end Pure Functional HTTP Request Handler. -/
-def handleRawRequest (rawReq : String) : String :=
+/-- End-to-end Pure Functional HTTP Request Handler, over raw request bytes (F1). -/
+def handleRawRequest (rawReq : ByteArray) : String :=
   match parseRequestLine rawReq with
   | some req => formatResponse (routeRequest req)
   | none => formatResponse badRequestResponse
@@ -122,24 +143,34 @@ def httpServerMonadic (m : Type → Type) [Monad m] [MonadNetwork m] (port : UIn
     MonadNetwork.close clientConn
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
-/-- High-level model trace for an arbitrary HTTP request string. -/
-def serverModelTraceFor (req : String) : List AnyEvent :=
+/-- High-level model trace for an **arbitrary request byte string** (F1). This is the function
+    the general claim quantifies over; before F1 its argument was `String`, so the general claim
+    could not even be typed. -/
+def serverModelTraceFor (req : ByteArray) : List AnyEvent :=
   runModelTrace (httpServerMonadic (TraceM AnyEvent) 8080 1) [] [req]
+
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
+/-- A request vector written as source text. Every request literal in this spike goes through
+    here rather than being spelled as a bare `String`, so the queue's element type is `ByteArray`
+    at every call site while the vectors stay readable. Note this is a *convenience for writing
+    ASCII vectors*, not a restriction on the domain: `serverModelTraceFor` and the three
+    `loadWithRequests` loaders accept any `ByteArray`, including ones no `String` can express. -/
+def req (s : String) : ByteArray := s.toUTF8
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Canonical high-level model trace for HTTP GET / request. -/
 def canonicalServerTrace : List AnyEvent :=
-  serverModelTraceFor "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  serverModelTraceFor (req "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Canonical high-level model trace for HTTP GET /status request. -/
 def canonicalStatusServerTrace : List AnyEvent :=
-  serverModelTraceFor "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  serverModelTraceFor (req "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Canonical high-level model trace for HTTP 404 request. -/
 def canonical404ServerTrace : List AnyEvent :=
-  serverModelTraceFor "GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  serverModelTraceFor (req "GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
 /-!
 ## Lowering support: the method-token dispatch table

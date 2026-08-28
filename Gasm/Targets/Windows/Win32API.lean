@@ -213,19 +213,16 @@ def recvHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) : X
     let s' := s_popped.setGpr64 .rax 0
     (s', none)
   | req :: rest =>
-    let (delivered, remaining) := splitBytes req.toUTF8.toList requested
-    let count := delivered.length
-    let deliveredArr := ByteArray.mk delivered.toArray
-    let incomingRequests' :=
-      match String.fromUTF8? (ByteArray.mk remaining.toArray) with
-      | some r => if remaining.isEmpty then rest else r :: rest
-      | none => rest
-    let deliveredStr := (String.fromUTF8? deliveredArr).getD req
+    -- F1: one shared delivery step (`Gasm.Effects.recvDeliver`, law `recvDeliver_lossless`)
+    -- replaces this site's hand-copied split/requeue, and with it the `String.fromUTF8?` round
+    -- trip that dropped a UTF-8-straddling remainder and over-reported the delivered length.
+    let (delivered, incomingRequests') := recvDeliver req requested rest
+    let count := delivered.size
     let s' := { (s_popped.setGpr64 .rax count.toUInt64) with
       incomingRequests := incomingRequests',
-      memory := X86_64Mem.writeBytes bufAddr delivered s_popped.memory
+      memory := X86_64Mem.writeBytes bufAddr (toByteList delivered) s_popped.memory
     }
-    (s', some (Inject.inject (NetEvent.recv deliveredStr)))
+    (s', some (Inject.inject (NetEvent.recv (bytesToPayload delivered))))
 
 /- REF: windows-winsock2-send#parameters -/
 /-- Win32 send call hook: extracts response string from memory at RDX and emits NetEvent.send. -/
@@ -382,7 +379,7 @@ def loadWithStdin (exe : WindowsExecutable) (stdin : ByteArray) : X86_64MachineS
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
 /-- Loads the executable into initial X86_64MachineState with pre-seeded incoming HTTP requests queue. -/
-def loadWithRequests (exe : WindowsExecutable) (incomingRequests : List String) : X86_64MachineState :=
+def loadWithRequests (exe : WindowsExecutable) (incomingRequests : List ByteArray) : X86_64MachineState :=
   let s := exe.load
   { s with incomingRequests := incomingRequests }
 

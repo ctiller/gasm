@@ -36,7 +36,7 @@ structure Environment where
   stdin            : ByteArray := ByteArray.empty
   args             : List String := []
   envVars          : List (String × String) := []
-  incomingRequests : List String := []
+  incomingRequests : List ByteArray := []
   fileSystem       : List (String × ByteArray) := []
   clockTime        : UInt64 := 0
 deriving Inhabited, BEq

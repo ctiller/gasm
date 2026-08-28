@@ -73,7 +73,9 @@ structure WasmMachineState where
   resourceFailure  : Option WasmResourceFailure := none
   stdin            : ByteArray    := ByteArray.empty
   stdinPos         : Nat          := 0
-  incomingRequests : List String  := []
+  -- F1 (Law 9 root fix): raw octet strings, not `String`s -- see
+  -- `Gasm.Effects.TraceState.incomingRequests`.
+  incomingRequests : List ByteArray := []
   trapped          : Bool         := false
   exitCode         : Option UInt32 := none
   events           : List AnyEvent := []

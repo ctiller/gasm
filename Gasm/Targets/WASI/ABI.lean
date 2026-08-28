@@ -225,18 +225,14 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
     | [] =>
       return (pushVal (.i32 0) s3, .next)
     | req :: rest =>
-      let (delivered, remaining) := splitBytes req.toUTF8.toList max_len.toNat
-      let count := delivered.length
-      let deliveredArr := ByteArray.mk delivered.toArray
-      match WasmMem.writeBytes s3.memory buf_ptr.toNat deliveredArr with
+      -- F1: shared delivery step -- see `Win32API.lean`'s `recvHook` and
+      -- `Gasm.Effects.recvDeliver_lossless`.
+      let (delivered, incomingRequests') := recvDeliver req max_len.toNat rest
+      let count := delivered.size
+      match WasmMem.writeBytes s3.memory buf_ptr.toNat delivered with
       | none => return ({ s3 with trapped := true }, .next)
       | some curMem =>
-        let incomingRequests' :=
-          match String.fromUTF8? (ByteArray.mk remaining.toArray) with
-          | some r => if remaining.isEmpty then rest else r :: rest
-          | none => rest
-        let deliveredStr := (String.fromUTF8? deliveredArr).getD req
-        let newEvents := s3.events ++ [Inject.inject (NetEvent.recv deliveredStr)]
+        let newEvents := s3.events ++ [Inject.inject (NetEvent.recv (bytesToPayload delivered))]
         return (pushVal (.i32 count.toUInt32) { s3 with memory := curMem, incomingRequests := incomingRequests', events := newEvents }, .next)
 
   | some "sock_send" =>
@@ -273,7 +269,7 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
     `docs/MEMORY_HOOK.md` §12.5 diagnoses for the sibling
     `Gasm/Targets/X86_64/Semantics.lean`'s `runProgramTraceWithLoops` (see `WasmRunResult`'s own
     docstring in `Gasm/Targets/Wasm/Semantics.lean`). -/
-def runWasiTraceState (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List String := []) (fuel : Nat := defaultWasmFuel) : WasmRunResult :=
+def runWasiTraceState (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List ByteArray := []) (fuel : Nat := defaultWasmFuel) : WasmRunResult :=
   let initMem := initWasmMemory segments
   let s : WasmMachineState := { memory := initMem, stdin := stdin, incomingRequests := incomingRequests }
   evalInstrs fuel instrs s (wasiHostCall imports)
@@ -462,7 +458,7 @@ def WasiRunOutcome.observable : WasiRunOutcome → WasiObservable AnyEvent
     (`runWasiTraceState`'s own docstring) never to exhaust the default fuel; a caller that cannot
     rely on that proof (e.g. a hypothetical future program known to run long enough to matter)
     must use `runWasiTraceState` directly instead of this convenience wrapper. -/
-def runWasiTrace (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List String := []) : List AnyEvent :=
+def runWasiTrace (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List ByteArray := []) : List AnyEvent :=
   match runWasiTraceState instrs segments stdin imports incomingRequests with
   | .ok (finalState, _) => finalState.events
   | .error partialState => partialState.events
