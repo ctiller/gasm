@@ -1125,4 +1125,270 @@ theorem encodeDistance_spec' (dist : Nat) (h1 : 1 ≤ dist) (h2 : dist ≤ 32768
     distanceTable[(encodeDistance dist).1]!.2 = (encodeDistance dist).2.1 :=
   encodeDistance_spec dist h1 h2
 
+/-
+## PA16 L5-writer (fixed path): the emitted ghost bit sequence of a fixed-Huffman block
+
+Everything below is about the *writer* half of the fixed-block roundtrip: `emitFixedBlock`
+emits exactly `BFINAL=1, BTYPE=01` followed by each token's Huffman code + extra bits and
+the end-of-block symbol, as a ghost `List Bool`. The reader half (that `decompress`
+consumes exactly these bits back into the original tokens) additionally needs
+`decodeHuffmanStream`/`decompress` converted off `partial` and is assembled separately.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- RFC 1951 range validity of one LZ77 token — exactly the ranges `matchValid` certifies
+    for back-references; literals are unconditionally valid. -/
+def tokenRangesOk : LZToken → Prop
+  | .lit _ => True
+  | .ref len dist => 3 ≤ len ∧ len ≤ 258 ∧ 1 ≤ dist ∧ dist ≤ 32768
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Ghost bit sequence one token contributes under the fixed tables: length/literal code,
+    length extra bits, then (for refs) distance code and distance extra bits. -/
+def tokenBitsFixed : LZToken → List Bool
+  | .lit b => symbolBits fixedLitLenTable b.toNat
+  | .ref len dist =>
+    symbolBits fixedLitLenTable (encodeLength len).1 ++
+    natBits (encodeLength len).2.1 (encodeLength len).2.2 ++
+    symbolBits fixedDistTable (encodeDistance dist).1 ++
+    natBits (encodeDistance dist).2.1 (encodeDistance dist).2.2
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Ghost bit sequence of a token list under the fixed tables. -/
+def tokensBitsFixed : List LZToken → List Bool
+  | [] => []
+  | t :: ts => tokenBitsFixed t ++ tokensBitsFixed ts
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Emitting one coded symbol appends its ghost path and preserves the writer invariant. -/
+theorem writerBits_emitHuffSymbol (w : BitWriter) (t : HuffmanTable) (sym code len : Nat)
+    (hc : t.codes[sym]! = some (code, len)) (hlen : len ≤ 24)
+    (hval : reverseBits code len < 2 ^ len)
+    (hbuf : w.bitBuf.toNat < 2 ^ w.bitCount) (hcnt : w.bitCount < 8) :
+    writerBits (emitHuffSymbol w t sym) = writerBits w ++ symbolBits t sym ∧
+    (emitHuffSymbol w t sym).bitCount < 8 ∧
+    (emitHuffSymbol w t sym).bitBuf.toNat < 2 ^ (emitHuffSymbol w t sym).bitCount := by
+  unfold emitHuffSymbol
+  rw [hc, symbolBits_eq t sym code len hc]
+  exact writerBits_writeBits w _ len hbuf hval (by omega)
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Conditional extra-bits write: appends exactly `natBits n v` whether or not `n = 0`
+    (`natBits 0 v = []`, and the encoder skips the zero-width write). -/
+theorem writerBits_writeExtra (w : BitWriter) (v n : Nat)
+    (hv : v < 2 ^ n) (hn : n ≤ 24)
+    (hbuf : w.bitBuf.toNat < 2 ^ w.bitCount) (hcnt : w.bitCount < 8) :
+    writerBits (if n > 0 then writeBits w v n else w) = writerBits w ++ natBits n v ∧
+    (if n > 0 then writeBits w v n else w).bitCount < 8 ∧
+    (if n > 0 then writeBits w v n else w).bitBuf.toNat <
+      2 ^ (if n > 0 then writeBits w v n else w).bitCount := by
+  split
+  · exact writerBits_writeBits w v n hbuf hv (by omega)
+  · rename_i hn0
+    have h0 : n = 0 := by omega
+    subst h0
+    exact ⟨by simp [natBits], hcnt, hbuf⟩
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Emitting one range-valid token under the fixed tables appends its ghost bits and
+    preserves the writer invariant. -/
+theorem writerBits_emitToken_fixed (w : BitWriter) (t : LZToken) (hok : tokenRangesOk t)
+    (hbuf : w.bitBuf.toNat < 2 ^ w.bitCount) (hcnt : w.bitCount < 8) :
+    writerBits (emitToken fixedLitLenTable fixedDistTable w t) =
+      writerBits w ++ tokenBitsFixed t ∧
+    (emitToken fixedLitLenTable fixedDistTable w t).bitCount < 8 ∧
+    (emitToken fixedLitLenTable fixedDistTable w t).bitBuf.toNat <
+      2 ^ (emitToken fixedLitLenTable fixedDistTable w t).bitCount := by
+  cases t with
+  | lit b =>
+    obtain ⟨code, len, hc, _, hlen9, hval, _⟩ :=
+      fixedLit_symbol_spec (sym := b.toNat) (by have := b.toNat_lt; omega)
+    have h := writerBits_emitHuffSymbol w fixedLitLenTable b.toNat code len hc
+      (by omega) hval hbuf hcnt
+    exact ⟨h.1, h.2.1, h.2.2⟩
+  | ref len dist =>
+    obtain ⟨h3, h258, h1d, hd32768⟩ := hok
+    have hL := encodeLength_spec len (by omega) h3
+    have hD := encodeDistance_spec' dist h1d hd32768
+    obtain ⟨hL257, hL285, hLeb, hLev, _, _⟩ := hL
+    obtain ⟨hDc, hDeb, hDev, _, _⟩ := hD
+    obtain ⟨lc, ll, hlc, _, hll9, hlval, _⟩ :=
+      fixedLit_symbol_spec (sym := (encodeLength len).1) (by omega)
+    have s1 := writerBits_emitHuffSymbol w fixedLitLenTable (encodeLength len).1 lc ll hlc
+      (by omega) hlval hbuf hcnt
+    have s2 := writerBits_writeExtra (emitHuffSymbol w fixedLitLenTable (encodeLength len).1)
+      (encodeLength len).2.2 (encodeLength len).2.1 hLev (by omega) s1.2.2 s1.2.1
+    obtain ⟨dc, dl, hdc, _, hdl9, hdval, _⟩ :=
+      fixedDist_symbol_spec (sym := (encodeDistance dist).1) (by omega)
+    have s3 := writerBits_emitHuffSymbol _ fixedDistTable (encodeDistance dist).1 dc dl hdc
+      (by omega) hdval s2.2.2 s2.2.1
+    have s4 := writerBits_writeExtra _ (encodeDistance dist).2.2 (encodeDistance dist).2.1
+      hDev (by omega) s3.2.2 s3.2.1
+    refine ⟨?_, s4.2.1, s4.2.2⟩
+    show writerBits _ = _
+    rw [show emitToken fixedLitLenTable fixedDistTable w (.ref len dist) =
+      (if (encodeDistance dist).2.1 > 0 then
+        writeBits
+          (emitHuffSymbol
+            (if (encodeLength len).2.1 > 0 then
+              writeBits (emitHuffSymbol w fixedLitLenTable (encodeLength len).1)
+                (encodeLength len).2.2 (encodeLength len).2.1
+             else emitHuffSymbol w fixedLitLenTable (encodeLength len).1)
+            fixedDistTable (encodeDistance dist).1)
+          (encodeDistance dist).2.2 (encodeDistance dist).2.1
+       else
+        emitHuffSymbol
+          (if (encodeLength len).2.1 > 0 then
+            writeBits (emitHuffSymbol w fixedLitLenTable (encodeLength len).1)
+              (encodeLength len).2.2 (encodeLength len).2.1
+           else emitHuffSymbol w fixedLitLenTable (encodeLength len).1)
+          fixedDistTable (encodeDistance dist).1) from rfl]
+    rw [s4.1, s3.1, s2.1, s1.1, tokenBitsFixed]
+    simp [List.append_assoc]
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Folding `emitToken` over a range-valid token list appends the concatenated ghost
+    bits and preserves the writer invariant. -/
+theorem writerBits_foldl_emitToken_fixed (ts : List LZToken) (w : BitWriter)
+    (hok : ∀ t ∈ ts, tokenRangesOk t)
+    (hbuf : w.bitBuf.toNat < 2 ^ w.bitCount) (hcnt : w.bitCount < 8) :
+    writerBits (ts.foldl (emitToken fixedLitLenTable fixedDistTable) w) =
+      writerBits w ++ tokensBitsFixed ts ∧
+    (ts.foldl (emitToken fixedLitLenTable fixedDistTable) w).bitCount < 8 ∧
+    (ts.foldl (emitToken fixedLitLenTable fixedDistTable) w).bitBuf.toNat <
+      2 ^ (ts.foldl (emitToken fixedLitLenTable fixedDistTable) w).bitCount := by
+  induction ts generalizing w with
+  | nil => exact ⟨by simp [tokensBitsFixed], hcnt, hbuf⟩
+  | cons t ts ih =>
+    have ht := writerBits_emitToken_fixed w t (hok t (by simp)) hbuf hcnt
+    have hrest := ih (emitToken fixedLitLenTable fixedDistTable w t)
+      (fun t' ht' => hok t' (by simp [ht'])) ht.2.2 ht.2.1
+    refine ⟨?_, hrest.2.1, hrest.2.2⟩
+    rw [List.foldl_cons, hrest.1, ht.1, tokensBitsFixed, List.append_assoc]
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- L5-writer (fixed path): `emitTokens` emits exactly the tokens' ghost bits followed by
+    the end-of-block symbol 256, preserving the writer invariant. -/
+theorem writerBits_emitTokens_fixed (tokens : Array LZToken) (w : BitWriter)
+    (hok : ∀ t ∈ tokens.toList, tokenRangesOk t)
+    (hbuf : w.bitBuf.toNat < 2 ^ w.bitCount) (hcnt : w.bitCount < 8) :
+    writerBits (emitTokens fixedLitLenTable fixedDistTable w tokens) =
+      writerBits w ++ tokensBitsFixed tokens.toList ++ symbolBits fixedLitLenTable 256 ∧
+    (emitTokens fixedLitLenTable fixedDistTable w tokens).bitCount < 8 ∧
+    (emitTokens fixedLitLenTable fixedDistTable w tokens).bitBuf.toNat <
+      2 ^ (emitTokens fixedLitLenTable fixedDistTable w tokens).bitCount := by
+  unfold emitTokens
+  have hfold : tokens.foldl (emitToken fixedLitLenTable fixedDistTable) w =
+      tokens.toList.foldl (emitToken fixedLitLenTable fixedDistTable) w := by
+    rw [Array.foldl_toList]
+  rw [hfold]
+  have h1 := writerBits_foldl_emitToken_fixed tokens.toList w hok hbuf hcnt
+  obtain ⟨c256, l256, hc256, _, hl256, hv256, _⟩ := fixedLit_symbol_spec (sym := 256) (by omega)
+  have h2 := writerBits_emitHuffSymbol _ fixedLitLenTable 256 c256 l256 hc256
+    (by omega) hv256 h1.2.2 h1.2.1
+  refine ⟨?_, h2.2.1, h2.2.2⟩
+  rw [h2.1, h1.1]
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- The empty writer has emitted no bits and satisfies the operating invariant. -/
+theorem writerBits_empty : writerBits ({} : BitWriter) = [] ∧
+    ({} : BitWriter).bitBuf.toNat < 2 ^ ({} : BitWriter).bitCount ∧
+    ({} : BitWriter).bitCount < 8 := by
+  refine ⟨?_, by simp, by simp⟩
+  simp [writerBits, bytesBits, natBits]
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- L7-writer (fixed path): the complete fixed-Huffman final block is the 3 header bits
+    `BFINAL=1, BTYPE=01` (LSB-first: `true, true, false`), the tokens' ghost bits, and the
+    end-of-block symbol — with the writer invariant available for `flushBitWriter`. -/
+theorem writerBits_emitFixedBlock (tokens : Array LZToken)
+    (hok : ∀ t ∈ tokens.toList, tokenRangesOk t) :
+    writerBits (emitFixedBlock tokens) =
+      true :: true :: false ::
+        (tokensBitsFixed tokens.toList ++ symbolBits fixedLitLenTable 256) ∧
+    (emitFixedBlock tokens).bitCount < 8 ∧
+    (emitFixedBlock tokens).bitBuf.toNat < 2 ^ (emitFixedBlock tokens).bitCount := by
+  unfold emitFixedBlock
+  have he := writerBits_empty
+  have h1 := writerBits_writeBits ({} : BitWriter) 1 1 he.2.1 (by omega) (by simp)
+  have h2 := writerBits_writeBits (writeBits {} 1 1) 1 2 h1.2.2 (by omega) (by omega)
+  have h3 := writerBits_emitTokens_fixed tokens (writeBits (writeBits {} 1 1) 1 2) hok
+    h2.2.2 h2.2.1
+  refine ⟨?_, h3.2.1, h3.2.2⟩
+  rw [h3.1, h2.1, h1.1, he.1]
+  rfl
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Every token the greedy tokenizer worker appends is RFC 1951 range-valid: refs come
+    only from certified `matchValid` matches, literals are always valid. -/
+theorem tokenizeAux_rangesOk (data : ByteArray) :
+    ∀ (fuel pos : Nat) (acc : Array LZToken),
+      (∀ t ∈ acc.toList, tokenRangesOk t) →
+      ∀ t ∈ (tokenizeAux data fuel pos acc).toList, tokenRangesOk t := by
+  intro fuel
+  induction fuel with
+  | zero => intro pos acc hacc; simpa [tokenizeAux] using hacc
+  | succ fuel ih =>
+    intro pos acc hacc
+    simp only [tokenizeAux]
+    split
+    · split
+      · rename_i hm
+        apply ih
+        intro t ht
+        rw [Array.toList_push] at ht
+        rcases List.mem_append.mp ht with h | h
+        · exact hacc t h
+        · have := List.mem_singleton.mp h
+          subst this
+          obtain ⟨h3, h258, h1d, h32768, _⟩ := matchValid_spec hm.2
+          exact ⟨h3, h258, h1d, h32768⟩
+      · apply ih
+        intro t ht
+        rw [Array.toList_push] at ht
+        rcases List.mem_append.mp ht with h | h
+        · exact hacc t h
+        · have := List.mem_singleton.mp h
+          subst this
+          trivial
+    · exact hacc
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Every token `tokenize` produces is RFC 1951 range-valid. -/
+theorem tokenize_rangesOk (data : ByteArray) :
+    ∀ t ∈ (tokenize data).toList, tokenRangesOk t := by
+  unfold tokenize
+  exact tokenizeAux_rangesOk data data.size 0 #[] (by simp)
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- L7-reader entry (fixed path): a reader over the flushed fixed block sees exactly the
+    3 header bits, the tokens' ghost bits, the end-of-block symbol, and byte-alignment
+    zero padding — with the reader's operating invariant established. -/
+theorem fixedBlock_readerBits (tokens : Array LZToken)
+    (hok : ∀ t ∈ tokens.toList, tokenRangesOk t) :
+    ∃ pad,
+      readerBits (mkBitReader (flushBitWriter (emitFixedBlock tokens))) =
+        true :: true :: false ::
+          (tokensBitsFixed tokens.toList ++ symbolBits fixedLitLenTable 256 ++
+           List.replicate pad false) ∧
+      (mkBitReader (flushBitWriter (emitFixedBlock tokens))).bitBuf.toNat <
+        2 ^ (mkBitReader (flushBitWriter (emitFixedBlock tokens))).bitCount ∧
+      (mkBitReader (flushBitWriter (emitFixedBlock tokens))).bitCount < 8 := by
+  have hw := writerBits_emitFixedBlock tokens hok
+  have hr := readerBits_of_flushed (emitFixedBlock tokens) hw.2.2 hw.2.1
+  have hm := readerBits_mkBitReader (flushBitWriter (emitFixedBlock tokens))
+  refine ⟨(8 - (emitFixedBlock tokens).bitCount) % 8, ?_, hm.2.1, hm.2.2⟩
+  rw [hr, hw.1]
+  simp [List.append_assoc]
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `compress` takes the fixed-Huffman branch exactly when dynamic does not win the exact
+    bit-cost comparison; on that branch its output IS the flushed fixed block. -/
+theorem compress_fixed_branch (data : ByteArray)
+    (h : ¬ dynPlanBitCost (buildDynPlan (tokenize data)) (tokenize data) <
+        fixedBitCost (tokenize data)) :
+    compress data = flushBitWriter (emitFixedBlock (tokenize data)) := by
+  unfold compress compressPlan
+  rw [if_neg h]
+
 end Stdlib.Zlib
