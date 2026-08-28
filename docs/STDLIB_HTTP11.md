@@ -162,26 +162,34 @@ complete, parsed value by the time routing logic runs.
 
 ### 6.2 Migration Status And Remaining Work
 
-`Spikes/Spike4HttpServer/Spec.lean`'s pure functional model (`parseRequestLine`, `routeRequest`)
-routes through this library as of this migration: `parseRequestLine` delegates to
-`Stdlib.Http11.parseRequest` and `routeRequest` matches on the parsed `Request.target` value
-rather than re-implementing ad-hoc string splitting. The per-target assembly lowerings
-(`Spikes/Spike4HttpServer/{Windows,Linux,Wasm}/{Program,Emit}.lean`) are **not** migrated by this
-change — each hand-emits its own instruction stream (x86_64 machine code or a Wasm module) with no
-mechanism today for that code generation to call into a Lean-level parser at proof time the way
-`Stdlib/Zlib`'s per-target `Equivalence.lean` files establish trace equivalence between a spec
-function and an emitted program; building that bridge for `Http11` is comparable in scope to the
-existing Zlib per-target equivalence proofs (each several hundred to low-thousands of lines) and
-was out of scope to complete alongside authoring the library itself. **Migration plan**: (1) give
-each target's routing block the same request-target comparison shape the fixed assembly bug
-already needs fixed directly (matching the full byte-length of the target, not a fixed-width
-prefix) — this is the immediate, target-local fix, tracked separately as it was concurrently
-in flight on this same file when this library was authored; (2) once complete, add a trace/byte
-equivalence proof per target relating the emitted routing logic to `Stdlib.Http11.parseRequest` +
-`routeRequest`'s output, mirroring `Stdlib/Zlib/Equivalence.lean`'s structure, so the assembly is
-verified against this library's parser rather than merely alongside it. `test_spike4`
-(`Spikes/Spike4HttpServer/Test.lean`) carries a regression test asserting `GET /static` and
-`GET /search` route to 404 through the (now library-backed) `Spec.lean` model, so the defect class
-this library exists to close cannot silently regress at the model layer; per-target binary
-verification of the same two paths remains the responsibility of `test_spike4`'s target-specific
-process-exec checks once step (1) above lands on each target.
+**Model layer (done).** `Spikes/Spike4HttpServer/Spec.lean`'s `parseRequestLine` delegates
+request-line field-splitting to `Stdlib.Http11.parseRequestLine` (`Stdlib/Http11/Parser.lean`)
+rather than re-implementing it via `String.splitOn`. This is the request-*line*-level parser, not
+the full `parseRequest`: the full parser additionally requires exactly one `Content-Length` header
+and a body of exactly that length, and Spike4's request vectors and its own `formatResponse` wire
+format carry neither — `parseRequestLine` only ever needed the first line, so using the full
+parser here would reject every request this spike sends for a reason unrelated to routing.
+`routeRequest` itself is unchanged (still matches on the resulting `HttpRequest.path : String`);
+what moved to the library is exactly the field-splitting step where the original defect's
+byte-offset-vs-full-value confusion could occur. This was verified behavior-preserving before
+landing — a standalone comparison confirmed the migrated implementation agrees with the prior
+hand-rolled one on every existing request vector and every witness path named in §6.1, and
+`Spikes/Spike4HttpServer/Equivalence.lean`'s full six-theorem trace-equivalence suite still
+verifies unchanged against the migrated model.
+
+**Assembly layer (fixed independently, not via this library).** The per-target lowerings
+(`Spikes/Spike4HttpServer/{Windows,Linux,Wasm}/Program.lean`) hand-emit their own instruction
+stream with no mechanism today for that code generation to call into a Lean-level parser at proof
+time the way `Stdlib/Zlib`'s per-target `Equivalence.lean` files establish trace equivalence
+between a spec function and an emitted program — building that bridge for `Http11` remains
+comparable in scope to the existing Zlib per-target equivalence proofs (each several hundred to
+low-thousands of lines) and is not attempted here. The routing defect itself, however, is already
+fixed at the assembly level: a concurrent task (`docs/tasks/N8-spike4-stack-buffer-overflow.md`)
+replaced each target's fixed-width prefix compare (`"/stat"` on Windows/Linux, a single `'s'` byte
+on WASI) with a full 8-byte `"/status "` comparison, independently of this library, and added its
+own regression suite (`Spikes/Spike4HttpServer/Equivalence.lean`'s
+`spike4RouteFixedOnAllTargets`, `#guard`-checked against `GET /static`, `GET /search`, and six
+other witness paths on Windows, Linux, and WASM). Building the trace/byte equivalence bridge that
+would let the assembly be verified *against this library's parser* (rather than merely alongside
+an independently-fixed comparison) is the concrete remaining step, tracked as future work at the
+same scope as a Zlib-style per-target equivalence proof.
