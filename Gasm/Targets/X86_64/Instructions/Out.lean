@@ -142,7 +142,7 @@ def out_imm8_eax (port : UInt8) : AnyX86_64Instruction :=
 def out_dx_eax : AnyX86_64Instruction :=
   ⟨OutDxEax.mk⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the OUT family: `0xE6` (OUT imm8, AL), `0xE7` (OUT imm8, EAX),
     `0xEE` (OUT DX, AL), `0xEF` (OUT DX, EAX). Errors for any other byte pattern. -/
 def outTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

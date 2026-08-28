@@ -106,7 +106,7 @@ def call_rip (disp : Int32) : AnyX86_64Instruction :=
 def call_rel32 (disp : Int32) : AnyX86_64Instruction :=
   ⟨CallRel32.mk disp⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the CALL family: `0xE8` (CALL rel32) and `0xFF /2` with the specific
     `0x15` ModR/M byte (indirect `CALL [RIP + disp32]`). Errors for any other byte pattern. -/
 def callTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

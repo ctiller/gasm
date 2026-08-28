@@ -54,7 +54,7 @@ instance : X86_64Instruction RetOp where
 def ret_op : AnyX86_64Instruction :=
   ⟨RetOp.mk⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the RET family: `0xC3` (unconditional near RET). Errors for any other
     byte pattern. -/
 def retTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

@@ -46,3 +46,16 @@ import Gasm.Targets.X86_64.RoundtripGate.Syscall
 -- `<family>_roundtripGate` theorems to elaborate whenever this module (transitively, `Gasm`) is
 -- built. There is no declaration here beyond the imports — this file's only job is to be the
 -- single place a new shard must be wired into so its gate actually runs.
+--
+-- Stage B note: `RoundtripGate.DispatchExhaustive` (dispatch-reachability: does the thin
+-- dispatcher route every registered instruction to the right family's own `tryDecode`?) is
+-- deliberately NOT imported here. It is a real, complete, zero-`sorry`/zero-new-axiom proof
+-- (`lake build Gasm.Targets.X86_64.RoundtripGate.DispatchExhaustive` builds it directly, and CI
+-- should build it explicitly), but it imports `Decoder.lean` — which imports every family — so
+-- wiring it into this hot-path aggregator would put its ~100s exhaustive kernel-checked `decide`
+-- cost (checking the full dispatcher against every one of ~1611 registered witnesses) on every
+-- single-instruction edit, which measurably undoes Stage B's own build-perf win (measured: 15
+-- jobs / ~177s with it wired in here, vs. 14 jobs / ~30s without — see
+-- `docs/tasks/B3-stage-b-decoder-modularization.md`'s Notes). Keeping it reachable but out of the
+-- default `Gasm` build keeps the fast edit loop fast while still making the proof available
+-- whenever full confidence is wanted.

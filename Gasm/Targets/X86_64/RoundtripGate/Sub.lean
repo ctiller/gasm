@@ -32,6 +32,18 @@ def subFamilyCases : List AnyX86_64Instruction :=
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the SUB family: every `roundtripCases` witness decodes back. -/
-theorem subFamily_roundtripGate : subFamilyCases.all decodesOk = true := by decide
+theorem subFamily_roundtripGate : subFamilyCases.all (decodesOk subTryDecode) = true := by decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the SUB family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `subFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem subFamily_inBucketExclusive :
+    ∀ i ∈ subFamilyCases, ∀ j ∈ subFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf subFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate

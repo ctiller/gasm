@@ -57,7 +57,7 @@ instance : X86_64Instruction NegR64 where
 def neg_r64 (dst : Reg64) : AnyX86_64Instruction :=
   ⟨NegR64.mk dst⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the NEG family: `0xF7 /3` (the Group 3 opcode NEG shares with
     TEST/NOT/DIV, disambiguated by ModR/M.reg). Errors for any other byte pattern. -/
 def negTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

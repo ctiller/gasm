@@ -210,7 +210,7 @@ instance : X86_64Instruction SubR64Imm32 where
 def sub_r64_imm32 (dst : Reg64) (imm : UInt32) : AnyX86_64Instruction :=
   ⟨SubR64Imm32.mk dst imm⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the SUB family: `0x29` (SUB r64, r64), `0x81 /5` (SUB r64, imm32,
     canonicalizing to `SubRspImm32` for an unextended RSP destination), and `0x83 /5` (SUB r64,
     imm8, same RSP canonicalization). Errors for any other byte pattern. -/

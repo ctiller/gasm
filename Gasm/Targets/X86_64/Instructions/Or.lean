@@ -139,7 +139,7 @@ def or_r64_imm8 (dst : Reg64) (imm : UInt8) : AnyX86_64Instruction :=
 def or_r64_imm32 (dst : Reg64) (imm : UInt32) : AnyX86_64Instruction :=
   ⟨OrR64Imm32.mk dst imm⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the OR family: `0x09` (OR r64, r64), `0x81 /1` (OR r64, imm32), and
     `0x83 /1` (OR r64, imm8). Errors for any other byte pattern. -/
 def orTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

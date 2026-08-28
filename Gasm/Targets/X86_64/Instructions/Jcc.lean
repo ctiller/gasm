@@ -516,7 +516,7 @@ def ja_rel32 (disp : Int32) : AnyX86_64Instruction := ⟨JaRel32.mk disp⟩
 /-- JBE rel8 helper. -/
 def jbe_rel8 (disp : UInt8) : AnyX86_64Instruction := ⟨JbeRel8.mk disp⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the JMP/Jcc family: `0xEB`/`0xE9` (unconditional JMP rel8/rel32), the
     short conditional jumps (`0x72..0x77`, `0x7C..0x7F`), and the near conditional jumps reachable
     through the `0x0F` two-byte escape (`0x82..0x8E`, only the subset this codebase's encoders

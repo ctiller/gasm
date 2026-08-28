@@ -70,7 +70,7 @@ instance : X86_64Instruction XorR32R32 where
 def xor_r32 (dst src : Reg32) : AnyX86_64Instruction :=
   ⟨XorR32R32.mk dst src⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the XOR family: `0x31` (XOR r32, r32). Errors for any other byte
     pattern. -/
 def xorTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

@@ -56,7 +56,7 @@ instance : X86_64Instruction NotR64 where
 def not_r64 (dst : Reg64) : AnyX86_64Instruction :=
   ⟨NotR64.mk dst⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the NOT family: `0xF7 /2` (the Group 3 opcode NOT shares with
     TEST/NEG/DIV, disambiguated by ModR/M.reg). Errors for any other byte pattern. -/
 def notTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

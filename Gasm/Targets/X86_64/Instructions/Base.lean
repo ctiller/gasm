@@ -132,7 +132,7 @@ def readUInt8 (bytes : ByteArray) (offset : Nat) : Except String UInt8 :=
   else
     Except.error s!"Unexpected end of byte stream at offset {offset}"
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Reads an 8-bit ModR/M byte at `offset` and unpacks it into (mod, reg, rm, nextOffset), where
     `nextOffset` points just past the ModR/M byte. Shared boilerplate for every per-family
     `tryDecode` that reads a ModR/M byte (Stage B: `Instructions/*.lean` own their decode logic
@@ -142,7 +142,7 @@ def readModRM (bytes : ByteArray) (offset : Nat) : Except String (UInt8 × UInt8
   let (mod, reg, rm) := extractModRM b
   pure (mod, reg, rm, offset + 1)
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Parses an optional REX prefix at `offset`, then reads the opcode byte that follows it.
     Returns `(hasRex, rexW, rexR, rexX, rexB, opcode, nextOffset)` where `nextOffset` points just
     past the opcode byte (the position of any ModR/M/immediate bytes). Every x86-64 instruction

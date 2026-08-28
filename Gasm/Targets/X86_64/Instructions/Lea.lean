@@ -147,7 +147,7 @@ def lea_rsp (dst : Reg64) (disp : UInt8) : AnyX86_64Instruction :=
 def lea_rsp32 (dst : Reg64) (disp : Int32) : AnyX86_64Instruction :=
   ⟨LeaRspDisp32.mk dst disp⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the LEA family: `0x8D` with `mod=0,rm=5` (RIP-relative),
     `mod=0/1/2,rm=4` (SIB-encoded RSP-relative, disp0/disp8/disp32). Rejects (rather than
     misdecodes) an R12-based SIB-base-4 encoding (`rexB` set), since `LeaRspDisp`/`LeaRspDisp32`

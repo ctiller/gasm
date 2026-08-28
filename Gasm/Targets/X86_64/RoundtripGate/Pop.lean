@@ -28,6 +28,18 @@ def popFamilyCases : List AnyX86_64Instruction :=
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the POP family: every `roundtripCases` witness decodes back. -/
-theorem popFamily_roundtripGate : popFamilyCases.all decodesOk = true := by decide
+theorem popFamily_roundtripGate : popFamilyCases.all (decodesOk popTryDecode) = true := by decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the POP family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `popFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem popFamily_inBucketExclusive :
+    ∀ i ∈ popFamilyCases, ∀ j ∈ popFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf popFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate

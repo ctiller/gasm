@@ -112,7 +112,7 @@ instance : X86_64Instruction DivR64 where
 def div_r64 (r : Reg64) : AnyX86_64Instruction :=
   ⟨DivR64.mk r⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the DIV family: `0xF7 /6` (the Group 3 opcode DIV shares with
     TEST/NOT/NEG, disambiguated by ModR/M.reg). Errors for any other byte pattern. -/
 def divTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

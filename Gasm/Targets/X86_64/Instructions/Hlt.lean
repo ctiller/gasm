@@ -53,7 +53,7 @@ instance : X86_64Instruction HltOp where
 def hlt_op : AnyX86_64Instruction :=
   ⟨HltOp.mk⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the HLT family: `0xF4`. Errors for any other byte pattern. -/
 def hltTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
   match parseRexAndOpcode bytes offset with

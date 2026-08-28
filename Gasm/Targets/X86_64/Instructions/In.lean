@@ -142,7 +142,7 @@ def in_eax_imm8 (port : UInt8) : AnyX86_64Instruction :=
 def in_eax_dx : AnyX86_64Instruction :=
   ⟨InEaxDx.mk⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the IN family: `0xE4` (IN AL, imm8), `0xE5` (IN EAX, imm8), `0xEC`
     (IN AL, DX), `0xED` (IN EAX, DX). Errors for any other byte pattern. -/
 def inTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

@@ -24,7 +24,7 @@ open Gasm.Core
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Byte-level roundtrip equality relation shared by every per-family gate theorem, generalized
     (Stage B) to take the decoder function itself as a parameter rather than hard-coding
     `Decoder.lean`'s global `decodeX86_64Instr`. Each per-family `RoundtripGate/<Family>.lean`
@@ -51,7 +51,7 @@ def decodesOk (tryDecode : ByteArray → Nat → Except String (AnyX86_64Instruc
     X86_64Instruction.encode decoded == encoded &&
     X86_64Instruction.toLean decoded == X86_64Instruction.toLean i
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- **In-bucket exclusivity**, generically derived as a corollary of a family's own
     `decodesOk`-based roundtrip gate rather than a fresh `decide` obligation: if a family's gate
     theorem holds for its whole `roundtripCases` list, then any two witnesses in that list which

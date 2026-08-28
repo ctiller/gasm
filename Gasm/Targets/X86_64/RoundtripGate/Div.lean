@@ -28,6 +28,18 @@ def divFamilyCases : List AnyX86_64Instruction :=
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the DIV family: every `roundtripCases` witness decodes back. -/
-theorem divFamily_roundtripGate : divFamilyCases.all decodesOk = true := by decide
+theorem divFamily_roundtripGate : divFamilyCases.all (decodesOk divTryDecode) = true := by decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the DIV family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `divFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem divFamily_inBucketExclusive :
+    ∀ i ∈ divFamilyCases, ∀ j ∈ divFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf divFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate

@@ -109,7 +109,7 @@ def and_r64_imm8 (dst : Reg64) (imm : UInt8) : AnyX86_64Instruction :=
 def and_r64 (dst src : Reg64) : AnyX86_64Instruction :=
   ⟨AndR64R64.mk dst src⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the AND family: `0x21` (AND r64, r64) and `0x83 /4` (AND r64, imm8).
     This codebase has no AND r64, imm32 form (no `0x81 /4` case). Errors for any other byte
     pattern. -/

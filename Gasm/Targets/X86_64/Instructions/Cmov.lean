@@ -296,7 +296,7 @@ def cmovb_r64 (dst src : Reg64) : AnyX86_64Instruction :=
 def cmovae_r64 (dst src : Reg64) : AnyX86_64Instruction :=
   ⟨CmovaeR64R64.mk dst src⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the CMOV family: `0x0F 0x42/0x43/0x44/0x45/0x4C/0x4D/0x4E/0x4F`
     (CMOVB/CMOVAE/CMOVE/CMOVNE/CMOVL/CMOVGE/CMOVLE/CMOVG r64, r64). Errors for any other byte
     pattern. -/

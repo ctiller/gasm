@@ -31,6 +31,18 @@ def cmpFamilyCases : List AnyX86_64Instruction :=
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the CMP family, including the `0x81 /7` imm32 form
     (`CmpR64Imm32` / `cmp_r64_imm32`) this change added a decoder branch for. -/
-theorem cmpFamily_roundtripGate : cmpFamilyCases.all decodesOk = true := by decide
+theorem cmpFamily_roundtripGate : cmpFamilyCases.all (decodesOk cmpTryDecode) = true := by decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the CMP family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `cmpFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem cmpFamily_inBucketExclusive :
+    ∀ i ∈ cmpFamilyCases, ∀ j ∈ cmpFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf cmpFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate

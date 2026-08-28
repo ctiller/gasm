@@ -655,7 +655,7 @@ theorem mov_mem64_disp_imm_sign_extension_soundness :
      s2.read64 0x20000008 == 0x0000000000001234) = true := by
   decide
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the MOV/MOVZX family: `0xB8..0xBF` (MOV reg, imm — 32-bit or 64-bit
     depending on REX.W), `0x88` (MOV byte ptr [mem], reg8), `0x89` (MOV r64, r64 or MOV
     [base+disp], reg64), `0x8B` (MOV r64, [base+disp] when REX.W=1, or the fixed MOV r32,

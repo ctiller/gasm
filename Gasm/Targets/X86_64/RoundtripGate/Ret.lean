@@ -28,6 +28,18 @@ def retFamilyCases : List AnyX86_64Instruction :=
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the RET family: every `roundtripCases` witness decodes back. -/
-theorem retFamily_roundtripGate : retFamilyCases.all decodesOk = true := by decide
+theorem retFamily_roundtripGate : retFamilyCases.all (decodesOk retTryDecode) = true := by decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the RET family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `retFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem retFamily_inBucketExclusive :
+    ∀ i ∈ retFamilyCases, ∀ j ∈ retFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf retFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate

@@ -63,7 +63,7 @@ instance : X86_64Instruction XchgR64R64 where
 def xchg_r64 (dst src : Reg64) : AnyX86_64Instruction :=
   ⟨XchgR64R64.mk dst src⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the XCHG family: `0x87` (XCHG r64, r64). Errors for any other byte
     pattern. -/
 def xchgTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

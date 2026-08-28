@@ -213,7 +213,7 @@ def add_rsp (imm : UInt8) : AnyX86_64Instruction :=
 def add_rsp32 (imm : UInt32) : AnyX86_64Instruction :=
   ⟨AddRspImm32.mk imm⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the ADD family: `0x01` (ADD r64, r64), `0x81 /0` (ADD r64, imm32,
     canonicalizing to `AddRspImm32` when the destination is RSP with REX.B unset, mirroring
     `encode`'s own RSP special case), and `0x83 /0` (ADD r64, imm8, same RSP canonicalization).

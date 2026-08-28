@@ -99,7 +99,7 @@ def test_r64 (dst src : Reg64) : AnyX86_64Instruction :=
 def test_r64_imm32 (dst : Reg64) (imm : UInt32) : AnyX86_64Instruction :=
   ⟨TestR64Imm32.mk dst imm⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the TEST family: `0x85` (TEST r64, r64) and `0xF7 /0` (TEST r64,
     imm32 — the Group 3 opcode TEST shares with NOT/NEG/DIV, disambiguated by ModR/M.reg).
     Errors for any other byte pattern. -/

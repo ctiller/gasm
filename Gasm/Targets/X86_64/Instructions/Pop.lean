@@ -63,7 +63,7 @@ instance : X86_64Instruction PopR64 where
 def pop_r64 (r : Reg64) : AnyX86_64Instruction :=
   ⟨PopR64.mk r⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the POP family: `0x58 .. 0x5F` (POP r64). Errors for any other byte
     pattern. -/
 def popTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

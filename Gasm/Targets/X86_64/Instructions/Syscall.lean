@@ -57,7 +57,7 @@ instance : X86_64Instruction SyscallOp where
 def syscall_op : AnyX86_64Instruction :=
   ⟨SyscallOp.mk⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the SYSCALL family: `0x0F 0x05`. Errors for any other byte pattern. -/
 def syscallTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
   -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.

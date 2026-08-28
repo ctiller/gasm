@@ -34,6 +34,18 @@ def leaFamilyCases : List AnyX86_64Instruction :=
     caught a genuine pre-existing `LeaRipRel.encode` bug: the destination register's extension bit
     was placed in REX.B instead of REX.R, silently misencoding `lea_rip` with any r8-r15
     destination (fixed alongside this gate). -/
-theorem leaFamily_roundtripGate : leaFamilyCases.all decodesOk = true := by decide
+theorem leaFamily_roundtripGate : leaFamilyCases.all (decodesOk leaTryDecode) = true := by decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the LEA family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `leaFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem leaFamily_inBucketExclusive :
+    ∀ i ∈ leaFamilyCases, ∀ j ∈ leaFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf leaFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate

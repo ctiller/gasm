@@ -63,7 +63,7 @@ instance : X86_64Instruction ImulR64R64 where
 def imul_r64 (dst src : Reg64) : AnyX86_64Instruction :=
   ⟨ImulR64R64.mk dst src⟩
 
-/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the IMUL family: `0x0F 0xAF` (IMUL r64, r64). Errors for any other
     byte pattern. -/
 def imulTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=

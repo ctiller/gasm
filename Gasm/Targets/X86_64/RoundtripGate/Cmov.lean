@@ -39,7 +39,19 @@ def cmovFamilyCases : List AnyX86_64Instruction :=
     Plain `decide` exceeds the kernel's default reduction stack depth on this family's ~256-case
     list, so this raises `maxRecDepth` rather than falling back to `native_decide` (kernel-checked
     is preferred wherever it is merely a stack-depth setting, not a genuine performance ceiling). -/
-theorem cmovFamily_roundtripGate : cmovFamilyCases.all decodesOk = true := by
+theorem cmovFamily_roundtripGate : cmovFamilyCases.all (decodesOk cmovTryDecode) = true := by
   set_option maxRecDepth 4000 in decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the CMOV family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `cmovFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem cmovFamily_inBucketExclusive :
+    ∀ i ∈ cmovFamilyCases, ∀ j ∈ cmovFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf cmovFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate

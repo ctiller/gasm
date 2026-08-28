@@ -28,6 +28,18 @@ def xchgFamilyCases : List AnyX86_64Instruction :=
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the XCHG family: every `roundtripCases` witness decodes back. -/
-theorem xchgFamily_roundtripGate : xchgFamilyCases.all decodesOk = true := by decide
+theorem xchgFamily_roundtripGate : xchgFamilyCases.all (decodesOk xchgTryDecode) = true := by decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the XCHG family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `xchgFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem xchgFamily_inBucketExclusive :
+    ∀ i ∈ xchgFamilyCases, ∀ j ∈ xchgFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf xchgFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate
