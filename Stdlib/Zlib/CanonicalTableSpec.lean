@@ -459,4 +459,213 @@ theorem insertCode_loop_preserve (sym : Nat) : ∀ (len code : Nat) (node : Huff
               rw [treeWalk_branch_true]
               exact ih code _ p' s hwalk (hqcons true hhead rfl) (hpcons true hhead rfl)
 
+/-
+## Canonical code arithmetic (RFC 1951 §3.2.2): closed forms for `buildHuffmanTable`'s
+## code-length counting (step 1) and starting-code (step 2) passes, plus the Kraft-bound
+## consequences that make all assigned codes pairwise prefix-incomparable.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Number of symbols assigned code length `l` (RFC 1951 `bl_count[l]`), functional form.
+    Zero outside the assignable range `1 ≤ l ≤ maxBits` — exactly step 1's guard. -/
+def blCountF (lengths : Array Nat) (W l : Nat) : Nat :=
+  if 1 ≤ l ∧ l ≤ W then (List.range lengths.size).countP (fun s => lengths[s]! == l) else 0
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Canonical starting code per length (RFC 1951 `next_code[l]` before any assignment),
+    functional form of step 2's recurrence `code = (code + bl_count[bits-1]) << 1`. -/
+def startCodeF (lengths : Array Nat) (W : Nat) : Nat → Nat
+  | 0 => 0
+  | l + 1 => (startCodeF lengths W l + blCountF lengths W l) * 2
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Rank of `sym` among earlier symbols of its own code length — the number of codes of
+    that length assigned before step 3 reaches `sym`. -/
+def rankF (lengths : Array Nat) (sym : Nat) : Nat :=
+  (List.range sym).countP (fun s => lengths[s]! == lengths[sym]!)
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- The canonical code RFC 1951 §3.2.2 assigns to `sym`. -/
+def canonicalCode (lengths : Array Nat) (W sym : Nat) : Nat :=
+  startCodeF lengths W (lengths[sym]!) + rankF lengths sym
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- A symbol is assignable when its length is positive and within the width limit. -/
+def validLen (lengths : Array Nat) (W s : Nat) : Prop :=
+  0 < lengths[s]! ∧ lengths[s]! ≤ W
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- The compact Kraft bound the whole L2d argument runs on: the last length's block ends
+    within the code space. Implied by the Kraft inequality `Σ 2^(W-l) ≤ 2^W` (see the
+    package-merge validity bridge), and trivially true for under-subscribed trees. -/
+def kraftOk (lengths : Array Nat) (W : Nat) : Prop :=
+  startCodeF lengths W W + blCountF lengths W W ≤ 2 ^ W
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- A valid symbol is in bounds (out-of-bounds `get!` reads 0, an invalid length). -/
+theorem validLen_lt_size {lengths : Array Nat} {W s : Nat} (h : validLen lengths W s) :
+    s < lengths.size := by
+  rcases Nat.lt_or_ge s lengths.size with h1 | h1
+  · exact h1
+  · exfalso
+    have h0 := getElem!_oob lengths s (by omega)
+    have h2 := h.1
+    rw [h0] at h2
+    exact absurd h2 (by simp [default])
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Ranks stay strictly below the length's total population. -/
+theorem rankF_lt_blCountF {lengths : Array Nat} {W s : Nat} (h : validLen lengths W s) :
+    rankF lengths s < blCountF lengths W (lengths[s]!) := by
+  have hs := validLen_lt_size h
+  have hstep : (List.range (s + 1)).countP (fun x => lengths[x]! == lengths[s]!) =
+      (List.range s).countP (fun x => lengths[x]! == lengths[s]!) + 1 := by
+    rw [List.range_succ, List.countP_append]
+    simp [List.countP_cons]
+  have hmono : (List.range (s + 1)).countP (fun x => lengths[x]! == lengths[s]!) ≤
+      (List.range lengths.size).countP (fun x => lengths[x]! == lengths[s]!) :=
+    List.Sublist.countP_le (List.range_sublist.mpr (by omega))
+  unfold blCountF rankF
+  rw [if_pos ⟨h.1, h.2⟩]
+  omega
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Doubling chain for starting codes: each length's start dominates the shifted image of
+    every earlier start. -/
+theorem startCodeF_mul_le (lengths : Array Nat) (W l : Nat) :
+    ∀ d, startCodeF lengths W l * 2 ^ d ≤ startCodeF lengths W (l + d) := by
+  intro d
+  induction d with
+  | zero => simp
+  | succ d ih =>
+    have hstep : startCodeF lengths W (l + d) * 2 ≤ startCodeF lengths W (l + (d + 1)) := by
+      show startCodeF lengths W (l + d) * 2 ≤ startCodeF lengths W ((l + d) + 1)
+      show _ ≤ (startCodeF lengths W (l + d) + blCountF lengths W (l + d)) * 2
+      have := Nat.zero_le (blCountF lengths W (l + d))
+      omega
+    calc startCodeF lengths W l * 2 ^ (d + 1)
+        = (startCodeF lengths W l * 2 ^ d) * 2 := by rw [Nat.pow_succ, Nat.mul_assoc]
+      _ ≤ startCodeF lengths W (l + d) * 2 := Nat.mul_le_mul_right 2 ih
+      _ ≤ startCodeF lengths W (l + (d + 1)) := hstep
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- A length's block (start through start+count) ends no later than any deeper length's
+    start, once scaled to a common depth. -/
+theorem blockEnd_le_startCodeF (lengths : Array Nat) (W l d : Nat) :
+    (startCodeF lengths W l + blCountF lengths W l) * 2 ^ (d + 1) ≤
+      startCodeF lengths W (l + (d + 1)) := by
+  have h1 : (startCodeF lengths W l + blCountF lengths W l) * 2 ^ (d + 1)
+      = startCodeF lengths W (l + 1) * 2 ^ d := by
+    show _ = (startCodeF lengths W l + blCountF lengths W l) * 2 * 2 ^ d
+    rw [Nat.mul_assoc, Nat.pow_succ, Nat.mul_comm (2 ^ d) 2]
+  rw [h1]
+  have h2 := startCodeF_mul_le lengths W (l + 1) d
+  have e : l + 1 + d = l + (d + 1) := by omega
+  rw [e] at h2
+  exact h2
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Under the Kraft bound, every length's block fits inside its own code space:
+    `start(l) + count(l) ≤ 2^l`. -/
+theorem blockEnd_le_pow (lengths : Array Nat) (W : Nat) (hk : kraftOk lengths W)
+    {l : Nat} (hl : l ≤ W) :
+    startCodeF lengths W l + blCountF lengths W l ≤ 2 ^ l := by
+  rcases Nat.lt_or_ge l W with hlt | hge
+  · have hd : l + (W - l - 1 + 1) = W := by omega
+    have h1 := blockEnd_le_startCodeF lengths W l (W - l - 1)
+    rw [hd] at h1
+    have h2 : startCodeF lengths W W ≤ 2 ^ W := by
+      have := Nat.zero_le (blCountF lengths W W)
+      unfold kraftOk at hk
+      omega
+    have h3 : (startCodeF lengths W l + blCountF lengths W l) * 2 ^ (W - l - 1 + 1) ≤ 2 ^ W :=
+      Nat.le_trans h1 h2
+    have hsplit : (2 : Nat) ^ W = 2 ^ l * 2 ^ (W - l - 1 + 1) := by
+      rw [← Nat.pow_add]
+      congr 1
+      omega
+    rw [hsplit] at h3
+    exact Nat.le_of_mul_le_mul_right h3 (Nat.two_pow_pos _)
+  · have hleq : l = W := by omega
+    subst hleq
+    exact hk
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Every valid symbol's canonical code fits its width. -/
+theorem canonicalCode_lt (lengths : Array Nat) (W : Nat) (hk : kraftOk lengths W)
+    {s : Nat} (hv : validLen lengths W s) :
+    canonicalCode lengths W s < 2 ^ lengths[s]! := by
+  have h1 := rankF_lt_blCountF (W := W) hv
+  have h2 := blockEnd_le_pow lengths W hk hv.2
+  unfold canonicalCode
+  omega
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Canonical codes of a common length are strictly ordered by symbol order. -/
+theorem canonicalCode_lt_of_same_len {lengths : Array Nat} {W s s' : Nat}
+    (heq : lengths[s]! = lengths[s']!) (hlt : s < s') :
+    canonicalCode lengths W s < canonicalCode lengths W s' := by
+  unfold canonicalCode rankF
+  rw [heq]
+  have hstep : (List.range (s + 1)).countP (fun x => lengths[x]! == lengths[s']!) =
+      (List.range s).countP (fun x => lengths[x]! == lengths[s']!) + 1 := by
+    rw [List.range_succ, List.countP_append]
+    simp [List.countP_cons, heq]
+  have hmono : (List.range (s + 1)).countP (fun x => lengths[x]! == lengths[s']!) ≤
+      (List.range s').countP (fun x => lengths[x]! == lengths[s']!) :=
+    List.Sublist.countP_le (List.range_sublist.mpr (by omega))
+  omega
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- **Pairwise prefix-incomparability of canonical codes** under the Kraft bound: no valid
+    symbol's code path prefixes a different valid symbol's code path. Same-length codes
+    differ as values; different-length codes live in disjoint blocks of the code space. -/
+theorem canonical_not_prefix (lengths : Array Nat) (W : Nat) (hk : kraftOk lengths W)
+    {s s' : Nat} (hv : validLen lengths W s) (hv' : validLen lengths W s') (hne : s' ≠ s) :
+    ¬ (codeBits (canonicalCode lengths W s') lengths[s']! <+:
+        codeBits (canonicalCode lengths W s) lengths[s]!) := by
+  intro hpre
+  have hll : lengths[s']! ≤ lengths[s]! := by
+    have h := hpre.length_le
+    rw [codeBits_length, codeBits_length] at h
+    exact h
+  have hclt : canonicalCode lengths W s < 2 ^ lengths[s]! := canonicalCode_lt lengths W hk hv
+  have hclt' : canonicalCode lengths W s' < 2 ^ lengths[s']! := canonicalCode_lt lengths W hk hv'
+  have hshift := codeBits_prefix_shift hll hclt hpre
+  rw [Nat.mod_eq_of_lt hclt'] at hshift
+  rcases Nat.eq_or_lt_of_le hll with heq | hlt
+  · -- same length: the shift is trivial, but same-length codes are distinct
+    have hd0 : lengths[s]! - lengths[s']! = 0 := by omega
+    rw [hd0, Nat.shiftRight_zero] at hshift
+    rcases Nat.lt_or_ge s' s with hss | hss
+    · have := canonicalCode_lt_of_same_len (W := W) heq hss
+      omega
+    · have hss' : s < s' := by omega
+      have := canonicalCode_lt_of_same_len (W := W) heq.symm hss'
+      omega
+  · -- s' is strictly shorter: its block ends before s's start
+    have hblock := blockEnd_le_startCodeF lengths W lengths[s']!
+      (lengths[s]! - lengths[s']! - 1)
+    have he : lengths[s']! + (lengths[s]! - lengths[s']! - 1 + 1) = lengths[s]! := by omega
+    rw [he] at hblock
+    have hstart : startCodeF lengths W lengths[s]! ≤ canonicalCode lengths W s := by
+      unfold canonicalCode
+      omega
+    have hpow_eq : (2 : Nat) ^ (lengths[s]! - lengths[s']! - 1 + 1)
+        = 2 ^ (lengths[s]! - lengths[s']!) := by
+      congr 1
+      omega
+    rw [hpow_eq] at hblock
+    have hge : startCodeF lengths W lengths[s']! + blCountF lengths W lengths[s']! ≤
+        canonicalCode lengths W s >>> (lengths[s]! - lengths[s']!) := by
+      rw [Nat.shiftRight_eq_div_pow]
+      rw [Nat.le_div_iff_mul_le (Nat.two_pow_pos _)]
+      omega
+    have hlt2 : canonicalCode lengths W s' <
+        startCodeF lengths W lengths[s']! + blCountF lengths W lengths[s']! := by
+      have := rankF_lt_blCountF (W := W) hv'
+      unfold canonicalCode
+      omega
+    omega
+
 end Stdlib.Zlib
