@@ -90,24 +90,67 @@ below walks `Gasm/`, `Stdlib/`, `Spikes/` ON DISK (not via any import
 closure, so it cannot inherit the blind spot it exists to catch) to find
 every `.lean` file that constitutes a project module. `main` then: (1) does
 the baseline scan exactly as before; (2) for every disk-discovered module
-NOT in the baseline's `env.allImportedModuleNames`, imports THAT MODULE
-ALONE into its own fresh `Environment` and scans only declarations
-originating in it. Modules cannot all be combined into one `importModules`
-call the way the baseline three are: many of the 32 (every CLI/Emit/Test
-entry point) declare a bare top-level `def main`, and Lean's environment
-merge hard-errors ("already contains") the moment two such modules land in
-the same `Environment` -- confirmed against `Lean/Environment.lean`'s import
-merge. Per-module isolation sidesteps that while still reaching every
-declaration. (3) If any disk-discovered module can be loaded into NEITHER
-the baseline environment NOR standalone (e.g. its `.olean` was never built
-because no `lean_lib`/`lean_exe` root reaches it), that is exactly the kind
-of blind spot this task closes: the tool FAILS LOUDLY rather than
-silently omitting it. Corollary: this gate's completeness now depends on a
-prior full build (`lake build`) having produced every project module's
-`.olean` -- consistent with TCB T13's "gate runner does one clean-tree
-build before sign-off."
+NOT in the baseline's `env.allImportedModuleNames`, scans it standalone --
+see SUBPROCESS ISOLATION below for how; (3) If any disk-discovered module
+can be loaded into NEITHER the baseline environment NOR standalone (e.g. its
+`.olean` was never built because no `lean_lib`/`lean_exe` root reaches it),
+that is exactly the kind of blind spot this task closes: the tool FAILS
+LOUDLY rather than silently omitting it. Corollary: this gate's completeness
+now depends on a prior full build (`lake build`) having produced every
+project module's `.olean` -- consistent with TCB T13's "gate runner does one
+clean-tree build before sign-off."
+
+SUBPROCESS ISOLATION (CI resource-exhaustion fix, see docs/CI.md): each of
+the 32-ish disk-discovered-but-not-baseline modules is scanned in its OWN,
+FRESH **OS PROCESS** -- this same executable, re-invoked as
+`check_gates_axioms --scan-module <dotted module name>` (see `runScanWorker`
+below) -- one module at a time, sequentially, never in parallel and never
+batched together. Two things forced this design, not just the first:
+
+1. WHY STANDALONE AT ALL (unchanged from the original design): many of the
+   32 (every CLI/Emit/Test entry point) declare a bare top-level `def main`.
+   Lean's own code generator (confirmed by reading
+   `Lean.Compiler.LCNF.EmitC.emitMainFnIfNeeded` / `hasMainFn` in the
+   toolchain source: it looks up a LOCAL declaration whose `Name` is
+   *literally* `` `main`` -- no namespace prefix -- to synthesize the
+   process's C `main()`; the LLVM backend's `EmitLLVM.hasMainFn` does the
+   same `env.find? \`main`` lookup) requires every `lean_exe` root module to
+   carry that exact bare name for the resulting binary to have an entry
+   point at all. A namespaced `main` (or a namespaced implementation behind
+   an unnamespaced shim -- the shim itself would still collide) is therefore
+   not an option: Lake's `lean_exe` convention is not a style choice, it is
+   downstream of the compiler's own hardcoded lookup. So two such modules
+   can never share one `Environment`; each needs its own.
+2. WHY A SEPARATE **PROCESS** AND NOT JUST A FRESH VALUE IN THE SAME PROCESS
+   (what this tool did before this fix, and what broke CI): giving each
+   module its own `Environment` *value* in a loop, relying on the host
+   language's reference counting to free the previous one before importing
+   the next, does not bound PEAK memory the way it looks like it should --
+   CI's hosted runners (far less RAM than a dev workstation) hit exactly
+   this: Windows failed to even read `Init/Prelude.olean` (a file that
+   plainly exists) partway through the loop, and Linux's job was killed by
+   the runner's own shutdown signal, both consistent with the process
+   accumulating memory pressure it never gave back. A subprocess boundary
+   hands reclamation to the OS on process exit -- a guarantee refcounting
+   inside one long-lived process cannot make. Batch size is fixed at
+   exactly 1 module per process on purpose: batching more than one module
+   into a single subprocess would import them together into one shared
+   `Environment`, which reintroduces the exact bare-`main`-collision problem
+   point (1) above exists to dodge, the moment two `main`-declaring modules
+   land in the same batch.
+
+The worker (`--scan-module`) always exits 0 and reports success/failure of
+ITS import via a `GASM_SCAN_RESULT <json>` line on stdout (parsed by
+`parseWorkerResult`) -- this lets the parent tell "the module's `.olean`
+genuinely doesn't exist / failed to import" (a real, reportable finding)
+apart from "the OS process itself crashed, was killed, or emitted nothing
+parseable" (also folded into `unloadable`, since both are exactly the kind
+of blind spot this gate refuses to hide). The parent does its own allowlist
+matching (`byKey`) against whatever the worker reports; the worker itself
+carries no allowlist knowledge.
 -/
 import Lean
+import Lean.Data.Json
 import Gasm
 import Stdlib
 import Spikes
@@ -335,13 +378,22 @@ def parseAllowlist (contents : String) : List AllowlistEntry × List String := I
 /-- `declModule` is carried purely for reporting: since 32 modules (TC15)
 declare a bare top-level `def main`/`def runTests` with no namespace,
 `declName` alone (`main`) is not enough for a human reading the FAILED
-report to tell which file is at fault. -/
+report to tell which file is at fault. `declName` and each axiom are kept as
+plain `String`s (rather than `Name`): a subprocess-reported offender (see
+SUBPROCESS ISOLATION above) only ever HAS strings -- it crossed a process
+boundary as JSON -- and printing a `String` looks identical to printing the
+`Name` it came from, so there is no need to round-trip either back into a
+`Name` just to report them. The axiom's label (`axiomLabel`, "native-eval" /
+"sorry" / "hand-declared/other") is computed once, wherever the real `Name`
+is still in hand (in-process for the baseline scan, inside the worker
+process for a standalone module), and carried alongside the axiom's own
+string form from then on. -/
 /- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/
 structure Offender where
   declModule : Name
-  declName   : Name
-  axioms     : Array Name
+  declName   : String
+  axioms     : Array (String × String)
 
 /-- Run `Lean.collectAxioms` for one declaration against a fixed environment. -/
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/
@@ -351,20 +403,120 @@ def collectAxiomsFor (env : Environment) (ctx : Core.Context) (name : Name) :
   let (axs, _) ← (Lean.collectAxioms (m := Core.CoreM) name).toIO ctx coreState
   return axs
 
-/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/-- Appends the project's own build output to the Lean search path. A direct
+binary invocation (bypassing `lake exe`, which sets `LEAN_PATH` itself --
+including when THIS tool re-invokes itself as a `--scan-module` worker
+subprocess, since that re-invocation is necessarily direct) would otherwise
+fail to find Gasm/Stdlib/Spikes' oleans. Shared by both the main gate run and
+the worker so the two don't drift. -/
 /- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
-def main (_args : List String) : IO UInt32 := do
-  let startTime ← IO.monoMsNow
-
-  -- Direct binary invocation (bypassing `lake exe`, which sets LEAN_PATH
-  -- itself) would otherwise fail to find Gasm/Stdlib/Spikes' oleans: append
-  -- the project's own build output to the search path in addition to
-  -- whatever `initSearchPath`/`LEAN_PATH` already provide.
+def setupSearchPath : IO Unit := do
   initSearchPath (← findSysroot)
   let projectLibDir : System.FilePath := "." / ".lake" / "build" / "lib" / "lean"
   if ← projectLibDir.pathExists then
     let sp ← searchPathRef.get
     searchPathRef.set (sp ++ [projectLibDir])
+
+/-- Marker line prefix a `--scan-module` worker process prints its one JSON
+result line under, so the parent can find it even if OTHER stdout noise
+(warnings, etc.) happened to be interleaved. -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+def resultMarker : String := "GASM_SCAN_RESULT "
+
+/-- Turns a module's dotted `Name.toString` form (e.g.
+`"Spikes.Spike1Hello.Windows.Emit"`) back into a `Name`, the same
+`foldl Name.mkStr` construction `moduleNameOfPath` uses. Used only to turn
+the `--scan-module <name>` CLI argument back into the `Name` `importModules`
+needs -- never on an arbitrary declaration name, so the (harmless for module
+names, which are never `.num`-shaped) inability to reconstruct numeric
+`Name` components doesn't matter here. -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+def nameOfDotted (s : String) : Name :=
+  (s.splitOn ".").foldl Name.mkStr Name.anonymous
+
+/-- What a `--scan-module` worker process reported, once its one
+`GASM_SCAN_RESULT` JSON line has been parsed. `loadFailed` mirrors the old
+in-process `catch` arm (the module's own `importModules` failed); the parent
+folds it into `unloadable` exactly as before. -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+inductive WorkerResult where
+  | loadFailed (msg : String)
+  | scanned (count : Nat) (gated : Array (String × Array (String × String)))
+
+/-- Parses one worker's `GASM_SCAN_RESULT` JSON payload (everything after the
+marker). See `runScanWorker` for the shape this is the inverse of. -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+def parseWorkerResult (payload : String) : Except String WorkerResult := do
+  let j ← Json.parse payload
+  let okJ ← j.getObjVal? "ok"
+  let ok ← okJ.getBool?
+  if !ok then
+    let errJ ← j.getObjVal? "error"
+    let errS ← errJ.getStr?
+    return .loadFailed errS
+  else
+    let scannedJ ← j.getObjVal? "scanned"
+    let scannedN ← scannedJ.getNat?
+    let gatedJ ← j.getObjVal? "gated"
+    let gatedArr ← gatedJ.getArr?
+    let gatedItems ← gatedArr.mapM fun item => do
+      let declJ ← item.getObjVal? "decl"
+      let declS ← declJ.getStr?
+      let axJ ← item.getObjVal? "axioms"
+      let axArr ← axJ.getArr?
+      let axPairs ← axArr.mapM fun ax => do
+        let nameJ ← ax.getObjVal? "name"
+        let nameS ← nameJ.getStr?
+        let labelJ ← ax.getObjVal? "label"
+        let labelS ← labelJ.getStr?
+        pure (nameS, labelS)
+      pure (declS, axPairs)
+    return .scanned scannedN gatedItems
+
+/-- The `--scan-module <dotted name>` worker entry point: standalone-imports
+EXACTLY ONE module into a fresh `Environment` -- in this fresh OS PROCESS,
+never the parent's -- scans only declarations originating in it (mirroring
+the old in-process standalone loop this replaces), and prints exactly one
+`GASM_SCAN_RESULT <json>` line to stdout. Always exits `0`: whether the
+IMPORT itself succeeded or failed is reported IN the JSON (`ok` field), not
+via process exit code -- that is what lets the parent tell "this module
+genuinely failed to import" (a real finding) apart from "this OS process
+itself crashed / was killed / printed nothing parseable" (a missing or
+unparseable result line, which the parent treats identically -- both are
+exactly the blind spot this whole gate exists to refuse to hide). Carries no
+allowlist knowledge; the parent alone does `byKey` matching, so N worker
+processes never need N copies of the allowlist parsed into them. -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+def runScanWorker (target : Name) : IO UInt32 := do
+  setupSearchPath
+  let ctx : Core.Context := { fileName := "CheckGatesAxioms", fileMap := default }
+  let result ←
+    try
+      let env2 ← importModules #[{module := target}] {} (trustLevel := 0) (loadExts := false)
+      let mut scanned : Nat := 0
+      let mut gatedItems : Array Json := #[]
+      for (name, info) in env2.constants.toList do
+        if isReportableForModule env2 name info target then
+          scanned := scanned + 1
+          let axs ← collectAxiomsFor env2 ctx name
+          let gatingAxs := axs.filter (fun a => !isStandardAxiom a)
+          if gatingAxs.size > 0 then
+            let axJson := gatingAxs.map (fun a =>
+              Json.mkObj [("name", (toString a : Json)), ("label", (axiomLabel a : Json))])
+            gatedItems := gatedItems.push (Json.mkObj [
+              ("decl", (toString name : Json)), ("axioms", Json.arr axJson)])
+      pure (Json.mkObj [("ok", (true : Json)), ("scanned", (scanned : Json)), ("gated", Json.arr gatedItems)])
+    catch e =>
+      pure (Json.mkObj [("ok", (false : Json)), ("error", (e.toString : Json))])
+  IO.println s!"{resultMarker}{result.compress}"
+  return 0
+
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+def runGate : IO UInt32 := do
+  let startTime ← IO.monoMsNow
+
+  setupSearchPath
 
   let allowlistPath : System.FilePath := "scripts" / "gate_allowlist.txt"
   if !(← allowlistPath.pathExists) then
@@ -433,7 +585,8 @@ def main (_args : List String) : IO UInt32 := do
           compliant := compliant + 1
           matchedKeys := matchedKeys.insert key
         | none =>
-          offenders := offenders.push { declModule := declModule, declName := name, axioms := gatingAxs }
+          let axiomPairs := gatingAxs.map (fun a => (toString a, axiomLabel a))
+          offenders := offenders.push { declModule := declModule, declName := toString name, axioms := axiomPairs }
 
   -- TC15 / TCB.md T2: close the import-closure blind spot. `discovered` is
   -- the on-disk ground truth; `baselineModules` is what the single import
@@ -448,26 +601,50 @@ def main (_args : List String) : IO UInt32 := do
   let mut coveredStandalone : Std.HashSet Name := {}
   let mut unloadable : Array (Name × String) := #[]
 
+  -- SUBPROCESS ISOLATION (see this file's header): each `missing` module is
+  -- scanned by re-invoking THIS SAME executable as a `--scan-module` worker
+  -- in its own fresh OS process, one module at a time, sequentially -- never
+  -- batched, never in parallel. See the header doc for why: batching would
+  -- reintroduce the bare-`main` collision this whole scheme exists to avoid,
+  -- and running them in-process (even one `Environment` value at a time) is
+  -- exactly what exhausted memory on CI's hosted runners.
+  let selfExe ← IO.appPath
+  let cwd ← IO.currentDir
   for target in missing do
-    try
-      let env2 ← importModules #[{module := target}] {} (trustLevel := 0) (loadExts := false)
-      coveredStandalone := coveredStandalone.insert target
-      for (name, info) in env2.constants.toList do
-        if isReportableForModule env2 name info target then
-          scanned := scanned + 1
-          let axs ← collectAxiomsFor env2 ctx name
-          let gatingAxs := axs.filter (fun a => !isStandardAxiom a)
-          if gatingAxs.size > 0 then
+    let spawnResult ←
+      try
+        (Except.ok ·) <$> IO.Process.output
+          { cmd := selfExe.toString, args := #["--scan-module", toString target], cwd := some cwd }
+      catch e =>
+        pure (Except.error e.toString)
+    match spawnResult with
+    | .error spawnErr =>
+      unloadable := unloadable.push (target, s!"failed to spawn scan subprocess: {spawnErr}")
+    | .ok out =>
+      let resultLines := (out.stdout.splitOn "\n").filter (·.startsWith resultMarker)
+      match resultLines.getLast? with
+      | none =>
+        unloadable := unloadable.push (target,
+          s!"scan subprocess exited {out.exitCode} without a result line (stderr: {out.stderr.trimAscii})")
+      | some line =>
+        let payload := (line.drop resultMarker.length).toString
+        match parseWorkerResult payload with
+        | .error parseErr =>
+          unloadable := unloadable.push (target, s!"malformed scan subprocess result: {parseErr}")
+        | .ok (.loadFailed loadErr) =>
+          unloadable := unloadable.push (target, loadErr)
+        | .ok (.scanned scannedN gatedItems) =>
+          coveredStandalone := coveredStandalone.insert target
+          scanned := scanned + scannedN
+          for (declS, axPairs) in gatedItems do
             gated := gated + 1
-            let key := matchKey target (toString name)
+            let key := matchKey target declS
             match byKey[key]? with
             | some _ =>
               compliant := compliant + 1
               matchedKeys := matchedKeys.insert key
             | none =>
-              offenders := offenders.push { declModule := target, declName := name, axioms := gatingAxs }
-    catch e =>
-      unloadable := unloadable.push (target, e.toString)
+              offenders := offenders.push { declModule := target, declName := declS, axioms := axPairs }
 
   -- `axiom-only` entries exist purely for this tool (no source-text
   -- occurrence will ever back them); one that matched NOTHING in this scan
@@ -522,7 +699,7 @@ def main (_args : List String) : IO UInt32 := do
     IO.println "    {propext, Classical.choice, Quot.sound} with no matching gate_allowlist.txt"
     IO.println "    entry (matched by module-qualified fully-qualified name):"
     for o in offenders do
-      let axiomStrs := o.axioms.toList.map (fun a => s!"{a} [{axiomLabel a}]")
+      let axiomStrs := o.axioms.toList.map (fun (a, lbl) => s!"{a} [{lbl}]")
       IO.println s!"    - {o.declModule}::{o.declName} -- axiom(s): {String.intercalate ", " axiomStrs}"
 
   if !staleAxiomOnly.isEmpty then
@@ -541,3 +718,14 @@ def main (_args : List String) : IO UInt32 := do
   IO.println s!"[*] Wall time: {elapsedMs}ms (includes importing Gasm/Stdlib/Spikes)."
   IO.println sepLine
   return if failed then 1 else 0
+
+/-- CLI entry point. `--scan-module <dotted name>` is an internal, undocumented
+mode: it is how `runGate` re-invokes THIS SAME executable as a standalone-scan
+worker subprocess (see the header doc's SUBPROCESS ISOLATION section) and is
+never meant to be typed by a human. Any other argument list (including none)
+runs the gate itself, exactly as before this fix. -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+def main (args : List String) : IO UInt32 :=
+  match args with
+  | ["--scan-module", modStr] => runScanWorker (nameOfDotted modStr)
+  | _ => runGate
