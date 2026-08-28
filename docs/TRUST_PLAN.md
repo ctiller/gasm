@@ -31,8 +31,9 @@ exist because a `native_decide` in an `Equivalence.lean` propagates into that sp
 `Emit.lean` / `Test.lean` / `main`. They are not independent debt — retiring a
 `grandfathered` root should cascade to its dependents.
 
-So the leverage is concentrated: **Spike 4's 9 roots gate ~21 entries; Spike 5's 7 gate ~18;
-Spike 3's 5 gate ~16.** Those three spikes are 68 of 78.
+So the leverage is concentrated: **Spike 4's 9 roots gate 21 entries; Spike 3's 5 gate 18;
+Spike 5's 7 gate 18.** Those three spikes are **57 of 78** — the "68" in an earlier version of
+this line was the same undercount the table above corrects, and is retracted.
 
 ## What is already established
 
