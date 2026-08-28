@@ -34,6 +34,18 @@ def shiftFamilyCases : List AnyX86_64Instruction :=
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the shift family, including the `0xD3 /4 /5` CL-count forms
     (`ShlR64Cl` / `ShrR64Cl`) this change added a decoder branch for. -/
-theorem shiftFamily_roundtripGate : shiftFamilyCases.all decodesOk = true := by decide
+theorem shiftFamily_roundtripGate : shiftFamilyCases.all (decodesOk shiftTryDecode) = true := by decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the SHIFT family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `shiftFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem shiftFamily_inBucketExclusive :
+    ∀ i ∈ shiftFamilyCases, ∀ j ∈ shiftFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf shiftFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate

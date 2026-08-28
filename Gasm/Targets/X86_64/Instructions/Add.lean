@@ -213,4 +213,58 @@ def add_rsp (imm : UInt8) : AnyX86_64Instruction :=
 def add_rsp32 (imm : UInt32) : AnyX86_64Instruction :=
   ⟨AddRspImm32.mk imm⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the ADD family: `0x01` (ADD r64, r64), `0x81 /0` (ADD r64, imm32,
+    canonicalizing to `AddRspImm32` when the destination is RSP with REX.B unset, mirroring
+    `encode`'s own RSP special case), and `0x83 /0` (ADD r64, imm8, same RSP canonicalization).
+    Returns an error (not this family's opcode/sub-opcode) for every other byte pattern, so the
+    thin dispatcher in `Decoder.lean` falls through to the next family. -/
+def addTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: deliberately nested `match` rather than `do`-notation: `AnyX86_64Instruction` (the
+  -- payload of this function's own return type) lives a universe above the `Bool`/`UInt8`/`Nat`
+  -- payloads `parseRexAndOpcode`/`readModRM`/`readUInt32LE` return, and `do`-notation's generic
+  -- `Bind`/`Monad` typeclass resolution requires every bind in one chain to share a single
+  -- universe — the same reason `Decoder.lean`'s original monolithic decoder used explicit
+  -- `match` chains throughout instead of `do`-notation.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, rexR, _, rexB, opcode, opOffset) =>
+    if opcode == 0x01 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, pos) =>
+        let dst := codeToReg64 rm rexB
+        let src := codeToReg64 reg rexR
+        .ok (add_r64 dst src, pos - offset)
+    else if opcode == 0x81 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, modPos) =>
+        if reg == 0 then
+          let dst := codeToReg64 rm rexB
+          match readUInt32LE bytes modPos with
+          | .error e => .error e
+          | .ok imm32 =>
+            let pos := modPos + 4
+            if dst == .rsp && !rexB then .ok (add_rsp32 imm32, pos - offset)
+            else .ok (add_r64_imm32 dst imm32, pos - offset)
+        else
+          .error "addTryDecode: 0x81 sub-opcode is not ADD"
+    else if opcode == 0x83 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, modPos) =>
+        if reg == 0 then
+          let dst := codeToReg64 rm rexB
+          match readUInt8 bytes modPos with
+          | .error e => .error e
+          | .ok imm8 =>
+            let pos := modPos + 1
+            if dst == .rsp && !rexB then .ok (add_rsp imm8, pos - offset)
+            else .ok (add_r64_imm8 dst imm8, pos - offset)
+        else
+          .error "addTryDecode: 0x83 sub-opcode is not ADD"
+    else
+      .error s!"addTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not ADD"
+
 end Gasm.Targets.X86_64.Instructions

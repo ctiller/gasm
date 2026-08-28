@@ -516,4 +516,53 @@ def ja_rel32 (disp : Int32) : AnyX86_64Instruction := ⟨JaRel32.mk disp⟩
 /-- JBE rel8 helper. -/
 def jbe_rel8 (disp : UInt8) : AnyX86_64Instruction := ⟨JbeRel8.mk disp⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the JMP/Jcc family: `0xEB`/`0xE9` (unconditional JMP rel8/rel32), the
+    short conditional jumps (`0x72..0x77`, `0x7C..0x7F`), and the near conditional jumps reachable
+    through the `0x0F` two-byte escape (`0x82..0x8E`, only the subset this codebase's encoders
+    emit). Errors for any other byte pattern. -/
+def jccTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match` (not `do`, see `addTryDecode`'s comment) via two small local closures
+  -- (`rel8`/`rel32At`) that read a displacement and apply the given constructor, since almost
+  -- every branch of this family has that exact shape.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, _, _, _, opcode, opOffset) =>
+    let rel8 (mk : UInt8 → AnyX86_64Instruction) : Except String (AnyX86_64Instruction × Nat) :=
+      match readUInt8 bytes opOffset with
+      | .error e => .error e
+      | .ok disp8 => .ok (mk disp8, (opOffset + 1) - offset)
+    let rel32At (pos : Nat) (mk : Int32 → AnyX86_64Instruction) :
+        Except String (AnyX86_64Instruction × Nat) :=
+      match readInt32LE bytes pos with
+      | .error e => .error e
+      | .ok disp32 => .ok (mk disp32, (pos + 4) - offset)
+    if opcode == 0xEB then rel8 jmp_rel8
+    else if opcode == 0xE9 then rel32At opOffset jmp_rel32
+    else if opcode == 0x72 then rel8 jb_rel8
+    else if opcode == 0x73 then rel8 jae_rel8
+    else if opcode == 0x74 then rel8 je_rel8
+    else if opcode == 0x75 then rel8 jne_rel8
+    else if opcode == 0x7C then rel8 jl_rel8
+    else if opcode == 0x7D then rel8 jge_rel8
+    else if opcode == 0x7E then rel8 jle_rel8
+    else if opcode == 0x7F then rel8 jg_rel8
+    else if opcode == 0x76 then rel8 jbe_rel8
+    else if opcode == 0x77 then rel8 ja_rel8
+    else if opcode == 0x0F then
+      match readUInt8 bytes opOffset with
+      | .error e => .error e
+      | .ok op2 =>
+        let modPos := opOffset + 1
+        if op2 == 0x82 then rel32At modPos jb_rel32
+        else if op2 == 0x83 then rel32At modPos jae_rel32
+        else if op2 == 0x84 then rel32At modPos je_rel32
+        else if op2 == 0x85 then rel32At modPos jne_rel32
+        else if op2 == 0x87 then rel32At modPos ja_rel32
+        else if op2 == 0x8D then rel32At modPos jge_rel32
+        else if op2 == 0x8E then rel32At modPos jle_rel32
+        else .error "jccTryDecode: 0x0F sub-opcode is not a near Jcc this codebase emits"
+    else
+      .error s!"jccTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not JMP/Jcc"
+
 end Gasm.Targets.X86_64.Instructions

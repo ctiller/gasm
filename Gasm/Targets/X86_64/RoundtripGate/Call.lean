@@ -30,6 +30,18 @@ def callFamilyCases : List AnyX86_64Instruction :=
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the CALL family, including the `0xE8` direct rel32 form
     (`CallRel32` / `call_rel32`) this change added a decoder branch for. -/
-theorem callFamily_roundtripGate : callFamilyCases.all decodesOk = true := by decide
+theorem callFamily_roundtripGate : callFamilyCases.all (decodesOk callTryDecode) = true := by decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the CALL family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `callFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem callFamily_inBucketExclusive :
+    ∀ i ∈ callFamilyCases, ∀ j ∈ callFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf callFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate

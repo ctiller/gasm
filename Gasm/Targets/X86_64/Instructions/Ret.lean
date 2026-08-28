@@ -54,4 +54,14 @@ instance : X86_64Instruction RetOp where
 def ret_op : AnyX86_64Instruction :=
   ⟨RetOp.mk⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the RET family: `0xC3` (unconditional near RET). Errors for any other
+    byte pattern. -/
+def retTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, _, _, _, opcode, pos) =>
+    if opcode == 0xC3 then .ok (ret_op, pos - offset)
+    else .error s!"retTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not RET"
+
 end Gasm.Targets.X86_64.Instructions

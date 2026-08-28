@@ -45,7 +45,19 @@ def movFamilyCases : List AnyX86_64Instruction :=
     32-bit RSP load as the 64-bit `MovReg64Mem64Disp` structure. Plain `decide` exceeds the
     kernel's default reduction stack depth on this family's largest case list, so this raises
     `maxRecDepth` rather than falling back to `native_decide`. -/
-theorem movFamily_roundtripGate : movFamilyCases.all decodesOk = true := by
+theorem movFamily_roundtripGate : movFamilyCases.all (decodesOk movTryDecode) = true := by
   set_option maxRecDepth 4000 in decide
+
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- In-bucket exclusivity for the MOV family: no two of this family's own byte patterns
+    collide ambiguously. A direct corollary of `movFamily_roundtripGate` via
+    `RoundtripGate.inBucketExclusiveOf` (see that lemma's docstring for why this is derived
+    rather than a fresh `decide` obligation). -/
+theorem movFamily_inBucketExclusive :
+    ∀ i ∈ movFamilyCases, ∀ j ∈ movFamilyCases,
+      X86_64Instruction.encode i = X86_64Instruction.encode j →
+      X86_64Instruction.toLean i = X86_64Instruction.toLean j :=
+  inBucketExclusiveOf movFamily_roundtripGate
 
 end Gasm.Targets.X86_64.RoundtripGate

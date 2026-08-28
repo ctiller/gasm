@@ -57,4 +57,20 @@ instance : X86_64Instruction SyscallOp where
 def syscall_op : AnyX86_64Instruction :=
   ⟨SyscallOp.mk⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the SYSCALL family: `0x0F 0x05`. Errors for any other byte pattern. -/
+def syscallTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, _, _, _, opcode, opOffset) =>
+    if opcode == 0x0F then
+      match readUInt8 bytes opOffset with
+      | .error e => .error e
+      | .ok op2 =>
+        if op2 == 0x05 then .ok (syscall_op, (opOffset + 1) - offset)
+        else .error "syscallTryDecode: 0x0F sub-opcode is not SYSCALL"
+    else
+      .error s!"syscallTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not SYSCALL"
+
 end Gasm.Targets.X86_64.Instructions

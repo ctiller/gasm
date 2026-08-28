@@ -56,4 +56,24 @@ instance : X86_64Instruction NotR64 where
 def not_r64 (dst : Reg64) : AnyX86_64Instruction :=
   ⟨NotR64.mk dst⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the NOT family: `0xF7 /2` (the Group 3 opcode NOT shares with
+    TEST/NEG/DIV, disambiguated by ModR/M.reg). Errors for any other byte pattern. -/
+def notTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, _, _, rexB, opcode, opOffset) =>
+    if opcode == 0xF7 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, pos) =>
+        if reg == 2 then
+          let dst := codeToReg64 rm rexB
+          .ok (not_r64 dst, pos - offset)
+        else
+          .error "notTryDecode: 0xF7 sub-opcode is not NOT"
+    else
+      .error s!"notTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not NOT"
+
 end Gasm.Targets.X86_64.Instructions

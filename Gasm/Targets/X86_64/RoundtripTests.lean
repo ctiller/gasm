@@ -86,8 +86,12 @@ def checkRoundtrip (i : X86_64Instr) : IO Bool := do
         {X86_64Instruction.toLean decoded}, expected {X86_64Instruction.toLean i} (same bytes, \
         different structure — see decodesOk)"
       return false
-    -- Cross-check against the gate's own predicate: these two must never disagree.
-    if !decodesOk i then
+    -- Cross-check against the gate's own predicate: these two must never disagree. Instantiated
+    -- with the real dispatcher `decodeX86_64Instr` (Stage B: `decodesOk` is now generic over
+    -- which decoder it checks — per-family `RoundtripGate/<Family>.lean` shards instantiate it
+    -- with that family's own co-located `tryDecode`; this diagnostic loop instantiates it with
+    -- the dispatcher, matching what `decodeX86_64Instr encoded 0` above already checked).
+    if !decodesOk decodeX86_64Instr i then
       IO.println s!"[FAIL] decodesOk disagreed with the granular checks above on {X86_64Instruction.toNASM i}"
       return false
     return true

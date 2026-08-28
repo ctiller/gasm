@@ -139,4 +139,44 @@ def or_r64_imm8 (dst : Reg64) (imm : UInt8) : AnyX86_64Instruction :=
 def or_r64_imm32 (dst : Reg64) (imm : UInt32) : AnyX86_64Instruction :=
   ⟨OrR64Imm32.mk dst imm⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the OR family: `0x09` (OR r64, r64), `0x81 /1` (OR r64, imm32), and
+    `0x83 /1` (OR r64, imm8). Errors for any other byte pattern. -/
+def orTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, rexR, _, rexB, opcode, opOffset) =>
+    if opcode == 0x09 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, pos) =>
+        let dst := codeToReg64 rm rexB
+        let src := codeToReg64 reg rexR
+        .ok (or_r64 dst src, pos - offset)
+    else if opcode == 0x81 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, modPos) =>
+        if reg == 1 then
+          let dst := codeToReg64 rm rexB
+          match readUInt32LE bytes modPos with
+          | .error e => .error e
+          | .ok imm32 => .ok (or_r64_imm32 dst imm32, (modPos + 4) - offset)
+        else
+          .error "orTryDecode: 0x81 sub-opcode is not OR"
+    else if opcode == 0x83 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, modPos) =>
+        if reg == 1 then
+          let dst := codeToReg64 rm rexB
+          match readUInt8 bytes modPos with
+          | .error e => .error e
+          | .ok imm8 => .ok (or_r64_imm8 dst imm8, (modPos + 1) - offset)
+        else
+          .error "orTryDecode: 0x83 sub-opcode is not OR"
+    else
+      .error s!"orTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not OR"
+
 end Gasm.Targets.X86_64.Instructions

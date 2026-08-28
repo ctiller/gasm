@@ -142,4 +142,27 @@ def in_eax_imm8 (port : UInt8) : AnyX86_64Instruction :=
 def in_eax_dx : AnyX86_64Instruction :=
   ⟨InEaxDx.mk⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the IN family: `0xE4` (IN AL, imm8), `0xE5` (IN EAX, imm8), `0xEC`
+    (IN AL, DX), `0xED` (IN EAX, DX). Errors for any other byte pattern. -/
+def inTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, _, _, _, opcode, opOffset) =>
+    if opcode == 0xE4 then
+      match readUInt8 bytes opOffset with
+      | .error e => .error e
+      | .ok port => .ok (in_al_imm8 port, (opOffset + 1) - offset)
+    else if opcode == 0xE5 then
+      match readUInt8 bytes opOffset with
+      | .error e => .error e
+      | .ok port => .ok (in_eax_imm8 port, (opOffset + 1) - offset)
+    else if opcode == 0xEC then
+      .ok (in_al_dx, opOffset - offset)
+    else if opcode == 0xED then
+      .ok (in_eax_dx, opOffset - offset)
+    else
+      .error s!"inTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not IN"
+
 end Gasm.Targets.X86_64.Instructions

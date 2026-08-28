@@ -149,7 +149,7 @@ searching other files' `after:` lists, or use `TC13`'s checker once it exists.
 
 - [x] B1 build-perf iteration 2: Instructions.lean aggregator sharding → `docs/tasks/B1-build-perf-iteration2.md` — after: TC4
 - [~] B2 Linux target foundation & strategy → `docs/tasks/B2-linux-strategy.md` — after: TC4 (design in docs/TARGETS/LINUX.md)
-- [ ] B3 Stage B decoder modularization → `docs/tasks/B3-stage-b-decoder-modularization.md` — after: TC4, B1
+- [x] B3 Stage B decoder modularization → `docs/tasks/B3-stage-b-decoder-modularization.md` — after: TC4, B1
 - [ ] B4 pre-index instruction byte offsets in simulator → `docs/tasks/B4-instruction-index-lookup.md` — after: TC4
 - [x] B7 Wasm OOB trap semantics + memory limits → `docs/tasks/B7-wasm-oob-trap-and-limits.md` — after: TC2
 

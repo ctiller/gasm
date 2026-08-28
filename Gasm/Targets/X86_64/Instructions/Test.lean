@@ -99,4 +99,34 @@ def test_r64 (dst src : Reg64) : AnyX86_64Instruction :=
 def test_r64_imm32 (dst : Reg64) (imm : UInt32) : AnyX86_64Instruction :=
   ⟨TestR64Imm32.mk dst imm⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the TEST family: `0x85` (TEST r64, r64) and `0xF7 /0` (TEST r64,
+    imm32 — the Group 3 opcode TEST shares with NOT/NEG/DIV, disambiguated by ModR/M.reg).
+    Errors for any other byte pattern. -/
+def testTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, rexR, _, rexB, opcode, opOffset) =>
+    if opcode == 0x85 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, pos) =>
+        let dst := codeToReg64 rm rexB
+        let src := codeToReg64 reg rexR
+        .ok (test_r64 dst src, pos - offset)
+    else if opcode == 0xF7 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, modPos) =>
+        if reg == 0 then
+          let dst := codeToReg64 rm rexB
+          match readUInt32LE bytes modPos with
+          | .error e => .error e
+          | .ok imm32 => .ok (test_r64_imm32 dst imm32, (modPos + 4) - offset)
+        else
+          .error "testTryDecode: 0xF7 sub-opcode is not TEST"
+    else
+      .error s!"testTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not TEST"
+
 end Gasm.Targets.X86_64.Instructions

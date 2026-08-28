@@ -63,4 +63,28 @@ instance : X86_64Instruction ImulR64R64 where
 def imul_r64 (dst src : Reg64) : AnyX86_64Instruction :=
   ⟨ImulR64R64.mk dst src⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the IMUL family: `0x0F 0xAF` (IMUL r64, r64). Errors for any other
+    byte pattern. -/
+def imulTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, rexR, _, rexB, opcode, opOffset) =>
+    if opcode == 0x0F then
+      match readUInt8 bytes opOffset with
+      | .error e => .error e
+      | .ok op2 =>
+        if op2 == 0xAF then
+          match readModRM bytes (opOffset + 1) with
+          | .error e => .error e
+          | .ok (_, reg, rm, pos) =>
+            let dst := codeToReg64 reg rexR
+            let src := codeToReg64 rm rexB
+            .ok (imul_r64 dst src, pos - offset)
+        else
+          .error "imulTryDecode: 0x0F sub-opcode is not IMUL"
+    else
+      .error s!"imulTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not IMUL"
+
 end Gasm.Targets.X86_64.Instructions
