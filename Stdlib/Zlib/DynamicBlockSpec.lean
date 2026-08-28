@@ -272,4 +272,219 @@ theorem decodeHuffmanSymbol_canonical (A B : Array Nat) (W : Nat)
   rw [hpath] at hbits
   exact decodeHuffmanSymbol_spec (buildHuffmanTable B W) _ sym r rest hspecB.2 hbits hinv hcnt
 
+/-
+## `padFrequencies`: at least two nonzero entries, pointwise-monotone, size-preserving.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- `countP` as an indicator sum. -/
+theorem countP_eq_indicator_sum {α : Type} (p : α → Bool) (l : List α) :
+    l.countP p = (l.map (fun x => if p x then 1 else 0)).sum := by
+  rw [sum_map_ite_const p 1]
+  omega
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Setting a zero cell to 1 raises the nonzero population by exactly one. -/
+theorem countP_pos_set_incr (f : Array Nat) (N a : Nat) (haN : a < N) (hsz : f.size = N)
+    (h0 : f[a]! = 0) :
+    (List.range N).countP (fun s => decide (0 < (f.set! a 1)[s]!)) =
+      (List.range N).countP (fun s => decide (0 < f[s]!)) + 1 := by
+  rw [countP_eq_indicator_sum, countP_eq_indicator_sum]
+  have hpt : ∀ s : Nat, (if decide (0 < (f.set! a 1)[s]!) then 1 else 0) =
+      (if decide (0 < f[s]!) then 1 else 0) + (if s = a then 1 else 0) := by
+    intro s
+    by_cases hsa : s = a
+    · subst hsa
+      rw [getElem!_set!_eq _ _ _ (by omega), h0]
+      simp
+    · rw [getElem!_set!_ne _ _ _ _ (fun h => hsa h.symm), if_neg hsa]
+      omega
+  rw [sum_map_congr _ _ _ (fun s _ => hpt s), sum_map_add,
+    sum_map_delta_range (fun _ => 1) N a haN]
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- The counting pass of `padFrequencies` computes the nonzero population. -/
+theorem pad_count_fold (freqs : Array Nat) : ∀ (l : List Nat) (b : Nat),
+    l.foldl (fun b a => if freqs[a]! > 0 then b + 1 else b) b =
+      b + l.countP (fun a => decide (0 < freqs[a]!)) := by
+  intro l
+  induction l with
+  | nil => intro b; simp
+  | cons a l ih =>
+    intro b
+    rw [List.foldl_cons, List.countP_cons]
+    by_cases h : freqs[a]! > 0
+    · rw [if_pos h, ih, if_pos (by simpa using h)]
+      omega
+    · rw [if_neg h, ih, if_neg (by simpa using h)]
+      omega
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- The padding pass invariant: the running count tracks the array's nonzero population,
+    cells only ever grow (zeros to 1), and any index processed while the count finishes
+    below 2 ends up nonzero. -/
+theorem pad_fill_fold (freqs : Array Nat) : ∀ (l : List Nat) (f : Array Nat) (nz : Nat),
+    f.size = freqs.size →
+    nz = (List.range freqs.size).countP (fun s => decide (0 < f[s]!)) →
+    (∀ a ∈ l, a < freqs.size) →
+    (l.foldl (fun (b : Array Nat × Nat) a =>
+        if (decide (b.2 < 2) && b.1[a]! == 0) = true then (b.1.set! a 1, b.2 + 1)
+        else (b.1, b.2)) (f, nz)).1.size = freqs.size ∧
+    (l.foldl (fun (b : Array Nat × Nat) a =>
+        if (decide (b.2 < 2) && b.1[a]! == 0) = true then (b.1.set! a 1, b.2 + 1)
+        else (b.1, b.2)) (f, nz)).2 =
+      (List.range freqs.size).countP (fun s => decide (0 <
+        (l.foldl (fun (b : Array Nat × Nat) a =>
+          if (decide (b.2 < 2) && b.1[a]! == 0) = true then (b.1.set! a 1, b.2 + 1)
+          else (b.1, b.2)) (f, nz)).1[s]!)) ∧
+    (∀ i : Nat, f[i]! ≤
+      (l.foldl (fun (b : Array Nat × Nat) a =>
+        if (decide (b.2 < 2) && b.1[a]! == 0) = true then (b.1.set! a 1, b.2 + 1)
+        else (b.1, b.2)) (f, nz)).1[i]!) ∧
+    (∀ a ∈ l,
+      (l.foldl (fun (b : Array Nat × Nat) a =>
+        if (decide (b.2 < 2) && b.1[a]! == 0) = true then (b.1.set! a 1, b.2 + 1)
+        else (b.1, b.2)) (f, nz)).2 < 2 →
+      0 < (l.foldl (fun (b : Array Nat × Nat) a =>
+        if (decide (b.2 < 2) && b.1[a]! == 0) = true then (b.1.set! a 1, b.2 + 1)
+        else (b.1, b.2)) (f, nz)).1[a]!) := by
+  intro l
+  induction l with
+  | nil =>
+    intro f nz hsz hnz _
+    exact ⟨hsz, hnz, fun i => Nat.le_refl _, fun a ha => absurd ha (by simp)⟩
+  | cons a l ih =>
+    intro f nz hsz hnz hmem
+    have haN : a < freqs.size := hmem a (by simp)
+    rw [List.foldl_cons]
+    by_cases hcond : (decide (nz < 2) && f[a]! == 0) = true
+    · -- the cell is zero and the count is small: set it
+      rw [if_pos (by exact hcond)]
+      dsimp only
+      simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at hcond
+      have hnz' : nz + 1 = (List.range freqs.size).countP
+          (fun s => decide (0 < (f.set! a 1)[s]!)) := by
+        rw [countP_pos_set_incr f freqs.size a haN hsz hcond.2, ← hnz]
+      have hrec := ih (f.set! a 1) (nz + 1)
+        (by rw [size_set!, hsz]) hnz' (fun x hx => hmem x (by simp [hx]))
+      refine ⟨hrec.1, hrec.2.1, ?_, ?_⟩
+      · intro i
+        have hstep : f[i]! ≤ (f.set! a 1)[i]! := by
+          by_cases hia : a = i
+          · subst hia
+            rw [getElem!_set!_eq _ _ _ (by omega), hcond.2]
+            omega
+          · rw [getElem!_set!_ne _ _ _ _ hia]
+            omega
+        exact Nat.le_trans hstep (hrec.2.2.1 i)
+      · intro x hx hlt
+        rcases List.mem_cons.mp hx with hxa | hxl
+        · subst hxa
+          have h1 : (f.set! x 1)[x]! = 1 := getElem!_set!_eq _ _ _ (by omega)
+          have h2 := hrec.2.2.1 x
+          omega
+        · exact hrec.2.2.2 x hxl hlt
+    · -- skip
+      rw [if_neg (by exact hcond)]
+      dsimp only
+      have hrec := ih f nz hsz hnz (fun x hx => hmem x (by simp [hx]))
+      refine ⟨hrec.1, hrec.2.1, hrec.2.2.1, ?_⟩
+      intro x hx hlt
+      rcases List.mem_cons.mp hx with hxa | hxl
+      · subst hxa
+        -- the cell was either already nonzero, or the count was already ≥ 2
+        simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at hcond
+        by_cases hzero : f[x]! = 0
+        · -- then nz ≥ 2, and the count only grows — contradiction with hlt
+          have hnz2 : 2 ≤ nz := by
+            rcases Nat.lt_or_ge nz 2 with h | h
+            · exact absurd ⟨h, hzero⟩ hcond
+            · exact h
+          -- final count ≥ nz: counts only grow along the fold
+          exfalso
+          have hgrow : ∀ (l' : List Nat) (f' : Array Nat) (nz' : Nat), nz' ≤
+              (l'.foldl (fun (b : Array Nat × Nat) a =>
+                if (decide (b.2 < 2) && b.1[a]! == 0) = true then (b.1.set! a 1, b.2 + 1)
+                else (b.1, b.2)) (f', nz')).2 := by
+            intro l'
+            induction l' with
+            | nil => intro f' nz'; exact Nat.le_refl _
+            | cons y l' ihy =>
+              intro f' nz'
+              rw [List.foldl_cons]
+              dsimp only
+              by_cases hc : (decide (nz' < 2) && f'[y]! == 0) = true
+              · rw [if_pos hc]
+                have h := ihy (f'.set! y 1) (nz' + 1)
+                omega
+              · rw [if_neg hc]
+                exact ihy f' nz'
+          have hg := hgrow l f nz
+          omega
+        · -- already nonzero: monotone
+          have h2 := hrec.2.2.1 x
+          omega
+      · exact hrec.2.2.2 x hxl hlt
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- **`padFrequencies` specification**: size preserved, pointwise never decreased, and —
+    with an alphabet of at least two symbols — at least two nonzero entries. -/
+theorem padFrequencies_spec (freqs : Array Nat) (h2 : 2 ≤ freqs.size) :
+    (padFrequencies freqs).size = freqs.size ∧
+    (∀ i : Nat, freqs[i]! ≤ (padFrequencies freqs)[i]!) ∧
+    2 ≤ (List.range freqs.size).countP (fun s => decide (0 < (padFrequencies freqs)[s]!)) := by
+  have ite_pure_yield : ∀ {σ : Type} {c : Prop} [Decidable c] (a b : σ),
+      (if c then (pure (ForInStep.yield a) : Id (ForInStep σ)) else pure (ForInStep.yield b)) =
+        pure (ForInStep.yield (if c then a else b)) := by
+    intro σ c _ a b
+    split <;> rfl
+  have heq : padFrequencies freqs =
+      ((List.range' 0 freqs.size).foldl (fun (b : Array Nat × Nat) a =>
+        if (decide (b.2 < 2) && b.1[a]! == 0) = true then (b.1.set! a 1, b.2 + 1)
+        else (b.1, b.2))
+        (freqs, (List.range' 0 freqs.size).foldl
+          (fun b a => if freqs[a]! > 0 then b + 1 else b) 0)).1 := by
+    conv => lhs; unfold padFrequencies
+    simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size, ite_pure_yield,
+      List.forIn_pure_yield_eq_foldl, Id.run, pure_bind, Nat.sub_zero, Nat.div_one,
+      Nat.add_sub_cancel]
+    rfl
+  have hnz0 : (List.range' 0 freqs.size).foldl
+      (fun b a => if freqs[a]! > 0 then b + 1 else b) 0 =
+      (List.range freqs.size).countP (fun s => decide (0 < freqs[s]!)) := by
+    rw [pad_count_fold freqs _ 0, ← List.range_eq_range']
+    omega
+  have hmem : ∀ a ∈ List.range' 0 freqs.size, a < freqs.size := by
+    intro a ha
+    rw [← List.range_eq_range'] at ha
+    exact List.mem_range.mp ha
+  have hfold := pad_fill_fold freqs (List.range' 0 freqs.size) freqs
+    ((List.range freqs.size).countP (fun s => decide (0 < freqs[s]!))) rfl rfl hmem
+  rw [heq, hnz0]
+  refine ⟨hfold.1, hfold.2.2.1, ?_⟩
+  -- if the final count were below 2, every index would be nonzero — forcing count = size ≥ 2
+  rw [← hfold.2.1]
+  rcases Nat.lt_or_ge ((List.range' 0 freqs.size).foldl (fun (b : Array Nat × Nat) a =>
+      if (decide (b.2 < 2) && b.1[a]! == 0) = true then (b.1.set! a 1, b.2 + 1)
+      else (b.1, b.2))
+      (freqs, (List.range freqs.size).countP (fun s => decide (0 < freqs[s]!)))).2 2
+    with hlt | hge
+  · exfalso
+    have hall : ∀ a ∈ List.range freqs.size, (fun s => decide (0 <
+        ((List.range' 0 freqs.size).foldl (fun (b : Array Nat × Nat) a =>
+          if (decide (b.2 < 2) && b.1[a]! == 0) = true then (b.1.set! a 1, b.2 + 1)
+          else (b.1, b.2))
+          (freqs, (List.range freqs.size).countP (fun s => decide (0 < freqs[s]!)))).1[s]!)) a
+        = true := by
+      intro a ha
+      have := hfold.2.2.2 a (by rw [← List.range_eq_range']; exact ha) hlt
+      simpa using this
+    have hcnt := List.countP_eq_length.mpr hall
+    rw [List.length_range] at hcnt
+    rw [hfold.2.1] at hlt
+    omega
+  · exact hge
+
+
+
 end Stdlib.Zlib
