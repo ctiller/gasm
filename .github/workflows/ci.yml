@@ -184,6 +184,10 @@ jobs:
         shell: pwsh
         run: lake exe test_roundtrip
 
+      - name: x86-64 instruction obligation gate (P4/P5, D30/ADR-0039)
+        shell: pwsh
+        run: lake exe check_x86_obligations
+
       - name: Stdlib unit suite -- zlib
         shell: pwsh
         run: lake exe test_zlib
@@ -441,6 +445,10 @@ jobs:
       - name: Roundtrip properties
         shell: bash
         run: lake exe test_roundtrip
+
+      - name: x86-64 instruction obligation gate (P4/P5, D30/ADR-0039)
+        shell: bash
+        run: lake exe check_x86_obligations
 
       - name: Stdlib unit suite -- zlib
         shell: bash
