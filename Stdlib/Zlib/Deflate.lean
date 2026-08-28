@@ -429,6 +429,29 @@ def tokenizeAux (data : ByteArray) : Nat → Nat → Array LZToken → Array LZT
 def tokenize (data : ByteArray) : Array LZToken :=
   tokenizeAux data data.size 0 #[]
 
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Reference token-layer back-reference copy: append `len` bytes read `dist` positions back,
+    one at a time — byte-for-byte the self-overlap semantics of `decodeHuffmanStream`'s
+    RFC 1951 §3.2.3 match-copy loop, as a total structural recursion the kernel can induct
+    on. -/
+def lzCopy (dist : Nat) : Nat → ByteArray → ByteArray
+  | 0, out => out
+  | k + 1, out => lzCopy dist k (out.push (out.get! (out.size - dist)))
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Reference token-layer decode of a single LZ77 token onto an output accumulator. -/
+def expandToken (out : ByteArray) : LZToken → ByteArray
+  | .lit b => out.push b
+  | .ref len dist => lzCopy dist len out
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Reference token-layer decode of an LZ77 token stream from an empty accumulator. This is
+    the layer of `decompress` below Huffman coding and bitstream framing; `Stdlib/Zlib/
+    Equivalence.lean`'s `lz77_roundtrip_soundness` proves `∀ data, expandTokens (tokenize
+    data) = data` — the LZ77 half of the PA16 roundtrip decomposition. -/
+def expandTokens (tokens : Array LZToken) : ByteArray :=
+  tokens.foldl expandToken ByteArray.empty
+
 /- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
 /-- Counts literal/length-symbol and distance-symbol frequencies of a token stream,
     including the mandatory end-of-block symbol 256 (RFC 1951 §3.2.6). -/

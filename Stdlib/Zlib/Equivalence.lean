@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Lean
+import Stdlib.Zlib.ByteArrayBridge
 import Stdlib.Zlib.CRC32
 import Stdlib.Zlib.Adler32
 import Stdlib.Zlib.Deflate
@@ -205,5 +206,166 @@ theorem gzip_idempotent_canonical_roundtrip_inst :
        | Except.ok res => res == data
        | Except.error _ => false) = true := by
   native_decide
+
+/-
+## PA16 token layer: L3 (match certificate) + L4 (self-overlap copy) + token-level L5
+
+Universal, kernel-checked (rung 1, no `native_decide`/`decide` oracle) roundtrip soundness
+for the LZ77 layer of DEFLATE — the layer of `decompress` below Huffman coding and
+bitstream framing. `tokenize`'s greedy match emission relies only on the total certifying
+predicate `matchValid` (the `findLongestMatch` search stays an untrusted heuristic), and
+`expandTokens`'s copy loop is byte-for-byte the self-overlap semantics of
+`decodeHuffmanStream`'s back-reference loop, so once PA16 P0 (the decoder's `partial def`
+conversion) lands, `lz77_roundtrip_soundness` below is the L3/L4/L5 payload the full
+`deflate_roundtrip_soundness` composes with the Huffman/bitstream layer (L1/L2).
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
+/-- L3: unpacks a `matchValid` certificate into its propositional components — RFC 1951
+    range bounds, window containment, and the per-position byte-agreement the copy
+    induction (L4) consumes. -/
+theorem matchValid_spec {data : ByteArray} {pos len dist : Nat}
+    (h : matchValid data pos len dist = true) :
+    3 ≤ len ∧ len ≤ 258 ∧ 1 ≤ dist ∧ dist ≤ 32768 ∧ dist ≤ pos ∧ pos + len ≤ data.size ∧
+    ∀ j, j < len → data.get! (pos - dist + j) = data.get! (pos + j) := by
+  simp only [matchValid, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true,
+    List.mem_range, beq_iff_eq] at h
+  obtain ⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩ := h
+  exact ⟨h1, h2, h3, h4, h5, h6, h7⟩
+
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
+/-- The reference copy loop grows the output by exactly the match length. -/
+theorem lzCopy_size (dist : Nat) : ∀ (len : Nat) (out : ByteArray),
+    (lzCopy dist len out).size = out.size + len := by
+  intro len
+  induction len with
+  | zero => intro out; simp [lzCopy]
+  | succ k ih =>
+    intro out
+    simp only [lzCopy, ih, ByteArray.size_push]
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
+/-- L4, the self-overlapping back-reference copy induction (PA16's hardest sub-lemma,
+    `docs/PA16_CODEC_SOUNDNESS.md` §4 L4): if the output so far is exactly `data[0:pos]`
+    and the match certificate holds at `pos`, then after copying `len` bytes from `dist`
+    back the output is exactly `data[0:pos+len]`. The induction restructures the design
+    doc's strong induction into a plain one: at every step the source index `pos - dist`
+    lies strictly inside the already-correct prefix (`dist ≥ 1`), so the prefix invariant
+    absorbs the `dist < len` self-overlap case with no separate case split — the
+    certificate at offset 0 plus a one-position shift of the certificate re-establishes
+    the invariant. -/
+theorem lzCopy_prefix (data : ByteArray) (dist : Nat) :
+    ∀ (len pos : Nat) (out : ByteArray),
+      out.size = pos → 1 ≤ dist → dist ≤ pos →
+      (∀ i, i < pos → out.get! i = data.get! i) →
+      (∀ j, j < len → data.get! (pos - dist + j) = data.get! (pos + j)) →
+      ∀ i, i < pos + len → (lzCopy dist len out).get! i = data.get! i := by
+  intro len
+  induction len with
+  | zero =>
+    intro pos out hsz _ _ hpref _ i hi
+    simp only [lzCopy]
+    exact hpref i (by omega)
+  | succ k ih =>
+    intro pos out hsz hd1 hdp hpref hmatch i hi
+    have hsrc : out.get! (out.size - dist) = data.get! pos := by
+      have h0 := hmatch 0 (by omega)
+      have e1 : pos - dist + 0 = pos - dist := by omega
+      have e2 : pos + 0 = pos := by omega
+      rw [e1, e2] at h0
+      have hlt : out.size - dist < pos := by omega
+      rw [hpref _ hlt]
+      have e3 : out.size - dist = pos - dist := by omega
+      rw [e3, h0]
+    simp only [lzCopy]
+    rw [hsrc]
+    refine ih (pos + 1) (out.push (data.get! pos)) ?_ hd1 (by omega) ?_ ?_ i (by omega)
+    · rw [ByteArray.size_push]; omega
+    · intro j hj
+      rcases Nat.lt_or_ge j pos with hjlt | hjge
+      · rw [ByteArray.get!_push_lt out _ j (by omega)]
+        exact hpref j hjlt
+      · have hjeq : j = pos := by omega
+        rw [ByteArray.get!_push_eq out _ j (by omega), hjeq]
+    · intro j hj
+      have h1 := hmatch (j + 1) (by omega)
+      have e1 : pos - dist + (j + 1) = pos + 1 - dist + j := by omega
+      have e2 : pos + (j + 1) = pos + 1 + j := by omega
+      rw [e1, e2] at h1
+      exact h1
+
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
+/-- Token-level L5, the main induction: from any position whose expansion invariant holds,
+    the tokenizer's remaining output expands to exactly `data`. Structural induction on the
+    tokenizer's fuel; each literal step extends the prefix by one pushed byte, each
+    certified match step extends it by `lzCopy_prefix` (L4). -/
+theorem tokenizeAux_expand (data : ByteArray) :
+    ∀ (fuel pos : Nat) (acc : Array LZToken),
+      data.size ≤ pos + fuel → pos ≤ data.size →
+      (acc.foldl expandToken ByteArray.empty).size = pos →
+      (∀ i, i < pos → (acc.foldl expandToken ByteArray.empty).get! i = data.get! i) →
+      (tokenizeAux data fuel pos acc).foldl expandToken ByteArray.empty = data := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro pos acc hfuel hpos hsz hpref
+    simp only [tokenizeAux]
+    have hpe : pos = data.size := by omega
+    exact ByteArray.ext_get! (by omega) (fun i hi => hpref i (by omega))
+  | succ k ih =>
+    intro pos acc hfuel hpos hsz hpref
+    simp only [tokenizeAux]
+    by_cases hlt : pos < data.size
+    · rw [if_pos hlt]
+      by_cases hv : 3 ≤ (findLongestMatch data pos 32768 128).1 ∧
+          matchValid data pos (findLongestMatch data pos 32768 128).1
+            (findLongestMatch data pos 32768 128).2 = true
+      · rw [if_pos hv]
+        obtain ⟨hlen3, hmv⟩ := hv
+        obtain ⟨_, _, hd1, _, hdp, hbound, hmatch⟩ := matchValid_spec hmv
+        refine ih (pos + (findLongestMatch data pos 32768 128).1) _
+          (by omega) (by omega) ?_ ?_
+        · rw [Array.foldl_push]
+          show (expandToken _ (.ref _ _)).size = _
+          simp only [expandToken]
+          rw [lzCopy_size, hsz]
+        · intro i hi
+          rw [Array.foldl_push]
+          show (expandToken _ (.ref _ _)).get! i = _
+          simp only [expandToken]
+          exact lzCopy_prefix data _ _ pos _ hsz hd1 hdp hpref hmatch i hi
+      · rw [if_neg hv]
+        refine ih (pos + 1) _ (by omega) (by omega) ?_ ?_
+        · rw [Array.foldl_push]
+          show (expandToken _ (.lit _)).size = _
+          simp only [expandToken]
+          rw [ByteArray.size_push, hsz]
+        · intro i hi
+          rw [Array.foldl_push]
+          show (expandToken _ (.lit _)).get! i = _
+          simp only [expandToken]
+          rcases Nat.lt_or_ge i pos with hilt | hige
+          · rw [ByteArray.get!_push_lt _ _ i (by omega)]
+            exact hpref i hilt
+          · have hieq : i = pos := by omega
+            rw [ByteArray.get!_push_eq _ _ i (by omega), hieq]
+    · rw [if_neg hlt]
+      exact ByteArray.ext_get! (by omega) (fun i hi => hpref i (by omega))
+
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
+/-- Universal LZ77 token-layer roundtrip soundness: for EVERY `ByteArray`, the greedy
+    tokenizer's output — literals plus certified back-references, including
+    self-overlapping RFC 1951 §3.2.3 matches — expands back to exactly the input.
+    Kernel-checked structural proof (rung 1); no `native_decide`, no sampling. This is the
+    L3+L4+token-level-L5 payload of the PA16 `deflate_roundtrip_soundness` decomposition;
+    the Huffman/bitstream layer above it remains blocked on PA16 P0. -/
+theorem lz77_roundtrip_soundness (data : ByteArray) :
+    expandTokens (tokenize data) = data := by
+  unfold expandTokens tokenize
+  refine tokenizeAux_expand data data.size 0 #[] (by omega) (by omega) ?_ ?_
+  · rfl
+  · intro i hi
+    omega
 
 end Stdlib.Zlib
