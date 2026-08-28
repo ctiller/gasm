@@ -190,10 +190,27 @@ Every step's output is reviewed by an independent agent before it counts as done
   has never been measured (Spike 3's 5, Spike 2's 3, PNG's 2, and the 8 Zlib codec entries).
   Spikes 4 and 5 were measured; these were not. Cheap, and it decides whether Tracks C/D/E
   are proof work or research.
-- **F2** — Reconcile the 78-vs-68 gap. `check_gates_axioms` reports 68 declarations depending
-  on a non-standard axiom against 78 allowlist entries. Ten entries may be covering
-  unloadable modules — or may be unnecessary. If unnecessary, the score currently
-  *overstates* the debt and must be corrected downward honestly.
+- **F2** — Reconcile the 78-vs-68 gap. **DONE — no correction to the score.** Measured on two
+  clean, isolated worktrees pinned to committed revisions, with no agent's uncommitted work in
+  either tree. At `3341d92` (pre-`234d652` enumeration): 252 modules, 252/252 in scope, 7,685
+  declarations scanned, **78 depend on a non-standard axiom — 78 allowlisted, 0 not, 0 stale**,
+  exit 0, 570s. At `234d652` (tracked-build-closure enumeration): 251 modules (the one orphan,
+  `RoundtripGate/DispatchExhaustive.lean`, now reported rather than failed), 7,682 declarations,
+  **78 / 78 / 0 / 0**, exit 0, 330s. The ledger is exactly right: entries map one-to-one onto
+  gated declarations, in both directions. It neither over- nor under-states the debt, and no
+  entry may be removed.
+  The "68" was an artifact of a perturbed run, not a property of the tree: ten gated
+  declarations were invisible because their modules could not be loaded while Spikes 4 and 5
+  were being rebuilt concurrently. The ten are identified — the `axiom-only` `main` entries in
+  `Spike4HttpServer/{Windows,Wasm,Linux}/Emit.lean` and `Spike4HttpServer/Test.lean`, and
+  `Spike5Gzip/{Windows,Wasm,Linux}/Emit.lean`, `Spike5Gzip/Windows/GunzipEmit.lean`,
+  `Spike5Gzip/Linux/GunzipEmit.lean` and `Spike5Gzip/Test.lean` — ten modules, scanned
+  standalone, contributing exactly ten gated declarations between them (measured per module via
+  `--scan-module`). Every `check_gates_axioms` number is therefore only as good as the tree it
+  ran on; quote one only with the revision it was measured at.
+  Residual gate gap, filed under Law 13: `Tools/CheckGatesAxioms.lean`'s stale-entry check fires
+  only for `axiom-only` entries. Extending it to every category would have made this
+  reconciliation one line of gate output instead of an investigation.
 - **F3** — Land the stranded branches. Nine branches carry completed, gate-verified work that
   never reached `main`. **DISPATCHED.**
 - **F4** — Citation adequacy review (Law 1's semantic half). **DISPATCHED.**
