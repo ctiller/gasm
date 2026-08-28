@@ -1,7 +1,7 @@
 ---
 id: TC5
 title: Gate runner — single entry point for all gates
-status: implementing
+status: done
 blocked_on: ""
 after: [TC4]
 related: []
@@ -221,6 +221,4 @@ ranked items and folds in three one-line fixes:
 ## Notes
 
 - 2026-08-27: priority 9.5 — gate runner unblocks TC6/TC9/TC10/TC11/TC12/TC13 and closes TCB T4 (priority-2-tie, 'no gate runner — everything manual') and T9; per owner directive this is the task that 'unblocks everything.'
-
-_(none yet — first entries append here as work begins; consolidate into a `## Design` section
-before implementation starts per the task-lifecycle convention in `TASKS.md`)_
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): status corrected `implementing` → `done`. `scripts/run_gates.py` exists (1027 lines), self-describes as this task's implementation, and its own docstring documents fail-closed oracle detection, direct exit-code capture (no pipe), `--quick`/full modes, and a machine-parseable summary — matching this file's acceptance criteria. Frontmatter had not been updated to reflect the landed state; corrected on inspection, not on a completion report (none was found appended to this file).

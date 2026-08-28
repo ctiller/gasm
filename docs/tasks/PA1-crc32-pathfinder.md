@@ -1,7 +1,7 @@
 ---
 id: PA1
 title: crc32 pathfinder — contract → asm → kernel ∀-proof → composition sketch
-status: designing
+status: implementing
 blocked_on: ""
 after: [TC4]
 related: []
@@ -207,6 +207,19 @@ still weakens the review, just not by narrowing what gets checked.
 ## Notes
 
 - 2026-08-27: priority 9.6 — explicitly pulled forward out of its natural Phase-4 slot per PLAN.md's gaps register: 'the single most important task on the board right now' — it tests the entire modular-contracts hypothesis (D2/D11) that everything in PA2-PA9 and F4/F6 assumes.
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): status corrected `designing` →
+  `implementing` (not `done`). `Stdlib/Zlib/CRC32Equivalence.lean` (423 lines, zero `sorry`) has
+  landed: the fold-normalization connection theorem, the `bv_decide`-based table/bit-loop identity,
+  jump-displacement facts, and 13 of 14 per-instruction step lemmas are all present and merged
+  (commits `605ac18`, `2d5a99e`). But the file's own header comment states plainly it is "not a
+  completed end-to-end contract (Theorems 1/2/3 of `docs/EQUIVALENCE_PROOFS.md` §4 are not stated
+  here)" and points to "this task's completion report" for what remains — no such report has been
+  appended to this file's Notes section, and `design_review` is still `needs-rework`. `designing`
+  understated the landed groundwork; `done` would overstate completion of the three-split-theorem
+  contract this task's acceptance criteria actually require. Left as `implementing` pending that
+  report. See `docs/tasks/PA13-crc32-bittrick-lemmas-without-sat.md` and
+  `docs/tasks/PA14-crc32-table-identity-structural-closure.md` for follow-on work this landed proof
+  surface enables (removing the `bv_decide` dependency the owner's zero-axiom target now flags).
 
 _(none yet — first entries append here as work begins; consolidate into a `## Design` section
 before implementation starts per the task-lifecycle convention in `TASKS.md`. Given this task's
