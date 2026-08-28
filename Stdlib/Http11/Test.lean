@@ -32,6 +32,7 @@ concrete byte strings, which a universally-quantified round-trip theorem (stated
 
 namespace Stdlib.Http11
 
+/- REF: docs/STDLIB_HTTP11.md#3-parser-behavior -/
 /-- Converts an ASCII test string to the raw wire bytes `parseRequest`/`parseResponse` consume. -/
 def s2b (s : String) : List UInt8 := s.toUTF8.toList
 

@@ -158,12 +158,14 @@ def digitBytesToNatAux : List UInt8 → Nat → Option Nat
 def digitBytesToNat? (bs : List UInt8) : Option Nat :=
   if bs.isEmpty then none else digitBytesToNatAux bs 0
 
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
 theorem digitByteToNat?_of_digit (n : Nat) (h : n < 10) :
     digitByteToNat? ((0x30 + n).toUInt8) = some n := by
   have h10 : n = 0 ∨ n = 1 ∨ n = 2 ∨ n = 3 ∨ n = 4 ∨ n = 5 ∨ n = 6 ∨ n = 7 ∨ n = 8 ∨ n = 9 := by
     omega
   rcases h10 with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl <;> decide
 
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
 /-- Auxiliary accumulator form of the round-trip lemma: folding the digits of `n` (with an
     arbitrary starting accumulator `acc`) reproduces `acc * 10 ^ (digit count) + n`. Proved
     by strong induction on `n`, mirroring `natToDigitBytes`'s own recursion. -/
