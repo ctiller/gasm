@@ -354,6 +354,40 @@ Vision anchor: `docs/VISION.md`. Governance: `docs/REVIEW.md` Laws 1–14.
   - Corollary: when a brief IS time-sensitive, the clarity that helps is a precise
     scope and an explicit statement of which corners may NOT be cut — not emphasis.
 
+- **D28 — Ratify `bv_decide` as Law 10's fourth trust rung (Craig, 2026-08-27)**: the
+  owner approved `TCB.md` T14's finding that `bv_decide` is trust-equivalent to
+  `native_decide` (same `Lean.Meta.nativeEqTrue` axiom-emission path, larger surface —
+  it additionally trusts the bitblaster and the external LRAT/CaDiCaL checker) with
+  "ok, bv_decide seems fine then." See [ADR-0037](adr/0037-ratify-bv-decide-trust-tier.md)
+  for the full decision record.
+  - `docs/REVIEW.md` Law 10 now states an explicit four-rung trust-cost ordering —
+    structural proof (no oracle) / `decide` (kernel-checked, no axiom, categorically
+    different from the next two) / `native_decide` (trusted, not checked) / `bv_decide`
+    (same trust class as `native_decide`, larger surface, reaches finite bitvector
+    domains too large to enumerate) — rather than appending `bv_decide` to a flat list.
+    The ordering itself is the coordinator's framing of T14's findings, assented to by
+    the owner, not his own words (see the ADR's Provenance section).
+  - `scripts/gate_allowlist.txt`'s four PA1 `finite-forall` entries
+    (`and_one_cases`, `G_eq_Gbf`, `xor_byte_shr8`, `G8bf_table`) are unchanged, per
+    T14's own recommendation.
+  - Implements T14's first disclosure recommendation: `scripts/run_gates.py`'s new
+    `detect_cadical()` records which SAT solver `bv_decide` actually resolves — the
+    toolchain-bundled `cadical.exe` (pinned by `lean-toolchain`) or the unpinned PATH
+    fallback — and its version, in the same oracle-version table T9 already
+    maintains for `node`/`nasm`/`python`.
+  - Does NOT build a ratchet gate counting oracle-dependent declarations; that idea
+    is unapproved and out of scope here (see the ADR's Consequences).
+  - **`bv_decide` is approved as a waypoint, not a destination**: the owner separately
+    stated the target posture ("it's critical we get to a trustable state: no axioms,
+    strong verification, checked models"), which does not reverse this approval but
+    governs how it is recorded — the end state is zero `scripts/gate_allowlist.txt`
+    entries (Lean's own `propext`/`Classical.choice`/`Quot.sound` are the only
+    acceptable residue), and PA1's branch-free normalization (one `bv_decide`
+    certificate instead of several) is the model for keeping pushing work back down
+    the rung ordering rather than settling wherever a proof first closes. Full
+    framing, and which parts are the owner's own words versus the coordinator's, is
+    in the ADR's Consequences and Provenance sections.
+
 ## Phase 0 — Governance docs ✅ (committed: 03eeece)
 
 - [x] `docs/VISION.md` (new): insights 0–2, gate-is-the-product, two trust obligations,
