@@ -156,11 +156,22 @@ theorem gzip_roundtrip_soundness_inst :
   native_decide
 
 /- REF: docs/STDLIB_ZLIB.md#63-canonical-15-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for DEFLATE on arbitrary streams. -/
+/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for DEFLATE on arbitrary streams.
+    The outer `Except.error _ => false` is deliberate (2026-08-27, PA16 Phase 1 vacuity fix): the
+    prior `=> true` here meant a `decompress` that always failed would still discharge this theorem,
+    since `testStream` is a fixed, already-known-good literal and the check never required the
+    initial decompress to actually succeed. This instance is still a single-ground-instance
+    `native_decide` check (Law 9/10 non-compliant; tracked, not fixed, by
+    docs/PA16_CODEC_SOUNDNESS.md), but it no longer has a branch that is vacuously satisfiable by a
+    broken decompressor. The universal target this instance stands in for legitimately keeps
+    `error => True` in its outer branch (see docs/STDLIB_ZLIB.md#63-canonical-15-roundtrip-soundness-theorems
+    and docs/PA16_CODEC_SOUNDNESS.md's opening finding) since not every `ByteArray` is a valid
+    compressed stream; the vacuity concern applies only to a pointwise regression check over a
+    literal already known to succeed. -/
 theorem deflate_idempotent_canonical_roundtrip_inst :
     let testStream := compress "Canonical 1.5-roundtrip theorem test.".toUTF8
     (match decompress testStream with
-     | Except.error _ => true
+     | Except.error _ => false
      | Except.ok data =>
        match decompress (compress data) with
        | Except.ok res => res == data
@@ -168,11 +179,13 @@ theorem deflate_idempotent_canonical_roundtrip_inst :
   native_decide
 
 /- REF: docs/STDLIB_ZLIB.md#63-canonical-15-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for ZLIB container streams. -/
+/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for ZLIB container streams.
+    Outer `Except.error _ => false` per the 2026-08-27 PA16 Phase 1 vacuity fix -- see
+    `deflate_idempotent_canonical_roundtrip_inst`'s doc comment above for the full rationale. -/
 theorem zlib_idempotent_canonical_roundtrip_inst :
     let testStream := zlibCompress "Canonical ZLIB 1.5-roundtrip test.".toUTF8
     (match zlibDecompress testStream with
-     | Except.error _ => true
+     | Except.error _ => false
      | Except.ok data =>
        match zlibDecompress (zlibCompress data) with
        | Except.ok res => res == data
@@ -180,11 +193,13 @@ theorem zlib_idempotent_canonical_roundtrip_inst :
   native_decide
 
 /- REF: docs/STDLIB_ZLIB.md#63-canonical-15-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for GZIP container streams. -/
+/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for GZIP container streams.
+    Outer `Except.error _ => false` per the 2026-08-27 PA16 Phase 1 vacuity fix -- see
+    `deflate_idempotent_canonical_roundtrip_inst`'s doc comment above for the full rationale. -/
 theorem gzip_idempotent_canonical_roundtrip_inst :
     let testStream := gzipCompress "Canonical GZIP 1.5-roundtrip test.".toUTF8
     (match gzipDecompress testStream with
-     | Except.error _ => true
+     | Except.error _ => false
      | Except.ok data =>
        match gzipDecompress (gzipCompress data) with
        | Except.ok res => res == data
