@@ -123,7 +123,7 @@ def headerFieldOk (h : List UInt8 × List UInt8) : Bool :=
 def headersWellFormed (headers : List (List UInt8 × List UInt8)) : Bool :=
   headers.all headerFieldOk
 
-/- REF: docs/STDLIB_HTTP11.md#1-overview--scope -/
+/- REF: docs/STDLIB_HTTP11.md#1-overview-scope -/
 /-- A structured, proof-carrying HTTP/1.1 request: an origin-form `target` (`targetOk`), and a
     header list excluding `Content-Length` and satisfying the token/field-value grammar
     (`headersOk`). `body`'s length is always the writer-synthesized `Content-Length` value --

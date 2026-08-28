@@ -231,6 +231,7 @@ def defaultWasmFuel : Nat := 100000000
     this codebase is proven never to see `.error` from. -/
 abbrev WasmRunResult := Except WasmMachineState (WasmMachineState × ControlSignal)
 
+/- REF: wasm-exec-runtime#administrative-instructions -/
 /-- Convenience check for whether a `WasmRunResult` is the fuel-exhausted outcome, named for
     readability at `#guard`/proof call sites (`.isOk`/`isError`-style helpers are not derived
     automatically for `Except`). -/

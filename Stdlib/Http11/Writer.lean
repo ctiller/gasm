@@ -20,7 +20,7 @@ import Stdlib.Http11.Types
 ## Stdlib.Http11.Writer
 
 The canonical byte writer: `writeRequest`/`writeResponse` produce exactly one deterministic
-byte string per structured value (`docs/STDLIB_HTTP11.md#4-writer--canonical-serialization`).
+byte string per structured value (`docs/STDLIB_HTTP11.md#4-writer-canonical-serialization`).
 `requestLines`/`responseLines` expose the writer's own line decomposition (request/status line,
 each header line in list order, the synthesized `Content-Length` line) *before* CRLF-joining --
 `Roundtrip.lean`'s proof that `parseRequest (writeRequest r) = .ok r` applies
@@ -53,27 +53,27 @@ def writeHeaderLine (h : List UInt8 × List UInt8) : List UInt8 :=
 def writeContentLengthLine (n : Nat) : List UInt8 :=
   contentLengthBytes ++ COLON :: SP :: natToDigitBytes n
 
-/- REF: docs/STDLIB_HTTP11.md#4-writer--canonical-serialization -/
+/- REF: docs/STDLIB_HTTP11.md#4-writer-canonical-serialization -/
 /-- The request's lines in wire order, each still unterminated: the request line, each header
     in list order, then the synthesized `Content-Length` line. -/
 def requestLines (r : Request) : List (List UInt8) :=
   [writeRequestLine r.method r.target] ++ r.headers.map writeHeaderLine ++
     [writeContentLengthLine r.body.length]
 
-/- REF: docs/STDLIB_HTTP11.md#4-writer--canonical-serialization -/
+/- REF: docs/STDLIB_HTTP11.md#4-writer-canonical-serialization -/
 /-- The response's lines in wire order, each still unterminated: the status line, each header
     in list order, then the synthesized `Content-Length` line. -/
 def responseLines (resp : Response) : List (List UInt8) :=
   [writeStatusLine resp.statusCode resp.reason] ++ resp.headers.map writeHeaderLine ++
     [writeContentLengthLine resp.body.length]
 
-/- REF: docs/STDLIB_HTTP11.md#4-writer--canonical-serialization -/
+/- REF: docs/STDLIB_HTTP11.md#4-writer-canonical-serialization -/
 /-- The canonical wire bytes for `r`: `requestLines r`, each `CR LF`-terminated, followed by
     the header-section terminator (a blank `CR LF` line) and the body bytes verbatim. -/
 def writeRequest (r : Request) : List UInt8 :=
   ((requestLines r).map (· ++ [CR, LF])).flatten ++ CR :: LF :: r.body
 
-/- REF: docs/STDLIB_HTTP11.md#4-writer--canonical-serialization -/
+/- REF: docs/STDLIB_HTTP11.md#4-writer-canonical-serialization -/
 /-- The canonical wire bytes for `resp`: `responseLines resp`, each `CR LF`-terminated,
     followed by the header-section terminator and the body bytes verbatim. -/
 def writeResponse (resp : Response) : List UInt8 :=

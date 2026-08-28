@@ -24,7 +24,7 @@ Byte-level primitives shared by `Stdlib/Http11/Request.lean` and
 `Content-Length`, and two structurally/well-founded-recursive line-splitting
 functions (`takeLine`, `peelLines`) that both the parser and its roundtrip
 proof are built from. Everything here operates on `List UInt8`, not
-`ByteArray` or `String` -- see `docs/STDLIB_HTTP11.md#1-overview--scope` for
+`ByteArray` or `String` -- see `docs/STDLIB_HTTP11.md#1-overview-scope` for
 why: a byte-native representation keeps every structural-recursion and
 `List.append` argument in this file a standard `List` induction, with no
 UTF-8 encode/decode lemma required anywhere in the round-trip proof.

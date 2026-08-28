@@ -139,7 +139,7 @@ theorem writeContentLengthLine_no_crlf (n : Nat) :
   · simp [SP, CR, LF]
   · exact natToDigitBytes_not_crlf n b hb
 
-/- REF: docs/STDLIB_HTTP11.md#4-writer--canonical-serialization -/
+/- REF: docs/STDLIB_HTTP11.md#4-writer-canonical-serialization -/
 theorem requestLines_ne_nil (r : Request) : ∀ l ∈ requestLines r, l ≠ [] := by
   intro l hl
   unfold requestLines at hl
@@ -149,7 +149,7 @@ theorem requestLines_ne_nil (r : Request) : ∀ l ∈ requestLines r, l ≠ [] :
   · exact writeHeaderLine_ne_nil h
   · exact writeContentLengthLine_ne_nil r.body.length
 
-/- REF: docs/STDLIB_HTTP11.md#4-writer--canonical-serialization -/
+/- REF: docs/STDLIB_HTTP11.md#4-writer-canonical-serialization -/
 theorem requestLines_no_crlf (r : Request) :
     ∀ l ∈ requestLines r, ∀ b ∈ l, b ≠ CR ∧ b ≠ LF := by
   intro l hl
@@ -410,7 +410,7 @@ theorem parseStatusLine_writeStatusLine (code : Nat) (reason : List UInt8)
   simp only [hlen3, digitBytesToNat?_natToDigitBytes, hcr, hrv, hro, if_true, Bool.and_self]
   simp
 
-/- REF: docs/STDLIB_HTTP11.md#4-writer--canonical-serialization -/
+/- REF: docs/STDLIB_HTTP11.md#4-writer-canonical-serialization -/
 theorem responseLines_ne_nil (resp : Response) : ∀ l ∈ responseLines resp, l ≠ [] := by
   intro l hl
   unfold responseLines at hl
@@ -420,7 +420,7 @@ theorem responseLines_ne_nil (resp : Response) : ∀ l ∈ responseLines resp, l
   · exact writeHeaderLine_ne_nil h
   · exact writeContentLengthLine_ne_nil resp.body.length
 
-/- REF: docs/STDLIB_HTTP11.md#4-writer--canonical-serialization -/
+/- REF: docs/STDLIB_HTTP11.md#4-writer-canonical-serialization -/
 theorem responseLines_no_crlf (resp : Response) :
     ∀ l ∈ responseLines resp, ∀ b ∈ l, b ≠ CR ∧ b ≠ LF := by
   intro l hl
