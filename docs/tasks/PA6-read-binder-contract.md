@@ -1,7 +1,7 @@
 ---
 id: PA6
 title: read-binder contract shape — ∀ read results including partial/EOF
-status: ready
+status: design-review
 blocked_on: ""
 after: [PA5, N2]
 related: []
@@ -9,7 +9,7 @@ bar: ""
 track: proof-arch
 priority: 8.6
 priority_set: 2026-08-28T02:00:00Z
-design: ""
+design: "docs/READ_BINDER_CONTRACT.md"
 design_review: ""
 date: 2026-08-27
 ---
@@ -163,6 +163,37 @@ so that:
   prerequisite for PA8 (8 grandfathered entries covered) and PA17 (8 more, Spike3-Windows/Spike4
   domain honesty) — both now top-priority per the owner's zero-axiom mandate.
 
-_(none yet — first entries append here as work begins; this is Law-5-class proof-architecture
-work — consolidate Notes into a real docs/ design doc before implementation, and route it through a
-fresh-agent design review before any implementation dispatch; do not waive review on this track.)_
+- 2026-08-27/28: Design landed at `docs/READ_BINDER_CONTRACT.md`, consolidating this task's
+  scope into a Law-5-class doc per ADR-0018. Proceeded despite `after: [PA5, N2]` being unmet
+  (neither has landed: `canonicalizeTrace` does not exist in the tree, and `readFileHook`/
+  `recvHook` are unchanged) — following the precedent PA17 set (also dispatched before its own
+  `after` deps landed, shipping an honest partial closure) — because the contract *shape* itself
+  does not depend on PA5's trace representation or N2's short-read model existing in code; only
+  wiring the shape into the live trace machinery and making a live instantiation non-vacuous do,
+  and both are named explicitly as not done (design doc §1, §9). Delivered: `ReadBinderObligation`
+  (the shape itself, §2); the uniform no-special-casing argument for empty/short/full reads (§3);
+  the interface PA5 must satisfy, naming the existing dormant `VectorClock`
+  (`Gasm/Core/Types.lean:48`) as the causal-position hook (§4); the composition argument with
+  Law 11 (deliberately NOT unified — §5 — with the Spike 4 stack-overflow bug worked through as
+  the concrete case showing why the read's quantifier must range over the syscall's declared cap
+  rather than being capped at the buffer's capacity); closure of the three named evasion shapes
+  (§6); and a standalone, zero-`sorry`, zero-new-axiom Lean demonstration
+  (`Gasm/Effects/ReadBinder.lean`) proving `ReadBinderObligation`, `ChunksOf` (a complete chunking
+  relation), `ChunksOf.flatten_eq_total` (structural induction, no `decide`/`native_decide`), and
+  the chunk-robustness corollary (`chunk_robustness`, `continuation_invariant_to_chunking`) that
+  the design doc's §7 walks through. Explicitly NOT done: PA5's `canonicalizeTrace` itself, N2's
+  short-read model rebuild, PA9's struct-field wiring, PA2's composition calculus, PA4's capability
+  migration, and any of PA17/PA8's nine grandfathered Spike 3/4 entries (see design doc §9) — none
+  of these were attempted, per this task's explicit scope boundary. Gates run in the foreground,
+  exit codes captured directly (no pipe): `lake build` (426/426, exit 0), `lake exe
+  check_gates_axioms` (exit 0), `lake exe check_refs_coverage` (exit 0, 1401 declarations
+  scanned), `python scripts/check_refs.py` (exit 0, no broken citations), `python
+  scripts/check_licenses.py` (exit 0), `python scripts/check_doc_facade.py` (exit 0), `python
+  scripts/check_publishable.py` (exit 0), `python scripts/check_record.py` (exit 0), `python
+  scripts/check_gates.py` (exit 0), `lake exe test_spike3_windows` (exit 0), `lake exe test_spike4`
+  (exit 0). Status set to `design-review` (not `done`) per this task's own acceptance criteria:
+  the design requires a fresh-agent design review before any implementation dispatch, which has
+  not yet happened — do not waive it.
+
+_(consolidated into `docs/READ_BINDER_CONTRACT.md` above; further notes on the design itself
+should go there per ADR-0018 once implementation work begins.)_
