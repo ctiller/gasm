@@ -76,6 +76,31 @@ memory untouched on either bound's failure, per the spec's `memory.grow` non-det
 Differentially fuzzed both for growth within a declared max (success) and beyond it (mandatory
 failure), plus beyond the ceiling with no declared max at all.
 
+**B10. DEFLATE: dynamic-Huffman blocks and stored blocks are unexercised by anything — no test, no
+fuzzer, no proof, no `native_decide` ground check.** `Stdlib/Zlib/Deflate.lean`'s `decodeDynamicTables`
+(BTYPE=10 dynamic-Huffman table construction) and `decodeStoredBlock` (BTYPE=00) are real,
+non-trivial code (`decodeDynamicTables` alone is 51 lines implementing RFC 1951 §3.2.7's
+code-length-alphabet decode plus the 16/17/18 repeat-code expansion). Grep-confirmed
+(2026-08-27, during `docs/tasks/PA16-codec-roundtrip-universal-soundness.md`'s Phase 1 design pass):
+neither function name appears anywhere outside its own definition in `Stdlib/Zlib/Deflate.lean` --
+not in `Stdlib/Zlib/Test.lean`, not in `Stdlib/Zlib/GzipFuzzer.lean`, not in
+`Stdlib/Zlib/Equivalence.lean`. `Deflate.compress`/`compressFixed` never emit BTYPE=10 or BTYPE=00
+(both always emit exactly one BTYPE=01 Fixed-Huffman block), so nothing in this codebase's own
+compress-then-decompress round trip ever reaches either function. **Consequence: `decompress`'s
+claim to be a general RFC 1951 INFLATE implementation -- i.e., that it correctly decodes *any* valid
+DEFLATE stream, including ones a different encoder produced with dynamic Huffman tables or stored
+blocks -- has zero evidence behind it today, positive or negative.** This is a distinct claim from
+"`decompress` inverts this project's own `compress`" (the claim `docs/PA16_CODEC_SOUNDNESS.md`
+decomposes and targets) and must not be conflated with it: proving the roundtrip claim, however
+completely, says nothing about decoder conformance to the wider RFC 1951 format. **Severity:
+moderate today** (nothing in this codebase currently depends on decoding a foreign DEFLATE stream),
+**but a real gap if any future consumer (e.g. reading a PNG or gzip file produced by a real-world
+tool, which routinely uses dynamic Huffman for anything but tiny/degenerate input) is added** --
+exactly the class of "proof describes a machine no engine implements" risk B7 named for Wasm.
+Forcing function: any task that feeds `decompress`/`zlibDecompress`/`gzipDecompress`/
+`decodeImageRGBA8` a stream not produced by this codebase's own compressor (differential fuzzing
+against a real zlib/libdeflate, or decoding real-world PNGs, would both surface it immediately).
+
 **B9. Wasm: large ISA and validation gaps.** Absent: all f32/f64 (declared in `ValType`, zero instructions), all *signed* ops (`div_s`, `rem_s`, `lt_s`, `shr_s` …), `clz/ctz/popcnt/rotl/rotr`, sub-width loads/stores beyond `load8_u`/`store8`, `br_table`, `call_indirect`/tables, multi-value, and function calls proper (`.call idx` is delegated wholesale to the host hook, `Semantics.lean:369`). `global_get`/`global_set` exist in the AST (`AST.lean:29-30`) with **no semantics and no globals in the machine state** — they fall through `| _ => (s, .next)` (`Semantics.lean:393`) as silent no-ops. There is no validator: `popI32` on a type mismatch returns `0` (`Semantics.lean:44-47`) rather than rejecting.
 
 ---
