@@ -34,11 +34,21 @@ open Gasm.Targets.X86_64
 open Gasm.Targets.Windows
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Constructive proof of semantic trace equivalence between high-level spec and lowered machine execution. -/
+/-- Constructive proof of semantic trace equivalence between high-level spec and lowered machine
+    execution.
+
+    **Oracle-debt retirement (2026-08-27): `native_decide` -> `decide`.** Spike 1 takes no input, so
+    this is a closed-term claim (no `∀` to discharge) about one fixed program. Unlike the Wasm sibling
+    of this theorem, `runAsmTrace` (`Gasm/Targets/X86_64/Semantics.lean`) is built entirely from
+    ordinary structurally-recursive `def`s -- `runProgramTraceWithLoops` recurses on an explicit `Nat`
+    fuel parameter, not `partial`, so it carries real kernel-unfoldable equations. `grep -rn "partial
+    def" Gasm/Targets/X86_64 Gasm/Targets/Windows` returns nothing: there is no opaque interpreter
+    core standing in the way here, so plain `decide` closes it directly with no oracle and no
+    allowlist entry. -/
 theorem spike1_canonical_effect_trace_equivalence :
     (runAsmTrace (Event := AnyEvent) spike1Instructions spike1Executable.load ==
      runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit)) = true := by
-  native_decide
+  decide
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
