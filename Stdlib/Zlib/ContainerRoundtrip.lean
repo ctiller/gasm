@@ -332,5 +332,6 @@ theorem zlib_roundtrip_soundness (data : ByteArray) :
     show (compress data).size + 6 - 2 = (compress data).size + 4 from by omega,
     show (compress data).size + 6 - 1 = (compress data).size + 5 from by omega,
     ha0, ha1, ha2, ha3, uint32_be_reassemble (adler32 data), bne_self_eq_false]
+  rw [if_neg (by simp)]
 
 end Stdlib.Zlib
