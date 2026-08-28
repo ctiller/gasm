@@ -1,15 +1,37 @@
 # AArch64 Bring-Up Reconnaissance & Target Handoff
 
-**Status**: this is a reconnaissance note, not a design document and not an implementation.
-No AArch64 code exists anywhere in `Gasm/Targets/` (confirmed by directory listing at the
-time of writing — the only ARM content in the tree is `docs/TARGETS/ARM.md`, itself a
-design-only document per the project README's own account). Everything below the emulator
-invocations in §2 was produced by hand — no `gasm` ARM backend, no instruction model, no
-encoder — for the sole purpose of answering one question empirically: **can this machine
-close the loop (emit bytes, run them, observe output) for AArch64 the way it already does
-for x86-64 bare metal?** The answer is yes, on both axes that matter (serial output and
-programmatic exit), and this document exists so a second team can pick up the actual target
-implementation without re-deriving any of this from scratch.
+**Status**: this is a reconnaissance record and a handoff brief, not a design document and
+not an implementation. No AArch64 code exists anywhere in `Gasm/` — verified 2026-08-28 at
+commit `38efb5f`: `Gasm/Targets/` contains `BareMetal`, `Dispatcher.lean`, `ELF`, `Linux`,
+`WASI`, `Wasm`, `Windows`, `X86_64`, and nothing else; a tree-wide grep for `EM_AARCH64`
+returns no hit. The only ARM content in the tree is `docs/TARGETS/ARM.md` (design-only, 79
+lines) and this file. Everything below the emulator invocations in §2 was produced by hand —
+no `gasm` ARM backend, no instruction model, no encoder — for the sole purpose of answering
+one question empirically: **can this machine close the loop (emit bytes, run them, observe
+output) for AArch64 the way it already does for x86-64 bare metal?** The answer is yes, on
+both axes that matter (serial output and programmatic exit).
+
+## How to read this document
+
+**§1–§9 are the original bring-up reconnaissance** (commit `6ceac13`, 2026-08-28). They are
+unchanged except where a paragraph is explicitly marked as corrected; the empirical results
+in §2 were reproduced by hand and still stand.
+
+**§10–§14 were added 2026-08-28** for a team building an ARM target out to Spike 5, and
+record what moved under that reconnaissance in the days after it was written. Read §10 first
+if you are planning; read §13 before you write any memory-touching instruction.
+
+**Nothing in this document is a gate, and none of it binds you.** §6 lists the checks that
+already fire mechanically on any change — those are real and you will meet them. Everything
+in §10–§14 is information and, where labelled as such, a recommendation. Where a
+recommendation concerns a convention we know to be defective, §11 says so plainly rather
+than exporting it silently; `docs/adr/0038-standards-are-earned-before-imposed.md` is the
+ruling that makes that the required posture, and its reasoning — a gate is an unanswerable
+message, so the bar for one is demonstrated practice — is why nothing here is phrased as a
+requirement on you.
+
+**We cannot answer questions.** This repository is the channel in both directions; §14 says
+where to write so that what you learn survives.
 
 ---
 
@@ -217,6 +239,14 @@ Grounded in what was actually run above, not estimated in the abstract:
   and is explicitly out of scope for this reconnaissance and for this document. §6 below
   exists so whoever takes that on knows the shape of the gates they will be building against
   before they start, not after.
+- *(Added 2026-08-28.)* **This list is Spike-1-scoped.** It says what it costs to boot and
+  observe an ARM program, not what it costs to reach Spike 5. §10 enumerates the rest:
+  the syscall table and syscall instruction (`Gasm/Targets/Linux/Syscall.lean` is entirely
+  x86-64 numbers and `RAX`/`RDI`/`RCX` conventions), the ELF `e_machine` default
+  (`Gasm/Targets/ELF/Format.lean:34`, `:93`), a sibling `ExternalCallInterceptor` instance
+  (`Gasm/Targets/Dispatcher.lean:40-46`), and — the largest single item in the whole port —
+  an ARM equivalent of `Stdlib/Zlib/X86_64.lean`'s 2245 lines of DEFLATE/CRC32 code
+  generation, which is what Spike 5 actually runs.
 
 ---
 
@@ -253,8 +283,13 @@ gate first.
   emulator-validated instructions, or whether a third `ValidationOracle` constructor is
   needed, is a real design decision this document does not make.
 - **`.modelInternalUnvalidated` is available to ARM on exactly the same honest footing it is
-  used on today — checked, not assumed.** All ~1611 of this project's own x86-64 cost
-  witnesses are currently `.modelInternalUnvalidated`, because the RDTSC calibration harness
+  used on today — checked, not assumed.** *(Figure corrected 2026-08-28: the earlier "~1611"
+  here was the roundtrip test count, not the provenance count.)* All 88 of this project's 88
+  x86-64 instruction forms declare `costProvenance := .modelInternalUnvalidated "toUops
+  coefficient…"` and exactly zero declare `.cited` — measured by grep over
+  `Gasm/Targets/X86_64/Instructions/*.lean`, and independently recorded as "0 of 88
+  coefficients cite any source" in `docs/adr/0039-x86-isa-expansion-prerequisites.md`. This
+  is because the RDTSC calibration harness
   (`docs/CALIBRATION_GOVERNANCE.md`'s "F1") does not exist yet, and that document's §9 rules
   out third-party tables (Agner Fog, uops.info) as a `.cited` source for any shipped
   coefficient. The gate (`Tools/CheckX86Obligations.lean`) only requires a non-empty, honest
@@ -289,13 +324,17 @@ gate first.
   aggregate list and gate theorem(s), sharded the same way (one Lean module per instruction
   family, per `PLAN.md`'s D-series decoder-modularization decision) if the ARM ISA subset
   grows large enough for build-time cost to matter the way it already does for x86.
-- **`Gasm/Targets/X86_64/Memory.lean`'s memory-access declaration convention
-  (`memAccesses : ι → List MemAccessSpec`, also no default) is the newest of these**, landed
-  via `docs/MEMORY_HOOK.md` (D30/D31, approved 2026-08-28) as the single chokepoint for
-  Law 11 permission-checking and the performance model's latency/cache accounting. Any new
-  target's memory-touching instructions will need the equivalent declaration once/if a
-  target-generic version of the memory hook exists — see §7 for why this is listed as open
-  rather than settled for ARM specifically.
+- **The memory-access declaration convention (`memAccesses : ι → List MemAccessSpec`, also
+  no default) is the newest of these**, landed via `docs/MEMORY_HOOK.md` (D30/D31, approved
+  2026-08-28) as the single chokepoint for Law 11 permission-checking and the performance
+  model's latency/cache accounting. *(Updated 2026-08-28: MH1 has landed since this section
+  was written — the field is live on the typeclass at
+  `Gasm/Targets/X86_64/Instructions/Base.lean:66`, and 74 forms declare `memAccesses _ := []`
+  while 14 declare real accesses.)* It is x86-only: the field lives on `X86_64Instruction`
+  and the descriptor vocabulary is in `Gasm/Targets/X86_64/Memory.lean`, so there is no
+  target-generic hook to instantiate. **Status**: a target-generic memory hook does not
+  exist and is not designed; §13 states in detail which parts of this surface are stable to
+  build against and which are being actively reshaped right now.
 
 ---
 
@@ -321,20 +360,19 @@ choices, and an ARM target is not bound by them:
   deferrable choice.** x86-64 is TSO; AArch64 is a weak memory model (relaxed load/store
   ordering, `LDAR`/`STLR` for acquire/release, `DMB`/`DSB` barriers, `LDXR`/`STXR` exclusive
   monitors — `docs/TARGETS/ARM.md` §4 already sketches proof obligations for these, though
-  that section is design-only, unimplemented). This matters concretely right now: this
-  session was told that a memory-model design and a multithreading spike are being worked on
-  concurrently, elsewhere, and both are presumably being reasoned about against x86's TSO
-  semantics by default, since x86 is the only target with a memory model to reason about
-  today. **If the emerging memory-model abstraction is written in a way that is only ever
-  exercised by a TSO target, an AArch64 implementor inherits an unstated assumption they may
-  not be able to satisfy** — ARM will observably reorder accesses that a TSO-shaped
-  abstraction assumes cannot reorder. Whether the memory-model design needs to be
-  target-generic *before* ARM instruction work starts, or whether ARM can safely defer to a
-  restricted subset (e.g. no relaxed atomics, full barriers on every shared access, as a
-  first cut) and tighten later, is a decision for whoever owns that concurrent work — this
-  document's only claim is that the dependency is real and cheap to state now, versus
-  expensive to discover after AArch64 instructions have been written against assumptions a
-  weak-memory target cannot honor.
+  that section is design-only, unimplemented). *(Updated 2026-08-28: when this bullet was
+  written, the memory-model work was described as "being worked on concurrently, elsewhere."
+  It has since landed as a design — `docs/X86_MEMORY_MODEL.md`, and the multithreading spike
+  as `docs/SPIKES/SPIKE8_MULTITHREADING.md`. The prediction below was correct and is now
+  concrete; §12 replaces the speculation with specific locations.)* **If the emerging
+  memory-model abstraction is written in a way that is only ever exercised by a TSO target,
+  an AArch64 implementor inherits an unstated assumption they may not be able to satisfy** —
+  ARM will observably reorder accesses that a TSO-shaped abstraction assumes cannot reorder.
+  Whether the memory-model design needs to be target-generic *before* ARM instruction work
+  starts, or whether ARM can safely defer to a restricted subset (e.g. no relaxed atomics,
+  full barriers on every shared access, as a first cut) and tighten later, is not decided.
+  **Status**: no ARM memory model is designed, and `docs/X86_MEMORY_MODEL.md` scopes itself
+  to x86-TSO over Write-Back memory only. See §12.
 - **The `.silicon`/`.nasmEncoding` oracle split (§6) is x86-shaped by construction** — it
   names NASM and `HardwareHarness` specifically. Genuinely open for ARM, not merely
   unimplemented; see §6's bullet on this.
@@ -359,6 +397,11 @@ memory-model and multithreading-spike design work referenced in §7 reaches the 
 deciding what its own test matrix should include — but building that target is out of scope
 here, and this section states the argument, not a plan.
 
+*(2026-08-28: that design work has since landed as `docs/X86_MEMORY_MODEL.md` and
+`docs/SPIKES/SPIKE8_MULTITHREADING.md`, and its own §7 asks the falsification question this
+section anticipated. §12 names the specific places in the tree where the TSO assumption sits,
+so the argument above can be acted on rather than only agreed with.)*
+
 ---
 
 ## 9. Blockers
@@ -369,3 +412,484 @@ documented in §2, PL011 UART output was captured byte-exact, and semihosting `S
 propagates a chosen exit code through to QEMU's own process exit status. Everything in §5–§8
 is scoping and design-dependency information for the follow-on implementation work, not a
 list of things preventing it from starting.
+
+**Correction of emphasis, 2026-08-28.** "No blockers" was and remains true for the question
+§2 asked — *can the loop close on this machine* — and is a claim about Spike 1's shape only.
+It is not a claim about Spike 5. Nothing prevents work starting, but §10 identifies one
+structural gap that was not visible from a Spike-1-scoped reconnaissance: **no target of any
+architecture has ever run a spike above Spike 1 on bare metal**, and the bare-metal
+whole-program contract has no way to deliver input to a program. Spikes 3, 4 and 5 all
+consume input. Read §10 before committing to bare metal as the route to Spike 5.
+
+---
+
+## 10. Building out to Spike 5: what each spike demands of a target
+
+The five spikes are enumerated in `docs/SPIKES.md` §3 and realised under `Spikes/`. This
+section says what each one demands of the *target* layer — syscall/ABI surface, memory,
+I/O, emitted binary format — rather than what it demands of the ISA, and it grounds the
+ordering advice in what the x86-64 and Linux targets actually did rather than in the
+roadmap's numbering.
+
+### 10.1 Where each target actually reaches today
+
+Verified from `lakefile.toml`'s `defaultTargets` (lines 26–47) and the `Spikes/` tree at
+commit `38efb5f`:
+
+| Spike | Windows (PE) | Linux (ELF) | Wasm/WASI | Bare metal x86-64 |
+| :-- | :-- | :-- | :-- | :-- |
+| 1 Hello World | yes | yes | yes | **yes** |
+| 2 Fibonacci | yes | yes | yes | no |
+| 3 Sort lines | yes | yes | yes | no |
+| 4 HTTP server | yes | yes | yes | no |
+| 5 Gzip / Gunzip | yes (both) | yes (both) | gzip only | no |
+
+`Spikes/Spike1Hello/` is the only spike directory with a `BareMetal/` subdirectory. That is
+the whole of bare metal's spike coverage, on any architecture.
+
+### 10.2 Bare metal stops at Spike 1, and the reason is structural, not incidental
+
+Two facts, both mechanical:
+
+- **The bare-metal whole-program contract cannot receive input.**
+  `VerifiedBareMetalProgram.traceEquivalence` (`Gasm/Targets/BareMetal/Executable.lean:83-84`)
+  is stated as `∀ (env : Env), (runBareMetalTrace instructions executable.load == spec env)
+  = true` — but `env` appears only on the specification side. `BareMetalExecutable.load`
+  (`Gasm/Targets/BareMetal/Executable.lean:55-70`) takes no argument at all. Compare
+  `VerifiedProgram` (`Gasm/Core/Verification.lean:88-90`) and `VerifiedLinuxProgram`
+  (`Gasm/Core/Verification.lean:167-169`): both route `env` through an
+  `EnvironmentLoader`/`LinuxEnvironmentLoader` instance whose `loadEnvironment` calls
+  `exe.loadWithStdin env.stdin` (`Gasm/Core/Verification.lean:70`, `:154`). The bare-metal
+  side has no such instance and no such loader.
+- **Bare metal has no OS to ask.** The x86-64 bare-metal Spike 1 program is 125 lines of
+  port I/O: a 16550 UART init sequence and a byte-transmit loop
+  (`Spikes/Spike1Hello/BareMetal/Program.lean:56-101`), exiting through QEMU's
+  `isa-debug-exit` port (`:104-108`). There is no `read`, no socket, no file. Spike 3 reads
+  stdin to EOF, Spike 4 opens a TCP listener, Spike 5 streams bytes in and out.
+
+**Status**: a bare-metal input path — a device-backed console-input model, a
+loader that installs an input image, and a contract shape that binds it — does not exist,
+is not designed, and is not tracked by any task in `docs/tasks/`. Building one is a genuine
+design task under Law 5 (`docs/REVIEW.md:63`), not an afternoon's plumbing.
+
+### 10.3 The consequence: two routes to Spike 5, and they are not equal
+
+**Route A — AArch64 Linux (static ELF64 + `SVC`).** Every spike above 1 already exists in a
+Linux-shaped form. This route reuses the spike specs, the trace machinery, the effect
+vocabulary, and the whole-program contract shape unchanged; what changes is the syscall
+table, the syscall instruction, the register conventions, and `e_machine`. §10.4 enumerates
+that. `qemu-aarch64` user-mode (§3) runs a static AArch64 Linux binary against the host
+kernel's syscall translation with no machine model at all, so the execution oracle is
+cheap. **Status**: no `qemu-aarch64` user-mode invocation has been reproduced on this
+machine; §3 records it as evaluated-but-untried, and §2's demonstration is
+`qemu-system-aarch64` bare metal only.
+
+**Route B — AArch64 bare metal.** This is what §2 empirically demonstrated, and it is the
+better target for the memory-model reasons in §8 and §12. It reaches Spike 1 with a
+directly-witnessed boot loop. Reaching Spike 3 or beyond on it requires solving §10.2's
+input problem first — a problem the x86-64 bare-metal target has never had to solve.
+
+Doing both is coherent: x86-64 has a bare-metal target and a Linux target simultaneously,
+and §3 already recommends the same shape for ARM. If the objective is "out to Spike 5",
+Route A carries far less unbuilt design; if the objective is the weak-memory evidence in
+§8, Route B at Spike 1 already delivers most of it.
+
+### 10.4 What each spike demands of a Linux-shaped target
+
+Syscall numbers below are the **x86-64** ones the existing Linux target uses
+(`Gasm/Targets/Linux/Syscall.lean:36-80`). AArch64 Linux uses the asm-generic table, so
+every number differs, `open` does not exist (only `openat`), and the trap instruction is
+`SVC #0` with the number in `X8` rather than `SYSCALL` with it in `RAX`.
+
+| Spike | Observable effects | Syscalls used by the Linux program | Dynamic memory | Program size |
+| :-- | :-- | :-- | :-- | :-- |
+| 1 Hello | stdout write, exit | `write`(1), `exit`(60) — `Spikes/Spike1Hello/Linux/Program.lean:46-55` | none, `.rodata` string | 73 lines |
+| 2 Fibonacci | stdout write, exit | `write`(1), `exit`(60) — `Spikes/Spike2Fibonacci/Linux/Program.lean:167-182` | none, 136-byte frame; integer division for decimal formatting | 200 lines |
+| 3 Sort lines | stdin read to EOF, stdout write, exit | `mmap`(9), `read`(0), `write`(1), `exit`(60) — `Spikes/Spike3SortLines/Linux/Program.lean:77-113`, `:460-507` | **yes** — `Stdlib.SmolAlloc` over a 64 KB `mmap` arena | 534 lines |
+| 4 HTTP server | TCP listen/accept/recv/send/close | `socket`(41), `bind`(49), `listen`(50), `accept`(43), `read`(0), `write`(1), `close`(3) — `Spikes/Spike4HttpServer/Linux/Program.lean:86-188` | none, 320-byte frame | 211 lines |
+| 5 Gzip/Gunzip | stdin bytes in, stdout bytes out, exit 0 or 1 | `mmap`(9), `read`(0), `write`(1), `munmap`(11), `exit`(60) — `Stdlib/Zlib/Linux.lean:57-199` | raw 16 MB `mmap` arena used directly | 77 lines of spike glue over **207 + 2245 lines** of codegen |
+
+Two details in that table are load-bearing and easy to miss:
+
+- **Spike 4 packs a `sockaddr_in` as one 64-bit little-endian immediate**
+  (`Spikes/Spike4HttpServer/Linux/Program.lean:95-97`: `0x901F0002` = `AF_INET` plus
+  `htons(8080)`). AArch64 Linux is also little-endian in every configuration this project
+  would target, so the constant survives; the immediate-construction sequence does not
+  (`MOVZ`/`MOVK` pairs rather than a single `mov r64, imm64`).
+- **Spike 3 saves and restores allocator state around every syscall** because x86-64
+  `SYSCALL` clobbers `RCX` and `R11` (`Spikes/Spike3SortLines/Linux/Program.lean:110-112`,
+  matching `LinuxSyscallABI.clobberedRegs` at `Gasm/Targets/Linux/ABI.lean:49-53`). AArch64
+  `SVC` has a different clobber set, so this workaround is x86-specific and its ARM
+  equivalent has to be re-derived rather than translated.
+
+### 10.5 The single largest item, by a wide margin
+
+Spike 5's machine code is not in the spike. `Spikes/Spike5Gzip/Linux/Program.lean` is a
+77-line re-export; the real payload is `Stdlib/Zlib/Linux.lean` (207 lines) sitting on
+`Stdlib/Zlib/X86_64.lean` — **2245 lines of hand-authored x86-64 DEFLATE, Huffman and CRC32
+code generation**. Law 7 (`docs/REVIEW.md:75`) is why it lives under `Stdlib/Zlib/` with an
+architecture in its filename rather than inside the spike: target-specific assembly is
+relocated out of the spike trio. The corresponding ARM file has no shortcut — it is a
+from-scratch port, and it is larger than every other spike's program combined.
+
+### 10.6 Ordering, grounded in what the two existing teams did
+
+The x86-64 side built Spikes 1→5 in numeric order over months. The Linux team did not: it
+landed **all five spikes plus the target foundation in one commit** (`d3c2fc2`, "implement
+Linux x86-64 target, unified ELF64 subsystem, and all 5 Spikes"), which was possible because
+the specs, the trace machinery, the effect vocabulary and the x86-64 instruction model
+already existed and only the OS layer was new. An ARM target has neither the instruction
+model nor the OS layer, so it is closer to the x86-64 situation than the Linux one.
+
+What the two histories jointly suggest, offered as observation rather than instruction:
+
+1. **Spike 1 first, on bare metal**, because §2 has already demonstrated the boot-and-observe
+   loop for it and it needs no input path. It forces the encoder, the ELF packaging, the
+   device model and the harness — everything except the ISA breadth.
+2. **Spike 2 next**: same I/O surface as Spike 1, but it forces control flow, loops and
+   integer division. It is the first spike where the *proof* gets hard rather than the
+   emission — see §11, and note that `fib_iter_asm_soundness`
+   (`Spikes/Spike2Fibonacci/Windows/Equivalence.lean:65-66`) is the tree's one worked example
+   of a spike routine proved by structural induction instead of by evaluation.
+3. **Spike 4 before Spike 3**, contrary to the numbering. Spike 4 is 211 lines with no
+   allocator; Spike 3 is 534 lines and drags in `Stdlib.SmolAlloc`. Spike 4's cost is a
+   larger syscall set, which is table-driven work; Spike 3's cost is an allocator interacting
+   with syscall clobbers, which is not.
+4. **Spike 5 last**, and budget it against §10.5's line count rather than against its
+   position in the list.
+
+---
+
+## 11. The pointwise spike-equivalence convention, and the debt it mints
+
+### 11.1 What the ledger says
+
+`scripts/gate_allowlist.txt` is this project's oracle-debt ledger. Each non-comment line has
+five `::`-delimited fields — relative path, bare declaration name, fully-qualified name,
+category, justification (format documented at `scripts/gate_allowlist.txt:3-42`). Every
+`native_decide` or `bv_decide` occurrence in the tree needs a matching entry under an honest
+category; a bare `decide` needs none, because the kernel performs that evaluation itself and
+no axiom is introduced (`docs/REVIEW.md:106`, Law 10, rungs 2–4).
+
+Counted at commit `38efb5f`: **81 entries — 34 `grandfathered`, 45 `axiom-only`, 2
+`finite-forall`.** The target the owner has stated is zero; the count is the score
+(`docs/adr/0038-standards-are-earned-before-imposed.md`). `docs/ORACLE_DEBT.md` is the
+full audit of this ledger and the mapped path to zero — note its headline figures are from
+2026-08-27 at 80 entries and the distribution has since moved, so read it for the shapes and
+the task mapping rather than for the counts.
+
+### 11.2 The debt is minted by the target convention, not by instructions
+
+This was measured, and the measurement corrected a coordinator's assumption:
+
+- **Instructions add zero allowlist entries.** `SyscallOp`
+  (`Gasm/Targets/X86_64/Instructions/Syscall.lean:33`) — the instruction that made the entire
+  Linux target possible — added none. Roundtrip proofs are discharged by kernel-checked
+  `decide` across the sharded `Gasm/Targets/X86_64/RoundtripGate/*` gate theorems.
+- **The Linux target added a net 24 entries.** Measured directly:
+  `git show d3c2fc2 --numstat -- scripts/gate_allowlist.txt` reports 30 added, 6 removed.
+- The conclusion, recorded in `docs/adr/0039-x86-isa-expansion-prerequisites.md`: "instructions
+  add **zero** allowlist entries…; the ~24 came from the *target*. The debt mint is the
+  pointwise spike-equivalence convention, not the ISA."
+
+The convention is this: each spike's `Equivalence.lean` states a whole-program claim of the
+shape `(runAsmTrace instructions executable.load == runModelTrace spec) = true` and proves it
+by evaluating both sides at **one hardcoded environment**. The claim's *type* is universal;
+the proof is a single point. Law 9 (`docs/REVIEW.md:98`) prohibits exactly that, and Law 10's
+third bullet says the ~25 contracts of this shape are "grandfathered migration backlog…, not
+compliant instances."
+
+Five spikes on ARM, authored the way the Linux target authored them, lands a comparable
+number of entries.
+
+### 11.3 The convention is ours, and it is known-bad
+
+Per `docs/adr/0038-standards-are-earned-before-imposed.md`, we do not get to gate you on a
+standard we do not meet at 81 entries; the proposed ratchet gate on this count was explicitly
+declined for that reason. Telling you is not the same as gating you. The alternative to
+telling you is exporting a defect silently, which is worse for you than knowing.
+
+### 11.4 What has been tried, and what it cost
+
+Recent, and directly relevant, because it bounds your options:
+
+- **The oracle was retired and then partly reinstated.** Commit `7a1a3e2` moved 23 spike
+  trace-equivalence tactic sites from `native_decide` to `decide` / `decide +kernel`. Commit
+  `d239d21` reverted most of them: Spike 1 Linux converted in 139 s, comparable to the
+  `native_decide` it replaced, but Spikes 2 and 3 both exceeded 560 s and were killed —
+  "kernel reduction pays for every loop iteration, and build time is a standing constraint
+  here." So `decide` is a real option at Spike 1 scale and a measured non-option above it.
+- **Spike 1 bare metal on x86-64 is proved by `decide` today and carries no allowlist entry.**
+  `Spikes/Spike1Hello/BareMetal/Equivalence.lean:52-56` discharges
+  `spike1_baremetal_canonical_effect_trace_equivalence` with `set_option maxRecDepth 4000 in
+  decide`. The only obstacle found was elaborator recursion depth, not opacity. This is the
+  precedent directly under an ARM Spike 1, and it is a clean one.
+- **The one spike routine closed structurally is `fib_iter_asm_soundness`**
+  (`Spikes/Spike2Fibonacci/Windows/Equivalence.lean:65-66`): `∀ n ≤ 124, runFibIterAsm n =
+  (fibIter n).toUInt64`, proved by loop-invariant induction through
+  `Spikes/Spike2Fibonacci/Windows/LoopInvariant.lean` rather than by enumerating 91 concrete
+  inputs. Directly beneath it in the same file, `spike2_canonical_effect_trace_equivalence`
+  is still `native_decide`. That pairing is the whole state of the art here: the routine-level
+  claim was closed; the whole-program trace claim was not.
+
+### 11.5 A recommendation, not a requirement
+
+If you author five spikes' equivalence proofs pointwise, the result will build, the gates
+will pass with honest allowlist entries, and you will have followed the convention this
+codebase actually practises. Nobody will block it, and per §11.3 nobody has standing to.
+
+The recommendation, offered because you would otherwise have to discover the alternatives by
+hitting them: **prove the routine, then derive the trace.** `fib_iter_asm_soundness` shows
+the routine half is reachable with loop-invariant induction. The tracked work on the other
+half is `docs/tasks/PA8-law9-migration.md` (the Law 9 migration itself),
+`docs/tasks/PA15-fibonacci-loop-invariant-induction.md` (the technique),
+`docs/tasks/PA18-small-domain-decide-migration.md` (which domains are small enough for rung
+2), `docs/tasks/PA16-codec-roundtrip-universal-soundness.md` (Spike 5's roundtrip claims),
+and `docs/tasks/PA14-crc32-table-identity-structural-closure.md` (structural closure of the
+CRC table identity). **Status**: none of PA8, PA14, PA15, PA16 or PA18 has landed; each is
+`status: ready` in its own frontmatter, and `docs/ORACLE_DEBT.md` Part 4 classifies PA14 and
+PA16 as not confidently reaching zero on any bounded timeline. Read Law 9
+(`docs/REVIEW.md:98`) and Law 10 (`docs/REVIEW.md:106`) and choose knowingly.
+
+If you do land pointwise entries, the one thing that genuinely matters is that the
+justification field is honest and specific. `check_gates.py` reports stale entries and
+`lake exe check_gates_axioms` requires every `axiom-only` entry to match a real finding in
+its own scan — a decorative justification is the only failure mode here that is nobody's
+debt but the author's.
+
+---
+
+## 12. Weak memory: where our x86-TSO assumptions live, and what ARM will find
+
+§8 argued that an AArch64 target is the strongest available adversarial witness for a
+concurrency memory model. That argument is unchanged. What has changed since §7 was written
+is that the x86 side of it is now a written design rather than rumour, so the specific
+places where a TSO assumption could hide can be named.
+
+### 12.1 The state of the memory model
+
+`docs/X86_MEMORY_MODEL.md` landed 2026-08-28. Its own §1 states: "this is a design document,
+not a report of built machinery. **Nothing specified here exists in the tree**." Its scope is
+x86-TSO as an operational store-buffer machine over Write-Back memory only. Its verified
+findings, which are the useful part for you:
+
+- Zero atomic instruction forms exist: no `LOCK` prefix, no `CMPXCHG`, no `XADD`, no
+  `MFENCE`/`LFENCE`/`SFENCE`, no non-temporal store.
+- The machine model is single-threaded: one sealed byte image, one interpreter, program order.
+- `ThreadId` exists only in trace-layer vocabulary; happens-before vocabulary
+  (`VectorClock.happensBefore`/`join`/`tick`) exists in `Gasm/Core/Types.lean:48-64`, and the
+  trace layer is single-thread-degenerate by construction.
+- A previously-displayed ordering theorem in `docs/TARGETS/X86_64.md` §3 was fiction and was
+  removed (commit `f597a53`). See §12.4.
+
+`docs/SPIKES/SPIKE8_MULTITHREADING.md` is the paired spike design (tasks MT1–MT6), also
+design-only. The owner's ruling that couples the two to ISA growth is quoted verbatim in
+`docs/BORROW_MODEL.md:40`: *"isa scale up: we need multithreading and borrowing resolved"*.
+
+### 12.2 Where a TSO assumption plausibly hides
+
+Named so that you recognise one when you hit it, not as a list of defects — each of these is
+correct for x86 today:
+
+1. **`MemAccessKind` has exactly two constructors, `load` and `store`**
+   (`Gasm/Targets/X86_64/MemoryCell.lean:41-43`). There is no read-modify-write kind, no
+   acquire/release marking, and no barrier kind. AArch64's `LDXR`/`STXR` exclusive pairs,
+   `LDAR`/`STLR`, and `DMB`/`DSB` have no descriptor to declare themselves in.
+   `docs/X86_MEMORY_MODEL.md` §4 plans a `.rmw` kind as MT1's deliverable. **Status**: `.rmw`
+   does not exist; it is named only in doc comments and design prose.
+2. **The store footprint is the ordering model.** `WritesWithin` and `ReadsWithin`
+   (`Gasm/Targets/X86_64/MemoryFrame/Common.lean:39-42`, `:73-78`) relate a single `step` to
+   a single pre-state and post-state. There is no interleaving, no buffer, no drain. A frame
+   lemma of this shape is a statement about one thread in program order, and it is silent —
+   not wrong, silent — about what another observer sees.
+3. **`XCHG` is the tripwire that was deliberately placed for exactly this.**
+   `Gasm/Targets/X86_64/Instructions/Xchg.lean:27-37` carries a note that the tree's only
+   form is register-register with `memAccesses _ := []`, that the *memory* form is
+   architecturally LOCK'd on x86 whether or not the prefix is written, and that its
+   sanctioned landing is MT1. On AArch64 the corresponding construct is not one instruction
+   with implicit atomicity but an `LDXR`/`STXR` pair whose exclusive monitor is invalidated by
+   interrupts, context switches, and any intervening exclusive load —
+   `docs/TARGETS/ARM.md:73-79` sketches the proof obligations, and its restriction of such
+   sequences to tight barrier-free basic blocks is a design sketch, not implemented.
+4. **MMIO ordering is already flagged as an x86/ARM divergence.**
+   `docs/TARGETS/BARE_METAL.md:48-60` ("MMIO Device Barriers (ARM `DSB`/`DMB` & x86
+   Serialization)") is the one place in the tree that already states the ARM side. Your PL011
+   writes are memory-mapped where x86's 16550 writes are port I/O (§4's table), so a device
+   ordering question that x86 gets for free is a real question for you on the very first
+   spike.
+5. **`Spikes/Spike1Hello/BareMetal/Program.lean:93-101` polls the 16550 LSR before each byte
+   and §4 of this document already notes the ARM analogue should poll `UARTFR`.** On a weak
+   memory model, "poll a flag then store a byte" is a place where ordering is load-bearing in
+   a way it is not on TSO.
+
+**Status**: no ARM memory model is designed, no `.rmw` or ordering descriptor exists, and
+`docs/SPIKES/SPIKE8_MULTITHREADING.md` §6.3 sequences even *x86* bare-metal SMP last, at cost
+"roughly comparable to the original bare-metal target bring-up itself."
+
+### 12.3 Why finding one of these is a service
+
+If you write a single-threaded AArch64 Spike 1 and it passes, you have not tested any of the
+above — a single-threaded program on a weak model behaves like a single-threaded program on
+TSO. The value arrives the first time an ARM construct has nowhere honest to declare itself:
+the first `DMB`, the first `LDXR`/`STXR` pair, the first PL011 flag-poll whose ordering
+matters. The correct response at that moment is not to widen `MemAccessKind` locally — it is
+to record that the descriptor vocabulary does not cover the construct, because that is
+evidence the model needs, and it is evidence nobody can generate on x86.
+`docs/X86_MEMORY_MODEL.md` §7 sets out how TSO claims get falsified rather than merely
+stated; ARM is the falsifier that x86 cannot be.
+
+### 12.4 One precedent worth knowing before you write documentation
+
+`docs/TARGETS/X86_64.md` §3 displayed a fenced Lean theorem, `x86_mov_store_is_release`,
+asserting a store-ordering property. No such declaration existed anywhere in the tree. It was
+removed in commit `f597a53`. The doc-facade linter had a real gap here — checks 1 and 2 of
+`scripts/check_doc_facade.py` operate on prose with fenced blocks stripped, so a fabricated
+theorem displayed as code was structurally invisible. That gap is filed as
+`docs/tasks/TC22-doc-lean-fence-facade.md` and a `THEOREM_FENCE_ABSENT` check now exists in
+the linter, but the episode is the reason for the standing rule: **do not display a theorem
+that does not exist.** A displayed theorem carries the visual authority of checked code in a
+project whose entire premise is that displayed theorems are real.
+
+---
+
+## 13. The memory-access surface is moving under you
+
+If you are writing memory-touching ARM instructions, this section is the one to read before
+you copy a shape from `Gasm/Targets/X86_64/`. Some of what you would copy is one week old and
+still being reshaped.
+
+### 13.1 What is stable to build against
+
+- **`Gasm/Core/Arch.lean:23`, `class TargetArch (Arch : Type)`** — word width, machine state
+  type, instruction AST, pure step. This is the extension point for an AArch64 arch tag and
+  it has been stable.
+- **`Gasm/Core/ABI.lean:26-35`, `class AbiDiscipline`** — parameterised over
+  `Register Arch (TargetArch.wordWidth Arch)`, so an AAPCS64 instance slots in cleanly beside
+  `SystemVAMD64` (`Gasm/Targets/Linux/ABI.lean:32-45`). Note that `LinuxSyscallABI`
+  (`Gasm/Targets/Linux/ABI.lean:49-53`) is *not* parameterised — its fields are typed `Reg64`
+  — so an AArch64 syscall ABI needs its own structure rather than an instance.
+- **The effect vocabulary** — `Gasm/Effects/` (`Console`, `Network`, `Process`,
+  `FileSystem`, `Trace`, `Inject`) and the spike `Spec.lean` files that sit on it are
+  architecture-neutral by construction and are what makes Route A in §10.3 cheap.
+- **`Gasm/Targets/ELF/Format.lean`** — one `Elf64_Ehdr` structure shared by the bare-metal and
+  Linux emitters. `e_machine` defaults to `EM_X86_64` (`:34`, `:93`) and neither emitter sets
+  it explicitly, so this is a single well-located change rather than a scattered one.
+
+### 13.2 What landed a week ago and is still settling
+
+**MH1, the semantic memory hook**, merged at `27ab4ed` and refined through `55b87ad`. What is
+actually in the tree, verified rather than quoted from the design:
+
+- A sealed memory cell: `structure X86_64Memory` with `private mk ::` and `private raw`
+  (`Gasm/Targets/X86_64/MemoryCell.lean:72-74`).
+- `MemAccessKind` (`load`/`store`), `MemWidth`, `MemRef`, `MemAccessSpec`, and the footprint
+  functions (`Gasm/Targets/X86_64/MemoryCell.lean:41-43`, `Gasm/Targets/X86_64/Memory.lean:49-105`).
+- `memAccesses : ι → List MemAccessSpec` on the instruction class with **no default**
+  (`Gasm/Targets/X86_64/Instructions/Base.lean:66`) — 74 forms declare `memAccesses _ := []`,
+  14 declare real accesses; 74 + 14 = the 88 forms.
+- `WritesWithin`/`ReadsWithin` obligations (`Gasm/Targets/X86_64/MemoryFrame/Common.lean:39-78`)
+  discharged for the 14 memory forms across six per-family shards, aggregated by
+  `Gasm/Targets/X86_64/MemoryFrame.lean` so they elaborate whenever `Gasm` builds.
+
+Two corrections to figures that circulate about MH1, both verified here: the frame-lemma
+count is not 88 × 2. There are 30 theorems under `Gasm/Targets/X86_64/MemoryFrame/`, of which
+28 are the 14 memory forms' `writesWithin`/`readsWithin` pairs and 2 are the shared batch
+lemmas `registerOnly_writesWithin`/`registerOnly_readsWithin`
+(`Gasm/Targets/X86_64/MemoryFrame/Common.lean:88`, `:107`). The 74 register-only forms are
+covered *in principle* by those batch lemmas; they are not individually instantiated today.
+
+Two defects in this surface were found by adversarial review on 2026-08-28 and are recorded
+in the code rather than left implicit — read both notes before you design an ARM equivalent,
+because they are the design's own account of what a seal does and does not buy:
+
+- **The seal is bypassable.** `private mk ::` does not privatise the auto-generated
+  eliminators; `m.casesOn (fun f => f)` yields the raw `Address → Byte` from any module.
+  The note at `Gasm/Targets/X86_64/MemoryCell.lean:60-77` explains why that leak is
+  semantically empty (the blessed API is total and public, so the bytes were never secret)
+  and states the property the seal actually buys: every memory touch goes through a *named*
+  function, so access sites are enumerable and future instrumentation has one place to land.
+  **Status**: that note describes the intended enforcement as a build-failing check named
+  `Tools/CheckMemoryHookSeal.lean`. No such file exists under `Tools/` at commit `38efb5f`
+  (`Tools/` holds `CheckGatesAxioms`, `CheckRefsCoverage`, `CheckX86Obligations`,
+  `GateSubprocess`, `ValidateSpikeWasm`), and no such gate is wired into
+  `scripts/run_gates.py`. Treat the chokepoint as a convention that is documented and
+  intended-to-be-linted, not one that is currently enforced.
+- **`ReadsWithin` originally did not constrain the resulting memory**, so an instruction could
+  load from an undeclared address, store the loaded value, and still satisfy the obligation.
+  The repair is the `StoreAgreeOn` conjunct (`Gasm/Targets/X86_64/MemoryFrame/Common.lean:56-59`,
+  folded into `ReadsWithin` at `:73-78`). The comment at `:48-55` cites a negative control in
+  `MemoryFrame/NegativeControl.lean`. **Status**: that file does not exist in the tree at
+  commit `38efb5f`; the conjunct is present and the refutation witness it cites is not.
+
+### 13.3 What is being designed right now and will change the authoring surface
+
+- **`docs/BORROW_MODEL.md`** (2026-08-28) designs borrowing as obligation dispatch: an
+  indexed monad, a custom weaving DSL, and capability transfer where lending a read costs the
+  write capability until every read is discharged. Tasks BR1–BR3. It already cites §7 of this
+  document. **Status**: design only — "**No borrow mechanism exists in the tree**" is its own
+  §1. `Gasm/Core/BlockM.lean` (Atkey's parameterised monad) exists and is used by nothing.
+- **MH2** (uop centralisation) and **MH3** (the Law 11 capability authoring surface) are both
+  `status: ready` and unstarted; `docs/MEMORY_HOOK.md` §8 sequences them after MH1.
+- **MT1** (atomic primitives) is `status: blocked` on `docs/X86_MEMORY_MODEL.md`.
+
+The practical consequence: **the descriptor layer (`MemAccessSpec`, `memAccesses`,
+footprints, frame lemmas) is the part to mirror; the capability and permission layer is
+not**, because it is about to be replaced by the borrow model rather than extended.
+
+### 13.4 The permissions slot ARM already has, and what it is worth
+
+`MemoryPermissions` is parameterised by architecture — `structure MemoryPermissions (Arch :
+Type)` at `Gasm/Core/Permissions.lean:66-68` — so an ARM permissions type is representable
+today with no change to Core. Be clear-eyed about what that is worth: the `Arch` parameter is
+phantom. Neither field (`tokens`, `disjoint`) mentions it, and the whole container has exactly
+one consumer in the tree, `ComposedState.perms` at `Gasm/Core/State.lean:31`. Splitting
+(`MemoryPerm.split`, `Gasm/Core/Permissions.lean:38-49`) is spatial only and carries the same
+`share` into both halves; there is no `Exclusive → ReadOnly ⊗ ReadOnly` operation anywhere,
+which is precisely the primitive `docs/BORROW_MODEL.md` §1.1 identifies as missing. Law 11
+(`docs/REVIEW.md:127`) states its own position plainly: "zero modules are migrated to the
+capability-authoring path today… Any claim that current artifacts satisfy this law is false."
+
+So: the slot exists, nothing occupies it on any architecture, and filling it for ARM before
+the borrow model resolves would be building against a moving part.
+
+### 13.5 One more moving part, outside memory
+
+`docs/TARGETS/TARGET_MODEL.md` describes the target-slice structure in terms of
+`Gasm/X86_64/`, `Gasm/ARM/`, per-target `Machine.lean`/`DSL.lean`/`ABI.lean`/`Emit.lean`, and
+a `Gasm.Common.*` family of shared proof libraries. **Status**: none of that layout exists.
+The tree is `Gasm/Core/`, `Gasm/Effects/`, `Gasm/Targets/<Target>/`, and there is no
+`Gasm/Common/` directory of any kind. Read `docs/TARGETS/TARGET_MODEL.md` for the *intent*
+(independent vertical slices, thin shared helpers) and `Gasm/Targets/X86_64/` for the shape.
+
+---
+
+## 14. Where to write things down
+
+The repository is the only channel between us, in both directions, and it is more asymmetric
+than it looks: **commit messages are not a durable record here.** ADR-0031 (D23) rules that
+`PLAN.md`, `docs/adr/` and `docs/tasks/` become the sole surviving decision history once the
+repository is flattened, and `scripts/check_record.py` gates that record — duplicate decision
+IDs, decisions without ADRs, ADRs without a `## Provenance` section, and dangling
+cross-references inside those files all fail the build. A decision explained only in a commit
+message is a decision that will be lost.
+
+Concretely, and offered as orientation rather than as process imposed on you:
+
+- **This file** is the right place for ARM target facts — what you measured, what you chose,
+  what surprised you. Extending it is what it is for; §1–§9 were written by someone who
+  expected to be replaced by whoever read them.
+- **`docs/tasks/`** holds one markdown file per unit of work with YAML frontmatter
+  (`id`, `title`, `status`, `blocked_on`, `after`, `related`, `track`, `priority`, `design`,
+  `date`). `scripts/task_frontier.py --validate` checks the DAG. `docs/tasks/MH1-semantic-memory-hook.md`
+  is a representative worked example.
+- **`docs/adr/`** records decisions; `PLAN.md` records the owner's rulings. Both are owned by
+  the coordinating session, and both are gated by `check_record.py`, so a change there that
+  does not match its counterpart fails.
+- **`CONTRIBUTING.md`** §"The gates that must pass" lists the merge-gate commands, and
+  §"Describing not-yet-built machinery" documents the `**Status**:` convention that
+  `scripts/check_doc_facade.py` keys on. Every unbuilt claim in a document needs one; that is
+  Law 9's requirement and it is mechanically checked.
+
+The most useful thing you can write down is a place where this codebase's conventions did not
+fit AArch64. §12.3 is the example: a construct with nowhere honest to declare itself is
+evidence, and it is evidence only if it is recorded where somebody will read it.
