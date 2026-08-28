@@ -261,6 +261,48 @@ Reviewers MUST include a **Domain Gap Matrix**:
 | Spec Permitted Behavior / Input Space | Theorem Hypothesis / Bound | Gap Status (`Verified` / `Weakened` / `Uncovered`) | Justification & Impact |
 | :--- | :--- | :--- | :--- |
 
+#### C. Citation Adequacy Audit
+
+`scripts/check_refs.py` proves that a cited anchor *resolves*. It cannot prove that the cited
+section *justifies* the declaration, and no other gate does either. That half is the
+reviewer's, and it is not discharged by observing that CI is green.
+
+For every declaration under review, the reviewer MUST read the cited section — not its
+heading, its body — and classify the citation as one of:
+
+- `justified` — the section states something the declaration depends on;
+- `understated` — the section is on-topic but states strictly less than the declaration
+  commits to (record what is missing);
+- `misaimed` — the justifying content exists elsewhere in the same document (record the
+  correct anchor);
+- `false` — the section describes something else, or contradicts the declaration;
+- `vacuous` — the cited heading has no body.
+
+Reviewers MUST report `justified` counts alongside the others. A citation audit that finds
+only defects has not calibrated itself against the document, and the same anchor routinely
+carries both good and bad citations.
+
+Three rules make the audit cheap enough to actually perform:
+
+1. **Read the neighbours.** The correct citation is very often already present within a few
+   declarations in the same file. Where it is, the finding is `misaimed` and the fix is
+   mechanical.
+2. **Distinguish a bad citation from a missing document.** Where a cluster of citations has
+   nowhere correct to point, the finding is a specification gap and the remedy is Law 5's:
+   author the design document before touching the citations. Report it as such rather than as
+   a citation defect.
+3. **Layering is part of adequacy.** A declaration in `Gasm/Core/` citing a
+   `docs/TARGETS/` document is a defect independent of whether the section's content fits,
+   because it inverts the dependency the target abstraction exists to maintain.
+
+Reviewers MUST include a **Citation Adequacy Table**:
+
+| Declaration (path:line) | Cited anchor | Class | What the section states vs. what the declaration needs |
+| :--- | :--- | :--- | :--- |
+
+Scope: every declaration whose theorem is under review, plus — for a review touching a
+document — every citation landing on the sections that document changed.
+
 ### 4.3 Pillar 3: Structured Architectural Health Audit
 Reviewers MUST author an explicit evaluation across four architectural axes:
 1. **Target Separation & Placement:** Does all code live in its correct domain hierarchy (`Core/`, `Effects/`, `Targets/`, `Stdlib/`) without bleeding OS or hardware concepts across abstraction boundaries?
