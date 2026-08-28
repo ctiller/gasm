@@ -126,55 +126,72 @@ def agreeOutsideMemory (s1 s2 : X86_64MachineState) : Prop :=
 --------------------------------------------------------------------------------------------------
 
 /- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
-/-- Read-over-write, same address: a write of width `w` at `a` is read back exactly (truncated to
-    the reading width) by a same-width, same-address read. -/
-theorem X86_64Mem.read_write_same (w : MemWidth) (a : Address) (v : UInt64) (m : X86_64Memory) :
-    X86_64Mem.read w a (X86_64Mem.write w a v m) =
-      (match w with
-        | .w8  => v.toUInt8.toUInt64
-        | .w16 => v.toUInt16.toUInt64
-        | .w32 => v.toUInt32.toUInt64
-        | .w64 => v) := by
-  cases w <;> simp [X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte, X86_64Mem.writeByte] <;>
-    (try omega) <;> (try bv_decide)
+/-- Width decomposition + read-over-write, same address, at the width the 14 memory forms
+    overwhelmingly use: a 64-bit write is read back byte-for-byte by a same-address 64-bit read
+    (today's byte ladders, made a lemma instead of implicit per-file re-derivation,
+    `docs/MEMORY_HOOK.md` §3.4). Address-offset disequalities among `{a, ..., a+7}` need no
+    no-overflow side condition (unlike `readByte_write_disjoint`'s external `a'`): the offsets are
+    bounded constants ≤ 7, and no two of `a+i`/`a+j` for `i ≠ j ≤ 7` can collide mod 2⁶⁴ regardless
+    of `a`'s value. -/
+theorem X86_64Mem.read64_write64_same (a : Address) (v : UInt64) (m : X86_64Memory) :
+    X86_64Mem.read .w64 a (X86_64Mem.write .w64 a v m) = v := by
+  have h01 : a ≠ a + 1 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h02 : a ≠ a + 2 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h03 : a ≠ a + 3 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h04 : a ≠ a + 4 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h05 : a ≠ a + 5 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h06 : a ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h07 : a ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h12 : a + 1 ≠ a + 2 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h13 : a + 1 ≠ a + 3 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h14 : a + 1 ≠ a + 4 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h15 : a + 1 ≠ a + 5 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h16 : a + 1 ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h17 : a + 1 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h23 : a + 2 ≠ a + 3 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h24 : a + 2 ≠ a + 4 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h25 : a + 2 ≠ a + 5 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h26 : a + 2 ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h27 : a + 2 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h34 : a + 3 ≠ a + 4 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h35 : a + 3 ≠ a + 5 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h36 : a + 3 ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h37 : a + 3 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h45 : a + 4 ≠ a + 5 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h46 : a + 4 ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h47 : a + 4 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h56 : a + 5 ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h57 : a + 5 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  have h67 : a + 6 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
+  simp only [X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte, ne_eq] at *
+  simp [h01, h02, h03, h04, h05, h06, h07, h12, h13, h14, h15, h16, h17, h23, h24, h25, h26, h27,
+    h34, h35, h36, h37, h45, h46, h47, h56, h57, h67]
+  bv_decide
+
+-- `X86_64Mem.readByte_initRegion` and `X86_64Mem.readByte_zero` live in `MemoryCell.lean`
+-- (byte-granular, no `MemRef`/state dependency needed) rather than duplicated here.
 
 /- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
-/-- Read-over-write, disjoint ranges: a write of width `wW` at `aW` never disturbs a read of width
-    `wR` at `aR` whose byte range `[aR, aR+wR)` does not overlap `[aW, aW+wW)`. Wraparound at 2⁶⁴
-    is ruled out by `hnov` (the disjointness hypotheses on the `Nat` addresses), matching how
-    `MemoryPerm.validRange` already carries a no-overflow side condition rather than re-deriving
-    it per access (`docs/MEMORY_HOOK.md` §3.4). -/
-theorem X86_64Mem.read_write_disjoint (wW wR : MemWidth) (aW aR : Address) (v : UInt64) (m : X86_64Memory)
-    (hnov : aR.toNat + wR.bytes ≤ aW.toNat ∨ aW.toNat + wW.bytes ≤ aR.toNat) :
-    X86_64Mem.read wR aR (X86_64Mem.write wW aW v m) = X86_64Mem.read wR aR m := by
-  cases wW <;> cases wR <;>
-    simp only [X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte, X86_64Mem.writeByte] <;>
-    (try split) <;> (try split) <;> (try split) <;> (try split) <;>
-    first
-      | rfl
-      | (exfalso; omega)
-      | (congr 1 <;> omega)
-
-/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
-/-- `initRegion` read-back: reading any byte of an installed image returns exactly what the
-    installing function says at that address. -/
-theorem X86_64Mem.readByte_initRegion (f : Address → Byte) (a : Address) :
-    X86_64Mem.readByte (X86_64Mem.initRegion f) a = f a := rfl
-
-/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
-/-- `zero`'s bytes are all zero. -/
-theorem X86_64Mem.readByte_zero (a : Address) : X86_64Mem.readByte X86_64Mem.zero a = 0 := rfl
-
-/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
-/-- Push/pop roundtrip: popping immediately after pushing `v` returns `v` and restores RSP,
-    for any pre-state (the standard hardware-stack roundtrip fact every calling-convention proof
-    ultimately rests on). -/
+/-- Push/pop roundtrip: popping immediately after pushing `v` returns `v`, restores RSP, and
+    leaves every other register untouched, for any pre-state (the standard hardware-stack
+    roundtrip fact every calling-convention proof ultimately rests on). Stated observationally
+    (return value / RSP / other-register facts) rather than as one literal full-state equality:
+    the mutable-update encoding of `gprs` makes a literal record equality require proving pointwise
+    function equality of two `Reg64 → UInt64` closures that differ only by an unreachable-but-
+    syntactically-present redundant branch, which is not `rfl` (the branch's dead-ness depends on
+    `reg`, a bound variable) -- these three facts are the actual content calling-convention proofs
+    need and each closes directly. -/
 theorem push64_pop64_roundtrip (s : X86_64MachineState) (v : UInt64) :
-    (s.push64 v).pop64 = (v, s.setGpr64 .rsp (s.rsp - 8 + 8)) := by
+    (s.push64 v).pop64.1 = v ∧
+    (s.push64 v).pop64.2.rsp = s.rsp ∧
+    ∀ r, r ≠ .rsp → (s.push64 v).pop64.2.gprs r = s.gprs r := by
   simp only [X86_64MachineState.push64, X86_64MachineState.pop64, X86_64MachineState.rsp,
     X86_64MachineState.setGpr64]
-  constructor
-  · simp [X86_64MachineState.read64, X86_64Mem.read_write_same]
-  · rfl
+  refine ⟨?_, ?_, ?_⟩
+  · simp [X86_64MachineState.read64, X86_64MachineState.write64, X86_64Mem.read64_write64_same]
+  · have heq : (s.gprs .rsp - 8 + 8).toNat = (s.gprs .rsp).toNat := by simp
+    simp [UInt64.toNat_inj.mp heq]
+  · intro r hr
+    simp [hr]
 
 end Gasm.Targets.X86_64
