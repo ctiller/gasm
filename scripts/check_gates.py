@@ -23,7 +23,13 @@ entire finite domain. Single-ground-instance checks are regression tests,
 not verification, and every occurrence must be explicitly allowlisted in
 scripts/gate_allowlist.txt (no `_inst`-suffix-in-a-module-name auto-pass --
 that shortcut existed in an earlier revision and let new, unreviewed
-pointwise checks slip in silently; it has been removed).
+pointwise checks slip in silently; it has been removed). `bv_decide` is
+recognized and gated identically: it shares `native_decide`'s exact
+axiom-emission code path (`Lean.Meta.nativeEqTrue`, the same routine both
+tactics call to compile a closed term, run it, and assert the result as an
+axiom) -- see docs/PATHFINDER_CRC32.md #3.6-policy and TCB.md's `bv_decide`
+entry for the empirical basis -- so it falls under the identical "exhaustive
+finite domain only" restriction, not a separate or lesser one.
 
 THIS SCRIPT IS NOT THE GATE. It is a fast, line-regex/text pre-check over
 .lean *source text*, kept as a secondary/defense-in-depth signal because it
@@ -51,16 +57,25 @@ see Tools/CheckGatesAxioms.lean's header comment for how that was verified
 and why it is matched by namespace component rather than a fixed substring.
 
 This script still enforces, on the text it CAN see:
-1. Every `native_decide` / `decide +native` / `decide (native := true)`
-   occurrence must be allowlisted in scripts/gate_allowlist.txt, classified:
+1. Every `native_decide` / `decide +native` / `decide (native := true)` /
+   `bv_decide` occurrence must be allowlisted in scripts/gate_allowlist.txt,
+   classified:
      - finite-forall : exhaustive over a finite domain (permanent). Given
                         only a SHALLOW SYNTACTIC sanity check (not a proof):
                         the declaration's statement must show a `∀`, a
                         `for .. in [a:b]` bound, a `List.range N` with
-                        N > 1, or a `.all`/`.any` NOT applied directly to an
-                        obvious bracketed literal list -- a stray `-- ∀` in
-                        a comment does not count, since comments are
-                        stripped before this check runs.
+                        N > 1, a `.all`/`.any` NOT applied directly to an
+                        obvious bracketed literal list, OR -- specifically
+                        for a `bv_decide` occurrence, which (unlike
+                        native_decide/decide) proves a goal containing FREE,
+                        parameter-bound bitvector variables directly via
+                        bit-blasting rather than requiring the whole
+                        proposition closed into one `for`/`.all`/`List.range`
+                        term -- an explicit typed parameter over a finite
+                        bitvector-shaped type (`UInt8`/`UInt16`/`UInt32`/
+                        `UInt64`/`USize`/`BitVec`) in the declaration header.
+                        A stray `-- ∀` in a comment does not count, since
+                        comments are stripped before this check runs.
      - grandfathered : predates Law 10, single-vector check (migration
                        backlog). Reported every run, not hidden.
      - axiom-only    : an entry that exists purely for
@@ -173,6 +188,24 @@ NATIVE_DECIDE_REGEX = re.compile(r'\bnative_decide\b')
 DECIDE_NATIVE_REGEX = re.compile(
     r'\bdecide\b(?:(?!\b(?:' + DECL_KEYWORDS + r')\b)[\s\S]){0,160}?'
     r'(?:\+native\b|\(\s*native\s*:=\s*true\s*\)|\bnative\s*:=\s*true\b)'
+)
+# `bv_decide` as a whole word (tactic invocation, with or without a trailing
+# `(config := ...)`/`?` suffix -- the bare word match already catches every
+# spelling), anywhere in the text. Gated identically to native_decide/decide
+# (see the module docstring above and docs/PATHFINDER_CRC32.md #3.6-policy):
+# `bv_decide` shares native_decide's exact axiom-emission code path
+# (`Lean.Meta.nativeEqTrue`) on this toolchain, so it is not a lesser or
+# separate restriction.
+BV_DECIDE_REGEX = re.compile(r'\bbv_decide\b')
+# A finite-forall `bv_decide` occurrence's declaration binds its universally-
+# quantified variable(s) as an ordinary typed Lean parameter (`bv_decide`
+# bit-blasts the OPEN goal directly, unlike native_decide/decide, which
+# require the whole proposition closed into one `for`/`.all`/`List.range`
+# term) -- so the shallow corroboration signal for it is "a parameter typed
+# over a finite bitvector-shaped type", not a `∀`/`for..in`/`List.range`/
+# `.all`/`.any` shape.
+BV_FINITE_TYPE_PARAM_REGEX = re.compile(
+    r'\([a-zA-Z_][a-zA-Z0-9_ ]*:\s*(?:UInt8|UInt16|UInt32|UInt64|USize|BitVec\b[^)]*)\)'
 )
 
 
@@ -373,14 +406,16 @@ class Occurrence:
 
 def find_occurrences_in_text(text: str) -> List[Tuple[int, str]]:
     """Returns [(char_offset, kind), ...] for every native_decide /
-    decide+native occurrence in (comment-stripped) `text`, sorted by
-    position. Operates on the full text (not per-line) so a multi-line
+    decide+native / bv_decide occurrence in (comment-stripped) `text`, sorted
+    by position. Operates on the full text (not per-line) so a multi-line
     `decide (native := true)` config is still found."""
     found = []
     for m in NATIVE_DECIDE_REGEX.finditer(text):
         found.append((m.start(), "native_decide"))
     for m in DECIDE_NATIVE_REGEX.finditer(text):
         found.append((m.start(), "decide+native"))
+    for m in BV_DECIDE_REGEX.finditer(text):
+        found.append((m.start(), "bv_decide"))
     found.sort(key=lambda t: t[0])
     return found
 
@@ -488,7 +523,7 @@ def load_allowlist() -> Tuple[Dict[Tuple[str, str], AllowlistEntry], List[str]]:
     return entries, errors
 
 
-def corroboration_signal(text: str) -> Optional[str]:
+def corroboration_signal(text: str, kind: Optional[str] = None) -> Optional[str]:
     """
     Cheap, SHALLOW syntactic sanity check for a `finite-forall` allowlist
     entry -- not a proof, just a sign the statement isn't a single hardcoded
@@ -499,7 +534,27 @@ def corroboration_signal(text: str) -> Optional[str]:
         list (e.g. `[1, 2, 3].all (...)`) -- that's a handful of hardcoded
         vectors wearing a quantifier's clothes, not real exhaustion.
     Returns a short description of the signal found, or None.
+
+    `kind` is the occurrence's tactic kind (see `find_occurrences_in_text`).
+    For `bv_decide` specifically, none of the shapes below ever appear:
+    `bv_decide` bit-blasts the goal directly, including any FREE (ordinary
+    Lean parameter-bound) bitvector variables in context, so a genuine
+    `bv_decide`-discharged finite-forall theorem is just `theorem foo (x :
+    UInt32) : P x := by bv_decide` -- no `∀`/`for..in`/`List.range`/`.all`/
+    `.any` text anywhere. (native_decide/decide cannot do this: `nativeEqTrue`
+    requires the whole proposition closed with no free variables, which is
+    exactly why THEIR finite-forall shape is always an explicit for-loop/
+    `.all`/`List.range` term packaging the universal claim into one closed
+    decidable `Bool`.) So a `bv_decide` occurrence is corroborated instead by
+    an explicit typed parameter over a finite bitvector-shaped type in the
+    declaration header -- the ordinary-math-notation equivalent of `∀` for
+    this mechanism.
     """
+    if kind == "bv_decide":
+        m = BV_FINITE_TYPE_PARAM_REGEX.search(text)
+        if m:
+            return f"bv_decide over parameter {m.group(0)} (finite bitvector domain)"
+
     if "∀" in text:
         return "explicit ∀ quantifier"
 
@@ -592,8 +647,10 @@ def main():
     occurrences, all_decls_by_file, all_lines_by_file = collect_occurrences()
     native_decide_count = sum(1 for o in occurrences if o.kind == "native_decide")
     decide_native_count = sum(1 for o in occurrences if o.kind == "decide+native")
+    bv_decide_count = sum(1 for o in occurrences if o.kind == "bv_decide")
     print(f"\n[*] Found {len(occurrences)} Law-10-gated occurrence(s) in source text: "
-          f"{native_decide_count} native_decide, {decide_native_count} decide+native/(native := true).")
+          f"{native_decide_count} native_decide, {decide_native_count} decide+native/(native := true), "
+          f"{bv_decide_count} bv_decide.")
     print("    (bare `decide` with no native config is unrestricted by Law 10)")
 
     allowlist, allowlist_errors = load_allowlist()
@@ -630,7 +687,7 @@ def main():
         if allow_entry.category == "finite-forall":
             lines = all_lines_by_file.get(occ.file, [])
             statement_text = "\n".join(lines[occ.decl.line - 1: occ.line])
-            signal = corroboration_signal(statement_text)
+            signal = corroboration_signal(statement_text, occ.kind)
             if signal:
                 finite_forall.append((occ, allow_entry.justification))
             else:
@@ -723,7 +780,8 @@ def main():
 
     print("\n" + "=" * 70)
     print(f" SUMMARY: {len(occurrences)} Law-10-gated occurrence(s) found in source text "
-          f"({native_decide_count} native_decide, {decide_native_count} decide+native/(native := true)).")
+          f"({native_decide_count} native_decide, {decide_native_count} decide+native/(native := true), "
+          f"{bv_decide_count} bv_decide).")
     print(f"          {len(finite_forall)} finite-forall (shallow check passed)")
     print(f"          {len(grandfathered)} grandfathered (migration backlog)")
     print(f"          {len(axiom_only_entries)} axiom-only (defer to Tools/CheckGatesAxioms.lean)")
