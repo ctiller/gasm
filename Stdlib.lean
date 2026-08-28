@@ -37,6 +37,7 @@ import Stdlib.Zlib.CanonicalTableSpec
 import Stdlib.Zlib.PackageMergeSpec
 import Stdlib.Zlib.DynamicBlockSpec
 import Stdlib.Zlib.DynamicRoundtrip
+import Stdlib.Zlib.RoundtripCorollaries
 
 import Stdlib.Png.Spec
 import Stdlib.Png.Filter

@@ -113,32 +113,6 @@ theorem encode_distance_bounds_inst :
     (fun dist _ => by have := encodeDistance_code_le_29 dist; omega)
 
 /- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: Empty data DEFLATE roundtrip soundness. -/
-theorem deflate_roundtrip_empty_inst :
-    (match decompress (compress ByteArray.empty) with
-     | Except.ok res => res == ByteArray.empty
-     | Except.error _ => false) = true := by
-  native_decide
-
-/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: DEFLATE roundtrip soundness on hello world ASCII bytes. -/
-theorem deflate_roundtrip_soundness_inst :
-    let data := "Hello, World! Verified DEFLATE in Lean 4.".toUTF8
-    (match decompress (compress data) with
-     | Except.ok res => res == data
-     | Except.error _ => false) = true := by
-  native_decide
-
-/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: Repetitive run DEFLATE roundtrip soundness. -/
-theorem deflate_roundtrip_repetitive_inst :
-    let data := ByteArray.mk #[42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42]
-    (match decompress (compress data) with
-     | Except.ok res => res == data
-     | Except.error _ => false) = true := by
-  native_decide
-
-/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
 /-- Verified Simulation Instance: ZLIB RFC 1950 container roundtrip soundness with Adler-32 verification. -/
 theorem zlib_roundtrip_soundness_inst :
     let data := "Testing ZLIB RFC 1950 container format roundtrip soundness.".toUTF8
@@ -154,29 +128,6 @@ theorem gzip_roundtrip_soundness_inst :
     (match gzipDecompress (gzipCompress data) with
      | Except.ok res => res == data
      | Except.error _ => false) = true := by
-  native_decide
-
-/- REF: docs/STDLIB_ZLIB.md#63-canonical-15-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for DEFLATE on arbitrary streams.
-    The outer `Except.error _ => false` is deliberate (2026-08-27, PA16 Phase 1 vacuity fix): the
-    prior `=> true` here meant a `decompress` that always failed would still discharge this theorem,
-    since `testStream` is a fixed, already-known-good literal and the check never required the
-    initial decompress to actually succeed. This instance is still a single-ground-instance
-    `native_decide` check (Law 9/10 non-compliant; tracked, not fixed, by
-    docs/PA16_CODEC_SOUNDNESS.md), but it no longer has a branch that is vacuously satisfiable by a
-    broken decompressor. The universal target this instance stands in for legitimately keeps
-    `error => True` in its outer branch (see docs/STDLIB_ZLIB.md#63-canonical-15-roundtrip-soundness-theorems
-    and docs/PA16_CODEC_SOUNDNESS.md's opening finding) since not every `ByteArray` is a valid
-    compressed stream; the vacuity concern applies only to a pointwise regression check over a
-    literal already known to succeed. -/
-theorem deflate_idempotent_canonical_roundtrip_inst :
-    let testStream := compress "Canonical 1.5-roundtrip theorem test.".toUTF8
-    (match decompress testStream with
-     | Except.error _ => false
-     | Except.ok data =>
-       match decompress (compress data) with
-       | Except.ok res => res == data
-       | Except.error _ => false) = true := by
   native_decide
 
 /- REF: docs/STDLIB_ZLIB.md#63-canonical-15-roundtrip-soundness-theorems -/
