@@ -27,15 +27,20 @@ defaultTargets = [
   "Gasm", "Spikes", "Stdlib", "GateSubprocess",
   "check_gates_axioms", "check_refs_coverage",
   "spike1_hello_windows", "test_spike1_windows",
+  "spike1_hello_linux", "test_spike1_linux",
   "spike1_hello_wasm", "test_spike1_wasm",
   "spike1_hello_baremetal", "test_spike1_baremetal",
   "spike2_fibonacci_windows", "test_spike2_windows",
+  "spike2_fibonacci_linux", "test_spike2_linux",
   "spike2_fibonacci_wasm", "test_spike2_wasm",
   "spike3_sort_lines_windows", "test_spike3_windows",
+  "spike3_sort_lines_linux", "test_spike3_linux",
   "spike3_sort_lines_wasm", "test_spike3_wasm",
   "test_smolalloc", "test_zlib", "test_png", "gzip_fuzzer", "perf_fuzzer", "encoding_fuzzer", "test_roundtrip",
-  "spike4_http_windows", "spike4_http_wasm", "test_spike4",
-  "spike5_gzip_windows", "spike5_gunzip_windows", "spike5_gzip_wasm", "test_spike5",
+  "spike4_http_windows", "spike4_http_linux", "spike4_http_wasm", "test_spike4",
+  "spike5_gzip_windows", "spike5_gunzip_windows",
+  "spike5_gzip_linux", "spike5_gunzip_linux",
+  "spike5_gzip_wasm", "test_spike5",
   "x86_fuzzer", "wasm_fuzzer", "validate_spike_wasm"
 ]
 
@@ -86,6 +91,14 @@ name = "test_spike1_windows"
 root = "Spikes.Spike1Hello.Windows.Test"
 
 [[lean_exe]]
+name = "spike1_hello_linux"
+root = "Spikes.Spike1Hello.Linux.Emit"
+
+[[lean_exe]]
+name = "test_spike1_linux"
+root = "Spikes.Spike1Hello.Linux.Test"
+
+[[lean_exe]]
 name = "spike1_hello_wasm"
 root = "Spikes.Spike1Hello.Wasm.Emit"
 
@@ -110,6 +123,14 @@ name = "test_spike2_windows"
 root = "Spikes.Spike2Fibonacci.Windows.Test"
 
 [[lean_exe]]
+name = "spike2_fibonacci_linux"
+root = "Spikes.Spike2Fibonacci.Linux.Emit"
+
+[[lean_exe]]
+name = "test_spike2_linux"
+root = "Spikes.Spike2Fibonacci.Linux.Test"
+
+[[lean_exe]]
 name = "spike2_fibonacci_wasm"
 root = "Spikes.Spike2Fibonacci.Wasm.Emit"
 
@@ -124,6 +145,14 @@ root = "Spikes.Spike3SortLines.Windows.Emit"
 [[lean_exe]]
 name = "test_spike3_windows"
 root = "Spikes.Spike3SortLines.Windows.Test"
+
+[[lean_exe]]
+name = "spike3_sort_lines_linux"
+root = "Spikes.Spike3SortLines.Linux.Emit"
+
+[[lean_exe]]
+name = "test_spike3_linux"
+root = "Spikes.Spike3SortLines.Linux.Test"
 
 [[lean_exe]]
 name = "spike3_sort_lines_wasm"
@@ -162,6 +191,10 @@ name = "spike4_http_windows"
 root = "Spikes.Spike4HttpServer.Windows.Emit"
 
 [[lean_exe]]
+name = "spike4_http_linux"
+root = "Spikes.Spike4HttpServer.Linux.Emit"
+
+[[lean_exe]]
 name = "spike4_http_wasm"
 root = "Spikes.Spike4HttpServer.Wasm.Emit"
 
@@ -188,6 +221,14 @@ root = "Spikes.Spike5Gzip.Windows.Emit"
 [[lean_exe]]
 name = "spike5_gunzip_windows"
 root = "Spikes.Spike5Gzip.Windows.GunzipEmit"
+
+[[lean_exe]]
+name = "spike5_gzip_linux"
+root = "Spikes.Spike5Gzip.Linux.Emit"
+
+[[lean_exe]]
+name = "spike5_gunzip_linux"
+root = "Spikes.Spike5Gzip.Linux.GunzipEmit"
 
 [[lean_exe]]
 name = "spike5_gzip_wasm"

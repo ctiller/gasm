@@ -26,9 +26,12 @@ import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.Windows.PEFormat
 import Gasm.Targets.Windows.Linker
 import Gasm.Targets.Windows.Win32API
+import Gasm.Targets.Linux.Syscall
+import Gasm.Targets.Linux.Linker
 import Gasm.Targets.WASI.ABI
 import Spikes.Spike4HttpServer.Spec
 import Spikes.Spike4HttpServer.Windows.Program
+import Spikes.Spike4HttpServer.Linux.Program
 import Spikes.Spike4HttpServer.Wasm.Program
 
 namespace Spikes.Spike4HttpServer
@@ -38,8 +41,8 @@ open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.Targets.X86_64
 open Gasm.Targets.Windows
+open Gasm.Targets.Linux
 open Gasm.Targets.WASI
-open Spikes.Spike4HttpServer.Windows
 open Spikes.Spike4HttpServer.Wasm
 
 set_option maxRecDepth 2000000
@@ -63,17 +66,17 @@ def modelTrace404 : List AnyEvent :=
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Windows x86_64 concrete machine execution trace on Root (/) request. -/
 def windowsTraceRoot : List AnyEvent :=
-  runAsmTrace (Event := AnyEvent) spike4Instructions (spike4Executable.loadWithRequests ["GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests ["GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Windows x86_64 concrete machine execution trace on /status request. -/
 def windowsTraceStatus : List AnyEvent :=
-  runAsmTrace (Event := AnyEvent) spike4Instructions (spike4Executable.loadWithRequests ["GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests ["GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Windows x86_64 concrete machine execution trace on 404 request. -/
 def windowsTrace404 : List AnyEvent :=
-  runAsmTrace (Event := AnyEvent) spike4Instructions (spike4Executable.loadWithRequests ["GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+  runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests ["GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- WebAssembly WASI execution trace on Root (/) request. -/
@@ -132,6 +135,42 @@ theorem spike4_wasm_404_trace_equivalence :
     (wasmTrace404 == modelTrace404.map Inject.inject) = true := by
   native_decide
 
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
+/-- Linux x86_64 concrete machine execution trace on Root (/) request. -/
+def linuxTraceRoot : List AnyEvent :=
+  runAsmTrace (Event := AnyEvent) Spikes.Spike4HttpServer.Linux.spike4Instructions (Spikes.Spike4HttpServer.Linux.spike4Executable.loadWithRequests ["GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
+/-- Linux x86_64 concrete machine execution trace on /status request. -/
+def linuxTraceStatus : List AnyEvent :=
+  runAsmTrace (Event := AnyEvent) Spikes.Spike4HttpServer.Linux.spike4Instructions (Spikes.Spike4HttpServer.Linux.spike4Executable.loadWithRequests ["GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
+/-- Linux x86_64 concrete machine execution trace on 404 request. -/
+def linuxTrace404 : List AnyEvent :=
+  runAsmTrace (Event := AnyEvent) Spikes.Spike4HttpServer.Linux.spike4Instructions (Spikes.Spike4HttpServer.Linux.spike4Executable.loadWithRequests ["GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+
+/- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Constructive Proof: x86_64 Linux Machine matches High-Level Spec on Root (/) route. -/
+theorem spike4_linux_root_trace_equivalence :
+    (linuxTraceRoot == modelTraceRoot) = true := by
+  native_decide
+
+/- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Constructive Proof: x86_64 Linux Machine matches High-Level Spec on /status route. -/
+theorem spike4_linux_status_trace_equivalence :
+    (linuxTraceStatus == modelTraceStatus) = true := by
+  native_decide
+
+/- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Constructive Proof: x86_64 Linux Machine matches High-Level Spec on 404 Not Found route. -/
+theorem spike4_linux_404_trace_equivalence :
+    (linuxTrace404 == modelTrace404) = true := by
+  native_decide
+
 /- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
 /-- **Domain-honesty note (PA17).** The real per-connection domain Law 9's read-binder clause
     demands here is `∀ (request : ByteArray)` (or the `String` `recv`/`sock_recv` currently model
@@ -180,7 +219,7 @@ def routeModelTrace : HttpRoute → List AnyEvent
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Universal routing equivalence theorem on x86_64 Windows across all route branches. -/
 theorem spike4_windows_route_equivalence (r : HttpRoute) :
-    (runAsmTrace (Event := AnyEvent) spike4Instructions (spike4Executable.loadWithRequests [routeRequestStr r]) == routeModelTrace r) = true := by
+    (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [routeRequestStr r]) == routeModelTrace r) = true := by
   cases r
   · exact spike4_windows_root_trace_equivalence
   · exact spike4_windows_status_trace_equivalence
@@ -195,6 +234,15 @@ theorem spike4_wasm_route_equivalence (r : HttpRoute) :
   · exact spike4_wasm_status_trace_equivalence
   · exact spike4_wasm_404_trace_equivalence
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Universal routing equivalence theorem on x86_64 Linux across all route branches. -/
+theorem spike4_linux_route_equivalence (r : HttpRoute) :
+    (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [routeRequestStr r]) == routeModelTrace r) = true := by
+  cases r
+  · exact spike4_linux_root_trace_equivalence
+  · exact spike4_linux_status_trace_equivalence
+  · exact spike4_linux_404_trace_equivalence
+
 /- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Honest restatement of `spike4_windows_route_equivalence`'s three constituent facts with their
@@ -207,7 +255,7 @@ theorem spike4_wasm_route_equivalence (r : HttpRoute) :
     be widened to "any request whose parsed path is `r`"). -/
 theorem spike4_windows_trace_equivalence_for_request (req : String) (r : HttpRoute)
     (h : req = routeRequestStr r) :
-    (runAsmTrace (Event := AnyEvent) spike4Instructions (spike4Executable.loadWithRequests [req]) == routeModelTrace r) = true := by
+    (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req]) == routeModelTrace r) = true := by
   subst h
   exact spike4_windows_route_equivalence r
 
@@ -245,7 +293,7 @@ exercises it.
   while `routeModelTrace .notFound` is a 404. Empirically confirmed (via a temporary, uncommitted
   `#eval` during this task's investigation, not a persisted proof — see the rationale below) for
   `req = "GET /static HTTP/1.1\r\nHost: localhost\r\n\r\n"`:
-  `runAsmTrace (Event := AnyEvent) spike4Instructions (spike4Executable.loadWithRequests [req])`'s
+  `runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req])`'s
   `send` event carries
   `"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n...{\"status\":\"healthy\",\"engine\":\"gasm\"}\r\n"`
   while `serverModelTraceFor req`'s `send` event carries
@@ -305,6 +353,10 @@ instance : EnvironmentLoader HttpRoute where
   loadEnvironment exe r := exe.loadWithRequests [routeRequestStr r]
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+instance : LinuxEnvironmentLoader HttpRoute where
+  loadEnvironment exe r := exe.loadWithRequests [routeRequestStr r]
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 instance : WasiEnvironmentLoader HttpRoute where
   loadWasiEnvironment r := (ByteArray.empty, [routeRequestStr r])
 
@@ -318,10 +370,19 @@ instance : WasiEnvironmentLoader HttpRoute where
     cite this declaration as evidence Spike 4 has been verified for arbitrary HTTP requests. -/
 def spike4WindowsVerifiedProgram : VerifiedProgram HttpRoute AnyEvent where
   name := "spike4_http_server_windows"
-  executable := spike4Executable
-  instructions := spike4Instructions
+  executable := Windows.spike4Executable
+  instructions := Windows.spike4Instructions
   spec := routeModelTrace
   traceEquivalence := spike4_windows_route_equivalence
+
+/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
+/-- Instantiation of the First-Class Parametric VerifiedLinuxProgram contract for Spike 4 on Linux x86_64 across all routing branches. -/
+def spike4LinuxVerifiedProgram : VerifiedLinuxProgram HttpRoute AnyEvent where
+  name := "spike4_http_server_linux"
+  executable := Linux.spike4Executable
+  instructions := Linux.spike4Instructions
+  spec := routeModelTrace
+  traceEquivalence := spike4_linux_route_equivalence
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- Instantiation of the First-Class Parametric VerifiedWasmProgram contract for Spike 4 on WebAssembly across all routing branches.

@@ -39,6 +39,7 @@ import Gasm.Targets.X86_64.Instructions.Xchg
 import Gasm.Targets.X86_64.Instructions.Cmov
 import Gasm.Targets.X86_64.Instructions.Call
 import Gasm.Targets.X86_64.Instructions.Ret
+import Gasm.Targets.X86_64.Instructions.Syscall
 import Gasm.Targets.X86_64.Decoder
 import Gasm.Targets.X86_64.Disassembler
 import Gasm.Targets.X86_64.Assembler

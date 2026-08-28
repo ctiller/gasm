@@ -46,7 +46,7 @@ def allEncodableInstructions : List AnyX86_64Instruction :=
   jccFamilyCases ++ pushFamilyCases ++ popFamilyCases ++ divFamilyCases ++ imulFamilyCases ++
   andFamilyCases ++ orFamilyCases ++ xorFamilyCases ++ notFamilyCases ++ negFamilyCases ++
   shiftFamilyCases ++ testFamilyCases ++ xchgFamilyCases ++ cmovFamilyCases ++ callFamilyCases ++
-  retFamilyCases ++ inFamilyCases ++ outFamilyCases ++ hltFamilyCases
+  retFamilyCases ++ inFamilyCases ++ outFamilyCases ++ hltFamilyCases ++ syscallFamilyCases
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Hand-maintained manifest of every concrete type this file's `run_cmd` audit below expects to
@@ -94,7 +94,9 @@ def expectedInstructionTypes : List Name := [
   -- In / Out / Hlt
   ``InAlImm8, ``InAlDx, ``InEaxImm8, ``InEaxDx,
   ``OutImm8Al, ``OutDxAl, ``OutImm8Eax, ``OutDxEax,
-  ``HltOp
+  ``HltOp,
+  -- Syscall
+  ``SyscallOp
 ]
 
 -- Elaboration-time environment audit (docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate).
@@ -150,13 +152,18 @@ run_cmd do
     ("shift", shiftFamilyCases.length), ("test", testFamilyCases.length),
     ("xchg", xchgFamilyCases.length), ("cmov", cmovFamilyCases.length),
     ("call", callFamilyCases.length), ("ret", retFamilyCases.length),
-    ("in", inFamilyCases.length), ("out", outFamilyCases.length), ("hlt", hltFamilyCases.length)
+    ("in", inFamilyCases.length), ("out", outFamilyCases.length), ("hlt", hltFamilyCases.length),
+    ("syscall", syscallFamilyCases.length)
   ]
   let empties := familyCounts.filter (fun p => p.2 == 0)
   if !empties.isEmpty then
     throwError s!"X86_64Instruction registry audit failed: empty roundtripCases family list(s) \
       (every family must contribute at least one case): {empties.map Prod.fst}"
   let totalCases := allEncodableInstructions.length
+  let sumFamilyCases := (familyCounts.map Prod.snd).foldl (· + ·) 0
+  if totalCases != sumFamilyCases then
+    throwError s!"X86_64Instruction registry audit failed: allEncodableInstructions has {totalCases} cases, \
+      but the sum of all familyCounts is {sumFamilyCases} — a family was dropped from allEncodableInstructions!"
   if totalCases < expectedInstructionTypes.length then
     throwError s!"X86_64Instruction registry audit failed: allEncodableInstructions has only \
       {totalCases} cases total, fewer than the {expectedInstructionTypes.length} registered \

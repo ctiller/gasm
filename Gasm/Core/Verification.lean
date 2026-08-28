@@ -20,7 +20,8 @@ import Gasm.Effects.Trace
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Instructions.Base
 import Gasm.Targets.X86_64.Semantics
-import Gasm.Targets.Windows.Win32API
+import Gasm.Targets.Dispatcher
+import Gasm.Targets.Linux.Linker
 
 namespace Gasm.Core.Verification
 
@@ -28,6 +29,7 @@ open Gasm.Core
 open Gasm.Effects
 open Gasm.Targets.X86_64
 open Gasm.Targets.Windows
+open Gasm.Targets.Linux
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- Universal model of the external operating system and runtime environment.
@@ -123,6 +125,54 @@ structure VerifiedRoutine (SpecState : Type) (MachineState : Type) (Event : Type
 def emitVerifiedExecutable {Env : Type} {Event : Type}
     [ExternalCallInterceptor X86_64 Event] [BEq Event] [EnvironmentLoader Env]
     (p : VerifiedProgram Env Event) : ByteArray :=
+  p.executable.emit
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Typeclass defining how an abstract environment `Env` is loaded into a Linux machine's initial execution state. -/
+class LinuxEnvironmentLoader (Env : Type) where
+  loadEnvironment : LinuxExecutable → Env → X86_64MachineState
+
+/- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
+/-- Default loader instance for standalone Linux executables with closed/empty environment. -/
+instance : LinuxEnvironmentLoader Unit where
+  loadEnvironment exe _ := exe.load
+
+/- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
+/-- Loader instance for Linux CLI utilities and filter programs taking dynamic stdin streams. -/
+instance : LinuxEnvironmentLoader ByteArray where
+  loadEnvironment exe stdin := exe.loadWithStdin stdin
+
+/- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
+/-- Loader instance for Linux servers receiving network requests. -/
+instance : LinuxEnvironmentLoader (List String) where
+  loadEnvironment exe reqs := exe.loadWithRequests reqs
+
+/- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
+/-- Loader instance for full universal operating system environment on Linux. -/
+instance : LinuxEnvironmentLoader Environment where
+  loadEnvironment exe env :=
+    let s0 := exe.loadWithStdin env.stdin
+    { s0 with incomingRequests := env.incomingRequests }
+
+/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- First-Class Universally Parametric Verified Whole-Program Contract for Linux x86-64. -/
+structure VerifiedLinuxProgram (Env : Type := Unit) (Event : Type := AnyEvent)
+    [ExternalCallInterceptor X86_64 Event] [BEq Event] [LinuxEnvironmentLoader Env] where
+  name             : String
+  executable       : LinuxExecutable
+  instructions     : List X86_64Instr
+  spec             : Env → List Event
+  traceEquivalence : ∀ (env : Env),
+    let s0 := LinuxEnvironmentLoader.loadEnvironment executable env
+    (runAsmTrace (Event := Event) instructions s0 == spec env) = true
+
+/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
+/-- Type-Enforced Linux Code Emission:
+    It is IMPOSSIBLE to call this function without a valid, proved `VerifiedLinuxProgram`. -/
+def emitVerifiedLinuxExecutable {Env : Type} {Event : Type}
+    [ExternalCallInterceptor X86_64 Event] [BEq Event] [LinuxEnvironmentLoader Env]
+    (p : VerifiedLinuxProgram Env Event) : ByteArray :=
   p.executable.emit
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/

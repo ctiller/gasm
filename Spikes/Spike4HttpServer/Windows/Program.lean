@@ -77,21 +77,21 @@ def rdataPayload : ByteArray :=
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
 /-- Symbolic program definition for Spike 4 x86_64 Windows HTTP 1.1 Server.
-    Stack Layout (total 520 bytes allocated, maintaining (RSP - 520) % 16 == 0):
+    Stack Layout (total 608 bytes allocated, maintaining (RSP - 608) % 16 == 0):
       [RSP + 0x00..0x1F] : shadow space (32 bytes)
       [RSP + 0x20..0x27] : server socket descriptor (8 bytes)
       [RSP + 0x28..0x2F] : client socket descriptor (8 bytes)
       [RSP + 0x30..0x3F] : sockaddr_in buffer (16 bytes)
-      [RSP + 0x40..0x4F] : HTTP request recv buffer (16 bytes)
-      [RSP + 0x50..0x1E8] : WSADATA buffer (408 bytes)
+      [RSP + 0x40..0xBF] : HTTP request recv buffer (128 bytes)
+      [RSP + 0xC0..0x258] : WSADATA buffer (408 bytes)
 -/
 def spike4SymbolicProgram : List SymbolicInstr := [
-  -- 1. Setup 520-byte stack frame (accommodates 408-byte WSADATA + locals + shadow space)
-  instr (sub_rsp32 520),
+  -- 1. Setup 608-byte stack frame (accommodates 408-byte WSADATA + 128-byte recv + locals + shadow space)
+  instr (sub_rsp32 608),
 
-  -- 2. WSAStartup(0x0202, lpWSAData = RSP + 0x50)
+  -- 2. WSAStartup(0x0202, lpWSAData = RSP + 0xC0)
   instr (mov_r32 .ecx 0x0202),
-  instr (lea_rsp .rdx 0x50),
+  instr (lea_rsp .rdx 0xC0),
   call_import "WSAStartup",
 
   -- 3. socket(af = AF_INET (2), type = SOCK_STREAM (1), protocol = IPPROTO_TCP (6))

@@ -43,8 +43,19 @@ def main : IO UInt32 := do
   IO.FS.writeBinFile winExePath winExeBytes
   IO.println s!"[+] Windows PE32+ binary generated: {winExePath} ({winExeBytes.size} bytes)"
 
-  -- 2. Verify VerifiedWasmProgram Contract & Binary Emission
-  IO.println "[*] [2/5] Verifying WebAssembly VerifiedWasmProgram Contract..."
+  -- 2. Verify VerifiedLinuxProgram Contract & Binary Emission
+  IO.println "[*] [2/6] Verifying x86_64 Linux VerifiedLinuxProgram Contracts..."
+  let linuxGzipBytes := emitVerifiedLinuxExecutable spike5LinuxVerifiedProgram
+  let linuxGunzipBytes := emitVerifiedLinuxExecutable spike5GunzipLinuxVerifiedProgram
+  let linuxGzipPath := "spike5_gzip_linux"
+  let linuxGunzipPath := "spike5_gunzip_linux"
+  IO.FS.writeBinFile linuxGzipPath linuxGzipBytes
+  IO.FS.writeBinFile linuxGunzipPath linuxGunzipBytes
+  IO.println s!"[+] Linux ELF64 GZIP binary generated: {linuxGzipPath} ({linuxGzipBytes.size} bytes)"
+  IO.println s!"[+] Linux ELF64 GUNZIP binary generated: {linuxGunzipPath} ({linuxGunzipBytes.size} bytes)"
+
+  -- 3. Verify VerifiedWasmProgram Contract & Binary Emission
+  IO.println "[*] [3/6] Verifying WebAssembly VerifiedWasmProgram Contract..."
   let wasmBytes ← IO.ofExcept (emitVerifiedWasmBinary spike5WasmVerifiedProgram)
   let wasmText := emitVerifiedWasmText spike5WasmVerifiedProgram
   let wasmPath := "spike5_gzip.wasm"
@@ -54,12 +65,13 @@ def main : IO UInt32 := do
   IO.println s!"[+] WebAssembly binary generated: {wasmPath} ({wasmBytes.size} bytes)"
   IO.println s!"[+] WebAssembly WAT text generated: {watPath}"
 
-  -- 3. Verify Constructive Trace Equivalence across Windows & WASM
-  IO.println "[*] [3/5] Verifying Constructive Trace Equivalence Theorems..."
+  -- 4. Verify Constructive Trace Equivalence across Windows, Linux & WASM
+  IO.println "[*] [4/6] Verifying Constructive Trace Equivalence Theorems..."
   IO.println s!"[DEBUG] windowsTraceCompress: {repr windowsTraceCompress}"
+  IO.println s!"[DEBUG] linuxTraceCompress: {repr linuxTraceCompress}"
   IO.println s!"[DEBUG] canonicalCompressTrace: {repr canonicalCompressTrace}"
-  if windowsTraceCompress == canonicalCompressTrace && wasmTraceCompress == canonicalCompressTrace.map Inject.inject then
-    IO.println "[+] GZIP Compression Trace: Windows and WASM traces 100% equivalent to Spec."
+  if windowsTraceCompress == canonicalCompressTrace && linuxTraceCompress == canonicalCompressTrace && wasmTraceCompress == canonicalCompressTrace.map Inject.inject then
+    IO.println "[+] GZIP Compression Trace: Windows, Linux, and WASM traces 100% equivalent to Spec."
   else
     IO.println "[!] FAIL: GZIP Compression trace mismatch!"
     return 1

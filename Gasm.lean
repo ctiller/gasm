@@ -58,6 +58,16 @@ import Gasm.Targets.Windows.PEFormat
 import Gasm.Targets.Windows.Win32API
 import Gasm.Targets.Windows.Emitter
 
+import Gasm.Targets.ELF.Format
+import Gasm.Targets.ELF.Notes
+
+import Gasm.Targets.Linux.ABI
+import Gasm.Targets.Linux.Syscall
+import Gasm.Targets.Linux.ELFFormat
+import Gasm.Targets.Linux.Emitter
+import Gasm.Targets.Linux.Linker
+import Gasm.Targets.Dispatcher
+
 import Gasm.Targets.Wasm.Types
 import Gasm.Targets.Wasm.AST
 import Gasm.Targets.Wasm.LEB128

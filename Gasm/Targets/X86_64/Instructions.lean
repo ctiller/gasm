@@ -58,6 +58,7 @@ import Gasm.Targets.X86_64.Instructions.Push
 import Gasm.Targets.X86_64.Instructions.Ret
 import Gasm.Targets.X86_64.Instructions.Shift
 import Gasm.Targets.X86_64.Instructions.Sub
+import Gasm.Targets.X86_64.Instructions.Syscall
 import Gasm.Targets.X86_64.Instructions.Test
 import Gasm.Targets.X86_64.Instructions.Xchg
 import Gasm.Targets.X86_64.Instructions.Xor

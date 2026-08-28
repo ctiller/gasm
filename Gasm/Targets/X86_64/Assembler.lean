@@ -210,23 +210,30 @@ def lookupSymbol (syms : SymbolTable) (name : String) : Option Address :=
   | (k, v) :: rest => if k == name then some v else lookupSymbol rest name
 
 /- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
-/-- Pass 1: Scans symbolic instructions and collects label addresses based on instruction offsets. -/
+/-- Pass 1: Scans symbolic instructions and collects label addresses based on instruction offsets.
+    Panics if duplicate label definitions are encountered. -/
 def buildSymbolTable (baseRip : Address) (program : List SymbolicInstr) : SymbolTable :=
   let rec scan (curRip : Address) (items : List SymbolicInstr) (acc : SymbolTable) : SymbolTable :=
     match items with
     | [] => acc
     | .label name :: rest =>
-      scan curRip rest ((name, curRip) :: acc)
+      if (lookupSymbol acc name).isSome then
+        panic! s!"buildSymbolTable: duplicate label definition '{name}' at RIP {curRip}"
+      else
+        scan curRip rest ((name, curRip) :: acc)
     | item :: rest =>
       let sz := estimatedSize item
       scan (curRip + sz.toUInt64) rest acc
   scan baseRip program []
 
 /- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
-/-- Converts signed relative offset (target - nextRip) to an 8-bit unsigned displacement byte. -/
+/-- Converts signed relative offset (target - nextRip) to an 8-bit unsigned displacement byte.
+    Panics if the relative offset cannot fit into a signed 8-bit integer [-128, 127]. -/
 def toDisp8 (target : Address) (nextRip : Address) : UInt8 :=
   let diff : Int := target.toNat - nextRip.toNat
-  if diff >= 0 then
+  if diff < -128 || diff > 127 then
+    panic! s!"toDisp8: displacement out of 8-bit range [-128, 127]: {diff} (target {target}, nextRip {nextRip})"
+  else if diff >= 0 then
     UInt8.ofNat diff.toNat
   else
     let neg := (-diff).toNat
@@ -242,6 +249,13 @@ def toDisp32 (target : Address) (nextRip : Address) : Int32 :=
     -Int32.ofNat (-diff).toNat
 
 /- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
+/-- Resolves a symbolic label to its concrete memory address, panicking on unresolved symbols. -/
+def resolveSymbol (allSymbols : SymbolTable) (target : String) (curRip : Address) : Address :=
+  match lookupSymbol allSymbols target with
+  | some addr => addr
+  | none => panic! s!"assembleProgram: undefined or unresolved symbol '{target}' referenced at RIP {curRip}"
+
+/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
 /-- Pass 2: Resolves symbolic labels and emits concrete X86_64Instr sequence. -/
 def assembleProgram (baseRip : Address) (program : List SymbolicInstr) (externalSymbols : SymbolTable := []) : List X86_64Instr :=
   let internalSymbols := buildSymbolTable baseRip program
@@ -255,116 +269,116 @@ def assembleProgram (baseRip : Address) (program : List SymbolicInstr) (external
     | .label _ :: rest =>
       emit curRip rest acc
     | .jmp target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [jmp_rel8 disp])
     | .jmpNear target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 5
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [jmp_rel32 disp])
     | .je target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [je_rel8 disp])
     | .jeNear target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 6
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [je_rel32 disp])
     | .jne target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [jne_rel8 disp])
     | .jneNear target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 6
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [jne_rel32 disp])
     | .jl target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [jl_rel8 disp])
     | .jle target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [jle_rel8 disp])
     | .jleNear target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 6
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [jle_rel32 disp])
     | .jg target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [jg_rel8 disp])
     | .jge target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [jge_rel8 disp])
     | .jgeNear target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 6
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [jge_rel32 disp])
     | .jb target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [jb_rel8 disp])
     | .jbNear target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 6
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [jb_rel32 disp])
     | .jae target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [jae_rel8 disp])
     | .jaeNear target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 6
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [jae_rel32 disp])
     | .ja target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [ja_rel8 disp])
     | .jaNear target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 6
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [ja_rel32 disp])
     | .jbe target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 2
       let disp := toDisp8 targetAddr nextRip
       emit nextRip rest (acc ++ [jbe_rel8 disp])
     | .leaSymbol dst target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 7
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [lea_rip dst disp])
     | .movData32 dst target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 5
       emit nextRip rest (acc ++ [mov_r32 dst targetAddr.toUInt32])
     | .callSymbol target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 6
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [call_rip disp])
     | .callLabel target :: rest =>
-      let targetAddr := lookupSymbol allSymbols target |>.getD curRip
+      let targetAddr := resolveSymbol allSymbols target curRip
       let nextRip := curRip + 5
       let disp := toDisp32 targetAddr nextRip
       emit nextRip rest (acc ++ [call_rel32 disp])

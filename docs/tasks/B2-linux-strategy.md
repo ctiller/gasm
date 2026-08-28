@@ -1,111 +1,70 @@
 ---
 id: B2
-title: Linux strategy — runners/hardware plan, cost factor
-status: blocked
-blocked_on: "hardware/cost decision"
-after: [TC6]
-related: []
+title: Linux target foundation & strategy — ABI, ELF64 linker, syscall semantics, and runner plan
+status: design-review
+blocked_on: ""
+after: [TC4]
+related: [TC6, N1]
 bar: ""
 track: build-scale
-priority: 2.0
-priority_set: 2026-08-27T18:25:47Z
-design: ""
+priority: 7.0
+priority_set: 2026-08-27T23:20:00Z
+design: "docs/TARGETS/LINUX.md"
 design_review: ""
 date: 2026-08-27
 ---
 
-# B2: Linux strategy — runners/hardware plan, cost factor
+# B2: Linux target foundation & strategy — ABI, ELF64 linker, syscall semantics, and runner plan
 
 ## Context
 
-This task is genuinely thin right now, and that is the correct state to record rather than pad
-around. TASKS.md states it plainly:
+`B2` encompasses both the **pure Lean Linux x86-64 target foundation** (ABI modeling, ELF64 binary emission/linking, unified syscall interception, and Spike 1 Hello World verification) and the **hardware/runner strategy** for multi-OS differential validation.
 
-> B2 Linux strategy: runners/hardware plan (Craig has ideas; cost factor), Linux target
-> implementation later — after: TC6; blocked: hardware/cost decision
+### Why it matters — the epistemology gap it closes
 
-There are two separate blockers layered here, not one:
-
-1. **A hard dependency on TC6** (CI establishment), which is itself blocked — TASKS.md marks TC6
-   `[b]` with "blocked: Craig determining where CI runs." Linux runner strategy is downstream of
-   knowing where CI itself lives; deciding a Linux hardware/runner plan before CI's location is
-   settled would be planning in a vacuum.
-2. **An explicit `blocked_on` of its own**: a hardware/cost decision that is Craig's to make, not
-   something this task can resolve by more analysis or design work. PLAN.md's operating-mode note
-   confirms this is a real, named, external blocker, not a placeholder: "Linux hardware comes once
-   the codebase is in better shape (cost a factor; Craig has ideas)."
-
-Both blockers are the same shape: **this is waiting on a decision, not on design work.** There is
-nothing productive this task can do right now beyond stating clearly what it's waiting on and why
-it matters — which is what the rest of this file does.
-
-### Why it matters when unblocked — the epistemology gap it closes
-
-PLAN.md's gaps register names the reason this eventually has to happen, under "Single-machine/
-single-OS epistemology" — quoted in full because it is short and states the concern precisely:
+PLAN.md's gaps register names the reason this must happen, under "Single-machine/single-OS epistemology":
 
 > **Single-machine/single-OS epistemology**: all hardware truth from one i9-13900H; whole oracle
 > stack is Windows-only; zen4/skylake profiles unvalidatable; Linux target doc'd but absent from
 > PLAN. Perf model must state "validated on exactly N microarchitectures"; Linux runner story
 > eventually gates fleet-scale agents.
 
-Two distinct consequences follow from this, and both are relevant to why B2 exists as its own task
-rather than being folded into the performance track:
-
-- **Every hardware-differential claim this project makes today — the x86 semantics fuzzer, the
-  perf model calibration work in F1/F3, the `zen4Profile`/`skylakeProfile` entries in
-  `Gasm/Targets/X86_64/Uop.lean`** — is validated against exactly one physical machine (an i9-13900H)
-  running exactly one OS (Windows). `zen4Profile` and `skylakeProfile` currently exist as
-  `MicroarchProfile` values with plausible-looking numbers, but nothing in the tree has ever measured
-  a real Zen 4 or Skylake chip — they are, in the same sense MODEL_DEBT flags elsewhere, unvalidated
-  hypotheses standing in for measurement. A second, independent OS/hardware target (Linux, and
-  eventually different silicon) is what would let the project honestly narrow that gap, or at least
-  state its validation scope precisely ("validated on exactly N microarchitectures") instead of
-  implicitly generalizing from N=1.
-- **The whole oracle stack — hardware fuzzer, NASM encoding fuzzer, Wasm/Node oracle, Win32 API
-  differential harness — is Windows-only today.** Any target-system ambition that assumes portable
-  agent fleets (VISION.md §1's target systems: game engines, operating systems, servers, databases —
-  several of which are conventionally deployed on Linux) eventually needs this closed. PLAN.md's own
-  phrasing — "Linux runner story eventually gates fleet-scale agents" — states this is not optional
-  polish; it is a scaling precondition for the project's stated ambitions, just not one that has to
-  be solved today.
+Closing this gap begins with establishing formal and mechanical foundations for Linux in Lean:
+1. **Instruction Set**: Adding `SyscallOp` (`0F 05`) to `Gasm.Targets.X86_64`, passing decoder and roundtrip gate audits.
+2. **Target ABIs**: Modeling System V AMD64 function call ABI and Linux Syscall register conventions in `Gasm.Targets.Linux.ABI`.
+3. **ELF64 Format & Linker**: Pure Lean ELF64 serialization (`Elf64_Ehdr`, `Elf64_Phdr`, `Elf64_Shdr`) and freestanding static executable linking (`Gasm.Targets.Linux.Linker`).
+4. **Syscall Semantics & Interception**: Unified system call effect interceptor mapping syscalls (`sys_write`, `sys_exit`, `sys_read`, `sys_mmap`) to typed `Effects` events.
+5. **Spike 1 Verification**: Complete port of Spike 1 (`Spikes.Spike1Hello.Linux.*`) with `native_decide` trace equivalence proof against `helloWorldSpec`.
+6. **Runner & Hardware Strategy**: Plan for Linux CI/differential testing runners to run generated ELF binaries and execute oracle fuzzers.
 
 ## Deliverables & acceptance criteria
 
-Nothing in this task can be delivered until it is unblocked. When Craig's hardware/cost decision
-lands (and TC6/CI-location is settled), this task's actual scope becomes:
-
-- A runners/hardware plan: what physical or cloud Linux hardware this project targets, informed by
-  whatever cost/vendor factors Craig's decision resolves.
-- A cost-factor writeup: what this plan costs (ongoing hosting/hardware spend, setup effort) as
-  input to the decision itself, if not already settled by the time this task is picked up.
-- Explicitly deferred, per TASKS.md's own phrasing ("Linux target implementation later"): this task
-  is the *plan*, not the implementation — porting the oracle stack (hardware fuzzer, NASM fuzzer,
-  Wasm/Node harness, Win32 differential harness) to Linux, or building a genuine Linux target model,
-  is later work this task's plan sets up but does not itself execute.
-- When this task is unblocked and its design work actually starts, it stops being pure policy and
-  should get a real design/review pass like any other stop-and-design item (Law 5) — but that is
-  future work; do not attempt to pre-write that design now while the hardware/cost decision remains
-  open, since the decision's shape (which hardware, which cost model) will materially determine what
-  the design needs to cover.
+- [x] **X86-64 `Syscall` Instruction**:
+  - `Gasm/Targets/X86_64/Instructions/Syscall.lean`: `SyscallOp` instance with `0F 05` encoding, micro-op breakdown, NASM emission, and `canFuzzHardware := false`.
+  - `Gasm/Targets/X86_64/Decoder.lean`: Decoder integration for `0x0F 0x05`.
+  - `Gasm/Targets/X86_64/RoundtripGate/Syscall.lean` & `Registry.lean`: Gate shard and type registration ensuring `expectedInstructionTypes` audit passes.
+- [x] **Linux Target Modules (`Gasm/Targets/Linux/`)**:
+  - `ABI.lean`: `AbiDiscipline X86_64 SystemVAMD64` instance and `LinuxSyscallABI` register definitions.
+  - `Syscall.lean`: Syscall number definitions (`SYS_write = 1`, `SYS_exit = 60`, etc.) and `LinuxSyscallInterceptor` producing typed domain events.
+  - `ELFFormat.lean`: Structured ELF64 data structures and standard constants (`ET_EXEC`, `PT_LOAD`, `PF_R | PF_X`, etc.).
+  - `Emitter.lean`: Pure Lean binary serialization for ELF64 headers and segments.
+  - `Linker.lean`: `LinuxExecutable` representation and `linkLinuxProgramStatic` with configurable base VMA (default `0x400000`) and 4KB segment alignment.
+- [x] **Spike 1 Linux Implementation & Verification (`Spikes/Spike1Hello/Linux/`)**:
+  - `Program.lean`: `spike1SymbolicProgram` using `sys_write` and `sys_exit`.
+  - `Emit.lean`: Assembles and links freestanding static ELF binary.
+  - `Equivalence.lean`: Constructive proof `spike1_canonical_effect_trace_equivalence` using `native_decide` matching `helloWorldSpec`.
+  - `Test.lean`: Executable test verifying generated ELF binary structure and execution trace.
+- [ ] **Hardware / Runner Plan**:
+  - Runner and differential oracle strategy document for executing Linux binaries in CI.
 
 ## Pointers
 
-- TASKS.md, "Build/scale" section, B2 line (quoted above) and TC6 line (the CI-location blocker this
-  task is also indirectly downstream of).
-- PLAN.md, operating-mode note: "Linux hardware comes once the codebase is in better shape (cost a
-  factor; Craig has ideas)."
-- PLAN.md gaps register, "Single-machine/single-OS epistemology" bullet (quoted in full above) — the
-  concrete epistemic gap this task exists to eventually close.
-- `Gasm/Targets/X86_64/Uop.lean:87-97` (`skylakeProfile`), `:102-112` (`zen4Profile`) — the two
-  cross-vendor/cross-microarchitecture profiles that currently have no real-hardware validation
-  behind them; this is the profile data a future Linux/multi-machine validation pass would need to
-  actually exercise.
-- `docs/VISION.md` §1 ("The Target Systems") — the fleet-scale agent ambition this task's
-  "eventually gates fleet-scale agents" language refers to.
+- Design specification: `docs/TARGETS/LINUX.md`.
+- Windows target precedent: `Gasm/Targets/Windows/` (`ABI.lean`, `PEFormat.lean`, `Emitter.lean`, `Linker.lean`, `Win32API.lean`).
+- Spike 1 precedent: `Spikes/Spike1Hello/Windows/` and `Spikes/Spike1Hello/Spec.lean`.
+- `Gasm/Targets/X86_64/Registry.lean` and `Gasm/Targets/X86_64/RoundtripGate/`.
 
 ## Notes
 
-- 2026-08-27: priority 2.0 — status: blocked on Craig's own hardware/cost decision (blocked_on: 'hardware/cost decision') — kept low per owner directive until that decision unblocks it; nothing productive happens here until then.
+- 2026-08-27: Repurposed and unblocked B2 per owner alignment via /grill-me session. Consolidated design in `docs/TARGETS/LINUX.md`. Scope expanded to cover the pure Lean Linux x86-64 target foundation, `syscall` instruction, ELF64 static linker, and Spike 1 equivalence proof alongside the runner plan.
 
-_(none yet — blocked on Craig's hardware/cost decision; nothing to consolidate until unblocked.)_
