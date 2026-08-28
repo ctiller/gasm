@@ -830,4 +830,117 @@ theorem readerBits_of_flushed (w : BitWriter)
   rw [(readerBits_mkBitReader (flushBitWriter w)).1]
   exact flushBitWriter_bits w hbuf hcnt
 
+/-
+## PA16 L2 groundwork: Huffman decode-tree path semantics
+
+`treeWalk` is the computable ghost semantics of a decode tree: follow a bit path from a
+node to a leaf. `decodeHuffmanSymbol_spec` proves the general decode law — for ANY table
+(fixed or dynamic): if some path through the tree reaches leaf `sym` and the reader's
+unconsumed ghost bits start with that path, decoding succeeds with `sym`, consumes exactly
+the path, and re-establishes the reader invariant. Per-table facts (which path each
+symbol's canonical code takes) then plug in as closed hypotheses.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Follows a bit path from a decode-tree node; `some sym` iff the path ends exactly on a
+    leaf carrying `sym`. -/
+def treeWalk : HuffmanNode → List Bool → Option Nat
+  | .leaf sym, [] => some sym
+  | .branch l _, false :: p =>
+    match l with
+    | some n => treeWalk n p
+    | none => none
+  | .branch _ rr, true :: p =>
+    match rr with
+    | some n => treeWalk n p
+    | none => none
+  | _, _ => none
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- General Huffman decode law over the tree-path semantics: from any tree node, if the
+    reader's ghost bits start with a path that `treeWalk` resolves to `sym`, then
+    `decodeHuffmanSymbol.step` succeeds with `sym`, consumes exactly the path, keeps the
+    byte source, and re-establishes the reader's operating invariant. -/
+theorem decodeHuffmanSymbol_step_spec (path : List Bool) :
+    ∀ (node : HuffmanNode) (sym : Nat) (r : BitReader) (rest : List Bool),
+      treeWalk node path = some sym →
+      readerBits r = path ++ rest →
+      r.bitBuf.toNat < 2 ^ r.bitCount → r.bitCount < 8 →
+      ∃ r', decodeHuffmanSymbol.step r node = .ok (r', sym) ∧
+        readerBits r' = rest ∧
+        r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  induction path with
+  | nil =>
+    intro node sym r rest hwalk hbits hinv hcnt
+    match node with
+    | .leaf s =>
+      simp only [treeWalk, Option.some.injEq] at hwalk
+      subst hwalk
+      refine ⟨r, ?_, by simpa using hbits, hinv, hcnt, rfl⟩
+      rw [decodeHuffmanSymbol.step.eq_def]
+    | .branch _ _ => simp [treeWalk] at hwalk
+  | cons b p ih =>
+    intro node sym r rest hwalk hbits hinv hcnt
+    match node with
+    | .leaf s => simp [treeWalk] at hwalk
+    | .branch l rr =>
+      -- one bit is available: readerBits r = b :: (p ++ rest)
+      have hlen : 1 ≤ (readerBits r).length := by
+        rw [hbits]; simp
+      obtain ⟨r1, v, hok, hv, hwin, hdrop, hinv1, hcnt1, hbytes1⟩ :=
+        readBits_spec r 1 hinv hcnt (by omega) hlen
+      -- the single-bit window determines v from b
+      have hwin1 : natBits 1 v = [b] := by
+        rw [hwin, hbits]
+        rfl
+      have hmod : (v % 2 == 1) = b := by
+        simpa [natBits] using hwin1
+      have hv2 : v < 2 := by
+        simpa using hv
+      have hdrop' : readerBits r1 = p ++ rest := by
+        rw [hdrop, hbits]
+        rfl
+      rw [decodeHuffmanSymbol.step.eq_def]
+      simp only [hok]
+      rcases b with _ | _
+      · -- b = false: v = 0, go left
+        have hv0 : v = 0 := by
+          have h' : ¬ v % 2 = 1 := by simpa using hmod
+          omega
+        subst hv0
+        cases l with
+        | some nl =>
+          simp only [treeWalk] at hwalk
+          obtain ⟨r', hstep, hbits', hinv', hcnt', hbytes'⟩ :=
+            ih nl sym r1 rest hwalk hdrop' hinv1 hcnt1
+          refine ⟨r', ?_, hbits', hinv', hcnt', by rw [hbytes', hbytes1]⟩
+          simpa using hstep
+        | none => simp [treeWalk] at hwalk
+      · -- b = true: v = 1, go right
+        have hv1 : v = 1 := by
+          have h' : v % 2 = 1 := by simpa using hmod
+          omega
+        subst hv1
+        cases rr with
+        | some nr =>
+          simp only [treeWalk] at hwalk
+          obtain ⟨r', hstep, hbits', hinv', hcnt', hbytes'⟩ :=
+            ih nr sym r1 rest hwalk hdrop' hinv1 hcnt1
+          refine ⟨r', ?_, hbits', hinv', hcnt', by rw [hbytes', hbytes1]⟩
+          simpa using hstep
+        | none => simp [treeWalk] at hwalk
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Top-level form of the decode law, phrased over `decodeHuffmanSymbol` and a table. -/
+theorem decodeHuffmanSymbol_spec (table : HuffmanTable) (path : List Bool) (sym : Nat)
+    (r : BitReader) (rest : List Bool)
+    (hwalk : treeWalk table.root path = some sym)
+    (hbits : readerBits r = path ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', decodeHuffmanSymbol r table = .ok (r', sym) ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  rw [decodeHuffmanSymbol]
+  exact decodeHuffmanSymbol_step_spec path table.root sym r rest hwalk hbits hinv hcnt
+
 end Stdlib.Zlib
