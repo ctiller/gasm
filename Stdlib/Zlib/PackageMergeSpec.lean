@@ -1059,4 +1059,247 @@ theorem master_counting (W N n : Nat) (isLeaf : Nat → Bool) (hW : 1 ≤ W) (hn
   · -- Kraft: K ≤ 2^W
     omega
 
+/-
+## Bridging to the real `packageMergeLengths`: leaf-list facts, loop characterizations,
+## flatten/count algebra.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- The leaf list `packageMergeLengths` builds, over an arbitrary index list. -/
+def pmLeavesOf (freqs : Array Nat) (l : List Nat) : List PMNode :=
+  l.filterMap fun s =>
+    if freqs[s]! > 0 then some { weight := freqs[s]!, syms := [s] } else none
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- The unsorted leaf list `packageMergeLengths` builds. -/
+def pmLeaves (freqs : Array Nat) : List PMNode :=
+  pmLeavesOf freqs (List.range freqs.size)
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- The weight-sorted leaf list `packageMergeLengths` works from. -/
+def pmSorted (freqs : Array Nat) : List PMNode :=
+  (pmLeaves freqs).mergeSort (fun a b => a.weight ≤ b.weight)
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Every sorted leaf is a singleton over an in-range, used symbol. -/
+theorem pmSorted_shape (freqs : Array Nat) {x : PMNode} (hx : x ∈ pmSorted freqs) :
+    ∃ s, s < freqs.size ∧ 0 < freqs[s]! ∧ x = { weight := freqs[s]!, syms := [s] } := by
+  have hx' : x ∈ pmLeaves freqs := List.mem_mergeSort.mp hx
+  obtain ⟨s, hs, hfs⟩ := List.mem_filterMap.mp hx'
+  by_cases hpos : freqs[s]! > 0
+  · rw [if_pos hpos] at hfs
+    exact ⟨s, List.mem_range.mp hs, hpos, (Option.some.injEq .. ▸ hfs).symm⟩
+  · rw [if_neg hpos] at hfs
+    exact absurd hfs (by simp)
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- The sorted leaf count is the number of used symbols. -/
+theorem pmSorted_length (freqs : Array Nat) :
+    (pmSorted freqs).length =
+      (List.range freqs.size).countP (fun s => decide (0 < freqs[s]!)) := by
+  unfold pmSorted pmLeaves pmLeavesOf
+  rw [List.length_mergeSort, List.length_filterMap_eq_countP]
+  apply List.countP_congr
+  intro s _
+  by_cases hpos : freqs[s]! > 0
+  · rw [if_pos hpos]
+    simp [hpos]
+  · rw [if_neg hpos]
+    simp
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Duplicate-free index lists give at most one leaf per symbol. -/
+theorem pmLeavesOf_count_le (freqs : Array Nat) (s : Nat) : ∀ (l : List Nat),
+    ((pmLeavesOf freqs l).map (fun x => x.syms.count s)).sum ≤ l.count s := by
+  intro l
+  induction l with
+  | nil => simp [pmLeavesOf]
+  | cons t l ih =>
+    have hstep : pmLeavesOf freqs (t :: l) =
+        (if freqs[t]! > 0 then [({ weight := freqs[t]!, syms := [t] } : PMNode)] else []) ++
+          pmLeavesOf freqs l := by
+      unfold pmLeavesOf
+      rw [List.filterMap_cons]
+      by_cases hpos : freqs[t]! > 0
+      · rw [if_pos hpos, if_pos hpos]
+        rfl
+      · rw [if_neg hpos, if_neg hpos]
+        rfl
+    rw [hstep, List.map_append, List.sum_append, List.count_cons]
+    by_cases hpos : freqs[t]! > 0
+    · rw [if_pos hpos]
+      have hone : ((([({ weight := freqs[t]!, syms := [t] } : PMNode)]) : List PMNode).map
+          (fun x => x.syms.count s)).sum = ([t] : List Nat).count s := by
+        simp
+      rw [hone]
+      have hcnt : (([t] : List Nat).count s) ≤ if (t == s) = true then 1 else 0 := by
+        by_cases hts : t = s
+        · subst hts
+          simp
+        · have h1 : ((t : Nat) == s) = false := by simp [hts]
+          rw [h1, List.count_cons, if_neg (by rw [h1]; simp)]
+          simp
+      omega
+    · rw [if_neg hpos]
+      simp only [List.map_nil, List.sum_nil, Nat.zero_add]
+      omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- `List.range` holds each value at most once. -/
+theorem count_range_le_one (s : Nat) : ∀ (N : Nat), (List.range N).count s ≤ 1 := by
+  intro N
+  induction N with
+  | zero => simp
+  | succ N ih =>
+    rw [List.range_succ, List.count_append]
+    by_cases hs : N = s
+    · subst hs
+      have hzero : (List.range N).count N = 0 := by
+        rw [List.count_eq_zero]
+        intro hmem
+        exact absurd (List.mem_range.mp hmem) (by omega)
+      rw [hzero]
+      simp
+    · have h1 : ((N : Nat) == s) = false := by simp [hs]
+      have h2 : ([N].count s) = 0 := by
+        rw [List.count_cons, h1]
+        simp
+      omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- The sorted leaf list mentions each symbol at most once in total. -/
+theorem pmSorted_once (freqs : Array Nat) (s : Nat) :
+    ((pmSorted freqs).map (fun x => x.syms.count s)).sum ≤ 1 := by
+  have hperm : ((pmSorted freqs).map (fun x => x.syms.count s)).Perm
+      ((pmLeaves freqs).map (fun x => x.syms.count s)) :=
+    (List.mergeSort_perm (pmLeaves freqs) _).map _
+  rw [hperm.sum_nat]
+  have h1 := pmLeavesOf_count_le freqs s (List.range freqs.size)
+  have h2 := count_range_le_one s freqs.size
+  unfold pmLeaves
+  omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Incrementing an array cell per listed symbol adds each symbol's multiplicity. -/
+theorem foldl_incr_syms : ∀ (syms : List Nat) (arr : Array Nat),
+    (∀ s ∈ syms, s < arr.size) →
+    (syms.foldl (fun a s => a.set! s (a[s]! + 1)) arr).size = arr.size ∧
+    ∀ t, t < arr.size →
+      (syms.foldl (fun a s => a.set! s (a[s]! + 1)) arr)[t]! = arr[t]! + syms.count t := by
+  intro syms
+  induction syms with
+  | nil =>
+    intro arr _
+    exact ⟨rfl, fun t _ => by simp⟩
+  | cons s syms ih =>
+    intro arr hin
+    have hs := hin s (by simp)
+    have hrec := ih (arr.set! s (arr[s]! + 1))
+      (fun x hx => by rw [size_set!]; exact hin x (by simp [hx]))
+    rw [size_set!] at hrec
+    refine ⟨hrec.1, ?_⟩
+    intro t ht
+    rw [List.foldl_cons, hrec.2 t ht, List.count_cons]
+    by_cases hts : s = t
+    · subst hts
+      rw [getElem!_set!_eq _ _ _ hs]
+      have h1 : ((s : Nat) == s) = true := by simp
+      rw [h1, if_pos rfl]
+      omega
+    · rw [getElem!_set!_ne _ _ _ _ hts]
+      have h1 : ((s : Nat) == t) = false := by simp [hts]
+      rw [h1, if_neg (by simp)]
+      omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- The nested per-item increment loop totals each symbol's multiplicity across items. -/
+theorem foldl_incr_items : ∀ (items : List PMNode) (arr : Array Nat),
+    (∀ it ∈ items, ∀ s ∈ it.syms, s < arr.size) →
+    (items.foldl (fun a it => it.syms.foldl (fun a s => a.set! s (a[s]! + 1)) a) arr).size
+      = arr.size ∧
+    ∀ t, t < arr.size →
+      (items.foldl (fun a it => it.syms.foldl (fun a s => a.set! s (a[s]! + 1)) a) arr)[t]!
+        = arr[t]! + ((items.map (fun it => it.syms.count t)).sum) := by
+  intro items
+  induction items with
+  | nil =>
+    intro arr _
+    exact ⟨rfl, fun t _ => by simp⟩
+  | cons it items ih =>
+    intro arr hin
+    have hone := foldl_incr_syms it.syms arr (hin it (by simp))
+    have hrec := ih (it.syms.foldl (fun a s => a.set! s (a[s]! + 1)) arr)
+      (fun x hx s hs => by rw [hone.1]; exact hin x (by simp [hx]) s hs)
+    rw [hone.1] at hrec
+    refine ⟨hrec.1, ?_⟩
+    intro t ht
+    rw [List.foldl_cons, hrec.2 t ht, hone.2 t ht, List.map_cons, List.sum_cons]
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Counting in a flattened annotation list is the ghost count. -/
+theorem count_flatMap_syms (e : Nat × Nat) : ∀ (T : List PMG),
+    ((T.flatMap (fun g => g.syms)).count e) = ghostCount e T := by
+  intro T
+  induction T with
+  | nil => rfl
+  | cons g T ih =>
+    rw [List.flatMap_cons, List.count_append, ih]
+    rfl
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- `countP` distributes over flattening. -/
+theorem countP_flatMap_syms (p : Nat × Nat → Bool) : ∀ (T : List PMG),
+    ((T.flatMap (fun g => g.syms)).countP p) = ((T.map (fun g => g.syms.countP p)).sum) := by
+  intro T
+  induction T with
+  | nil => rfl
+  | cons g T ih =>
+    rw [List.flatMap_cons, List.countP_append, ih, List.map_cons, List.sum_cons]
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Mapped sums distribute over flattening. -/
+theorem sum_map_flatMap_syms (f : Nat × Nat → Nat) : ∀ (T : List PMG),
+    (((T.flatMap (fun g => g.syms)).map f).sum) =
+      ((T.map (fun g => ((g.syms.map f).sum))).sum) := by
+  intro T
+  induction T with
+  | nil => rfl
+  | cons g T ih =>
+    rw [List.flatMap_cons, List.map_append, List.sum_append, ih, List.map_cons, List.sum_cons]
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Counting a symbol among projected annotations. -/
+theorem count_map_fst (t : Nat) : ∀ (l : List (Nat × Nat)),
+    ((l.map Prod.fst).count t) = l.countP (fun e => e.1 == t) := by
+  intro l
+  induction l with
+  | nil => rfl
+  | cons e l ih =>
+    rw [List.map_cons, List.count_cons, ih, List.countP_cons]
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Ghost counts only shrink on prefixes. -/
+theorem ghostCount_take_le (e : Nat × Nat) (k : Nat) : ∀ (L : List PMG),
+    ghostCount e (L.take k) ≤ ghostCount e L := by
+  intro L
+  have hsplit : ghostCount e (L.take k) + ghostCount e (L.drop k) = ghostCount e L := by
+    unfold ghostCount
+    rw [← List.sum_append, ← List.map_append, List.take_append_drop]
+  omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Sums of a constant-valued map. -/
+theorem sum_map_const_of {α : Type} (f : α → Nat) (v : Nat) : ∀ (l : List α),
+    (∀ x ∈ l, f x = v) → (l.map f).sum = l.length * v := by
+  intro l
+  induction l with
+  | nil => intro _; simp
+  | cons a l ih =>
+    intro h
+    rw [List.map_cons, List.sum_cons, h a (by simp), ih (fun x hx => h x (by simp [hx])),
+      List.length_cons, Nat.add_mul]
+    omega
+
 end Stdlib.Zlib
