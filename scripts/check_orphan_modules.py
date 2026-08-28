@@ -27,17 +27,39 @@ only sees declarations reachable from the umbrella roots), and every declaration
 it is invisible to `lake exe check_refs_coverage` for the same reason. The file
 looks verified and is not.
 
-This has now happened three times, which is what makes it a gate rather than three
+This has now happened four times, which is what makes it a gate rather than four
 fixes (docs/REVIEW.md Law 13, "findings become gates" -- a reviewer catching a bug
 is evidence of a missing gate, not of a working process):
 
-  1. d5c1171  chore(spikes): wire the Spike3 trace-step lemma modules into the umbrella
-  2. 7414099  chore(x86_64): wire MemoryFrame into the Registry import graph
+  1. d5c1171  Spikes/Spike3SortLines/{TraceStepLemmas, Windows/InstructionStepLemmas,
+              Windows/InterceptLemmas}.lean -- 3 modules
+  2. 7414099  Gasm/Targets/X86_64/MemoryFrame.lean + its 6 submodules -- 7 modules
   3. Stdlib/Zlib/CanonicalTableSpec.lean -- 671 committed lines of axiom-clean proof
-     that nothing built, found only because CI went red downstream of it.
+              that nothing built, found only because CI went red downstream of it
+  4. Gasm/Targets/X86_64/RoundtripGate/DispatchExhaustive.lean -- committed in
+              d38ed28, unreached ever since; see scripts/orphan_allowlist.txt
 
-Each instance was fixed by hand-adding one `import` line. Under Law 13 that closes
-the instance and not the class: nothing stopped the fourth.
+Instances 3 and 4 were live simultaneously. Three of the four are under `Gasm/` or
+`Spikes/`, so this is not a `Stdlib` problem and the root derivation below must
+cover every declared `[[lean_lib]]`, not one favoured umbrella. Replaying this gate
+against each pre-fix tree reports exactly those files and nothing else: 3, 7, 1 and
+1 blocking orphan respectively.
+
+Each instance so far was fixed by hand-adding one `import` line. Under Law 13 that
+closes the instance and not the class: nothing stopped the next one.
+
+WHY THE EXISTING GATES ARE NOT THIS GATE
+----------------------------------------
+`lake exe check_gates_axioms` and `lake exe check_refs_coverage` both already go red
+on an orphan -- they enumerate `.lean` files from the FILESYSTEM and then fail to
+open the missing `.olean`. But they report it as a bare exit 1 alongside "0 NOT
+allowlisted" / "0 uncited": zero substantive violations, no named cause, two gates
+red at once for one unwired file (observed on `DispatchExhaustive` above). ADR-0035
+records what an unexplained red costs -- it trains people to stop reading failures.
+This gate's contribution is therefore not detection, which partly existed; it is
+naming the file, the umbrella, and the exact line to add. Its filesystem-walk-free
+enumeration also means it does not go red on an agent's uncommitted work-in-progress
+the way those two do (see the enumeration section below).
 
 WHAT IS CHECKED
 ---------------
