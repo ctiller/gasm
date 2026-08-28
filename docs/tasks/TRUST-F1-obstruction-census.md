@@ -1,3 +1,19 @@
+---
+id: TRUST-F1
+title: Obstruction census for the 18 never-measured grandfathered allowlist entries
+status: done
+blocked_on: ""
+after: []
+related: [TRUST-FINDINGS]
+bar: ""
+track: trust-core
+priority: 7.5
+priority_set: 2026-08-28T00:00:00Z
+design: ""
+design_review: ""
+date: 2026-08-28
+---
+
 # TRUST_PLAN F1 — obstruction census for the 18 never-measured `grandfathered` entries
 
 **Status**: measurement complete, 2026-08-28. **This is measurement, not proof work.** No proof
