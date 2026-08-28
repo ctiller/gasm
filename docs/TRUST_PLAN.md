@@ -208,3 +208,35 @@ Every step's output is reviewed by an independent agent before it counts as done
    `scripts/gate_allowlist.txt`, before and after.
 6. **Do not spend effort on `bv_decide`.** ADR-0037/D28 ratified it as an accepted trust
    rung. It is settled, and work against it is not progress toward this goal.
+
+## Standing brief preamble (required in every trust dispatch)
+
+Every agent working a step from this plan is given the following, before its own task:
+
+> **Enumerate the target yourself, and validate the path.**
+>
+> Run `awk -F'::' '!/^#/ && NF>1 {print $4"  "$1"::"$2}' scripts/gate_allowlist.txt | sort`
+> and read the result. That is the complete debt: every entry, its category, and the
+> declaration it authorizes. Do not take this plan's per-file table as authoritative — an
+> earlier version of it undercounted by seven entries.
+>
+> Then answer, before starting: **is the step you were assigned on the shortest path to
+> zero?** Specifically —
+>
+> - Does retiring your target actually reduce the count, or does it produce infrastructure
+>   that some later step must still consume? A step with a zero retirement target is only
+>   legitimate if a *named* consumer follows it. A1 landed and retired nothing.
+> - Does something else in the enumeration retire more for the same effort? Say so.
+> - Is your step blocked on something the plan does not name? Three obstruction claims in
+>   this plan were asserted without measurement and later disproved.
+> - Does the propagation claim hold for *your* entries — that retiring a `grandfathered`
+>   root cascades to its `axiom-only` dependents? It was verified at four points, not
+>   universally.
+>
+> **"This is the wrong step, and here is the shorter one" is a first-class deliverable.**
+> It outranks completing the step you were given. The coordinator decomposed this plan
+> without holding every entry in view, and has been wrong about sequencing before.
+
+The purpose is to put the whole target in front of whoever is closest to the work. The
+coordinator's decomposition is a hypothesis; the agent holding the enumeration is better
+placed to falsify it than the coordinator is.
