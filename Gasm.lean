@@ -54,6 +54,11 @@ import Gasm.Targets.X86_64.Roundtrip
 import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.X86_64.HardwareHarness
 import Gasm.Targets.X86_64.SemanticsFuzzer
+-- Imported for its two elaboration-time `run_cmd` audits (memory-hook seal lint; frame-theorem
+-- coverage against `Registry.expectedInstructionTypes`). Both fail the build, so this import is
+-- what makes them run on an ordinary `lake build` rather than only when something happens to
+-- pull in the module.
+import Gasm.Targets.X86_64.MemoryFrameAudit
 
 import Gasm.Targets.Windows.ABI
 import Gasm.Targets.Windows.PEFormat

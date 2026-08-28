@@ -10,13 +10,31 @@
 
 ## 1. Status and scope
 
-**Status**: this is a design document, not a report of built machinery. Nothing specified
-here exists in the tree unless a sentence explicitly says it was verified there; every
-proposed-but-unbuilt mechanism carries its own `**Status**:` line per `CONTRIBUTING.md`'s
-convention. Everything described as existing was verified by reading the tree or running
-commands at commit `0d5c6a9` (2026-08-27). Implementation is tracked as MH1–MH3
+**Status** (revised 2026-08-28): this was written as a pure design document, and **Layer S
+has since been built**. ADR-0040 approved the design in full and MH1 landed it: the sealed
+memory cell, the width-indexed read/write API, `MemRef`, `fault : Option X86_64Fault`, the
+defaultless `memAccesses` field and the frame-lemma set all exist in the tree today (§3's
+Status line enumerates them with file evidence). **Layer A (MH3) and Layer P (MH2) remain
+unbuilt** — `CheckedAsm` and `MemCostModel` have no declaration anywhere in `Gasm/`,
+`Stdlib/` or `Spikes/`.
+
+Read the **per-section `**Status**:` lines as authoritative**, not this preamble: each was
+re-verified against the tree on 2026-08-28, and they now differ from one another by design
+(§3 landed; §4 and §5 did not). Every mechanism still proposed-but-unbuilt carries its own
+`**Status**:` line per `CONTRIBUTING.md`'s convention, and every fenced Lean block under a
+section marked unbuilt is a design sketch, not tree contents. The §1.1 evidence table below
+is a **snapshot of the pre-MH1 tree at commit `0d5c6a9` (2026-08-27)**, retained because it
+is the motivating measurement this design was derived from; it describes the state MH1
+changed, not the state today. Implementation is tracked as MH1–MH3
 (`docs/tasks/MH1-semantic-memory-hook.md`, `docs/tasks/MH2-memory-uop-centralization.md`,
 `docs/tasks/MH3-capability-authoring-surface.md`).
+
+Consumers depend on this being right in both directions.
+`Gasm/Targets/X86_64/Instructions/Base.lean:40` cites §3.3 by name as the reason
+`memAccesses` carries no default; a reader trusting the retired "none of this exists"
+markers would have concluded that citation pointed at nothing, and — per `CONTRIBUTING.md`,
+which instructs contributors including the external team to trust `**Status**:` markers —
+rebuilt what was already there.
 
 **The directive** (owner, verbatim): *"memory contracts — let's plan out a memory hook —
 apis every instruction needs to go through to access memory, so we can do the perf and
@@ -45,7 +63,11 @@ existing proofs, and how faults become distinguishable observations.
 ## 2. The design in one page
 
 One module family, `Gasm/Targets/X86_64/Memory*.lean`, exposing three coupled surfaces.
-**Status**: none of the three exists; MH1/MH2/MH3 respectively.
+**Status** (corrected 2026-08-28): this line previously read "none of the three exists;
+MH1/MH2/MH3 respectively." **Layer S exists** — MH1 landed it as
+`Gasm/Targets/X86_64/MemoryCell.lean` (the sealed cell), `Memory.lean` (`MemRef`, the
+width-indexed API), `MemoryFrame/` (the frame-lemma set) and `MemoryFrameAudit.lean` (the
+seal audit). Layers P and A do **not** exist; they remain MH2 and MH3 respectively.
 
 - **Layer S — the semantic hook.** Width-indexed `read`/`write` as the *only* functions
   that can touch machine memory bytes (the raw `memory` field is sealed behind a private
@@ -88,7 +110,24 @@ Two boundary decisions, argued rather than assumed:
 
 ## 3. Layer S: the semantic hook
 
-**Status**: unbuilt; MH1. Sketches below are design, not existing code.
+**Status** (corrected 2026-08-28): this line previously read "unbuilt; MH1. Sketches below
+are design, not existing code." **Layer S is built.** MH1 landed it and ADR-0040 approved
+the design in full. What exists in the tree:
+
+| Design element | Landed as |
+| :-- | :-- |
+| Sealed memory cell (`private mk ::` + `private raw`) | `Gasm/Targets/X86_64/MemoryCell.lean` — split out of `Memory.lean` for an import-cycle reason recorded in that file's header |
+| Width-indexed `read`/`write`, `readByte`/`writeByte`/`writeBytes`, `initRegion` | `Gasm/Targets/X86_64/MemoryCell.lean:79`–`:156` |
+| `MemRef` | `Gasm/Targets/X86_64/Memory.lean:49` |
+| `fault : Option X86_64Fault` replacing `faulted : Bool` | `Gasm/Targets/X86_64/Registers.lean:84`; `X86_64Fault` at `:66` |
+| The §3.4 lemma set | `Gasm/Targets/X86_64/MemoryFrame/` — 35 theorems across `Common`/`Mov`/`Push`/`Pop`/`Call`/`Ret`, plus a Law-13 negative control |
+| Seal audit (the §3.2 tier-3 fallback) | `Gasm/Targets/X86_64/MemoryFrameAudit.lean` |
+| `memAccesses`, defaultless | `Gasm/Targets/X86_64/Instructions/Base.lean:66`, cited from `:40` as the reason it has no default |
+
+The fenced blocks in §3.1–§3.4 below are still the **design sketches as written**; they are
+not transcriptions of the landed code and names and signatures differ in places. Read the
+tree, not the sketch, for the current API — and see §3.2's CORRECTION block for the two
+sealing claims this section got wrong.
 
 ### 3.1 Types and API
 
@@ -137,22 +176,59 @@ structure X86_64Memory where
   private raw : Address → Byte
 ```
 
-`private mk ::` + `private raw` elaborate at this repo's pinned toolchain (v4.33.1 —
-verified by compiling exactly this shape during this design pass), and `private` is
-module-scoped in Lean 4: outside `Gasm/Targets/X86_64/Memory.lean`, neither constructing
-an `X86_64Memory` from a raw function nor projecting one out elaborates. This is Law 13
-preference-tier 1 — the bypass is *unrepresentable*, not linted. Instruction steps,
-Win32 interceptor hooks, and loaders all route through the hook's API; the loaders get a
-dedicated `initRegion`/`initImage` entry point (installing an executable image is a
-legitimate bulk write, and giving it a named API keeps it inside the chokepoint rather
-than allowlisted around it). Spec/proof-side *observation* (`SmolAlloc/Equivalence`'s
-`read64` assertions) uses the read API and is unaffected.
+`private mk ::` + `private raw` elaborate at this repo's pinned toolchain (v4.33.1), and
+`private` is module-scoped in Lean 4: outside the defining module (which landed as
+`Gasm/Targets/X86_64/MemoryCell.lean`, not `Memory.lean` — see that file's header for the
+import-cycle reason), the names `X86_64Memory.mk` and `X86_64Memory.raw` do not resolve,
+`⟨f⟩` and `{ raw := f }` are rejected, and `m.raw`/`m.1` are rejected.
 
-**Status**: the sealed wrapper and the migration of all raw access sites (5 helper
-definitions, 3 inline instruction lambdas, the Win32 hook lambdas, `loadMemory`) are
-MH1's deliverable. The single-module `private` scope is deliberately strict; if the hook
-module must later split, the fallback is a compiled-environment audit in the
-`Registry.lean`/`check_refs_coverage` style — tier 3, only if tier 1 proves untenable.
+> **CORRECTION (2026-08-28, adversarial review).** This paragraph previously claimed that
+> "neither constructing an `X86_64Memory` from a raw function nor projecting one out
+> elaborates", and called the result "Law 13 preference-tier 1 — the bypass is
+> *unrepresentable*, not linted". Both halves were wrong, and the negative control that
+> was said to have verified them only exercised `mk` and `raw` directly.
+>
+> 1. **Projection is not sealed.** `private mk ::` does not privatize the auto-generated
+>    eliminators. `X86_64Memory.casesOn`, `.rec` and `.recOn` are public, and
+>    `m.casesOn (fun f => f)` returns the raw `Address → Byte` from any module — it
+>    elaborates, compiles, and runs.
+> 2. **Construction was never sealed, by design.** `X86_64Mem.initRegion` is public and
+>    takes an arbitrary `Address → Byte`; that is exactly "constructing an `X86_64Memory`
+>    from a raw function", and the very next sentence of this section describes it as
+>    intentional. The mechanism is right; the sentence denying it was wrong.
+> 3. **The leak is semantically empty**, which is why (1) is a lint issue and not a
+>    soundness one: `X86_64Mem.readByte` is public and total, so
+>    `fun a => X86_64Mem.readByte m a` is the raw function too, and is `rfl`-equal to the
+>    `casesOn` term. Byte-level observation is deliberately available.
+>
+> So the property the seal actually buys is **not** confidentiality of the bytes. It is
+> that every memory touch goes through a *named* function in the hook module, keeping the
+> set of access sites enumerable so that fault checks, Law 11 permission checks and cost
+> accounting have one place to land. That is an auditable-chokepoint property, and it is
+> enforced at **preference-tier 3** by the seal audit in
+> `Gasm/Targets/X86_64/MemoryFrameAudit.lean` (the fallback this section's Status
+> paragraph already anticipated), which fails the build if any declaration outside the
+> hook module names one of the three eliminators. Tier 1 was considered and rejected on
+> the merits: making the type genuinely opaque removes definitional unfolding, so
+> `X86_64Mem.read`/`write` could no longer be *defined* over it without an axiomatized
+> API — trading a semantically empty lint gap for real non-standard axioms in a tree whose
+> trust story is axiom-gated.
+
+Instruction steps, Win32 interceptor hooks, and loaders all route through the hook's API;
+the loaders get a dedicated `initRegion`/`initImage` entry point (installing an executable
+image is a legitimate bulk write, and giving it a named API keeps it inside the chokepoint
+rather than allowlisted around it). Spec/proof-side *observation*
+(`SmolAlloc/Equivalence`'s `read64` assertions) uses the read API and is unaffected.
+
+**Status** (corrected 2026-08-28): this line previously said the sealed wrapper and the
+migration of all raw access sites "are MH1's deliverable" — future tense. **They landed.**
+The sealed wrapper is `Gasm/Targets/X86_64/MemoryCell.lean`; the five helper definitions,
+the three inline instruction lambdas, the Win32 hook lambdas and `loadMemory` all route
+through the hook's API. The contingency this line described — "if the hook module must
+later split, the fallback is a compiled-environment audit … tier 3, only if tier 1 proves
+untenable" — is **what actually happened, for a different reason**: tier 1 turned out not
+to be reachable at all (see the CORRECTION block above), so the audit is not a contingency
+but the live enforcement, and it exists as `Gasm/Targets/X86_64/MemoryFrameAudit.lean`.
 
 ### 3.3 The declarative access descriptor — the one source four consumers read
 
@@ -188,8 +264,13 @@ These are provable by unfolding for the 14 memory forms (their steps are literal
 hook calls at the declared addresses once migrated), and by a shared batch lemma for
 the 74 `[]` forms (their steps never mention memory). They live in the
 `RoundtripGate/*`-style per-family shard convention so a new memory form cannot land
-without them. **Status**: unbuilt; MH1 (field + 14 real descriptors + frame lemmas for
-the memory families), with the register-form batch lemma in the same change.
+without them. **Status** (corrected 2026-08-28): this line previously read "unbuilt; MH1
+(field + 14 real descriptors + frame lemmas for the memory families), with the
+register-form batch lemma in the same change." **It is built.** `memAccesses` is a field
+with **no default** at `Gasm/Targets/X86_64/Instructions/Base.lean:66` — so omitting it is
+a compile error, exactly the gate §8's M1 row names — and `:40` cites this section by name
+as the reason. The frame lemmas live in `Gasm/Targets/X86_64/MemoryFrame/` under the
+per-family shard convention described above.
 
 Why the descriptor rather than just centralized read/write calls — four consumers read
 this one source:
@@ -232,7 +313,11 @@ exists nowhere (no store-form step lemma exists in the tree):
   the frame conditions PA2's composition calculus needs routine contracts to carry
   (`docs/VISION.md` §4: "capability tokens … are also the frame conditions").
 
-**Status**: unbuilt; MH1. The disjointness lemmas are `omega`-class arithmetic over
+**Status** (corrected 2026-08-28): this line previously read "unbuilt; MH1". **The lemma
+set is built** — 35 theorems across `Gasm/Targets/X86_64/MemoryFrame/{Common,Mov,Push,Pop,Call,Ret}.lean`,
+with the byte-granular read-over-write and `initRegion` read-back half proved once in
+`MemoryCell.lean:171`ff and a Law-13 negative control in `MemoryFrame/NegativeControl.lean`.
+The disjointness lemmas are `omega`-class arithmetic over
 `UInt64` intervals; wraparound at 2⁶⁴ is handled the way `MemoryPerm.validRange`
 already does (a no-overflow side condition carried by the capability, not re-proven per
 access).
