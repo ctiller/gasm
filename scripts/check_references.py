@@ -179,6 +179,7 @@ LICENSE_VOCAB = {
     "mit-or-unlicense": "attribution-required",
     "cc-by-4.0": "attribution-required",
     "ti-unmodified-only": "unmodified-copy-only",
+    "arm-unmodified-only": "unmodified-copy-only",
 }
 DISTRIBUTION_VOCAB = {"unmodified-copy-only", "no-restriction", "attribution-required", "unclear"}
 ANCHOR_MODES = {"heading", "pdf-locator", "json-pointer", "rfc-section", "c-symbol"}
@@ -559,7 +560,7 @@ def run_offline() -> int:
 
 def fetch_bytes(url: str) -> bytes:
     req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         return resp.read()
 
 

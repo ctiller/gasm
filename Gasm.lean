@@ -60,6 +60,8 @@ import Gasm.Targets.X86_64.SemanticsFuzzer
 -- pull in the module.
 import Gasm.Targets.X86_64.MemoryFrameAudit
 
+import Gasm.Targets.AArch64
+
 import Gasm.Targets.Windows.ABI
 import Gasm.Targets.Windows.PEFormat
 import Gasm.Targets.Windows.Win32API
