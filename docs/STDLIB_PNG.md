@@ -217,11 +217,19 @@ Canonical Huffman trees are constructed from bit-length arrays ($L_0, \dots, L_{
 ## 6. Formal Theorems & 1.5-Roundtrip Soundness
 
 ### 6.1 Filter Roundtrip Invariance
-Every scanline filter satisfies lossless invertibility:
+Every scanline filter satisfies lossless invertibility, for any prior-scanline context and
+any pixel byte stride `bpp ≥ 1` (PNG's own well-formedness precondition: `bpp` is a
+channel/depth-derived byte count, never zero -- see `Stdlib/Png/Equivalence.lean`'s
+`unfilterFold_filterFold_get` for why the induction that proves this genuinely needs it):
 ```lean
-theorem filter_unfilter_soundness (f : FilterType) (row prev : ByteArray) (bpp : Nat) :
-  unfilterScanline f (filterScanline f row prev bpp) prev bpp = row
+theorem filter_unfilter_soundness (ft : FilterType) (raw prior : ByteArray) (bpp : Nat)
+    (hbpp : 1 ≤ bpp) :
+  unfilterScanline ft (filterScanline ft raw prior bpp) prior bpp = raw
 ```
+Proved by induction along scanline position from the per-byte algebraic invertibility of
+each filter step (`sub_filter_step_invertible`/`up_filter_step_invertible`/
+`average_filter_step_invertible`/`paeth_filter_step_invertible`), not by sampling test
+vectors -- see `Stdlib/Png/Equivalence.lean`'s `unfilterFold_filterFold_get`.
 
 ### 6.2 Canonical 1.5-Roundtrip Soundness Theorem
 Every valid PNG byte stream decodes to an canonical image representation, and re-encoding that representation yields a stream that decodes to the exact same image:

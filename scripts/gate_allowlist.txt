@@ -54,11 +54,6 @@ Stdlib/Zlib/Equivalence.lean::zlib_idempotent_canonical_roundtrip_inst::Stdlib.Z
 Stdlib/Zlib/Equivalence.lean::gzip_idempotent_canonical_roundtrip_inst::Stdlib.Zlib.gzip_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Zlib/CRC32.lean::crc32_empty::Stdlib.Zlib.crc32_empty::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Zlib/Adler32.lean::adler32_empty::Stdlib.Zlib.adler32_empty::grandfathered::single-vector check predating Law 10; migration backlog
-Stdlib/Png/Equivalence.lean::filter_none_invertible_inst::Stdlib.Png.filter_none_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
-Stdlib/Png/Equivalence.lean::filter_sub_invertible_inst::Stdlib.Png.filter_sub_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
-Stdlib/Png/Equivalence.lean::filter_up_invertible_inst::Stdlib.Png.filter_up_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
-Stdlib/Png/Equivalence.lean::filter_average_invertible_inst::Stdlib.Png.filter_average_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
-Stdlib/Png/Equivalence.lean::filter_paeth_invertible_inst::Stdlib.Png.filter_paeth_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Png/Equivalence.lean::png_roundtrip_soundness_inst::Stdlib.Png.png_roundtrip_soundness_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Png/Equivalence.lean::png_idempotent_canonical_roundtrip_inst::Stdlib.Png.png_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Spikes/Spike5Gzip/Equivalence.lean::spike5_windows_gzip_trace_equivalence::Spikes.Spike5Gzip.spike5_windows_gzip_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog

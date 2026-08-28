@@ -124,7 +124,7 @@ task" is this audit's addition where no existing task covered the entry.
 | 1–8 | `Stdlib/Zlib/Equivalence.lean` :: `deflate_roundtrip_{empty,soundness,repetitive}_inst`, `zlib_roundtrip_soundness_inst`, `gzip_roundtrip_soundness_inst`, `{deflate,zlib,gzip}_idempotent_canonical_roundtrip_inst` | **None.** F6 assumes this baseline, does not prove it; PA8 does not touch pure-functional roundtrip claims. | **PA16** |
 | 9 | `Stdlib/Zlib/CRC32.lean` :: `crc32_empty` | None | **PA11** |
 | 10 | `Stdlib/Zlib/Adler32.lean` :: `adler32_empty` | None | **PA11** |
-| 11–15 | `Stdlib/Png/Equivalence.lean` :: `filter_{none,sub,up,average,paeth}_invertible_inst` | None | **PA10** |
+| 11–15 | `Stdlib/Png/Equivalence.lean` :: `filter_{none,sub,up,average,paeth}_invertible_inst` | None | **PA10 — closed 2026-08-27.** The five `_inst` entries are deleted (not demoted); superseded by the universally-quantified `Stdlib.Png.filter_unfilter_soundness` (`bpp ≥ 1` precondition, proved by induction along scanline position from the pre-existing per-byte step lemmas — see `docs/STDLIB_PNG.md#61-filter-roundtrip-invariance`). |
 | 16–17 | `Stdlib/Png/Equivalence.lean` :: `png_{roundtrip_soundness,idempotent_canonical_roundtrip}_inst` | None (depends on Zlib's codec, sequenced after it) | **PA16** |
 | 18–19 | `Spikes/Spike5Gzip/Equivalence.lean` :: `gzip_{roundtrip_soundness,idempotent_canonical_roundtrip}_inst` | None — PA8's Spike5 fix targets `GzipOp`/`GunzipOp` env-quantification, not these direct functional checks | **PA16** |
 | 20 | `Spikes/Spike5Gzip/Equivalence.lean` :: `spike5_windows_gzip_trace_equivalence` | **PA8** (Tier 2) | — |
