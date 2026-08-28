@@ -18,6 +18,7 @@ import Lean
 import Gasm.Targets.X86_64.Uop
 import Gasm.Targets.X86_64.Performance
 import Gasm.Targets.X86_64.Fuzzer
+import Gasm.Targets.X86_64.PerfHardwareFuzzer
 
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Fuzzer
@@ -34,10 +35,14 @@ def main (args : List String) : IO UInt32 := do
   let mut iterations := 10
   let mut fuzzLoops := false
   let mut seedVal : UInt64 := 133742
+  let mut hardware := false
 
   let mut i := 0
   while i < args.length do
     match args[i]! with
+    | "--hardware" =>
+      hardware := true
+      i := i + 1
     | "--count" =>
       if i + 1 < args.length then
         count := args[i + 1]!.toNat?.getD 100
@@ -62,6 +67,13 @@ def main (args : List String) : IO UInt32 := do
         i := i + 2
       else i := i + 1
     | _ => i := i + 1
+
+  -- REF: docs/RDTSC_HARNESS.md#4-containment-fail-closed-world-sampling-vs-correctness-unrepresentable-by-construction
+  -- F1: real-silicon RDTSC measurement mode, alongside the existing model-only invariant checks
+  -- above. Same executable, same hosted-CI exclusion as the model-only mode (docs/CI.md #5) --
+  -- see docs/RDTSC_HARNESS.md #7 for exactly where this is and is not valid to run.
+  if hardware then
+    return (← Gasm.Targets.X86_64.PerfHardwareFuzzer.runHardwareFuzz seedVal)
 
   let modeStr := if fuzzLoops then s!"Deterministic Loops ({iterations} iters/loop)" else "Basic Blocks"
   IO.println s!"[Configuration] Mode: {modeStr}, Programs: {count}, Length: {length} instrs, Profile: Intel Golden Cove"
