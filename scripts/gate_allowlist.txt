@@ -181,3 +181,4 @@ Spikes/Spike2Fibonacci/Linux/Test.lean::main::main::axiom-only::downstream `main
 # the only live bv_decide dependency in the tree as of this change; a future task could do
 # the BitVec-extensionality rewrite PA13/PA14 modeled for CRC32Equivalence.lean if desired.
 Gasm/Targets/X86_64/Memory.lean::X86_64Mem.read64_write64_same::Gasm.Targets.X86_64.X86_64Mem.read64_write64_same::finite-forall::bv_decide SAT certificate over the complete (Address, UInt64) domain; ratified under ADR-0037/D28 (docs/REVIEW.md Law 10's four-rung trust-cost ordering, rung 4).
+Gasm/Targets/X86_64/Memory.lean::push64_pop64_roundtrip::Gasm.Targets.X86_64.push64_pop64_roundtrip::axiom-only::downstream citer of X86_64Mem.read64_write64_same (the allowlisted bv_decide finite-forall entry above) via its first component's proof; transitively carries the same axiom and no new ones; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean).
