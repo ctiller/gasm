@@ -332,8 +332,24 @@ opens with) are tracked by nesting depth. Mirrors
 `scripts/check_orphan_modules.py`'s `imports_of` exactly. -/
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
-def importsOfFile (rel : String) : IO (Array String) := do
-  let text ← IO.FS.readFile (System.FilePath.mk rel)
+def importsOfFile (rel : String) : IO (Except String (Array String)) := do
+  -- A tracked file absent from the WORKING TREE (deleted but not committed --
+  -- routine on a tree several agents write to at once) must not take this gate
+  -- down with an uncaught `no such file or directory`. That is precisely the
+  -- unexplained red this whole enumeration change exists to remove, and it was
+  -- found by this function's own control vector. The index and the working tree
+  -- disagreeing about what exists is a real, reportable condition: the caller
+  -- folds it into `errors`, which fails closed with the file named.
+  let textRes ←
+    try
+      pure (Except.ok (← IO.FS.readFile (System.FilePath.mk rel)))
+    catch e =>
+      pure (Except.error e.toString)
+  let text ←
+    match textRes with
+    | .error msg =>
+      return .error s!"tracked file '{rel}' is in the index but could not be read from the         working tree ({msg}). This gate derives the build closure from working-tree `import`         edges, so it refuses to guess: commit the deletion, or restore the file."
+    | .ok t => pure t
   let mut found : Array String := #[]
   -- `Int`, not `Nat`: a stray `-/` would truncate a `Nat` at zero and silently
   -- shift every subsequent line's comment state.
@@ -359,7 +375,7 @@ def importsOfFile (rel : String) : IO (Array String) := do
         found := found.push rest
       continue
     break
-  return found
+  return .ok found
 
 /-- What `enumerateProjectModules` computes: the project modules a declared
 `lakefile.toml` target actually builds, and the ones it does not. -/
@@ -412,7 +428,40 @@ stays in `files`, and a module in `files` that loads into neither the baseline
 environment nor a standalone import is still a hard failure at the call site --
 that is TC15/T2 and it stays load-bearing. What changes is that a module the
 build was never asked to compile is reported as such, by name, pointing at the
-gate that owns it, instead of being indistinguishable from a real one. -/
+gate that owns it, instead of being indistinguishable from a real one.
+
+THE ONE BEHAVIOUR CHANGE A REVIEWER MUST SIGN OFF ON. For an orphan that
+`scripts/orphan_allowlist.txt` ALLOWLISTS, no gate is red any more, where
+before this change these two were (opaquely). That is deliberate and is what
+the allowlist entry for `RoundtripGate/DispatchExhaustive.lean` asks for in so
+many words, but it is a reduction in redness and should be read as one: the
+module is still reported by name on every run of BOTH this gate and the orphan
+gate, the orphan gate prints its category and justification, and a stale entry
+there is a hard failure -- so it is tracked and visible, not silently ignored.
+What it is not, any more, is two gates exiting 1 with "0 NOT allowlisted" /
+"0 uncited" beside them and no named cause.
+
+CONTROL VECTORS (measured against a clean committed checkout -- a git worktree,
+never the shared working tree; the throwaway-`GIT_INDEX_FILE` staging technique
+is `scripts/check_orphan_modules.py --self-test`'s, so the real index is never
+written). These are the properties the two fixes above must jointly preserve,
+and each is distinct from the others:
+
+  pristine tree                          both gates exit 0
+  UNTRACKED unbuilt module               ignored entirely; both gates exit 0
+  TRACKED, imported from `Stdlib.lean`
+    (so a declared root reaches it),
+    no `.olean`                          both gates exit 1, naming it
+                                         -- this is TC15/T2, still load-bearing
+  TRACKED but imported by nothing        reported by name as unbuilt; NOT a
+                                         failure, both gates exit 0
+                                         -- `check_orphan_modules.py` owns it
+  reverted                               both gates exit 0 again
+
+Note the third and fourth vectors are the pair that pins the exact boundary
+this function draws. "A tracked module with no `.olean` hard-fails" is true
+ONLY of a module the build was asked to compile; conflating the two is what
+produced the opaque red described above. -/
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
 def enumerateProjectModules (sourceRoots : List String) : IO ProjectModuleEnumeration := do
@@ -450,10 +499,13 @@ def enumerateProjectModules (sourceRoots : List String) : IO ProjectModuleEnumer
       match moduleToPath[m]? with
       | none => pure ()
       | some rel =>
-        for imported in ← importsOfFile rel do
-          if moduleToPath.contains imported && !reached.contains imported then
-            reached := reached.insert imported
-            next := next.push imported
+        match ← importsOfFile rel with
+        | .error msg => errors := errors.push msg
+        | .ok imports =>
+          for imported in imports do
+            if moduleToPath.contains imported && !reached.contains imported then
+              reached := reached.insert imported
+              next := next.push imported
     frontier := next
 
   let underSourceRoot (p : String) : Bool :=
