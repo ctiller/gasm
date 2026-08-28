@@ -48,6 +48,10 @@ import Stdlib.Http11.Writer
 import Stdlib.Http11.Parser
 import Stdlib.Http11.Roundtrip
 
+import Stdlib.Fmt.Basic
+import Stdlib.Fmt.Parser
+import Stdlib.Fmt.Roundtrip
+
 import Stdlib.Zlib
 import Stdlib.Gzip
 import Stdlib.Png
