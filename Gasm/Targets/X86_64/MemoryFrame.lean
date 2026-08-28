@@ -20,8 +20,15 @@ import Gasm.Targets.X86_64.MemoryFrame.Push
 import Gasm.Targets.X86_64.MemoryFrame.Pop
 import Gasm.Targets.X86_64.MemoryFrame.Call
 import Gasm.Targets.X86_64.MemoryFrame.Ret
+import Gasm.Targets.X86_64.MemoryFrame.NegativeControl
 
 -- Thin aggregator, mirroring RoundtripGate.lean's own header comment: importing every
 -- per-family MemoryFrame/*.lean shard forces all 14 memory forms' writesWithin/readsWithin
 -- connection theorems (docs/MEMORY_HOOK.md §3.3, Law 12) to elaborate whenever this module
 -- (transitively, Gasm) is built. There is no declaration here beyond the imports.
+--
+-- `NegativeControl` is imported for the same reason but proves the opposite direction: two
+-- deliberately mis-declared fixture forms whose frame obligations are REFUTABLE. The shards
+-- above show the obligations can be satisfied; that module shows they can also fail, which is
+-- what rules out a vacuous frame condition. It registers no `X86_64Instruction` instance, so it
+-- does not enter `Registry.lean`'s instance audit population.

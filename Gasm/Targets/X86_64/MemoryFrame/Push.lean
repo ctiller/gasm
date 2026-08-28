@@ -54,13 +54,30 @@ theorem PushR64.writesWithin (i : PushR64) : WritesWithin i := by
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- PUSH never reads memory (its declared load footprint is empty), so two pre-states agreeing
-    outside memory step to states agreeing outside memory regardless of memory contents. -/
+    outside memory step to states agreeing outside memory regardless of memory contents. The
+    `StoreAgreeOn` conjunct is not vacuous here (PUSH declares a store): it holds because the
+    pushed address and value are both register-derived, so `agreeOutsideMemory` fixes them, and
+    `readByte_write_inside` then says the written bytes do not depend on the pre-image. -/
 theorem PushR64.readsWithin (i : PushR64) : ReadsWithin i := by
   intro s1 s2 hout _
   obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+  constructor
+  · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+      simp only [X86_64Instruction.step, X86_64MachineState.rsp,
+        X86_64MachineState.setGpr64] <;>
+      simp_all
+  · intro a ha
+    simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
+      MemAccessSpec.addresses, MemRef.effectiveAddress] at ha
+    obtain ⟨k, hk, hak⟩ := ha
+    subst hak
+    have hbase : s1.gprs Reg64.rsp + (-8 : UInt64) = s1.gprs Reg64.rsp - 8 := by
+      apply UInt64.toNat_inj.mp
+      simp [UInt64.toNat_add, UInt64.toNat_sub, UInt64.size]
+      omega
+    rw [hbase]
     simp only [X86_64Instruction.step, X86_64MachineState.rsp, X86_64MachineState.setGpr64,
-      X86_64MachineState.write64] <;>
-    simp_all
+      X86_64MachineState.write64, X86_64Mem.read, hgprs]
+    exact congrArg UInt8.toUInt64 (X86_64Mem.readByte_write_inside .w64 _ _ _ _ k hk)
 
 end Gasm.Targets.X86_64.MemoryFrame

@@ -35,7 +35,8 @@ theorem PopR64.writesWithin (i : PopR64) : WritesWithin i := by
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- POP's declared load footprint (`[rsp, rsp+8)`, evaluated at the pre-step `rsp`) is exactly
     what `step` (via `pop64`) reads: two pre-states agreeing outside memory and agreeing on that
-    footprint step to states agreeing outside memory. -/
+    footprint step to states agreeing outside memory. POP declares no store, so the
+    `StoreAgreeOn` conjunct is vacuous (its empty store footprint has no members). -/
 theorem PopR64.readsWithin (i : PopR64) : ReadsWithin i := by
   intro s1 s2 hout hagree
   obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
@@ -44,9 +45,12 @@ theorem PopR64.readsWithin (i : PopR64) : ReadsWithin i := by
   have hread : X86_64Mem.read .w64 (s1.gprs Reg64.rsp) s1.memory =
       X86_64Mem.read .w64 (s1.gprs Reg64.rsp) s2.memory :=
     X86_64Mem.read_congr' .w64 _ s1.memory s2.memory hagree
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
-    simp only [X86_64Instruction.step, X86_64MachineState.rsp,
-      X86_64MachineState.setGpr64, X86_64MachineState.read64] <;>
-    simp_all
+  constructor
+  · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+      simp only [X86_64Instruction.step, X86_64MachineState.rsp,
+        X86_64MachineState.setGpr64, X86_64MachineState.read64] <;>
+      simp_all
+  · intro a ha
+    simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor] at ha
 
 end Gasm.Targets.X86_64.MemoryFrame

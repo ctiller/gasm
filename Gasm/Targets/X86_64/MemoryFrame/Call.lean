@@ -54,13 +54,29 @@ theorem CallRel32.writesWithin (i : CallRel32) : WritesWithin i := by
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- CALL rel32 never reads memory (its declared load footprint is empty; the target is computed
-    from `rip`/`disp` alone). -/
+    from `rip`/`disp` alone). Its `StoreAgreeOn` conjunct covers the pushed return address, whose
+    address is `rsp`-derived and whose value is `rip`-derived -- both fixed by
+    `agreeOutsideMemory`. -/
 theorem CallRel32.readsWithin (i : CallRel32) : ReadsWithin i := by
   intro s1 s2 hout _
   obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
-    simp only [X86_64Instruction.step, X86_64MachineState.rsp, X86_64MachineState.setGpr64] <;>
-    simp_all
+  constructor
+  · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+      simp only [X86_64Instruction.step, X86_64MachineState.rsp, X86_64MachineState.setGpr64] <;>
+      simp_all
+  · intro a ha
+    simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
+      MemAccessSpec.addresses, MemRef.effectiveAddress] at ha
+    obtain ⟨k, hk, hak⟩ := ha
+    subst hak
+    have hbase : s1.gprs Reg64.rsp + (-8 : UInt64) = s1.gprs Reg64.rsp - 8 := by
+      apply UInt64.toNat_inj.mp
+      simp [UInt64.toNat_add, UInt64.toNat_sub, UInt64.size]
+      omega
+    rw [hbase]
+    simp only [X86_64Instruction.step, X86_64MachineState.rsp, X86_64MachineState.setGpr64,
+      X86_64MachineState.write64, X86_64Mem.read, hgprs, hrip]
+    exact congrArg UInt8.toUInt64 (X86_64Mem.readByte_write_inside .w64 _ _ _ _ k hk)
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- CALL [rip+disp32]'s declared store footprint (the pushed return address) is exactly what
@@ -95,7 +111,10 @@ theorem CallRipRel.writesWithin (i : CallRipRel) : WritesWithin i := by
 /-- CALL [rip+disp32]'s declared load footprint (`[rip+6+disp, rip+6+disp+8)`, the IAT slot
     `step` reads to compute the call target) is exactly what `step` reads: two pre-states
     agreeing outside memory (in particular on `rip`) and agreeing on that footprint step to
-    states agreeing outside memory. -/
+    states agreeing outside memory. This is the one current form that BOTH loads and stores, so
+    it is the form the `StoreAgreeOn` conjunct constrains most: the pushed return address is
+    `rip`-derived (not derived from the loaded IAT word), so the written bytes are fixed by
+    `agreeOutsideMemory` alone. -/
 theorem CallRipRel.readsWithin (i : CallRipRel) : ReadsWithin i := by
   intro s1 s2 hout hagree
   obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
@@ -105,9 +124,23 @@ theorem CallRipRel.readsWithin (i : CallRipRel) : ReadsWithin i := by
   have hread : X86_64Mem.read .w64 (s2.rip + 6 + signExtend32To64 i.disp) s1.memory =
       X86_64Mem.read .w64 (s2.rip + 6 + signExtend32To64 i.disp) s2.memory :=
     X86_64Mem.read_congr' .w64 _ s1.memory s2.memory (by simpa [UInt64.add_assoc] using hagree)
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
-    simp only [X86_64Instruction.step, X86_64MachineState.rsp,
-      X86_64MachineState.setGpr64, X86_64MachineState.read64] <;>
-    simp_all
+  constructor
+  · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+      simp only [X86_64Instruction.step, X86_64MachineState.rsp,
+        X86_64MachineState.setGpr64, X86_64MachineState.read64] <;>
+      simp_all
+  · intro a ha
+    simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
+      MemAccessSpec.addresses, MemRef.effectiveAddress] at ha
+    obtain ⟨k, hk, hak⟩ := ha
+    subst hak
+    have hbase : s1.gprs Reg64.rsp + (-8 : UInt64) = s1.gprs Reg64.rsp - 8 := by
+      apply UInt64.toNat_inj.mp
+      simp [UInt64.toNat_add, UInt64.toNat_sub, UInt64.size]
+      omega
+    rw [hbase]
+    simp only [X86_64Instruction.step, X86_64MachineState.rsp, X86_64MachineState.setGpr64,
+      X86_64MachineState.write64, X86_64Mem.read, hgprs, hrip]
+    exact congrArg UInt8.toUInt64 (X86_64Mem.readByte_write_inside .w64 _ _ _ _ k hk)
 
 end Gasm.Targets.X86_64.MemoryFrame

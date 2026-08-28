@@ -45,12 +45,30 @@ inductive MemAccessKind where
 /- REF: docs/MEMORY_HOOK.md#32-sealing-the-raw-field-what-makes-the-chokepoint-mechanical-not-conventional -/
 /-- Sealed x86-64 machine memory cell. `mk` and `raw` are `private` to this module (module-scoped
     in Lean 4, verified to elaborate at this repo's pinned toolchain v4.33.1): outside this file,
-    no term can construct an `X86_64Memory` from an arbitrary `Address → Byte` function, nor
-    project one back out. `X86_64Mem.read`/`X86_64Mem.write` below -- defined in this same file,
-    the only place the seal permits touching `raw` -- are consequently the only functions in the
-    whole tree that can observe or change machine memory bytes; every other module (instruction
-    `step`s, Win32 interceptor hooks, loaders, proof-side observation) is structurally forced
-    through them. This is Law 13 preference-tier 1: the bypass is unrepresentable, not linted. -/
+    the names `X86_64Memory.mk` and `X86_64Memory.raw` do not resolve, `⟨f⟩` and `{ raw := f }`
+    are rejected, and `m.raw`/`m.1` are rejected.
+
+    **What the seal is and is not (corrected 2026-08-28 by adversarial review; the earlier
+    wording here claimed more than `private` delivers).** Two limits are load-bearing:
+
+    1. `private mk ::` does NOT privatize the auto-generated eliminators. `X86_64Memory.casesOn`,
+       `.rec` and `.recOn` remain public, and `m.casesOn (fun f => f)` yields the raw
+       `Address → Byte` from any module -- it elaborates, compiles, and runs.
+    2. That leak is nonetheless SEMANTICALLY EMPTY, because the blessed API is itself total and
+       public: `fun a => X86_64Mem.readByte m a` is definitionally the very same function
+       (`rfl`-equal to `m.casesOn (fun f => f)`), and `initRegion` accepts an arbitrary
+       `Address → Byte` by design so loaders can install an image. Byte-level observation and
+       bulk construction are *deliberately* available; hiding them was never the point.
+
+    So the property this seal actually buys is not confidentiality of the bytes -- it is that
+    every memory touch in the tree goes through a NAMED function in this file
+    (`readByte`/`writeByte`/`read`/`write`/`initRegion`/`writeBytes`), so the set of memory
+    access sites is enumerable and future instrumentation (fault checks, Law 11 permission
+    checks, cost accounting) has exactly one place to land. That is an auditable-chokepoint
+    property, and it is enforced at Law 13 preference-tier 3 by
+    `Gasm/Targets/X86_64/MemoryFrameAudit.lean`'s seal audit, which fails the build if any
+    declaration outside this module mentions `X86_64Memory.casesOn`/`.rec`/`.recOn`. It is NOT
+    tier 1: the bypass is linted, not unrepresentable. See `docs/MEMORY_HOOK.md` §3.2. -/
 structure X86_64Memory where
   private mk ::
   private raw : Address → Byte
@@ -204,6 +222,45 @@ theorem readByte_write_disjoint (w : MemWidth) (a : Address) (v : UInt64) (m : X
     have ha8 : a' ≠ a + 7 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
     simp only [write]; unfold readByte
     simp [ha1, ha2, ha3, ha4, ha5, ha6, ha7, ha8]
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- Two byte offsets below 8 from the same base are distinct addresses, unconditionally. Unlike
+    `readByte_write_disjoint`'s external `a'`, this needs no no-overflow side condition: the
+    offsets are bounded constants `< 8`, so `a + i` and `a + j` cannot collide mod `2⁶⁴` for
+    `i ≠ j` whatever `a` is (`X86_64Mem.read64_write64_same`'s docstring in `Memory.lean` states
+    the same fact informally; this is it as a reusable lemma). -/
+theorem addr_offset_ne (a : Address) (i j : Nat) (hi : i < 8) (hj : j < 8) (hij : i ≠ j) :
+    a + i.toUInt64 ≠ a + j.toUInt64 := by
+  intro he
+  have h := congrArg UInt64.toNat he
+  simp [UInt64.toNat_add, Nat.toUInt64, Nat.mod_eq_of_lt hi, Nat.mod_eq_of_lt hj] at h
+  omega
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- Read-over-write, INSIDE the written range: within `[a, a + w.bytes)` a width-`w` write's
+    bytes are determined entirely by the value written -- the underlying memory is irrelevant, so
+    two different pre-images yield the same byte. This is the dual of `readByte_write_disjoint`
+    (which covers the outside) and the one generic fact every `ReadsWithin` frame lemma's
+    store-footprint conjunct reduces to: a store form's written bytes are a function of its
+    operands alone, so two states agreeing outside memory write identical bytes regardless of
+    what memory held before. Without it each of the 9 store forms would re-derive per-width
+    byte-selection arithmetic by hand. -/
+theorem readByte_write_inside (w : MemWidth) (a : Address) (v : UInt64) (m1 m2 : X86_64Memory)
+    (k : Nat) (hk : k < w.bytes) :
+    readByte (write w a v m1) (a + k.toUInt64) = readByte (write w a v m2) (a + k.toUInt64) := by
+  have hne := addr_offset_ne a
+  cases w <;> simp only [MemWidth.bytes] at hk
+  · have hk0 : k = 0 := by omega
+    subst hk0; simp [write, readByte, writeByte, Nat.toUInt64]
+  · have hk0 : k = 0 ∨ k = 1 := by omega
+    rcases hk0 with h|h <;> subst h <;>
+      simp [write, readByte, writeByte, Nat.toUInt64, hne]
+  · have hk0 : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 := by omega
+    rcases hk0 with h|h|h|h <;> subst h <;>
+      simp [write, readByte, writeByte, Nat.toUInt64, hne]
+  · have hk0 : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 ∨ k = 4 ∨ k = 5 ∨ k = 6 ∨ k = 7 := by omega
+    rcases hk0 with h|h|h|h|h|h|h|h <;> subst h <;>
+      simp [write, readByte, writeByte, Nat.toUInt64, hne]
 
 /- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
 /-- `initRegion` read-back: reading any byte of an installed image returns exactly what the
