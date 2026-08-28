@@ -135,37 +135,7 @@ def agreeOutsideMemory (s1 s2 : X86_64MachineState) : Prop :=
     of `a`'s value. -/
 theorem X86_64Mem.read64_write64_same (a : Address) (v : UInt64) (m : X86_64Memory) :
     X86_64Mem.read .w64 a (X86_64Mem.write .w64 a v m) = v := by
-  have h01 : a ≠ a + 1 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h02 : a ≠ a + 2 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h03 : a ≠ a + 3 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h04 : a ≠ a + 4 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h05 : a ≠ a + 5 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h06 : a ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h07 : a ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h12 : a + 1 ≠ a + 2 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h13 : a + 1 ≠ a + 3 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h14 : a + 1 ≠ a + 4 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h15 : a + 1 ≠ a + 5 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h16 : a + 1 ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h17 : a + 1 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h23 : a + 2 ≠ a + 3 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h24 : a + 2 ≠ a + 4 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h25 : a + 2 ≠ a + 5 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h26 : a + 2 ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h27 : a + 2 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h34 : a + 3 ≠ a + 4 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h35 : a + 3 ≠ a + 5 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h36 : a + 3 ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h37 : a + 3 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h45 : a + 4 ≠ a + 5 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h46 : a + 4 ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h47 : a + 4 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h56 : a + 5 ≠ a + 6 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h57 : a + 5 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  have h67 : a + 6 ≠ a + 7 := by intro he; have := congrArg UInt64.toNat he; simp [UInt64.toNat_add] at this; omega
-  simp only [X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte, ne_eq] at *
-  simp [h01, h02, h03, h04, h05, h06, h07, h12, h13, h14, h15, h16, h17, h23, h24, h25, h26, h27,
-    h34, h35, h36, h37, h45, h46, h47, h56, h57, h67]
+  simp only [X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte]
   bv_decide
 
 -- `X86_64Mem.readByte_initRegion` and `X86_64Mem.readByte_zero` live in `MemoryCell.lean`
