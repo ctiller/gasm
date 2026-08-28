@@ -130,9 +130,9 @@ so the proof does not depend on core's string-formatting internals.
     `partial def`. -/
 def natToDigitBytes (n : Nat) : List UInt8 :=
   if h : n < 10 then
-    [0x30 + n.toUInt8]
+    [(0x30 + n).toUInt8]
   else
-    natToDigitBytes (n / 10) ++ [0x30 + (n % 10).toUInt8]
+    natToDigitBytes (n / 10) ++ [(0x30 + n % 10).toUInt8]
 termination_by n
 decreasing_by exact Nat.div_lt_self (by omega) (by omega)
 
@@ -157,30 +157,18 @@ def digitBytesToNatAux : List UInt8 → Nat → Option Nat
 def digitBytesToNat? (bs : List UInt8) : Option Nat :=
   if bs.isEmpty then none else digitBytesToNatAux bs 0
 
-@[simp] theorem digitByteToNat?_of_digit (n : Nat) (h : n < 10) :
-    digitByteToNat? (0x30 + n.toUInt8) = some n := by
-  simp only [digitByteToNat?]
-  have h1 : (0x30 + n.toUInt8 : UInt8) ≥ 0x30 := by
-    have : n.toUInt8 ≤ 9 := by
-      have : n.toUInt8.toNat ≤ 9 := by rw [UInt8.toNat_toUInt8_of_lt (by omega)]; omega
-      omega
+theorem digitByteToNat?_of_digit (n : Nat) (h : n < 10) :
+    digitByteToNat? ((0x30 + n).toUInt8) = some n := by
+  have h10 : n = 0 ∨ n = 1 ∨ n = 2 ∨ n = 3 ∨ n = 4 ∨ n = 5 ∨ n = 6 ∨ n = 7 ∨ n = 8 ∨ n = 9 := by
     omega
-  have h2 : (0x30 + n.toUInt8 : UInt8) ≤ 0x39 := by
-    have : n.toUInt8 ≤ 9 := by
-      have : n.toUInt8.toNat ≤ 9 := by rw [UInt8.toNat_toUInt8_of_lt (by omega)]; omega
-      omega
-    omega
-  simp only [h1, h2, and_self, if_true]
-  congr 1
-  have : n.toUInt8.toNat = n := UInt8.toNat_toUInt8_of_lt (by omega)
-  omega
+  rcases h10 with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl <;> decide
 
 /-- Auxiliary accumulator form of the round-trip lemma: folding the digits of `n` (with an
     arbitrary starting accumulator `acc`) reproduces `acc * 10 ^ (digit count) + n`. Proved
     by strong induction on `n`, mirroring `natToDigitBytes`'s own recursion. -/
 theorem digitBytesToNatAux_natToDigitBytes (n : Nat) :
     ∀ acc, digitBytesToNatAux (natToDigitBytes n) acc = some (acc * 10 ^ (natToDigitBytes n).length + n) := by
-  induction n using Nat.strong_induction_on with
+  induction n using Nat.strongRecOn with
   | _ n ih =>
     intro acc
     unfold natToDigitBytes
@@ -189,40 +177,40 @@ theorem digitBytesToNatAux_natToDigitBytes (n : Nat) :
       simp only [digitBytesToNatAux, digitByteToNat?_of_digit n h]
       simp [List.length]
     · rename_i h
-      push_neg at h
+      -- `split` above already rewrote *every* occurrence of `natToDigitBytes n` in the goal
+      -- (both the `digitBytesToNatAux` argument and the `.length` in the target sum) to the
+      -- else-branch `natToDigitBytes (n / 10) ++ [...]`, so no separate unfolding lemma for
+      -- `(natToDigitBytes n).length` is needed -- `List.length_append` below acts directly on
+      -- the append already sitting in the goal.
       have hlt : n / 10 < n := Nat.div_lt_self (by omega) (by omega)
-      have key : digitBytesToNatAux (natToDigitBytes (n / 10) ++ [0x30 + (n % 10).toUInt8]) acc
-          = some (acc * 10 ^ (natToDigitBytes n).length + n) := by
-        have hfold : ∀ (l : List UInt8) (x : UInt8) (a : Nat),
-            digitBytesToNatAux (l ++ [x]) a =
-              match digitBytesToNatAux l a with
-              | some v => (match digitByteToNat? x with | some d => some (v * 10 + d) | none => none)
-              | none => none := by
-          intro l
-          induction l with
-          | nil => intro x a; simp [digitBytesToNatAux]
-          | cons b t iht =>
-            intro x a
-            simp only [List.cons_append, digitBytesToNatAux]
-            cases digitByteToNat? b with
-            | none => simp
-            | some d => exact iht x (a * 10 + d)
-        rw [hfold]
-        rw [ih (n / 10) hlt acc]
-        have hdig : digitByteToNat? (0x30 + (n % 10).toUInt8) = some (n % 10) :=
-          digitByteToNat?_of_digit (n % 10) (Nat.mod_lt n (by omega))
-        rw [hdig]
-        have hlen : (natToDigitBytes n).length = (natToDigitBytes (n / 10)).length + 1 := by
-          conv_lhs => unfold natToDigitBytes
-          simp [h, List.length_append]
-        rw [hlen]
-        ring_nf
-        have : n / 10 * 10 + n % 10 = n := Nat.div_add_mod n 10
-        have hpow : acc * 10 ^ ((natToDigitBytes (n/10)).length + 1)
-            = (acc * 10 ^ (natToDigitBytes (n/10)).length) * 10 := by ring
-        rw [hpow]
+      have hfold : ∀ (l : List UInt8) (x : UInt8) (a : Nat),
+          digitBytesToNatAux (l ++ [x]) a =
+            match digitBytesToNatAux l a with
+            | some v => (match digitByteToNat? x with | some d => some (v * 10 + d) | none => none)
+            | none => none := by
+        intro l
+        induction l with
+        | nil => intro x a; simp [digitBytesToNatAux]
+        | cons b t iht =>
+          intro x a
+          simp only [List.cons_append, digitBytesToNatAux]
+          cases digitByteToNat? b with
+          | none => simp
+          | some d => exact iht x (a * 10 + d)
+      rw [hfold, ih (n / 10) hlt acc]
+      have hdig : digitByteToNat? ((0x30 + n % 10).toUInt8) = some (n % 10) :=
+        digitByteToNat?_of_digit (n % 10) (Nat.mod_lt n (by omega))
+      rw [hdig]
+      simp only [List.length_append, List.length_cons, List.length_nil]
+      -- Reduce to a purely linear fact by naming the nonlinear product `acc * 10 ^ L0` once,
+      -- via `Nat.pow_succ`/`Nat.mul_assoc` (core lemmas, no `ring`/Mathlib), so `omega` can
+      -- finish using its built-in support for `n / 10` and `n % 10`.
+      have step : (acc * 10 ^ (natToDigitBytes (n / 10)).length + n / 10) * 10 + n % 10
+          = acc * 10 ^ ((natToDigitBytes (n / 10)).length + 0 + 1) + n := by
+        rw [Nat.pow_succ, ← Nat.mul_assoc]
+        generalize acc * 10 ^ (natToDigitBytes (n / 10)).length = k
         omega
-      simpa using key
+      simpa using step
 
 /- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
 /-- The round-trip theorem for the `Content-Length` digit codec: every `Nat` survives
@@ -233,7 +221,7 @@ theorem digitBytesToNat?_natToDigitBytes (n : Nat) :
   have hne : ¬ (natToDigitBytes n).isEmpty := by
     unfold natToDigitBytes
     split <;> simp
-  simp only [digitBytesToNat?, hne, if_false]
+  simp only [digitBytesToNat?, hne]
   have := digitBytesToNatAux_natToDigitBytes n 0
   simpa using this
 
@@ -273,7 +261,7 @@ def takeLine : List UInt8 → Option (List UInt8 × List UInt8)
     `takeLine` itself. -/
 theorem takeLine_length_lt (bs : List UInt8) (line remainder : List UInt8)
     (h : takeLine bs = some (line, remainder)) : remainder.length < bs.length := by
-  induction bs with
+  induction bs generalizing line remainder with
   | nil => simp [takeLine] at h
   | cons b rest ih =>
       cases rest with
@@ -291,8 +279,9 @@ theorem takeLine_length_lt (bs : List UInt8) (line remainder : List UInt8)
             | some p =>
                 obtain ⟨line', remainder'⟩ := p
                 simp only [hstep, Option.some.injEq, Prod.mk.injEq] at h
-                have := ih line' remainder' hstep
-                simp [← h.2]
+                have hrec := ih line' remainder' hstep
+                simp only [List.length_cons] at hrec
+                simp only [← h.2, List.length_cons]
                 omega
 
 /- REF: docs/STDLIB_HTTP11.md#23-header-fields -/
