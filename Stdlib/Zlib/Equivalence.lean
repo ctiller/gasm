@@ -112,52 +112,6 @@ theorem encode_distance_bounds_inst :
   exact foldl_ite_false_of_forall _ (fun dist => (encodeDistance dist).1 > 29)
     (fun dist _ => by have := encodeDistance_code_le_29 dist; omega)
 
-/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: ZLIB RFC 1950 container roundtrip soundness with Adler-32 verification. -/
-theorem zlib_roundtrip_soundness_inst :
-    let data := "Testing ZLIB RFC 1950 container format roundtrip soundness.".toUTF8
-    (match zlibDecompress (zlibCompress data) with
-     | Except.ok res => res == data
-     | Except.error _ => false) = true := by
-  native_decide
-
-/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: GZIP RFC 1952 container roundtrip soundness with CRC-32 & ISIZE verification. -/
-theorem gzip_roundtrip_soundness_inst :
-    let data := "Testing GZIP RFC 1952 container format roundtrip soundness.".toUTF8
-    (match gzipDecompress (gzipCompress data) with
-     | Except.ok res => res == data
-     | Except.error _ => false) = true := by
-  native_decide
-
-/- REF: docs/STDLIB_ZLIB.md#63-canonical-15-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for ZLIB container streams.
-    Outer `Except.error _ => false` per the 2026-08-27 PA16 Phase 1 vacuity fix -- see
-    `deflate_idempotent_canonical_roundtrip_inst`'s doc comment above for the full rationale. -/
-theorem zlib_idempotent_canonical_roundtrip_inst :
-    let testStream := zlibCompress "Canonical ZLIB 1.5-roundtrip test.".toUTF8
-    (match zlibDecompress testStream with
-     | Except.error _ => false
-     | Except.ok data =>
-       match zlibDecompress (zlibCompress data) with
-       | Except.ok res => res == data
-       | Except.error _ => false) = true := by
-  native_decide
-
-/- REF: docs/STDLIB_ZLIB.md#63-canonical-15-roundtrip-soundness-theorems -/
-/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for GZIP container streams.
-    Outer `Except.error _ => false` per the 2026-08-27 PA16 Phase 1 vacuity fix -- see
-    `deflate_idempotent_canonical_roundtrip_inst`'s doc comment above for the full rationale. -/
-theorem gzip_idempotent_canonical_roundtrip_inst :
-    let testStream := gzipCompress "Canonical GZIP 1.5-roundtrip test.".toUTF8
-    (match gzipDecompress testStream with
-     | Except.error _ => false
-     | Except.ok data =>
-       match gzipDecompress (gzipCompress data) with
-       | Except.ok res => res == data
-       | Except.error _ => false) = true := by
-  native_decide
-
 /-
 ## PA16 token layer: L3 (match certificate) + L4 (self-overlap copy) + token-level L5
 

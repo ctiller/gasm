@@ -38,6 +38,7 @@ import Stdlib.Zlib.PackageMergeSpec
 import Stdlib.Zlib.DynamicBlockSpec
 import Stdlib.Zlib.DynamicRoundtrip
 import Stdlib.Zlib.RoundtripCorollaries
+import Stdlib.Zlib.ContainerRoundtrip
 
 import Stdlib.Png.Spec
 import Stdlib.Png.Filter
