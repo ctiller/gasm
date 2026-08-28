@@ -27,7 +27,8 @@ open Gasm.Core
 def emitBareMetalELFExecutable (textBytes : ByteArray) (dataBytes : ByteArray) : ByteArray :=
   let layout := computeBareMetalLayout textBytes.size dataBytes.size
   let elfHdr : ELF64Header := {
-    e_entry := layout.entryAddr
+    e_entry := layout.entryAddr,
+    e_phnum := 2
   }
   let phdrLoad : ELF64ProgramHeader := {
     p_type   := 1, -- PT_LOAD

@@ -39,6 +39,7 @@ import Gasm.Targets.X86_64.RoundtripGate.Ret
 import Gasm.Targets.X86_64.RoundtripGate.In
 import Gasm.Targets.X86_64.RoundtripGate.Out
 import Gasm.Targets.X86_64.RoundtripGate.Hlt
+import Gasm.Targets.X86_64.RoundtripGate.Syscall
 
 -- Thin aggregator (docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate):
 -- importing every per-family RoundtripGate/*.lean shard forces all of their

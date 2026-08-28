@@ -267,26 +267,32 @@ def findIatIndex (s : X86_64MachineState) (addr : Address) : Option Nat :=
     some ((addr - iatBase) / 8).toNat
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
+/-- Pure Win32 API external call interceptor. -/
+def win32Intercept {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event]
+    (addr : Address) (s : X86_64MachineState) : Option (X86_64MachineState × Option Event) :=
+  match findIatIndex s addr with
+  | some 0  => some (getStdHandleHook s)
+  | some 1  => some (readFileHook s)
+  | some 2  => some (writeFileHook s)
+  | some 3  => some (exitProcessHook s)
+  | some 4  => some (virtualAllocHook s)
+  | some 5  => some (virtualFreeHook s)
+  | some 7  => some (wsaStartupHook s)
+  | some 8  => some (socketHook s)
+  | some 9  => some (bindHook s)
+  | some 10 => some (listenHook s)
+  | some 11 => some (acceptHook s)
+  | some 12 => some (recvHook s)
+  | some 13 => some (sendHook s)
+  | some 14 => some (closesocketHook s)
+  | some 15 => some (wsaCleanupHook s)
+  | _ => none
+
+/- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
 /-- Dynamic Windows x64 external call interceptor dispatching Win32 API calls across any dynamically placed .idata section. -/
-instance [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] : ExternalCallInterceptor X86_64 Event where
-  interceptCall addr s :=
-    match findIatIndex s addr with
-    | some 0  => some (getStdHandleHook s)
-    | some 1  => some (readFileHook s)
-    | some 2  => some (writeFileHook s)
-    | some 3  => some (exitProcessHook s)
-    | some 4  => some (virtualAllocHook s)
-    | some 5  => some (virtualFreeHook s)
-    | some 7  => some (wsaStartupHook s)
-    | some 8  => some (socketHook s)
-    | some 9  => some (bindHook s)
-    | some 10 => some (listenHook s)
-    | some 11 => some (acceptHook s)
-    | some 12 => some (recvHook s)
-    | some 13 => some (sendHook s)
-    | some 14 => some (closesocketHook s)
-    | some 15 => some (wsaCleanupHook s)
-    | _ => none
+def win32CallIntercept {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event]
+    (addr : Address) (s : X86_64MachineState) : Option (X86_64MachineState × Option Event) :=
+  win32Intercept addr s
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
 /-- Loads raw binary section buffers and binds Win32 IAT function import pointers into initial machine memory with dynamic layout. -/

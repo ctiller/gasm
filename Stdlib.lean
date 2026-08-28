@@ -25,7 +25,9 @@ import Stdlib.Zlib.Huffman
 import Stdlib.Zlib.Deflate
 import Stdlib.Zlib.Spec
 import Stdlib.Zlib.Gzip
+import Stdlib.Zlib.X86_64
 import Stdlib.Zlib.Windows
+import Stdlib.Zlib.Linux
 import Stdlib.Zlib.Wasm
 import Stdlib.Zlib.Equivalence
 import Stdlib.Zlib.CRC32Equivalence

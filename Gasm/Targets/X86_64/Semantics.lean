@@ -93,6 +93,24 @@ def runProgramWithLoops (baseRip : UInt64) (instructions : List X86_64Instr) (fu
       else runProgramWithLoops baseRip instructions fuel s'
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Executes an x86-64 instruction sequence supporting external call interception in addition to branches and loops. -/
+def runProgramWithLoopsIntercept {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    (baseRip : UInt64) (instructions : List X86_64Instr) (fuel : Nat) (s : X86_64MachineState) : X86_64MachineState :=
+  match fuel with
+  | 0 => s
+  | fuel + 1 =>
+    match instructionAtRip baseRip instructions s.rip with
+    | none => s
+    | some instr =>
+      let s' := X86_64Instruction.step instr s
+      let (s'', _) :=
+        match interceptor.interceptCall s'.rip s' with
+        | some (interceptedState, evt) => (interceptedState, evt)
+        | none => (s', none)
+      if s''.faulted then s''
+      else runProgramWithLoopsIntercept (Event := Event) baseRip instructions fuel s''
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Initializes a clean x86-64 machine state for function invocation with arguments. -/
 def initMachineState (entryRip : Address) (args : List UInt64 := []) (stackTop : Address := 0x7FFFFFFF0008) : X86_64MachineState :=
   let argGprs : List Reg64 := [.rcx, .rdx, .r8, .r9]

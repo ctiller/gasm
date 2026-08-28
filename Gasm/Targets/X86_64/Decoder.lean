@@ -44,6 +44,7 @@ import Gasm.Targets.X86_64.Instructions.Ret
 import Gasm.Targets.X86_64.Instructions.In
 import Gasm.Targets.X86_64.Instructions.Out
 import Gasm.Targets.X86_64.Instructions.Hlt
+import Gasm.Targets.X86_64.Instructions.Syscall
 
 namespace Gasm.Targets.X86_64
 
@@ -163,7 +164,9 @@ def decodeX86_64Instr (bytes : ByteArray) (offset : Nat) : Except String (X86_64
         match readUInt8 bytes (curOffset + 1) with
         | .error e => .error e
         | .ok op2 =>
-          if op2 == 0x82 then
+          if op2 == 0x05 then
+            .ok (syscall_op, (curOffset - offset) + 2)
+          else if op2 == 0x82 then
             match readInt32LE bytes (curOffset + 2) with
             | .error e => .error e
             | .ok disp32 => .ok (jb_rel32 disp32, (curOffset - offset) + 6)

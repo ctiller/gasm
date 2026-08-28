@@ -40,8 +40,15 @@ def main : IO UInt32 := do
   IO.FS.writeBinFile winExePath winExeBytes
   IO.println s!"[+] Windows PE32+ binary generated: {winExePath} ({winExeBytes.size} bytes)"
 
-  -- 2. Verify VerifiedWasmProgram Contract & Binary Emission
-  IO.println "[*] [2/4] Verifying WebAssembly VerifiedWasmProgram Contract..."
+  -- 2. Verify VerifiedLinuxProgram Contract & Binary Emission
+  IO.println "[*] [2/5] Verifying x86_64 Linux VerifiedLinuxProgram Contract..."
+  let linuxExeBytes := emitVerifiedLinuxExecutable spike4LinuxVerifiedProgram
+  let linuxExePath := "spike4_http_linux"
+  IO.FS.writeBinFile linuxExePath linuxExeBytes
+  IO.println s!"[+] Linux ELF64 binary generated: {linuxExePath} ({linuxExeBytes.size} bytes)"
+
+  -- 3. Verify VerifiedWasmProgram Contract & Binary Emission
+  IO.println "[*] [3/5] Verifying WebAssembly VerifiedWasmProgram Contract..."
   let wasmBytes ← IO.ofExcept (emitVerifiedWasmBinary spike4WasmVerifiedProgram)
   let wasmText := emitVerifiedWasmText spike4WasmVerifiedProgram
   let wasmPath := "spike4_http.wasm"
@@ -51,22 +58,22 @@ def main : IO UInt32 := do
   IO.println s!"[+] WebAssembly binary generated: {wasmPath} ({wasmBytes.size} bytes)"
   IO.println s!"[+] WebAssembly WAT text generated: {watPath}"
 
-  -- 3. Verify Constructive Multi-Route Equivalence Theorems across Windows & WASM
-  IO.println "[*] [3/4] Verifying Constructive Multi-Route Trace Equivalence Theorems..."
-  if windowsTraceRoot == modelTraceRoot && wasmTraceRoot == modelTraceRoot then
-    IO.println "[+] Route [/] (Root 200 OK): Windows and WASM traces 100% equivalent to Spec."
+  -- 4. Verify Constructive Multi-Route Equivalence Theorems across Windows, Linux & WASM
+  IO.println "[*] [4/5] Verifying Constructive Multi-Route Trace Equivalence Theorems..."
+  if windowsTraceRoot == modelTraceRoot && wasmTraceRoot == modelTraceRoot && linuxTraceRoot == modelTraceRoot then
+    IO.println "[+] Route [/] (Root 200 OK): Windows, Linux, and WASM traces 100% equivalent to Spec."
   else
     IO.println "[!] FAIL: Route [/] trace mismatch!"
     return 1
 
-  if windowsTraceStatus == modelTraceStatus && wasmTraceStatus == modelTraceStatus then
-    IO.println "[+] Route [/status] (Status JSON 200 OK): Windows and WASM traces 100% equivalent to Spec."
+  if windowsTraceStatus == modelTraceStatus && wasmTraceStatus == modelTraceStatus && linuxTraceStatus == modelTraceStatus then
+    IO.println "[+] Route [/status] (Status JSON 200 OK): Windows, Linux, and WASM traces 100% equivalent to Spec."
   else
     IO.println "[!] FAIL: Route [/status] trace mismatch!"
     return 1
 
-  if windowsTrace404 == modelTrace404 && wasmTrace404 == modelTrace404 then
-    IO.println "[+] Route [/unknown] (404 Not Found): Windows and WASM traces 100% equivalent to Spec."
+  if windowsTrace404 == modelTrace404 && wasmTrace404 == modelTrace404 && linuxTrace404 == modelTrace404 then
+    IO.println "[+] Route [/unknown] (404 Not Found): Windows, Linux, and WASM traces 100% equivalent to Spec."
   else
     IO.println "[!] FAIL: Route [/unknown] 404 trace mismatch!"
     return 1

@@ -25,10 +25,13 @@ import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.Windows.PEFormat
 import Gasm.Targets.Windows.Linker
 import Gasm.Targets.Windows.Win32API
+import Gasm.Targets.Linux.Syscall
+import Gasm.Targets.Linux.Linker
 import Gasm.Targets.WASI.ABI
 import Stdlib.Zlib
 import Spikes.Spike5Gzip.Spec
 import Spikes.Spike5Gzip.Windows.Program
+import Spikes.Spike5Gzip.Linux.Program
 import Spikes.Spike5Gzip.Wasm.Program
 
 namespace Spikes.Spike5Gzip
@@ -38,9 +41,9 @@ open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.Targets.X86_64
 open Gasm.Targets.Windows
+open Gasm.Targets.Linux
 open Gasm.Targets.WASI
 open Stdlib.Zlib
-open Spikes.Spike5Gzip.Windows
 open Spikes.Spike5Gzip.Wasm
 
 set_option maxRecDepth 2000000
@@ -49,7 +52,12 @@ set_option maxHeartbeats 4000000
 /- REF: docs/SPIKES/SPIKE5_GZIP.md#5-semantic-trace-equivalence-verification-contract -/
 /-- Windows x86_64 concrete machine execution trace for Spike 5 compression on canonical sample input. -/
 def windowsTraceCompress : List AnyEvent :=
-  runAsmTrace (Event := AnyEvent) spike5Instructions (spike5Executable.loadWithStdin canonicalSampleData)
+  runAsmTrace (Event := AnyEvent) Windows.spike5Instructions (Windows.spike5Executable.loadWithStdin canonicalSampleData)
+
+/- REF: docs/SPIKES/SPIKE5_GZIP.md#5-semantic-trace-equivalence-verification-contract -/
+/-- Linux x86_64 concrete machine execution trace for Spike 5 compression on canonical sample input. -/
+def linuxTraceCompress : List AnyEvent :=
+  runAsmTrace (Event := AnyEvent) Linux.spike5Instructions (Linux.spike5Executable.loadWithStdin canonicalSampleData)
 
 /- REF: docs/SPIKES/SPIKE5_GZIP.md#5-semantic-trace-equivalence-verification-contract -/
 /-- WebAssembly WASI execution trace for Spike 5 compression. -/
@@ -61,6 +69,13 @@ def wasmTraceCompress : List AnyEvent :=
 /-- Constructive Proof: x86_64 Windows machine trace matches canonical specification trace for GZIP compression. -/
 theorem spike5_windows_gzip_trace_equivalence :
     (windowsTraceCompress == canonicalCompressTrace) = true := by
+  native_decide
+
+/- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Constructive Proof: x86_64 Linux machine trace matches canonical specification trace for GZIP compression. -/
+theorem spike5_linux_gzip_trace_equivalence :
+    (linuxTraceCompress == canonicalCompressTrace) = true := by
   native_decide
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
@@ -111,7 +126,13 @@ theorem bit_reversal_8_involution_inst :
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Formally verified theorem: Windows x86_64 machine execution trace for GUNZIP matches specification trace. -/
 theorem spike5_windows_gunzip_trace_equivalence :
-    (runAsmTrace (Event := AnyEvent) spike5GunzipInstructions (spike5GunzipExecutable.loadWithStdin canonicalCompressedStream) == canonicalDecompressTrace) = true := by
+    (runAsmTrace (Event := AnyEvent) Windows.spike5GunzipInstructions (Windows.spike5GunzipExecutable.loadWithStdin canonicalCompressedStream) == canonicalDecompressTrace) = true := by
+  native_decide
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Formally verified theorem: Linux x86_64 machine execution trace for GUNZIP matches specification trace. -/
+theorem spike5_linux_gunzip_trace_equivalence :
+    (runAsmTrace (Event := AnyEvent) Linux.spike5GunzipInstructions (Linux.spike5GunzipExecutable.loadWithStdin canonicalCompressedStream) == canonicalDecompressTrace) = true := by
   native_decide
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
@@ -122,6 +143,10 @@ deriving DecidableEq, Repr
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 instance : EnvironmentLoader GzipOp where
+  loadEnvironment exe _ := exe.loadWithStdin canonicalSampleData
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+instance : LinuxEnvironmentLoader GzipOp where
   loadEnvironment exe _ := exe.loadWithStdin canonicalSampleData
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
@@ -138,27 +163,53 @@ deriving DecidableEq, Repr
 instance : EnvironmentLoader GunzipOp where
   loadEnvironment exe _ := exe.loadWithStdin canonicalCompressedStream
 
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+instance : LinuxEnvironmentLoader GunzipOp where
+  loadEnvironment exe _ := exe.loadWithStdin canonicalCompressedStream
+
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- First-Class VerifiedProgram contract for Spike 5 GZIP on Windows x86_64. -/
 def spike5WindowsVerifiedProgram : VerifiedProgram GzipOp AnyEvent where
   name := "spike5_gzip_windows"
-  executable := spike5Executable
-  instructions := spike5Instructions
+  executable := Windows.spike5Executable
+  instructions := Windows.spike5Instructions
   spec := fun _ => canonicalCompressTrace
   traceEquivalence := fun op => by
     cases op
     exact spike5_windows_gzip_trace_equivalence
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
+/-- First-Class VerifiedLinuxProgram contract for Spike 5 GZIP on Linux x86_64. -/
+def spike5LinuxVerifiedProgram : VerifiedLinuxProgram GzipOp AnyEvent where
+  name := "spike5_gzip_linux"
+  executable := Linux.spike5Executable
+  instructions := Linux.spike5Instructions
+  spec := fun _ => canonicalCompressTrace
+  traceEquivalence := fun op => by
+    cases op
+    exact spike5_linux_gzip_trace_equivalence
+
+/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- First-Class VerifiedProgram contract for Spike 5 GUNZIP on Windows x86_64. -/
 def spike5GunzipWindowsVerifiedProgram : VerifiedProgram GunzipOp AnyEvent where
   name := "spike5_gunzip_windows"
-  executable := spike5GunzipExecutable
-  instructions := spike5GunzipInstructions
+  executable := Windows.spike5GunzipExecutable
+  instructions := Windows.spike5GunzipInstructions
   spec := fun _ => canonicalDecompressTrace
   traceEquivalence := fun op => by
     cases op
     exact spike5_windows_gunzip_trace_equivalence
+
+/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
+/-- First-Class VerifiedLinuxProgram contract for Spike 5 GUNZIP on Linux x86_64. -/
+def spike5GunzipLinuxVerifiedProgram : VerifiedLinuxProgram GunzipOp AnyEvent where
+  name := "spike5_gunzip_linux"
+  executable := Linux.spike5GunzipExecutable
+  instructions := Linux.spike5GunzipInstructions
+  spec := fun _ => canonicalDecompressTrace
+  traceEquivalence := fun op => by
+    cases op
+    exact spike5_linux_gunzip_trace_equivalence
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- First-Class VerifiedWasmProgram contract for Spike 5 on WebAssembly. -/
