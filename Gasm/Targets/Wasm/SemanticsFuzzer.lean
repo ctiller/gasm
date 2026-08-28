@@ -1202,32 +1202,50 @@ def runWasmSemanticsFuzzerSuite (iterationsPerInstr : Nat := 50) (initialSeed : 
   pure (totalInstrsPassed, totalInstrsFailed, totalVectorsTested)
 
 /- REF: wasm-exec-runtime#administrative-instructions -/
-/-- Pins `evalInstr`'s trap short-circuit guard (Semantics.lean: `if s.trapped || s.exitCode.isSome
-    then (s, .next) else ...`) directly against the Lean model, independent of the host oracle:
-    once `i32_div_u` traps on `5 / 0`, no trailing instruction may mutate the operand stack
-    further, so the two instructions after the trap (`i32.const 999, i32.add`) must be no-ops and
-    the final stack must be empty. Checked here rather than via a `WasmDiffCase` because a real
-    trap aborts the exported function's call before it ever returns to the host - no engine can
-    report what the operand stack "would have been" after a trap (`test_fn()` simply throws in
-    JS), so this specific invariant is unobservable through the black-box host comparison every
-    case above relies on, and must be pinned against the model directly instead.
+/-- **General form (PA12) of the former `trapShortCircuitGuard_inst` ground instance, universally
+    quantified over EVERY instruction, not just the one 5-instruction example.** Once a state is
+    trapped, `evalInstr`'s guard (`Semantics.lean`: `if s.trapped || s.exitCode.isSome then (s,
+    .next) else evalInstrMatch instr s hostCall`) makes evaluating ANY instruction a no-op: the
+    state and control signal come back completely unchanged. Structural proof, zero oracle: this
+    became provable only after `Semantics.lean` was refactored (PA12) to pull the guard check out
+    of the `evalInstr`/`evalInstrs`/`evalLoop` `mutual partial` group into this thin, ordinary
+    (non-`partial`) wrapper -- `evalInstr` is a ONE-LINE `if`, calling the still-opaque
+    `evalInstrMatch` only in the branch this proof never has to enter, so `unfold`/`simp` succeed
+    without needing any visibility into the opaque mutual recursion at all. Before that refactor,
+    `evalInstr` itself was compiled to an `opaque` constant (Lean's actual, empirically-confirmed
+    handling of `partial def` -- not merely "kernel `Acc.rec` reduction gets stuck," which still
+    permits equational unfolding, but a genuine absence of any defining equation for ANY tactic to
+    use), so no structural proof of anything about it was possible at all; that opacity is why
+    `trapShortCircuitGuard_inst` needed `native_decide` in the first place. -/
+theorem evalInstr_trapped_next (instr : WasmInstr) (s : WasmMachineState)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (h : s.trapped = true) :
+    evalInstr instr s hostCall = (s, .next) := by
+  unfold evalInstr
+  simp [h]
 
-    This is a GROUND INSTANCE on one fixed instruction sequence and one fixed initial state, not a
-    proposition universally quantified over a domain - per Law 8's `*_inst` convention it is named
-    and suffixed accordingly, and is NOT presented as a general soundness theorem. It uses
-    `native_decide` rather than `decide`: `evalInstr`/`evalInstrs`/`evalLoop` are `partial def`s
-    (matching this codebase's existing Equivalence.lean spikes), and `decide` was confirmed by
-    hand to get stuck attempting to unfold them ("did not reduce to `isTrue` or `isFalse`"),
-    whereas `native_decide` compiles and executes the check directly. Per Law 10, this
-    single-instance `native_decide` use needs an axiom-level-gate allowlist entry at merge time.
+/- REF: wasm-exec-runtime#administrative-instructions
+   **Honest scope note for `evalInstr_trapped_next` above.** The ORIGINAL ground instance
+    (`stepWasm` over a 5-instruction `.block` body, i.e. a `List WasmInstr` run through
+    `evalInstrs`/`evalLoop`, not a single `evalInstr` call) cannot be generalized the same way:
+    `evalInstrs` and `evalLoop` remain inside the `mutual partial` group (confirmed empirically --
+    `unfold evalInstrs` still fails after the same refactor), because they are genuinely,
+    inescapably mutually recursive with each other -- a `.block`/`.if_else` body can contain a
+    `.loop`, whose repeated iteration (`evalLoop`'s own `.br 0` self-call on the SAME body) has no
+    structurally-decreasing measure at all (a real Wasm infinite loop must be able to not
+    terminate), so Lean cannot produce equations for that group without a `Fuel`/`CCPO`-style
+    rewrite of the whole interpreter -- a substantially larger, semantics-changing project outside
+    PA12's scope, not a proof-engineering exercise. `evalInstr_trapped_next` is therefore the
+    maximal structural generalization available today: it is the single-instruction case the
+    5-instruction example was built from, proven for literally every `WasmInstr`, not a narrower
+    substitute for the original claim. The concrete 5-instruction scenario itself is preserved
+    below as a `#guard` control vector (Law 13) instead of a `native_decide` theorem: `#guard`
+    evaluates via the same compiled/interpreted execution `native_decide` used, but as a
+    compile-time check with no stored declaration and no axiom, so it needs no
+    `scripts/gate_allowlist.txt` entry at all. -/
+#guard (stepWasm
 
-    Mutation-tested by hand: temporarily deleting the `s.trapped ||` guard in Semantics.lean's
-    `evalInstr` makes this fail to close (the mutated model instead leaves `[.i32 999]` on the
-    stack, since `i32_add` pops the missing second operand as the interpreter's own default-zero
-    fallback); reverted immediately after confirming the failure. -/
-theorem trapShortCircuitGuard_inst :
-    (stepWasm
-      (.block (.val .i32) [.i32_const 5, .i32_const 0, .i32_div_u, .i32_const 999, .i32_add])
-      {}).stack = [] := by native_decide
+    (.block (.val .i32) [.i32_const 5, .i32_const 0, .i32_div_u, .i32_const 999, .i32_add])
+    {}).stack == ([] : List WasmVal)
 
 end Gasm.Targets.Wasm.SemanticsFuzzer
