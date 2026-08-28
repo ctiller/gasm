@@ -46,8 +46,22 @@ Every perf declaration cites `references/intel_sdm/vol_1.../ch_03_basic_executio
 
 **B1. No memory ordering model exists, despite the doc asserting one.**
 `docs/TARGETS/X86_64.md` §3 states TSO and displays a theorem `x86_mov_store_is_release` referencing `m.getMemoryType` and `m.isNonTemporalInstr`. Neither symbol, nor any memory-type notion, exists in the code. The model is a single-threaded `memory : Address → Byte` total function (`Registers.lean:43`) — ordering is trivially program order. **Severity: low today (single-threaded), blocking for the concurrency work sketched in PLAN.md Phase 4(d).** Near-term fix: the doc *overclaims* — reconcile it.
+**DOC RECONCILED 2026-08-28**: the fictional theorem block is removed from
+`docs/TARGETS/X86_64.md` §3, which now carries an honest `**Status**:` marker. The ordering
+model itself remains unbuilt by design; its Law-5 design is `docs/X86_MEMORY_MODEL.md`,
+which states the model (x86-TSO operational store-buffer machine, WB memory only), its
+composition with the trace-level causality layer, and its validation instrument (the litmus
+battery). Implementation arrives via Spike 8 (`docs/SPIKES/SPIKE8_MULTITHREADING.md`,
+MT1–MT6): MT1/MT2 build the atomic primitives and the store-buffer machine, MT4 the litmus
+differential. This entry stays open until MT2's degeneration theorem lands.
 
 **B2. No atomics, no `LOCK`, no fences, no `CPUID`/`RDTSC`.** Grep-confirmed absent. `XCHG` exists but only in its non-locked reg-reg form. Forcing functions: any threaded spike; also the RDTSC perf harness (A7) needs `RDTSCP`+`CPUID` as *modeled* instructions or an explicitly out-of-model harness escape hatch.
+**Dependency pinned 2026-08-28** (`docs/X86_MEMORY_MODEL.md` §6): the memory model arrives
+*with* the first atomic, not after it. Memory-operand `XCHG` (architecturally locked even
+without the prefix) and `MFENCE` land only via MT1, which is blocked on the model design and
+declares atomicity as a single `.rmw` descriptor citing it; general `LOCK`-prefix machinery,
+`CMPXCHG`/`XADD`, and `SFENCE`/`LFENCE` stay deferred until a spike demands CAS, and inherit
+the same rule when one does.
 
 **B3. The memory model has no faults, no permissions, no canonicality, no alignment.**
 `memory : Address → Byte` is total and everywhere-defined; `write8`/`write64` (`Registers.lean:221-236`) succeed at any address. There is no page table, no unmapped region, no W^X, no canonical-address (bits 63:48) check, no `#GP`/`#PF`, no alignment-check semantics. Only `#DE` is modeled (`Div.lean:29,37` are the *only* two `faulted := true` sites in the tree). Consequence: a proof of a Zlib routine cannot distinguish "correct" from "scribbles outside its buffer" — precisely the risk PLAN.md flags for `Zlib/Windows.lean`'s hand-offset 4096-byte scratch. **This is what Law 11 capabilities are for; until they bind, the memory model actively hides the bug class.**

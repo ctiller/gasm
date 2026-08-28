@@ -89,7 +89,16 @@ graph TD
 +---------------------------------------------------------------------------------------------------+
 | Spike 7: Interactive Windowed Swapchain & Event Loop (Win32 Window, HTML5 Canvas, Presentation)  |
 +---------------------------------------------------------------------------------------------------+
+                                                  |
+                                                  v
++---------------------------------------------------------------------------------------------------+
+| Spike 8: Multithreading (x86-TSO Litmus Battery, XCHG Spinlock, Windows/Linux Threads, SMP)       |
++---------------------------------------------------------------------------------------------------+
 ```
+
+Spike 8 is design-stage only (`docs/SPIKES/SPIKE8_MULTITHREADING.md`, tasks MT1–MT6);
+its ordering relative to Spikes 6/7 in this diagram is roadmap numbering, not a build
+dependency — the multithreading and graphics paths are independent.
 
 ---
 
