@@ -22,6 +22,8 @@ import Gasm.Targets.X86_64.Instructions.Base
 import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.Dispatcher
 import Gasm.Targets.Linux.Linker
+import Gasm.Targets.AArch64.Semantics
+import Gasm.Targets.AArch64.Linux.Linker
 
 namespace Gasm.Core.Verification
 
@@ -30,6 +32,8 @@ open Gasm.Effects
 open Gasm.Targets.X86_64
 open Gasm.Targets.Windows
 open Gasm.Targets.Linux
+open Gasm.Targets.AArch64
+open Gasm.Targets.AArch64.Linux
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- Universal model of the external operating system and runtime environment.
@@ -80,7 +84,7 @@ instance : EnvironmentLoader Environment where
        proving that for ALL possible external environments `env : Env`, the concrete machine execution
        matches the high-level specification trace. -/
 structure VerifiedProgram (Env : Type := Unit) (Event : Type := AnyEvent)
-    [ExternalCallInterceptor X86_64 Event] [BEq Event] [EnvironmentLoader Env] where
+    [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] [BEq Event] [EnvironmentLoader Env] where
   name             : String
   executable       : WindowsExecutable
   instructions     : List X86_64Instr
@@ -91,7 +95,7 @@ structure VerifiedProgram (Env : Type := Unit) (Event : Type := AnyEvent)
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- First-Class Verified Program Contract specialized for dynamic stdin stream filters. -/
-abbrev VerifiedStdinProgram (Event : Type := AnyEvent) [ExternalCallInterceptor X86_64 Event] [BEq Event] :=
+abbrev VerifiedStdinProgram (Event : Type := AnyEvent) [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] [BEq Event] :=
   VerifiedProgram ByteArray Event
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
@@ -123,7 +127,7 @@ structure VerifiedRoutine (SpecState : Type) (MachineState : Type) (Event : Type
     It is IMPOSSIBLE to call this function without a valid, proved `VerifiedProgram`.
     All spike emitters, compilers, and production binary generators MUST use this function. -/
 def emitVerifiedExecutable {Env : Type} {Event : Type}
-    [ExternalCallInterceptor X86_64 Event] [BEq Event] [EnvironmentLoader Env]
+    [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] [BEq Event] [EnvironmentLoader Env]
     (p : VerifiedProgram Env Event) : ByteArray :=
   p.executable.emit
 
@@ -158,7 +162,7 @@ instance : LinuxEnvironmentLoader Environment where
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- First-Class Universally Parametric Verified Whole-Program Contract for Linux x86-64. -/
 structure VerifiedLinuxProgram (Env : Type := Unit) (Event : Type := AnyEvent)
-    [ExternalCallInterceptor X86_64 Event] [BEq Event] [LinuxEnvironmentLoader Env] where
+    [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] [BEq Event] [LinuxEnvironmentLoader Env] where
   name             : String
   executable       : LinuxExecutable
   instructions     : List X86_64Instr
@@ -171,8 +175,52 @@ structure VerifiedLinuxProgram (Env : Type := Unit) (Event : Type := AnyEvent)
 /-- Type-Enforced Linux Code Emission:
     It is IMPOSSIBLE to call this function without a valid, proved `VerifiedLinuxProgram`. -/
 def emitVerifiedLinuxExecutable {Env : Type} {Event : Type}
-    [ExternalCallInterceptor X86_64 Event] [BEq Event] [LinuxEnvironmentLoader Env]
+    [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] [BEq Event] [LinuxEnvironmentLoader Env]
     (p : VerifiedLinuxProgram Env Event) : ByteArray :=
+  p.executable.emit
+
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/-- Typeclass defining how an abstract environment `Env` is loaded into an AArch64 Linux machine's initial execution state. -/
+class AArch64LinuxEnvironmentLoader (Env : Type) where
+  loadEnvironment : AArch64LinuxExecutable → Env → AArch64MachineState
+
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+instance : AArch64LinuxEnvironmentLoader Unit where
+  loadEnvironment exe _ := exe.load
+
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+instance : AArch64LinuxEnvironmentLoader ByteArray where
+  loadEnvironment exe stdin := exe.loadWithStdin stdin
+
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+instance : AArch64LinuxEnvironmentLoader (List String) where
+  loadEnvironment exe reqs := exe.loadWithRequests reqs
+
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+instance : AArch64LinuxEnvironmentLoader Environment where
+  loadEnvironment exe env :=
+    let s0 := exe.loadWithStdin env.stdin
+    { s0 with incomingRequests := env.incomingRequests }
+
+/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- First-Class Universally Parametric Verified Whole-Program Contract for Linux AArch64. -/
+structure VerifiedAArch64LinuxProgram (Env : Type := Unit) (Event : Type := AnyEvent)
+    [Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event] [BEq Event] [AArch64LinuxEnvironmentLoader Env] where
+  name             : String
+  executable       : AArch64LinuxExecutable
+  instructions     : List AnyAArch64Instruction
+  spec             : Env → List Event
+  traceEquivalence : ∀ (env : Env),
+    let s0 := AArch64LinuxEnvironmentLoader.loadEnvironment executable env
+    (runAArch64Trace (Event := Event) instructions s0 == spec env) = true
+
+/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
+/-- Type-Enforced Linux AArch64 Code Emission:
+    It is IMPOSSIBLE to call this function without a valid, proved `VerifiedAArch64LinuxProgram`. -/
+def emitVerifiedAArch64LinuxExecutable {Env : Type} {Event : Type}
+    [Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event] [BEq Event] [AArch64LinuxEnvironmentLoader Env]
+    (p : VerifiedAArch64LinuxProgram Env Event) : ByteArray :=
   p.executable.emit
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/

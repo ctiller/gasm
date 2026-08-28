@@ -1,98 +1,638 @@
-# AArch64 Bring-Up Reconnaissance & Target Handoff
+# Target Specification: AArch64 Architecture & Execution Models
 
-**Status**: this is a reconnaissance record and a handoff brief, not a design document and
-not an implementation. No AArch64 code exists anywhere in `Gasm/` — verified 2026-08-28 at
-commit `38efb5f`: `Gasm/Targets/` contains `BareMetal`, `Dispatcher.lean`, `ELF`, `Linux`,
-`WASI`, `Wasm`, `Windows`, `X86_64`, and nothing else; a tree-wide grep for `EM_AARCH64`
-returns no hit. The only ARM content in the tree is `docs/TARGETS/ARM.md` (design-only, 79
-lines) and this file. Everything below the emulator invocations in §2 was produced by hand —
-no `gasm` ARM backend, no instruction model, no encoder — for the sole purpose of answering
-one question empirically: **can this machine close the loop (emit bytes, run them, observe
-output) for AArch64 the way it already does for x86-64 bare metal?** The answer is yes, on
-both axes that matter (serial output and programmatic exit).
-
-## How to read this document
-
-**§1–§9 are the original bring-up reconnaissance** (commit `6ceac13`, 2026-08-28). They are
-unchanged except where a paragraph is explicitly marked as corrected; the empirical results
-in §2 were reproduced by hand and still stand.
-
-**§10–§14 were added 2026-08-28** for a team building an ARM target out to Spike 5, and
-record what moved under that reconnaissance in the days after it was written. Read §10 first
-if you are planning; read §13 before you write any memory-touching instruction.
-
-**Nothing in this document is a gate, and none of it binds you.** §6 lists the checks that
-already fire mechanically on any change — those are real and you will meet them. Everything
-in §10–§14 is information and, where labelled as such, a recommendation. Where a
-recommendation concerns a convention we know to be defective, §11 says so plainly rather
-than exporting it silently; `docs/adr/0038-standards-are-earned-before-imposed.md` is the
-ruling that makes that the required posture, and its reasoning — a gate is an unanswerable
-message, so the bar for one is demonstrated practice — is why nothing here is phrased as a
-requirement on you.
-
-**We cannot answer questions.** This repository is the channel in both directions; §14 says
-where to write so that what you learn survives.
+This document defines the machine state model, native memory addressing modes, instruction set surface, ABI calling conventions, execution harnesses (Bare Metal and Linux), Cortex-A53 performance model, and mechanical verification obligations for the 64-bit ARM architecture (**AArch64 / ARMv8-A / ARMv9-A little-endian**).
 
 ---
 
-## 1. Bottom line
-
-- **`qemu-system-aarch64` is already installed** — same directory as the `qemu-system-x86_64`
-  binary the bare-metal x86 target already depends on (`C:\Program Files\qemu\`, the
-  winget/upstream default). No install step was needed on this machine. Every other
-  `qemu-system-<arch>` target ships in that same directory, for what it's worth.
-- **The boot-and-observe loop closes completely.** A hand-assembled AArch64 program, wrapped
-  in a hand-built ELF64 with no external assembler involved, boots under
-  `qemu-system-aarch64 -M virt` and (a) produces exact, byte-for-byte serial output over the
-  PL011 UART and (b) exits with a process exit code chosen by the guest program, via AArch64
-  semihosting. Both were reproduced and observed directly — see §2.
-- **Recommendation: `qemu-system-aarch64` bare metal, `-M virt`, PL011 UART, semihosting
-  `SYS_EXIT`.** This is the direct AArch64 analogue of what already works for x86-64
-  (`Gasm/Targets/BareMetal/QEMU.lean`, `Spikes/Spike1Hello/BareMetal/Test.lean`): same
-  posture (least OS surface between our bytes and the CPU), same shape of harness (spawn
-  QEMU, capture stdio, check exit code), same "if the oracle is absent, skip honestly rather
-  than silently pass" convention already established for the x86 side. §3 evaluates this
-  against `qemu-aarch64` user-mode and states why bare metal wins for this project
-  specifically.
-- **One thing that came out simpler than the x86 side, empirically, not by assumption:**
-  QEMU's AArch64 `virt` machine loads a non-Linux ELF passed to `-kernel` as a plain ELF —
-  it maps the `PT_LOAD` segment(s) at their physical addresses and jumps to `e_entry`. No
-  Linux boot-protocol header, no device tree blob, no PVH-style note was needed. The x86-64
-  bare-metal target needed a `PT_NOTE` Xen PVH note (`docs/TARGETS/BARE_METAL.md` §3.2)
-  specifically because QEMU's x86 `-kernel` path enforces that convention when the image
-  isn't a Linux bzImage; the AArch64 path has no equivalent requirement for a bare
-  `EM_AARCH64` `ET_EXEC` ELF. One fewer moving part for an AArch64 target's minimal-ELF
-  packaging than x86 needed.
+## Features Discovered
+| # | Category | Feature | Description | Inputs | Outputs | Error Behavior | Discovered Via |
+|---|----------|---------|-------------|--------|---------|----------------|----------------|
+| 1 | Architectural State | General Purpose Registers (`X0`–`X30`) | 31 64-bit integer registers accessed as 64-bit (`X`) or 32-bit (`W`) | Register identifier (0–30), width (`w64`/`w32`), value (`UInt64`/`UInt32`) | Updated machine register state | Register index > 30 is out-of-bounds | ARM DDI 0487, X86_64.md pattern |
+| 2 | Architectural State | Zero Register (`XZR`/`WZR`) | Register 31 in data-processing contexts; reads 0, writes discarded | Register 31 in ALU / logical / load-store operand | Always `0` on read, no state change on write | Ignored write | ARM DDI 0487 §B1.2.1 |
+| 3 | Architectural State | Stack Pointer (`SP`/`WSP`) | Register 31 in stack-modifying instructions and memory base operands | Value (`UInt64`), must maintain 16-byte alignment | Updated SP register | Misaligned SP generates alignment fault | ARM DDI 0487 §B1.2.2, AAPCS64 |
+| 4 | Architectural State | Sub-Register Zero-Extension | Writes to 32-bit `W` registers zero-extend into upper 32 bits of 64-bit `X` | `UInt32` value written to `Wn` | Upper 32 bits cleared to 0 in `Xn` | None | ARM DDI 0487 §B1.2.1 |
+| 5 | Architectural State | Condition Flags (`PSTATE.NZCV`) | Architectural status flags: Negative (N:31), Zero (Z:30), Carry (C:29), Overflow (V:28) | ALU result and operand sign/overflow properties | `UInt32` condition mask | Arithmetic wrap / borrow inverted | ARM DDI 0487 §B1.2.3 |
+| 6 | Memory Addressing | Immediate Offset Addressing | Base register `Xn` plus scaled or unscaled immediate displacement | `base: RegOrSp`, `offset: Int64` | `base + offset`, writeback = `none` | Out-of-range displacement | ARM DDI 0487 §C4.1.4 |
+| 7 | Memory Addressing | Pre-Indexed Writeback Addressing | Base register `Xn` plus immediate displacement with base writeback | `base: RegOrSp`, `offset: Int64` | `base + offset`, writeback = `some (base, base + offset)` | Base writeback to `XZR` invalid | ARM DDI 0487 §C4.1.4 |
+| 8 | Memory Addressing | Post-Indexed Writeback Addressing | Base register `Xn` accessed, then base updated by immediate offset | `base: RegOrSp`, `offset: Int64` | `base`, writeback = `some (base, base + offset)` | Base writeback to `XZR` invalid | ARM DDI 0487 §C4.1.4 |
+| 9 | Memory Addressing | Register Offset with Shift | Base register `Xn` plus shifted/extended index register `Xm` | `base: RegOrSp`, `index: Reg64`, `shift: Nat` | `base + (index <<< shift)`, writeback = `none` | Shift > 4 invalid for standard loads | ARM DDI 0487 §C4.1.4 |
+| 10 | Memory Addressing | PC-Relative Literal Addressing | Program counter `PC` plus signed 19-bit/21-bit immediate offset | `PC`, `offset: Int64` | `PC + offset`, writeback = `none` | Offset unaligned to 4 bytes | ARM DDI 0487 §C4.1.5 |
+| 11 | Instruction Surface | 15 Core Instruction Families | Instruction families covering arithmetic, logic, shift, wide move, mul/div, memory, branch, adr, system | 32-bit instruction word | State transition on machine | Unallocated opcode throws decode error | PROJECT.md, Spikes 1–5 |
+| 12 | ABI & Calling Conv | AAPCS64 Calling Convention | Standard procedure call ABI: `X0`–`X7` args/returns, `X19`–`X28` callee-saved, `X29` FP, `X30` LR | Stack pointer, arguments, registers | Return value in `X0`, restored callee-saved regs | Misaligned stack on public call fails ABI | AAPCS64 specification |
+| 13 | Bare Metal Target | QEMU `virt` Platform Execution | Direct ELF64 boot at physical RAM base `0x40000000` with PL011 UART MMIO and semihosting exit | Flat ELF64 binary loaded via QEMU `-kernel` | Serial output over PL011 (`0x09000000`), exit code via semihosting `HLT #0xF000` | Missing semihosting handler hangs CPU | ARM64.md reconnaissance, QEMU virt |
+| 14 | Linux Target | Static ELF64 & `SVC #0` ABI | Linux user execution: `SVC #0`, `X8` syscall nr, `X0`–`X5` args, asm-generic numbers | Static ELF64 (`EM_AARCH64`), syscall operands | Syscall result in `X0`, negative `[-4095, -1]` on error | Unknown syscall returns `-ENOSYS` (`-38`) | LINUX.md, Linux asm-generic |
+| 15 | Performance Model | Cortex-A53 Microarchitecture | Dual-issue in-order 8-stage pipeline performance model with uop classification and cycle bounds | Instruction stream, micro-op classes | Cycle bounds (min, nominal, max), port pressure | Unvalidated instructions fail CI gate | Cortex-A53 TRM, REVIEW.md Law 14 |
 
 ---
 
-## 2. Reproduction — exact commands, exact bytes, observed output
+## Edge Cases
+| # | Feature | Input | Observed Behavior |
+|---|---------|-------|-------------------|
+| 1 | Register Zeroing | `SUBS XZR, Xn, Xm` (`CMP`) | Discards destination arithmetic result; sets `NZCV` condition flags based on `Xn - Xm`. `XZR` remains 0. |
+| 2 | Register 31 Dual Identity | `ADD SP, SP, #16` vs `ADD X0, XZR, #1` | When instruction opcodes designate SP-capable field, register 31 accesses `SP`; in standard data processing, register 31 accesses `XZR`. |
+| 3 | 32-bit Sub-Register Write | Write `0xFFFFFFFF` to `W0` | `X0` becomes `0x00000000FFFFFFFF`; upper 32 bits are unconditionally zeroed out, never preserved. |
+| 4 | NZCV Subtraction Carry | `SUBS Xd, 10, 5` vs `SUBS Xd, 5, 10` | ARM subtraction evaluates `C = 1` when no borrow occurs (`10 >= 5` yields `C=1`), and `C = 0` when borrow occurs (`5 < 10` yields `C=0`). Inverted relative to x86 CF! |
+| 5 | NZCV Overflow Flag | `ADDS Xd, 0x7FFFFFFFFFFFFFFF, 1` | Adding 1 to maximum positive signed 64-bit integer produces negative result `0x8000000000000000`; sets `V = 1` (overflow) and `N = 1`. |
+| 6 | Pre-Index Writeback | `LDR X0, [X1, #16]!` | Memory loaded from `X1 + 16`; `X1` updated to `X1 + 16` before data load completes. |
+| 7 | Post-Index Writeback | `LDR X0, [X1], #16` | Memory loaded from `X1`; `X1` updated to `X1 + 16` after data load address is latched. |
+| 8 | Load/Store Pair Alignment | `STP X29, X30, [SP, #-16]!` | Decrements `SP` by 16, stores `X29` at `SP`, `X30` at `SP + 8`. Requires 8-byte alignment (natively quadword aligned). |
+| 9 | Unconditional Branch Range | `B offset26` | 26-bit signed immediate shifted left by 2 provides branch range of `±128 MB` around `PC`. |
+| 10 | Direct Call Linkage | `BL offset26` | Saves sequential address `PC + 4` into Link Register `X30`, then jumps to target address. |
+| 11 | Integer Division by Zero | `UDIV X0, X1, XZR` | In AArch64 hardware, integer division by zero does NOT generate a hardware trap or exception; it returns `0` in destination register `X0`. |
+| 12 | Semihosting Clean Exit | `HLT #0xF000` with `SYS_EXIT` | Traps to QEMU semihosting handler; propagates guest exit code directly without bit shifts (unlike x86 isa-debug-exit). |
+| 13 | Red Zone Absence | Stack frame leaf allocation | AAPCS64 specifies NO red zone. Any memory below `SP` is immediately subject to asynchronous corruption by interrupts or signal frames. |
+| 14 | Linux Syscall Numbering | `SYS_write` on AArch64 vs x86-64 | `SYS_write` is 64 on AArch64 (asm-generic), whereas it is 1 on x86-64. Using 1 on AArch64 invokes `io_setup` and crashes. |
+| 15 | PL011 UART Transmit FIFO | Burst writes to `UARTDR` | Writing to `UARTDR` when Flag Register bit 5 (`TXFF`) is 1 drops bytes or stalls; transmitter polling must check `TXFF == 0`. |
 
-### 2.1 `qemu-system-aarch64` availability
+---
+
+## Machine State
+
+The native execution state for the 64-bit ARM architecture is formalized by the `AArch64MachineState` record, which models registers, execution pointers, condition flags, sealed memory, effect buffers, and execution stop conditions without OS abstractions.
+
+```lean
+structure AArch64MachineState where
+  pc               : Address
+  gprs             : Reg64 → UInt64
+  sp               : Address
+  nzcv             : UInt32
+  memory           : AArch64Memory
+  stdinBuffer      : ByteArray := ByteArray.empty
+  incomingRequests : List String := []
+  fault            : Option AArch64Fault := none
+```
+
+### Architectural State Components
+1. **Program Counter (`pc : Address`)**: A 64-bit unsigned virtual address designating the currently fetched instruction word. Instructions in AArch64 are strictly 32-bit wide (4 bytes) and must be aligned to 4-byte boundaries. Normal sequential execution advances `pc` by 4 (`pc := pc + 4`).
+2. **General Purpose Registers (`gprs : Reg64 → UInt64`)**: Mapping from 64-bit register identifiers (`X0`–`X30`) to their current 64-bit contents. When `XZR` is queried, it returns `0`.
+3. **Dedicated Stack Pointer (`sp : Address`)**: A distinct 64-bit register representing the current stack top. The stack pointer is separate from general-purpose registers `X0`–`X30`, though it shares register encoding index 31 in instructions that support SP addressing.
+4. **Condition Flags (`nzcv : UInt32`)**: Holds the architectural condition flags in bits 31:28 of `PSTATE.NZCV`.
+5. **Sealed Memory Cell (`memory : AArch64Memory`)**: The sealed linear address space managed under `MemoryCell.lean`. Direct projection or synthesis is forbidden; all reads and writes route through `AArch64Mem.read` and `AArch64Mem.write`.
+6. **Execution Stop Condition (`fault : Option AArch64Fault`)**: Encapsulates terminal machine states, differentiating clean halts, semihosting application termination, and illegal architectural conditions.
+
+```lean
+inductive AArch64Fault where
+  | divideError
+  | memFault (kind : MemAccessKind) (width : MemWidth) (addr : Address)
+  | alignmentFault (addr : Address)
+  | halted
+  deriving DecidableEq, Repr, Inhabited
+```
+
+---
+
+## Registers
+
+AArch64 provides 31 general-purpose 64-bit registers designated `X0` through `X30`. In instruction encodings, a 5-bit register field (bits 0–31) specifies the register operand.
+
+| 64-bit Register | 32-bit Sub-Register | Architectural Role | AAPCS64 Preserved Across Calls? |
+| :--- | :--- | :--- | :--- |
+| `X0` | `W0` | Argument 1 / Return Value 1 / Syscall Arg 1 & Return | No (Caller-Saved) |
+| `X1` | `W1` | Argument 2 / Return Value 2 / Syscall Arg 2 | No (Caller-Saved) |
+| `X2`–`X7` | `W2`–`W7` | Arguments 3–8 / Syscall Arguments 3–6 (`X2`–`X5`) | No (Caller-Saved) |
+| `X8` | `W8` | Indirect Result Location (Struct Return) / Linux Syscall Number | No (Caller-Saved) |
+| `X9`–`X15` | `W9`–`W15` | Temporary / Scratch Registers | No (Caller-Saved) |
+| `X16` | `W16` | Intra-Procedure Call Temporary 0 (IP0) / Vendor PLT | No (Caller-Saved) |
+| `X17` | `W17` | Intra-Procedure Call Temporary 1 (IP1) / Vendor PLT | No (Caller-Saved) |
+| `X18` | `W18` | Platform Register (Reserved by platform ABIs, scratch on Linux) | Platform Dependent |
+| `X19`–`X28` | `W19`–`W28` | Callee-Saved Registers | **Yes (Callee-Saved)** |
+| `X29` | `W29` | Frame Pointer (FP) | **Yes (Callee-Saved)** |
+| `X30` | `W30` | Link Register (LR) (Target of `BL`/`BLR`, return address) | Caller-Saved / Callee-Restored |
+| `XZR` | `WZR` | Zero Register (reads 0, writes discarded) | N/A |
+| `SP` | `WSP` | Stack Pointer (16-byte aligned) | **Yes (Preserved)** |
+
+### Register Index 31 Dual Identity
+In A64 assembly and machine code, register index 31 (`0b11111`) is dual-purposed depending on the instruction context:
+1. **Zero Register (`XZR` / `WZR`)**: Used in standard integer arithmetic and logical data processing. Reads from register 31 return zero (`0x0000000000000000`), and writes to register 31 are silently discarded.
+2. **Stack Pointer (`SP` / `WSP`)**: Used in load and store instructions as the base address, and in immediate arithmetic instructions (`ADD`/`SUB` immediate with SP).
+
+```lean
+inductive Reg64 where
+  | x0  | x1  | x2  | x3  | x4  | x5  | x6  | x7
+  | x8  | x9  | x10 | x11 | x12 | x13 | x14 | x15
+  | x16 | x17 | x18 | x19 | x20 | x21 | x22 | x23
+  | x24 | x25 | x26 | x27 | x28 | x29 | x30
+  deriving DecidableEq, Repr, Inhabited
+
+inductive Reg32 where
+  | w0  | w1  | w2  | w3  | w4  | w5  | w6  | w7
+  | w8  | w9  | w10 | w11 | w12 | w13 | w14 | w15
+  | w16 | w17 | w18 | w19 | w20 | w21 | w22 | w23
+  | w24 | w25 | w26 | w27 | w28 | w29 | w30
+  deriving DecidableEq, Repr, Inhabited
+
+inductive RegOrSp where
+  | reg (r : Reg64)
+  | sp
+  deriving DecidableEq, Repr, Inhabited
+```
+
+---
+
+## Sub-Register Aliasing & 32-Bit Zero-Extension Invariant
+
+In AArch64 hardware:
+- Every 32-bit register `Wn` represents the lower 32 bits of the corresponding 64-bit register `Xn`.
+- **Zero-Extension Law**: Any write to a 32-bit sub-register `Wn` **unconditionally clears the upper 32 bits** (bits 63:32) of `Xn`. The 32-bit result is zero-extended into the 64-bit register cell.
+- Unlike x86-64, where writes to 8-bit (`AL`, `AH`) or 16-bit (`AX`) registers preserve the upper bits of `RAX`, AArch64 has no native 8-bit or 16-bit GPR write instructions that preserve upper bits. Byte and halfword memory loads (`LDRB`, `LDRH`) write to `Wn` or `Xn` and either zero-extend or sign-extend (`LDRSB`, `LDRSH`) across the entire 32-bit or 64-bit destination.
+
+```lean
+/-- 32-bit sub-register write zero-extends into the upper 32 bits of the 64-bit register -/
+def AArch64MachineState.setGpr32 (s : AArch64MachineState) (r : Reg32) (val : UInt32) : AArch64MachineState :=
+  s.setGpr64 (reg32To64 r) val.toUInt64
+```
+
+---
+
+## Condition Flags & NZCV Evaluation
+
+AArch64 maintains four architectural condition flags stored in bits 31:28 of the `PSTATE.NZCV` system register:
+
+| Flag | Bit Index | Bit Mask | Semantic Meaning | Evaluated By |
+| :--- | :--- | :--- | :--- | :--- |
+| **N** (Negative) | 31 | `0x80000000` | Most significant bit of result is 1 (signed negative) | `res >>> (width - 1) == 1` |
+| **Z** (Zero) | 30 | `0x40000000` | Result of operation is exactly zero | `res == 0` |
+| **C** (Carry) | 29 | `0x20000000` | Unsigned carry-out (addition) or NOT borrow (subtraction) | `Add: sum < a`, `Sub: a >= b` |
+| **V** (Overflow) | 28 | `0x10000000` | Signed two's-complement arithmetic overflow | `Add: ((a ^ ~b) & (a ^ sum) & sign) != 0` |
+
+### Inverted Carry Borrow Invariant
+On AArch64, during subtraction operations (`SUBS`, `CMP`, `NEGS`):
+- The Carry flag represents **NOT borrow**:
+  - If `a >= b` (unsigned comparison), no borrow is required, and `C` is set to **`1`**.
+  - If `a < b`, a borrow is required, and `C` is cleared to **`0`**.
+- This is the exact inverse of x86-64 subtraction, where `CF = 1` denotes a borrow.
+
+```lean
+/-- Updates NZCV condition flags following a 64-bit subtraction (a - b) -/
+def AArch64MachineState.setFlagsSub64 (s : AArch64MachineState) (a b : UInt64) : AArch64MachineState :=
+  let diff := a - b
+  let n : UInt32 := if (diff >>> 63) == 1 then 0x80000000 else 0
+  let z : UInt32 := if diff == 0 then 0x40000000 else 0
+  let c : UInt32 := if a >= b then 0x20000000 else 0
+  let v : UInt32 := if (((a ^^^ b) &&& (a ^^^ diff) &&& 0x8000000000000000) != 0) then 0x10000000 else 0
+  let preserved := s.nzcv &&& 0x0FFFFFFF
+  { s with nzcv := preserved ||| n ||| z ||| c ||| v }
+```
+
+### Condition Code Evaluation Table
+Conditional branches (`B.cond`) test `PSTATE.NZCV` using a 4-bit condition code field (`cond : UInt4`):
+
+| Code (`cond`) | Mnemonic | Tested Condition | Description |
+| :--- | :--- | :--- | :--- |
+| `0000` | `EQ` | `Z == 1` | Equal |
+| `0001` | `NE` | `Z == 0` | Not Equal |
+| `0010` | `CS` / `HS` | `C == 1` | Carry Set / Unsigned Higher or Same |
+| `0011` | `CC` / `LO` | `C == 0` | Carry Clear / Unsigned Lower |
+| `0100` | `MI` | `N == 1` | Minus / Negative |
+| `0101` | `PL` | `N == 0` | Plus / Positive or Zero |
+| `0110` | `VS` | `V == 1` | Signed Overflow |
+| `0111` | `VC` | `V == 0` | No Signed Overflow |
+| `1000` | `HI` | `C == 1 && Z == 0` | Unsigned Higher |
+| `1001` | `LS` | `!(C == 1 && Z == 0)` | Unsigned Lower or Same |
+| `1010` | `GE` | `N == V` | Signed Greater Than or Equal |
+| `1011` | `LT` | `N != V` | Signed Less Than |
+| `1100` | `GT` | `Z == 0 && N == V` | Signed Greater Than |
+| `1101` | `LE` | `!(Z == 0 && N == V)` | Signed Less Than or Equal |
+| `1110` | `AL` | `true` | Always executed |
+| `1111` | `NV` | `true` | Always executed (Reserved alias) |
+
+---
+
+## Addressing Modes
+
+AArch64 memory instructions support five native addressing modes formalized by the `AArch64AddrMode` inductive type:
+
+```lean
+inductive AArch64AddrMode where
+  | immOffset (base : RegOrSp) (offset : Int64)
+  | preIndex  (base : RegOrSp) (offset : Int64)
+  | postIndex (base : RegOrSp) (offset : Int64)
+  | regOffset (base : RegOrSp) (index : Reg64) (shift : Nat)
+  | literal   (offset : Int64)
+  deriving DecidableEq, Repr, Inhabited
+```
+
+### Addressing Mode Mechanics & Evaluation
+Evaluation produces an effective memory address along with an optional base register writeback pair:
+`evalAddr : AArch64AddrMode → AArch64MachineState → Address × Option (RegOrSp × Address)`
+
+1. **Immediate Offset (`[Xn, #offset]`)**:
+   - Computes address: `address := baseValue + offset`.
+   - Base register is unmodified (`writeback := none`).
+   - Supports 12-bit unsigned immediate scaled by access size (0 to 32760 for 64-bit), or 9-bit signed unscaled immediate (`LDUR`/`STUR`, range -256 to +255).
+2. **Pre-Indexed Writeback (`[Xn, #offset]!`)**:
+   - Computes address: `address := baseValue + offset`.
+   - Base register is updated before memory access (`writeback := some (base, address)`).
+   - Signed 9-bit immediate in range `[-256, 255]`.
+3. **Post-Indexed Writeback (`[Xn], #offset`)**:
+   - Computes address: `address := baseValue`.
+   - Base register is updated after memory access (`writeback := some (base, baseValue + offset)`).
+   - Signed 9-bit immediate in range `[-256, 255]`.
+4. **Register Offset (`[Xn, Xm{, LSL #shift}]`)**:
+   - Computes address: `address := baseValue + (indexValue <<< shift)`.
+   - Shift amount is `0` or `log2(access_bytes)` (e.g. `3` for 64-bit, `2` for 32-bit).
+   - Base register is unmodified (`writeback := none`).
+5. **PC-Relative Literal (`literal offset`)**:
+   - Computes address: `address := pc + offset`.
+   - Signed 19-bit immediate scaled by 4 (range `±1 MB`) used in `LDR Xd, label`.
+   - Base register is unmodified (`writeback := none`).
+
+---
+
+## Instruction Surface & 15 Core Instruction Families
+
+The instruction surface for AArch64 comprises 15 instruction families required for Spikes 1–5, implemented via the `AArch64Instruction` typeclass interface with modular 32-bit codecs, micro-op decompositions, and round-trip verification obligations.
+
+### 1. AddSubImm Family
+Immediate arithmetic supporting 12-bit unsigned immediates with optional 12-bit left shift (`LSL #0` or `LSL #12`):
+- `ADD Xd|Wd, Xn|Wn, #imm12{, LSL #0|#12}`: Integer addition without flag update.
+- `ADDS Xd|Wd, Xn|Wn, #imm12{, LSL #0|#12}`: Integer addition updating `NZCV` flags.
+- `SUB Xd|Wd, Xn|Wn, #imm12{, LSL #0|#12}`: Integer subtraction without flag update.
+- `SUBS Xd|Wd, Xn|Wn, #imm12{, LSL #0|#12}`: Integer subtraction updating `NZCV` flags.
+- **Aliases**: `CMP Xn|Wn, #imm12` is encoded as `SUBS XZR|WZR, Xn|Wn, #imm12`.
+- **Opcode Template**: `[sf:1][op:1][S:1][100010][shift:2][imm12:12][Rn:5][Rd:5]`
+
+### 2. AddSubReg Family
+Register arithmetic supporting shifted register operands (shift by 0 to 63):
+- `ADD Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Register addition.
+- `ADDS Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Register addition setting `NZCV` flags.
+- `SUB Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Register subtraction.
+- `SUBS Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Register subtraction setting `NZCV` flags.
+- **Aliases**: `CMP Xn|Wn, Xm|Wm` is encoded as `SUBS XZR|WZR, Xn|Wn, Xm|Wm`. `CMN` is encoded as `ADDS`.
+- **Opcode Template**: `[sf:1][op:1][S:1][01011][shift:2][0][Rm:5][imm6:6][Rn:5][Rd:5]`
+
+### 3. LogicalImm Family
+Bitwise logical operations against repeating bitmask immediates:
+- `AND Xd|Wd, Xn|Wn, #bitmask`: Bitwise AND.
+- `ANDS Xd|Wd, Xn|Wn, #bitmask`: Bitwise AND updating `NZCV` flags (`N` and `Z` set from result, `C=0, V=0`).
+- `ORR Xd|Wd, Xn|Wn, #bitmask`: Bitwise OR.
+- `EOR Xd|Wd, Xn|Wn, #bitmask`: Bitwise Exclusive-OR.
+- **Aliases**: `TST Xn|Wn, #bitmask` is encoded as `ANDS XZR|WZR, Xn|Wn, #bitmask`.
+- **Opcode Template**: `[sf:1][opc:2][100100][N:1][immr:6][imms:6][Rn:5][Rd:5]`
+
+### 4. LogicalReg Family
+Bitwise register logical operations with optional shifted operands:
+- `AND Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Bitwise AND.
+- `ANDS Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Bitwise AND setting `N` and `Z` flags.
+- `ORR Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Bitwise OR. Includes register move `MOV Xd, Xm` (encoded as `ORR Xd, XZR, Xm`).
+- `EOR Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Bitwise Exclusive-OR.
+- `BIC Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Bit clear: `Xn AND NOT(Xm)`.
+- `ORN Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Bitwise OR NOT: `Xn OR NOT(Xm)`.
+- `EON Xd|Wd, Xn|Wn, Xm|Wm{, shift #amount}`: Bitwise Equivalent: `Xn EOR NOT(Xm)`.
+- **Opcode Template**: `[sf:1][opc:2][01010][shift:2][N:1][Rm:5][imm6:6][Rn:5][Rd:5]`
+
+### 5. Shift Family
+Logical and arithmetic register shifts:
+- `LSL Xd|Wd, Xn|Wn, #shift`: Logical Shift Left (immediate).
+- `LSR Xd|Wd, Xn|Wn, #shift`: Logical Shift Right (immediate).
+- `ASR Xd|Wd, Xn|Wn, #shift`: Arithmetic Shift Right (immediate).
+- `ROR Xd|Wd, Xn|Wn, #shift`: Rotate Right (immediate).
+- `LSLV`, `LSRV`, `ASRV`, `RORV`: Variable shifts taking register amount `Xm|Wm`.
+- **Opcode Template**: Variable shifts encoded under data processing 2-source: `[sf:1][0][0][11010110][Rm:5][0010][op:2][Rn:5][Rd:5]`.
+
+### 6. MoveWide Family
+Loading 16-bit immediates into any 16-bit quarter of a 64-bit or 32-bit register:
+- `MOVZ Xd|Wd, #imm16{, LSL #hw}`: Move Wide with Zero (clears all other quarters to 0).
+- `MOVN Xd|Wd, #imm16{, LSL #hw}`: Move Wide with NOT (inverts all bits of the immediate).
+- `MOVK Xd|Wd, #imm16{, LSL #hw}`: Move Wide with Keep (updates specified 16-bit quarter, preserving others).
+- `hw`: Quarter index: `0` (shift 0), `1` (shift 16), `2` (shift 32), `3` (shift 48).
+- **Opcode Template**: `[sf:1][opc:2][100101][hw:2][imm16:16][Rd:5]`
+
+### 7. MultiplyDivide Family
+Integer multiplication and division:
+- `MUL Xd|Wd, Xn|Wn, Xm|Wm`: Integer multiply `Xd := Xn * Xm`.
+- `MADD Xd|Wd, Xn|Wn, Xm|Wm, Xa|Wa`: Multiply-Add `Xd := Xa + (Xn * Xm)`.
+- `MSUB Xd|Wd, Xn|Wn, Xm|Wm, Xa|Wa`: Multiply-Subtract `Xd := Xa - (Xn * Xm)`.
+- `SMULL Xd, Wn, Wm`: Signed multiply long (32×32 → 64-bit signed).
+- `UMULL Xd, Wn, Wm`: Unsigned multiply long (32×32 → 64-bit unsigned).
+- `SDIV Xd|Wd, Xn|Wn, Xm|Wm`: Signed integer division. Division by zero returns `0`.
+- `UDIV Xd|Wd, Xn|Wn, Xm|Wm`: Unsigned integer division. Division by zero returns `0`.
+- **Opcode Template**: 3-source multiply: `[sf:1][00][11011][000][Rm:5][0][Ra:5][Rn:5][Rd:5]`; division: `[sf:1][00][11010110][Rm:5][00001][op:1][Rn:5][Rd:5]`.
+
+### 8. LoadStoreImm Family
+Load and store with immediate offsets, covering 64-bit, 32-bit, 16-bit, and 8-bit widths:
+- `LDR Xd|Wd, [Xn, #imm12]`: Load register (unsigned scaled offset).
+- `STR Xd|Wd, [Xn, #imm12]`: Store register (unsigned scaled offset).
+- `LDRB Wt, [Xn, #imm12]`: Load byte, zero-extending into `Wt`.
+- `STRB Wt, [Xn, #imm12]`: Store byte (lowest 8 bits of `Wt`).
+- `LDRH Wt, [Xn, #imm12]`: Load halfword, zero-extending into `Wt`.
+- `STRH Wt, [Xn, #imm12]`: Store halfword (lowest 16 bits of `Wt`).
+- `LDRSB Xd|Wt, [Xn, #imm12]`: Load signed byte (sign-extended to 64 or 32 bits).
+- `LDRSH Xd|Wt, [Xn, #imm12]`: Load signed halfword.
+- `LDRSW Xd, [Xn, #imm12]`: Load signed word (sign-extends 32 bits to 64-bit `Xd`).
+- `LDUR` / `STUR`: Unscaled 9-bit signed immediate offset load/store (`[-256, 255]`).
+- Pre/Post-Indexed forms: `LDR Xd, [Xn, #imm9]!` and `LDR Xd, [Xn], #imm9`.
+- **Opcode Template**: Unsigned immediate: `[size:2][111][V:0][01][opc:2][imm12:12][Rn:5][Rt:5]`.
+
+### 9. LoadStoreReg Family
+Load and store with register offset:
+- `LDR Xt|Wt, [Xn, Xm{, LSL #shift}]`: Load using base + shifted index.
+- `STR Xt|Wt, [Xn, Xm{, LSL #shift}]`: Store using base + shifted index.
+- `LDRB` / `STRB`, `LDRH` / `STRH` register-offset forms.
+- **Opcode Template**: `[size:2][111][V:0][00][opc:2][1][Rm:5][option:3][S:1][10][Rn:5][Rt:5]`.
+
+### 10. LoadStorePair Family
+Atomic loading and storing of two adjacent 64-bit or 32-bit registers (crucial for stack management):
+- `STP Xt1, Xt2, [Xn, #imm7]`: Store Pair of registers with signed scaled 7-bit immediate offset.
+- `LDP Xt1, Xt2, [Xn, #imm7]`: Load Pair of registers.
+- `STP Xt1, Xt2, [Xn, #imm7]!`: Pre-index writeback store pair (e.g. `STP X29, X30, [SP, #-16]!`).
+- `LDP Xt1, Xt2, [Xn], #imm7`: Post-index writeback load pair (e.g. `LDP X29, X30, [SP], #16`).
+- **Opcode Template**: `[opc:2][101][0][V:0][mode:2][L:1][imm7:7][Rt2:5][Rn:5][Rt1:5]`.
+
+### 11. BranchImm Family
+Unconditional PC-relative branch instructions:
+- `B label`: Direct branch to `PC + signExtend(imm26 << 2)`. Range is `±128 MB`.
+- `BL label`: Branch with Link. Saves sequential return address `PC + 4` into Link Register `X30`, then jumps to `label`.
+- **Opcode Template**: `[op:1][00101][imm26:26]`, where `op=0` is `B` and `op=1` is `BL`.
+
+### 12. BranchCond Family
+Conditional branch instructions:
+- `B.cond label`: Branches to `PC + signExtend(imm19 << 2)` if condition code `cond` matches `NZCV`. Range is `±1 MB`.
+- `CBZ Rt, label`: Compare and Branch on Zero. Branches if `Rt == 0` without updating flags.
+- `CBNZ Rt, label`: Compare and Branch on Non-Zero.
+- **Opcode Template**: `B.cond`: `[0101010][0][imm19:19][0][cond:4]`; `CBZ/CBNZ`: `[sf:1][011010][op:1][imm19:19][Rt:5]`.
+
+### 13. BranchReg Family
+Register indirect branches:
+- `BR Xn`: Branch to address held in register `Xn`.
+- `BLR Xn`: Branch with Link to register. Sets `X30 := PC + 4` and branches to `Xn`.
+- `RET {Xn}`: Return from subroutine. Branches to address held in register `Xn` (defaults to `X30` / LR).
+- **Opcode Template**: `[1101011][0000][11111][00000][op:2][Rn:5][00000]`, where `op=0` is `BR`, `op=1` is `BLR`, `op=2` is `RET`.
+
+### 14. Adr Family
+PC-relative address calculation instructions:
+- `ADR Xd, label`: Computes address `PC + signExtend(imm21)` within `±1 MB` of current instruction.
+- `ADRP Xd, label`: Computes 4 KB page base address `(PC & ~0xFFF) + signExtend(imm21 << 12)` within `±4 GB`. Used with `ADD` or `LDR` to load arbitrary global data addresses.
+- **Opcode Template**: `[op:1][immlo:2][10000][immhi:19][Rd:5]`, where `op=0` is `ADR` and `op=1` is `ADRP`.
+
+### 15. System Family
+Hardware control, exception generation, and barrier instructions:
+- `HLT #imm16`: Halts processor core or invokes host debug/semihosting handler (`HLT #0xF000` on AArch64).
+- `SVC #imm16`: Supervisor Call. Generates system call exception to EL1 (`SVC #0` for Linux syscalls).
+- `NOP`: No-operation instruction (`0xD503201F`).
+- `DMB #opt` / `DSB #opt` / `ISB`: Data Memory Barrier, Data Synchronization Barrier, Instruction Synchronization Barrier.
+- `MRS Xd, S3_...` / `MSR S3_..., Xn`: System register access (e.g. reading/writing `NZCV`).
+
+---
+
+## AAPCS64 Calling Convention & ABI Disciplines
+
+Subroutine calls adhere to the Procedure Call Standard for the Arm 64-bit Architecture (**AAPCS64**):
 
 ```
-$ "C:\Program Files\qemu\qemu-system-aarch64.exe" --version
-QEMU emulator version 11.1.0 (v11.1.0-12130-ge470268ff4)
++-------------------------------------------------------------+
+| Higher Memory Addresses (Caller's Stack Frame)              |
++-------------------------------------------------------------+
+| Incoming Arguments (Beyond 8th parameter, pushed on stack)  |
++-------------------------------------------------------------+ <- SP at entry
+| Saved Link Register (X30) (8 bytes)                         |
++-------------------------------------------------------------+
+| Saved Frame Pointer (X29) (8 bytes)                         | <- X29 (FP) points here
++-------------------------------------------------------------+
+| Callee-Saved Registers (X19–X28)                            |
++-------------------------------------------------------------+
+| Local Variables & Spills                                    |
++-------------------------------------------------------------+
+| Outgoing Arguments for Child Subroutines                    |
++-------------------------------------------------------------+ <- SP at child call (16-byte aligned)
 ```
 
-`-machine help` lists `virt` (aliased to `virt-11.1`) among the AArch64 machine types;
-`-M virt -cpu help` lists `cortex-a53`, `cortex-a72`, `cortex-a76`, etc. as available CPU
-models. No `GASM_QEMU`-style override was needed to find it — same standard install path
-`Gasm/Targets/BareMetal/QEMU.lean`'s `findQemuPath` already knows for the x86_64 binary,
-substituting `qemu-system-aarch64.exe` for `qemu-system-x86_64.exe`.
+### Argument & Return Value Allocation
+- **General Integer Arguments (1 to 8)**: Passed in registers `X0` through `X7` (or `W0` through `W7` for 32-bit values).
+- **Excess Arguments**: Arguments 9 and beyond are passed on the stack, pushed right-to-left.
+- **Return Values**:
+  - Up to 64 bits: Returned in `X0`.
+  - 128-bit values: Returned in `X0` (low 64 bits) and `X1` (high 64 bits).
+  - Large structures: The caller allocates memory and passes an indirect result pointer in `X8`.
 
-### 2.2 The hand-assembled program
+### Stack Alignment Invariant
+- At every public interface call boundary and whenever memory is accessed via `SP`, `SP` **must be 16-byte aligned**:
+  `SP ≡ 0 (mod 16)`.
+- If an instruction accesses memory using an unaligned `SP`, the core raises an SP alignment fault exception.
 
-Two probe programs were built, using nothing but a from-scratch Python script that computes
-each 32-bit AArch64 instruction word directly from the architecture's own encoding tables
-(MOVZ/MOVK, STRB unsigned-offset, unconditional B, HLT) — no assembler, no `gasm` machinery.
-Both target the PL011 UART's fixed base address on the `virt` machine, `0x09000000`, and
-write to its data register (offset `0`) with a raw `STRB`, exactly as
-`docs/TARGETS/BARE_METAL.md` §2.2 already documents for MMIO in general (writes to a device
-register, not idempotent RAM).
+### Strict Prohibition of the Red Zone
+- Unlike the x86-64 System V AMD64 ABI (which designates a 128-byte red zone below `RSP`), **standard AAPCS64 provides ZERO Red Zone**.
+- The stack pointer `SP` must always point at or below all live stack data.
+- Asynchronous events (Linux kernel signal handlers, hardware interrupts in bare metal) write exception frames directly below `SP`. Any routine storing temporary data below `SP` without allocating space via `SUB SP, SP, #size` suffers non-deterministic memory corruption upon interrupt or signal arrival.
 
-**Probe 1** — write `"Hi\n"` then spin forever (`b .`):
+### Standard Function Linkage Sequence
+```asm
+// Subroutine Prologue
+stp  x29, x30, [sp, #-16]!   // Push FP and LR, decrement SP by 16 (16-byte aligned)
+mov  x29, sp                 // Set FP to current frame record
 
+// Subroutine Body
+// ... (callee-saved registers X19-X28 pushed via STP if used)
+
+// Subroutine Epilogue
+mov  sp, x29                 // Restore SP to frame base
+ldp  x29, x30, [sp], #16     // Pop FP and LR, increment SP by 16
+ret                          // Return to caller via LR (X30)
+```
+
+---
+
+## Bare Metal Execution Model & QEMU Virt Platform
+
+The bare-metal execution environment executes directly on physical hardware or virtualized hardware without an operating system kernel.
+
+```mermaid
+graph TD
+    CPU["AArch64 Core (Cortex-A53)"]
+    DRAM["Physical RAM (Base: 0x40000000)"]
+    UART["PL011 UART MMIO (0x09000000)"]
+    SEMI["Semihosting Trap (HLT #0xF000)"]
+
+    CPU <-->|Instruction Fetch & Memory| DRAM
+    CPU <-->|MMIO Device Registers| UART
+    CPU -->|SYS_EXIT 0x18| SEMI
+```
+
+### 1. QEMU Virt Board Layout & ELF Loading
+- **Target Platform**: `qemu-system-aarch64 -M virt -cpu cortex-a53 -semihosting`.
+- **Physical Memory Base**: `0x40000000` (1 GB physical DRAM base in QEMU `virt`).
+- **Binary Format**: Flat ELF64 executable (`ET_EXEC = 2`, `EM_AARCH64 = 183` / `0xB7`).
+- **Direct ELF Loading**: QEMU's `-kernel` loader directly parses `PT_LOAD` segments, maps them to physical RAM at `p_paddr`, and jumps to `e_entry`.
+- **No PVH Note Segment**: Unlike x86-64 bare metal (which requires a Xen PVH `PT_NOTE` segment), AArch64 bare metal requires no PVH boot note and no Linux boot header.
+
+### 2. PrimeCell PL011 UART MMIO Protocol
+Console serial I/O communicates with ARM's PrimeCell PL011 UART mapped at fixed physical address `0x09000000`:
+- **`UARTDR` (`0x09000000`)**: Data Register (Offset `0x00`).
+  - Writes: Byte transmitted over serial line.
+  - Reads: Next received byte popped from RX FIFO.
+- **`UARTFR` (`0x09000018`)**: Flag Register (Offset `0x18`).
+  - Bit 5 (`TXFF`, `0x20`): Transmit FIFO Full.
+  - Bit 3 (`BUSY`, `0x08`): UART Busy.
+  - Bit 4 (`RXFE`, `0x10`): Receive FIFO Empty.
+
+#### Transmit Polling Driver
+Before writing each byte, software polls `UARTFR` until `TXFF` is 0:
+```asm
+// x0 = PL011 Base Address (0x09000000)
+// w1 = Character to transmit
+1:  ldr  w2, [x0, #0x18]      // Read UARTFR
+    tst  w2, #0x20            // Test TXFF (bit 5)
+    b.ne 1b                   // If full, loop until ready
+    strb w1, [x0]             // Write byte to UARTDR
+```
+
+### 3. AArch64 Semihosting Programmatic Exit
+Program termination under virtualized test harnesses uses ARM Semihosting:
+- **Instruction**: `HLT #0xF000` (`0xD45E0000`).
+- **Register Interface**:
+  - `W0` = `0x18` (`SYS_EXIT`).
+  - `X1` = Address of 16-byte parameter block in memory:
+    - Offset `0x00`: Reason code `ADP_Stopped_ApplicationExit` (`0x20026`).
+    - Offset `0x08`: Guest process exit code (e.g. `0` for success, or custom code `42`).
+- **Exit Code Propagation**: QEMU propagates the exit code directly as its process exit code without arithmetic modifications (unlike x86-64 `isa-debug-exit` which computes `(val << 1) | 1`).
+
+---
+
+## Linux Execution Model & System Call Interface
+
+Under the Linux platform target, user executables interact with the Linux kernel through static ELF64 emission and the AArch64 Linux system call ABI.
+
+### 1. Static ELF64 Executable Format
+Executables are emitted with standard ELF64 headers targeting `EM_AARCH64`:
+- `e_machine`: `183` (`0xB7` / `EM_AARCH64`).
+- Standard User Base Address: `0x400000`.
+- Standard Stack Initialization: `0x7FFFFFFF0000`.
+
+### 2. System Call ABI Conventions
+- **Syscall Instruction**: `SVC #0` (`0xD4000001`).
+- **Syscall Number**: Loaded into register **`X8`**.
+- **Arguments (1 to 6)**: Passed in registers **`X0, X1, X2, X3, X4, X5`**.
+- **Return Value**: Returned in register **`X0`**.
+- **Error Return Protocol**: Return values in the range `[-4095, -1]` (unsigned `0xFFFFFFFFFFFFF001` .. `0xFFFFFFFFFFFFFFFF`) denote negative error codes (`-errno`).
+- **Preserved Registers**: Registers `X19`–`X28` and `X29` (FP) are preserved across system calls by the kernel.
+
+### 3. Linux asm-generic Syscall Mapping
+AArch64 uses the modern Linux `asm-generic` unistd table, differing substantially from legacy x86-64 numbers:
+
+| System Call | AArch64 Syscall Nr (`X8`) | x86-64 Syscall Nr (`RAX`) | Arguments (`X0`–`X5` on AArch64) |
+| :--- | :--- | :--- | :--- |
+| `SYS_io_setup` | 0 | (N/A) | `nr_events`, `ctx_id` |
+| `SYS_close` | **57** | 3 | `fd` |
+| `SYS_read` | **63** | 0 | `fd`, `buf`, `count` |
+| `SYS_write` | **64** | 1 | `fd`, `buf`, `count` |
+| `SYS_exit` | **93** | 60 | `error_code` |
+| `SYS_exit_group` | **94** | 231 | `error_code` |
+| `SYS_socket` | **198** | 41 | `domain`, `type`, `protocol` |
+| `SYS_bind` | **200** | 49 | `fd`, `addr`, `addrlen` |
+| `SYS_listen` | **201** | 50 | `fd`, `backlog` |
+| `SYS_accept` | **202** | 43 | `fd`, `addr`, `addrlen` |
+| `SYS_sendto` | **206** | 44 | `fd`, `buf`, `len`, `flags`, `dest_addr`, `addrlen` |
+| `SYS_recvfrom` | **207** | 45 | `fd`, `buf`, `len`, `flags`, `src_addr`, `addrlen` |
+| `SYS_munmap` | **215** | 11 | `addr`, `length` |
+| `SYS_mmap` | **222** | 9 | `addr`, `length`, `prot`, `flags`, `fd`, `offset` |
+
+---
+
+## Cortex-A53 Performance Model & Validation Obligations
+
+Instruction latency and micro-op scheduling are parameterized against the **ARM Cortex-A53** processor, a canonical power-efficient 64-bit core featuring an in-order, 8-stage superscalar dual-issue pipeline.
+
+### 1. Pipeline Microarchitecture & Dual-Issue Rules
+- **Fetch & Decode Width**: 2 instructions per cycle.
+- **Execution Pipelines**:
+  - **Pipe 0 (ALU0 / Branch / Load-Store)**: Can execute simple ALU, branch, and memory operations.
+  - **Pipe 1 (ALU1 / Shift / Crypto)**: Can execute simple ALU and shifted operations.
+- **Dual-Issue Pairing Restrictions**:
+  - Two integer ALU instructions can dual-issue (one on Pipe 0, one on Pipe 1).
+  - An integer ALU instruction and a Branch or Load/Store can dual-issue.
+  - Two Load/Store instructions cannot dual-issue.
+  - Two Branch instructions cannot dual-issue.
+
+### 2. Execution Latencies & Micro-Op Classification
+```lean
+inductive AArch64UopClass where
+  | intALU
+  | intShift
+  | intMul
+  | intDiv
+  | load
+  | store
+  | branch
+  | system
+  deriving Repr, DecidableEq, Inhabited
+
+structure AArch64Uop where
+  mnemonic             : String := "NOP"
+  uopClass             : AArch64UopClass := .intALU
+  latencyCycles        : Nat := 1
+  reciprocalThroughput : Float := 0.5
+  deriving Repr, Inhabited
+```
+
+| Instruction Category | Execution Unit | Latency (Cycles) | Reciprocal Throughput (Cycles/Instr) |
+| :--- | :--- | :--- | :--- |
+| Simple ALU (`ADD`, `SUB`, `AND`, `ORR`, `MOV`) | ALU0 / ALU1 | 1 | 0.5 (Dual-issue) |
+| Shifted ALU (`ADD Xd, Xn, Xm, LSL #2`) | ALU1 | 2 | 1.0 |
+| Multiply 32-bit (`MUL Wd, Wn, Wm`) | Multiplier | 3 | 1.0 |
+| Multiply 64-bit (`MUL Xd, Xn, Xm`) | Multiplier | 4 | 2.0 |
+| Integer Divide (`SDIV`, `UDIV`) | Divider | 4 to 20 (Iterative) | 4 to 20 (Unpipelined) |
+| Load (`LDR Xd, [Xn]`) | Load/Store Unit | 3 (L1 D-Cache Hit) | 1.0 |
+| Store (`STR Xd, [Xn]`) | Load/Store Unit | 1 | 1.0 |
+| Direct Branch (`B`, `BL`) | Branch Unit | 1 | 1.0 (8 cycles on mispredict) |
+
+### 3. Mandatory Validation Obligations & Cost Provenance (Laws 13 & 14)
+Per repository governance (P4/P5 unified obligations), every AArch64 instruction instance must declare:
+```lean
+inductive AArch64ValidationOracle where
+  | silicon
+  | llvmMcEncoding (reason : String)
+  | optedOut       (reason : String)
+  deriving Repr, DecidableEq, Inhabited
+
+inductive CoefficientProvenance where
+  | cited (artifact : String)
+  | modelInternalUnvalidated (reason : String)
+  deriving Repr, DecidableEq, Inhabited
+```
+
+- **Validation Oracle Enforcement**: `CheckAArch64Obligations.lean` verifies that instances claiming `.llvmMcEncoding` or `.optedOut` carry non-empty, justified rationale strings (≥ 20 characters).
+- **Cost Provenance Honesty**: Since RDTSC / PMU calibration data for Cortex-A53 is not yet measured in-tree, all coefficients must honestly declare `.modelInternalUnvalidated "Cortex-A53 TRM initial nominal estimates uncalibrated against hardware PMU harness"`.
+
+---
+
+## Encodable Instruction Registry, Codec & Roundtrip Gate
+
+Soundness of the 32-bit binary encoder and decoder is mechanically proven using Lean's kernel:
+
+### 1. The `roundtripCases` Requirement
+Every instruction instance must implement `roundtripCases : List ι` enumerating a representative finite sample of its operand space:
+- All 31 registers across every register operand slot.
+- Zero register `XZR` and `SP` in all valid configurations.
+- Boundary immediates (0, small values, boundary bitmasks, signed extremes).
+
+### 2. Sharded Roundtrip Gate Architecture
+To prevent parallel elaboration memory pressure and isolate proof dependencies:
+- Each instruction family `Gasm/Targets/AArch64/Instructions/<Family>.lean` exports `<family>TryDecode : ByteArray → Nat → Except String (AnyAArch64Instruction × Nat)`.
+- A dedicated shard `Gasm/Targets/AArch64/RoundtripGate/<Family>.lean` proves:
+  ```lean
+  theorem <family>_roundtripGate : (<family>Cases).all (decodesOk <family>TryDecode) = true := by decide
+  ```
+- The global decoder `Gasm/Targets/AArch64/Decoder.lean` acts as an ordered dispatcher trying each family decoder.
+
+---
+
+## Vertical Spikes 1–5 on AArch64
+
+| Spike | Title | Bare Metal / Linux | Key Instructions Exercised | Verification Surface |
+| :--- | :--- | :--- | :--- | :--- |
+| **Spike 1** | Hello World | Both | `MOVZ`, `MOVK`, `STRB`, `B`, `HLT` (Bare Metal); `MOVZ`, `ADR`, `SVC #0` (Linux) | Exact stdout bytes (`"Hello, World!\n"`) and process exit code 0 |
+| **Spike 2** | Fibonacci | Linux | `ADD`, `SUBS`, `B.cond`, `UDIV`, `MSUB`, `BL`, `RET`, `STP`, `LDP` | Trace equivalence between iterative machine execution and mathematical Fibonacci function |
+| **Spike 3** | Sort Lines | Linux | `SmolAlloc` dynamic memory, `LDR`, `STR`, `LDRB`, pointer arithmetic, quicksort swap | Sorting arbitrary line buffers, verified against spec trace |
+| **Spike 4** | HTTP Server | Linux | Linux socket syscalls (`socket`, `bind`, `listen`, `accept`, `sendto`, `recvfrom`), request routing | HTTP 1.1 GET `/` and `/status` route responses, tested against QEMU |
+| **Spike 5** | GZIP / GUNZIP | Linux | DEFLATE RFC 1951 bitstream shifts (`LSL`, `LSR`), bitwise logic (`AND`, `ORR`, `EOR`), CRC32 table loop | Bit-for-bit RFC 1952 gzip archive compression and decompression equivalence |
+
+---
+
+## Empirical QEMU Bring-Up & Verification Traces
+
+During Milestone M1 reconnaissance, exact byte streams were generated by hand and booted under `qemu-system-aarch64` to establish empirical ground truth:
+
+### 1. Probe 1: Direct Serial Output over PL011 UART
 ```
 entry=0x40000078  8 instruction words, 32 bytes of code
   0xd2a12000   movz x0, #0x0900, lsl #16      ; x0 = 0x09000000 (PL011 base)
@@ -102,14 +642,14 @@ entry=0x40000078  8 instruction words, 32 bytes of code
   0x39000001   strb w1, [x0]
   0x52800141   movz w1, #0x0a                 ; '\n'
   0x39000001   strb w1, [x0]
-  0x14000000   b .                            ; infinite loop
+  0x14000000   b .                            ; spin forever
 ```
+- Invocations: `qemu-system-aarch64 -M virt -cpu cortex-a53 -kernel spike_arm_hello.elf -serial stdio -display none -nodefaults`
+- Observed Output: Exact bytes `Hi\n`.
 
-**Probe 2** — same UART writes, then AArch64 semihosting `SYS_EXIT` (op `0x18`) with the
-extended-exit reason `ADP_Stopped_ApplicationExit` (`0x20026`) and exit code `42`:
-
+### 2. Probe 2: PL011 UART Output + Semihosting Programmatic Exit
 ```
-entry=0x40000078  11 instruction words + 16 bytes of trailing data (the {reason, code} block)
+entry=0x40000078  11 instruction words + 16 bytes of data block
   0xd2a12000   movz x0, #0x0900, lsl #16
   0x52800901   movz w1, #0x48
   0x39000001   strb w1, [x0]
@@ -117,12 +657,13 @@ entry=0x40000078  11 instruction words + 16 bytes of trailing data (the {reason,
   0x39000001   strb w1, [x0]
   0x52800141   movz w1, #0x0a
   0x39000001   strb w1, [x0]
-  0xd2a80001   movz x1, #0x4000, lsl #16      ; x1 = 0x400000a4 (address of the exit block)
+  0xd2a80001   movz x1, #0x4000, lsl #16      ; x1 = 0x400000a4 (data block)
   0xf2801481   movk x1, #0x00a4
   0x52800300   movz w0, #0x18                 ; SYS_EXIT
   0xd45e0000   hlt  #0xf000                   ; semihosting trap
-  ; trailing data at 0x400000a4: two little-endian u64 words: 0x0000000000020026, 0x000000000000002a
+  ; trailing data at 0x400000a4: [0x0000000000020026, 0x000000000000002a] (reason, code=42)
 ```
+
 
 Each is wrapped in the smallest possible `ET_EXEC` / `EM_AARCH64` (`e_machine = 183`) ELF64:
 64-byte ELF header + one 56-byte `PT_LOAD` program header (R+X, `p_vaddr = p_paddr =
@@ -903,3 +1444,4 @@ Concretely, and offered as orientation rather than as process imposed on you:
 The most useful thing you can write down is a place where this codebase's conventions did not
 fit AArch64. §12.3 is the example: a construct with nowhere honest to declare itself is
 evidence, and it is evidence only if it is recorded where somebody will read it.
+

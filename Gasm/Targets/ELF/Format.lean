@@ -34,6 +34,10 @@ def ET_DYN : UInt16 := 3
 def EM_X86_64 : UInt16 := 62
 
 /- REF: elf-sysv-psabi#object-files -/
+/-- Standard AArch64 ELF machine architecture identifier (EM_AARCH64 = 183 / 0xB7). -/
+def EM_AARCH64 : UInt16 := 183
+
+/- REF: elf-sysv-psabi#object-files -/
 /-- Loadable program segment type (PT_LOAD = 1). -/
 def PT_LOAD : UInt32 := 1
 

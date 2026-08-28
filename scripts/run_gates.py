@@ -364,6 +364,95 @@ def detect_cadical() -> Dict:
                       "found under bin/; this fallback is UNPINNED BY CONSTRUCTION (TCB T14)"}
 
 
+def detect_qemu_system_aarch64() -> Dict:
+    override = os.environ.get("GASM_QEMU_AARCH64")
+    if override:
+        code, out = _run_capture([override, "--version"])
+        if code == 0:
+            banner = (out or "").strip().splitlines()[0] if out else ""
+            return {"name": "qemu_system_aarch64", "found": True, "path": override, "version": banner,
+                    "detail": f"resolved to {override} (via GASM_QEMU_AARCH64 override)"}
+        return {"name": "qemu_system_aarch64", "found": False, "path": None, "version": None,
+                "detail": f"GASM_QEMU_AARCH64={override!r} is set but did not respond to `--version` (returncode={code})" }
+
+    candidates: List[str] = []
+    which_qemu = shutil.which("qemu-system-aarch64") or shutil.which("qemu-system-aarch64.exe")
+    if which_qemu:
+        candidates.append(which_qemu)
+    candidates.append(r"C:\Program Files\qemu\qemu-system-aarch64.exe")
+    candidates.append("/usr/bin/qemu-system-aarch64")
+
+    tried = []
+    for cand in candidates:
+        if cand in tried:
+            continue
+        tried.append(cand)
+        code, out = _run_capture([cand, "--version"])
+        if code == 0:
+            banner = (out or "").strip().splitlines()[0] if out else ""
+            return {"name": "qemu_system_aarch64", "found": True, "path": cand, "version": banner,
+                    "detail": f"resolved to {cand}"}
+    return {"name": "qemu_system_aarch64", "found": False, "path": None, "version": None,
+            "detail": "qemu-system-aarch64 not found on PATH or GASM_QEMU_AARCH64"}
+
+
+def detect_qemu_user_aarch64() -> Dict:
+    override = os.environ.get("GASM_QEMU_USER_AARCH64")
+    if override:
+        code, out = _run_capture([override, "--version"])
+        if code == 0:
+            banner = (out or "").strip().splitlines()[0] if out else ""
+            return {"name": "qemu_user_aarch64", "found": True, "path": override, "version": banner,
+                    "detail": f"resolved to {override} (via GASM_QEMU_USER_AARCH64 override)"}
+        return {"name": "qemu_user_aarch64", "found": False, "path": None, "version": None,
+                "detail": f"GASM_QEMU_USER_AARCH64={override!r} is set but did not respond to `--version` (returncode={code})" }
+
+    candidates: List[str] = []
+    which_qemu = shutil.which("qemu-aarch64") or shutil.which("qemu-aarch64.exe")
+    if which_qemu:
+        candidates.append(which_qemu)
+    candidates.append("/usr/bin/qemu-aarch64")
+
+    tried = []
+    for cand in candidates:
+        if cand in tried:
+            continue
+        tried.append(cand)
+        code, out = _run_capture([cand, "--version"])
+        if code == 0:
+            banner = (out or "").strip().splitlines()[0] if out else ""
+            return {"name": "qemu_user_aarch64", "found": True, "path": cand, "version": banner,
+                    "detail": f"resolved to {cand}"}
+    return {"name": "qemu_user_aarch64", "found": False, "path": None, "version": None,
+            "detail": "qemu-aarch64 not found on PATH or GASM_QEMU_USER_AARCH64"}
+
+
+def detect_llvm_mc() -> Dict:
+    override = os.environ.get("GASM_LLVM_MC")
+    if override:
+        code, out = _run_capture([override, "--version"])
+        if code == 0:
+            banner = (out or "").strip().splitlines()[0] if out else ""
+            return {"name": "llvm_mc", "found": True, "path": override, "version": banner,
+                    "detail": f"resolved to {override} (via GASM_LLVM_MC override)"}
+        return {"name": "llvm_mc", "found": False, "path": None, "version": None,
+                "detail": f"GASM_LLVM_MC={override!r} is set but did not respond to `--version` (returncode={code})" }
+
+    candidates = ["llvm-mc-19", "llvm-mc"]
+    tried = []
+    for cand in candidates:
+        exe = shutil.which(cand)
+        if exe:
+            tried.append(exe)
+            code, out = _run_capture([exe, "--version"])
+            if code == 0:
+                banner = (out or "").strip().splitlines()[0] if out else ""
+                return {"name": "llvm_mc", "found": True, "path": exe, "version": banner,
+                        "detail": f"resolved to {exe}"}
+    return {"name": "llvm_mc", "found": False, "path": None, "version": None,
+            "detail": "llvm-mc-19 or llvm-mc not found on PATH or GASM_LLVM_MC"}
+
+
 PREREQ_DETECTORS = {
     "python": detect_python,
     "lake": detect_lake,
@@ -371,6 +460,9 @@ PREREQ_DETECTORS = {
     "node": detect_node,
     "nasm": detect_nasm,
     "qemu": detect_qemu,
+    "qemu_system_aarch64": detect_qemu_system_aarch64,
+    "qemu_user_aarch64": detect_qemu_user_aarch64,
+    "llvm_mc": detect_llvm_mc,
     "cadical": detect_cadical,
 }
 
@@ -483,6 +575,10 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "4 draws for check_gates_axioms. See Tools/CheckX86Obligations.lean's own module "
                  "docstring for the full specification.",
          "cmd": [lake, "exe", "check_x86_obligations"], "slow": False, "tools": ["lean"]},
+        {"key": "check_aarch64_obligations", "desc": "lake exe check_aarch64_obligations",
+         "long": "AArch64 instruction obligation gate enforcing honesty constraints on validationOracle "
+                 "and costProvenance fields.",
+         "cmd": [lake, "exe", "check_aarch64_obligations"], "slow": False, "tools": ["lean"]},
         # --- Spike / Stdlib CLI test suites (REVIEW.md Sec 4.1 item 9): defaultTargets builds
         # these; building is not running them (the exact distinction item 4 draws for
         # check_gates_axioms). All fast (seconds), all take no CLI args.
@@ -515,6 +611,20 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "from a real verification defect -- consistent with how nasm/node are enforced "
                  "for encoding_fuzzer/wasm_fuzzer above.",
          "cmd": [lake, "exe", "test_spike1_baremetal"], "slow": False, "tools": ["lean", "qemu"]},
+        {"key": "spike1_hello_aarch64_baremetal", "desc": "lake exe spike1_hello_aarch64_baremetal",
+         "long": "emits spike1_hello_aarch64_baremetal.elf -- prerequisite artifact for test_spike1_aarch64_baremetal below",
+         "cmd": [lake, "exe", "spike1_hello_aarch64_baremetal"], "slow": False, "tools": ["lean"]},
+        {"key": "test_spike1_aarch64_baremetal", "desc": "lake exe test_spike1_aarch64_baremetal",
+         "long": "Spike 1 (Hello World) AArch64 Bare Metal target test (in-Lean trace + QEMU execution); "
+                 "requires the qemu_system_aarch64 prerequisite.",
+         "cmd": [lake, "exe", "test_spike1_aarch64_baremetal"], "slow": False, "tools": ["lean", "qemu_system_aarch64"]},
+        {"key": "spike1_hello_aarch64_linux", "desc": "lake exe spike1_hello_aarch64_linux",
+         "long": "emits spike1_hello_aarch64_linux -- prerequisite artifact for test_spike1_aarch64_linux below",
+         "cmd": [lake, "exe", "spike1_hello_aarch64_linux"], "slow": False, "tools": ["lean"]},
+        {"key": "test_spike1_aarch64_linux", "desc": "lake exe test_spike1_aarch64_linux",
+         "long": "Spike 1 (Hello World) AArch64 Linux target test (in-Lean trace + QEMU user execution); "
+                 "requires the qemu_user_aarch64 prerequisite.",
+         "cmd": [lake, "exe", "test_spike1_aarch64_linux"], "slow": False, "tools": ["lean", "qemu_user_aarch64"]},
         {"key": "spike2_fibonacci_windows", "desc": "lake exe spike2_fibonacci_windows",
          "long": "emits fib.exe -- prerequisite artifact for test_spike2_windows below",
          "cmd": [lake, "exe", "spike2_fibonacci_windows"], "slow": False, "tools": ["lean"]},

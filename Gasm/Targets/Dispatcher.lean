@@ -24,6 +24,8 @@ import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.X86_64.Instructions.Syscall
 import Gasm.Targets.Windows.Win32API
 import Gasm.Targets.Linux.Syscall
+import Gasm.Targets.AArch64.Semantics
+import Gasm.Targets.AArch64.Linux.Syscall
 
 namespace Gasm.Targets
 
@@ -44,5 +46,12 @@ instance [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEven
       linuxSyscallIntercept addr s
     else
       win32Intercept addr s
+
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/-- Platform call interceptor for AArch64 routing Linux syscalls. -/
+instance [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
+    Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event where
+  interceptCall addr s :=
+    Gasm.Targets.AArch64.Linux.linuxSyscallIntercept addr s
 
 end Gasm.Targets
