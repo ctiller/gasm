@@ -360,7 +360,10 @@ theorem runProgramWithLoops_step {base : Address} {instrs : List X86_64Instr} {f
     (hnf : (X86_64Instruction.step instr s).faulted = false) :
     runProgramWithLoops base instrs (fuel + 1) s =
       runProgramWithLoops base instrs fuel (X86_64Instruction.step instr s) := by
-  simp only [runProgramWithLoops, hfetch, hnf, Bool.false_eq_true, if_false]
+  have hfetch' : instructionAtRipIndexed (indexInstructions base instrs) s.rip = some instr := by
+    rw [instructionAtRipIndexed_eq_instructionAtRip]; exact hfetch
+  simp only [runProgramWithLoops, runProgramWithLoops.loop, hfetch', hnf, Bool.false_eq_true,
+    if_false]
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Once the fetch loop is stuck (no instruction at the current `rip`), every remaining unit of
@@ -371,9 +374,11 @@ theorem runProgramWithLoops_step {base : Address} {instrs : List X86_64Instr} {f
 theorem runProgramWithLoops_stuck {base : Address} {instrs : List X86_64Instr} {s : X86_64MachineState}
     (hstuck : instructionAtRip base instrs s.rip = none) (fuel : Nat) :
     runProgramWithLoops base instrs fuel s = s := by
+  have hstuck' : instructionAtRipIndexed (indexInstructions base instrs) s.rip = none := by
+    rw [instructionAtRipIndexed_eq_instructionAtRip]; exact hstuck
   cases fuel with
   | zero => rfl
-  | succ f => simp only [runProgramWithLoops, hstuck]
+  | succ f => simp only [runProgramWithLoops, runProgramWithLoops.loop, hstuck']
 
 /-
 ## Part 4: the loop invariant
