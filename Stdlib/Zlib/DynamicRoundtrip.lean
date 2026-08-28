@@ -800,4 +800,249 @@ theorem decodeDynamicTables_spec (plan : DynPlan) (r : BitReader) (rest : List B
       show (0 : Nat) = plan.distLengths[i]!
       rw [hdistzero i (by omega)]
 
+/-
+## The dynamic instance of the L5 stream induction: per-token decode lemmas and the
+## `decodeHuffmanStream.go` induction under the transmitted tables.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Decoding one literal token's bits under the dynamic tables. -/
+theorem decode_lit_dyn (litA litB : Array Nat) (hptL : ∀ i : Nat, litA[i]! = litB[i]!)
+    (hkl : kraftOk litA 15) (b : UInt8) (hok : 0 < litA[b.toNat]! ∧ litA[b.toNat]! ≤ 15)
+    (r : BitReader) (rest : List Bool)
+    (hbits : readerBits r = tokenBitsDyn litA litA (.lit b) ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', decodeHuffmanSymbol r (buildHuffmanTable litB 15) = .ok (r', b.toNat) ∧
+      b.toNat < 256 ∧ readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  have hb : b.toNat < 256 := b.toNat_lt
+  obtain ⟨r', hok', hrest, hinv', hcnt', hbytes'⟩ :=
+    decodeHuffmanSymbol_canonical litA litB 15 hptL hkl hok.1 hok.2 r rest
+      (by simpa [tokenBitsDyn] using hbits) hinv hcnt
+  exact ⟨r', hok', hb, hrest, hinv', hcnt', hbytes'⟩
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Decoding the end-of-block symbol's bits under the dynamic tables. -/
+theorem decode_eob_dyn (litA litB : Array Nat) (hptL : ∀ i : Nat, litA[i]! = litB[i]!)
+    (hkl : kraftOk litA 15) (heob : 0 < litA[256]! ∧ litA[256]! ≤ 15)
+    (r : BitReader) (rest : List Bool)
+    (hbits : readerBits r = codeBits (canonicalCode litA 15 256) litA[256]! ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', decodeHuffmanSymbol r (buildHuffmanTable litB 15) = .ok (r', 256) ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes :=
+  decodeHuffmanSymbol_canonical litA litB 15 hptL hkl heob.1 heob.2 r rest hbits hinv hcnt
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Decoding one back-reference token's bits under the dynamic tables: all four reads
+    succeed with the encoder's values and the decoder's table lookups reconstruct the
+    token exactly. -/
+theorem decode_ref_dyn (litA litB distA distB : Array Nat)
+    (hptL : ∀ i : Nat, litA[i]! = litB[i]!) (hptD : ∀ i : Nat, distA[i]! = distB[i]!)
+    (hkl : kraftOk litA 15) (hkd : kraftOk distA 15)
+    (len dist : Nat) (h3 : 3 ≤ len) (h258 : len ≤ 258)
+    (h1d : 1 ≤ dist) (h32768 : dist ≤ 32768)
+    (hlsym : 0 < litA[(encodeLength len).1]! ∧ litA[(encodeLength len).1]! ≤ 15)
+    (hdsym : 0 < distA[(encodeDistance dist).1]! ∧ distA[(encodeDistance dist).1]! ≤ 15)
+    (r : BitReader) (rest : List Bool)
+    (hbits : readerBits r = tokenBitsDyn litA distA (.ref len dist) ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r1 r2 r3 r4 extraL extraD,
+      decodeHuffmanSymbol r (buildHuffmanTable litB 15) = .ok (r1, (encodeLength len).1) ∧
+      257 ≤ (encodeLength len).1 ∧ (encodeLength len).1 ≤ 285 ∧
+      (if lengthTable[(encodeLength len).1 - 257]!.2 > 0
+        then readBits r1 lengthTable[(encodeLength len).1 - 257]!.2
+        else (pure (r1, 0) : Except ZlibError (BitReader × Nat))) = .ok (r2, extraL) ∧
+      lengthTable[(encodeLength len).1 - 257]!.1 + extraL = len ∧
+      decodeHuffmanSymbol r2 (buildHuffmanTable distB 15) = .ok (r3, (encodeDistance dist).1) ∧
+      (encodeDistance dist).1 < 30 ∧
+      (if distanceTable[(encodeDistance dist).1]!.2 > 0
+        then readBits r3 distanceTable[(encodeDistance dist).1]!.2
+        else (pure (r3, 0) : Except ZlibError (BitReader × Nat))) = .ok (r4, extraD) ∧
+      distanceTable[(encodeDistance dist).1]!.1 + extraD = dist ∧
+      readerBits r4 = rest ∧
+      r4.bitBuf.toNat < 2 ^ r4.bitCount ∧ r4.bitCount < 8 ∧ r4.bytes = r.bytes := by
+  obtain ⟨hL257, hL285, hLeb, hLev, hLbase, hLtbl⟩ := encodeLength_spec len (by omega) h3
+  obtain ⟨hDc, hDeb, hDev, hDbase, hDtbl⟩ := encodeDistance_spec' dist h1d h32768
+  have hbits' : readerBits r =
+      codeBits (canonicalCode litA 15 (encodeLength len).1) litA[(encodeLength len).1]! ++
+        (natBits (encodeLength len).2.1 (encodeLength len).2.2 ++
+          (codeBits (canonicalCode distA 15 (encodeDistance dist).1)
+              distA[(encodeDistance dist).1]! ++
+            (natBits (encodeDistance dist).2.1 (encodeDistance dist).2.2 ++ rest))) := by
+    rw [hbits]
+    unfold tokenBitsDyn
+    simp [List.append_assoc]
+  obtain ⟨r1, hok1, hrest1, hinv1, hcnt1, hbytes1⟩ :=
+    decodeHuffmanSymbol_canonical litA litB 15 hptL hkl hlsym.1 hlsym.2 r _ hbits' hinv hcnt
+  obtain ⟨r2, hok2, hrest2, hinv2, hcnt2, hbytes2⟩ :=
+    readBits_extra r1 (encodeLength len).2.1 (encodeLength len).2.2 _ hLev (by omega)
+      hrest1 hinv1 hcnt1
+  obtain ⟨r3, hok3, hrest3, hinv3, hcnt3, hbytes3⟩ :=
+    decodeHuffmanSymbol_canonical distA distB 15 hptD hkd hdsym.1 hdsym.2 r2 _
+      hrest2 hinv2 hcnt2
+  obtain ⟨r4, hok4, hrest4, hinv4, hcnt4, hbytes4⟩ :=
+    readBits_extra r3 (encodeDistance dist).2.1 (encodeDistance dist).2.2 rest hDev (by omega)
+      hrest3 hinv3 hcnt3
+  refine ⟨r1, r2, r3, r4, (encodeLength len).2.2, (encodeDistance dist).2.2,
+    hok1, hL257, hL285, ?_, ?_, hok3, by omega, ?_, ?_, hrest4, hinv4, hcnt4, ?_⟩
+  · rw [hLtbl]; exact hok2
+  · rw [hLbase]
+  · rw [hDtbl]; exact hok4
+  · rw [hDbase]
+  · rw [hbytes4, hbytes3, hbytes2, hbytes1]
+
+set_option maxHeartbeats 1000000 in
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- **L5 (dynamic path)**: the decoder's stream loop, fed exactly the bits `emitTokens`
+    wrote under the transmitted tables for a positionally well-formed token list,
+    terminates at the end-of-block symbol having expanded exactly those tokens. -/
+theorem decodeHuffmanStream_go_dyn (litA litB distA distB : Array Nat)
+    (hptL : ∀ i : Nat, litA[i]! = litB[i]!) (hptD : ∀ i : Nat, distA[i]! = distB[i]!)
+    (hkl : kraftOk litA 15) (hkd : kraftOk distA 15)
+    (heob : 0 < litA[256]! ∧ litA[256]! ≤ 15)
+    (hL : ∃ l rr, (buildHuffmanTable litB 15).root = HuffmanNode.branch l rr)
+    (hD : ∃ l rr, (buildHuffmanTable distB 15).root = HuffmanNode.branch l rr) :
+    ∀ (ts : List LZToken) (r : BitReader) (curOut : ByteArray) (rest : List Bool),
+      tokensWF ts curOut.size →
+      (∀ t ∈ ts, dynTokenOk litA distA t) →
+      readerBits r = tokensBitsDyn litA distA ts ++
+        (codeBits (canonicalCode litA 15 256) litA[256]! ++ rest) →
+      r.bitBuf.toNat < 2 ^ r.bitCount → r.bitCount < 8 →
+      ∃ r', decodeHuffmanStream.go (buildHuffmanTable litB 15) (buildHuffmanTable distB 15)
+          r curOut hL hD = .ok (r', ts.foldl expandToken curOut) ∧
+        readerBits r' = rest ∧
+        r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  intro ts
+  induction ts with
+  | nil =>
+    intro r curOut rest hwf _ hbits hinv hcnt
+    obtain ⟨rE, hokE, hrestE, hinvE, hcntE, hbytesE⟩ :=
+      decode_eob_dyn litA litB hptL hkl heob r rest
+        (by simpa [tokensBitsDyn] using hbits) hinv hcnt
+    refine ⟨rE, ?_, hrestE, hinvE, hcntE, hbytesE⟩
+    rw [decodeHuffmanStream.go.eq_def]
+    split
+    · rename_i e heq
+      rw [heq] at hokE
+      exact absurd hokE (by simp)
+    · rename_i nextR sym heq
+      rw [heq] at hokE
+      simp only [Except.ok.injEq, Prod.mk.injEq] at hokE
+      obtain ⟨h1, h2⟩ := hokE
+      subst h1
+      subst h2
+      rw [if_neg (by omega : ¬ (256 : Nat) < 256), if_pos (by decide : ((256:Nat) == 256) = true)]
+      rfl
+  | cons t ts ih =>
+    intro r curOut rest hwf hok hbits hinv hcnt
+    cases t with
+    | lit b =>
+      have hbits1 : readerBits r = tokenBitsDyn litA litA (.lit b) ++
+          (tokensBitsDyn litA distA ts ++
+            (codeBits (canonicalCode litA 15 256) litA[256]! ++ rest)) := by
+        rw [hbits]
+        show tokenBitsDyn litA distA (.lit b) ++ tokensBitsDyn litA distA ts ++ _ = _
+        have he : tokenBitsDyn litA distA (.lit b) = tokenBitsDyn litA litA (.lit b) := rfl
+        rw [he, List.append_assoc]
+      obtain ⟨r1, hok1, hb256, hrest1, hinv1, hcnt1, hbytes1⟩ :=
+        decode_lit_dyn litA litB hptL hkl b
+          (show 0 < litA[b.toNat]! ∧ litA[b.toNat]! ≤ 15 from hok (LZToken.lit b) (by simp))
+          r _ hbits1 hinv hcnt
+      have hwf' : tokensWF ts (curOut.push b).size := by
+        rw [ByteArray.size_push]
+        exact hwf
+      obtain ⟨r', hok', hrest', hinv', hcnt', hbytes'⟩ :=
+        ih r1 (curOut.push b) rest hwf' (fun t' ht' => hok t' (by simp [ht'])) hrest1
+          hinv1 hcnt1
+      refine ⟨r', ?_, hrest', hinv', hcnt', by rw [hbytes', hbytes1]⟩
+      rw [decodeHuffmanStream.go.eq_def]
+      split
+      · rename_i e heq
+        rw [heq] at hok1
+        exact absurd hok1 (by simp)
+      · rename_i nextR sym heq
+        rw [heq] at hok1
+        simp only [Except.ok.injEq, Prod.mk.injEq] at hok1
+        obtain ⟨h1, h2⟩ := hok1
+        subst h1
+        subst h2
+        rw [if_pos hb256, List.foldl_cons]
+        have hpush : b.toNat.toUInt8 = b := UInt8.ofNat_toNat
+        rw [hpush]
+        exact hok'
+    | ref len dist =>
+      obtain ⟨h3, h258, h1d, h32768, hdlepos, hwfrest⟩ := hwf
+      have htok : (3 ≤ len ∧ len ≤ 258 ∧ 1 ≤ dist ∧ dist ≤ 32768) ∧
+          (0 < litA[(encodeLength len).1]! ∧ litA[(encodeLength len).1]! ≤ 15) ∧
+          (0 < distA[(encodeDistance dist).1]! ∧ distA[(encodeDistance dist).1]! ≤ 15) :=
+        hok (LZToken.ref len dist) (by simp)
+      obtain ⟨_, hlsym, hdsym⟩ := htok
+      have hbits1 : readerBits r = tokenBitsDyn litA distA (.ref len dist) ++
+          (tokensBitsDyn litA distA ts ++
+            (codeBits (canonicalCode litA 15 256) litA[256]! ++ rest)) := by
+        rw [hbits]
+        show tokenBitsDyn litA distA (.ref len dist) ++ tokensBitsDyn litA distA ts ++ _ = _
+        rw [List.append_assoc]
+      obtain ⟨r1, r2, r3, r4, extraL, extraD, hok1, hs257, hs285, hok2, hbase, hok3,
+        hd30, hok4, hdbase, hrest4, hinv4, hcnt4, hbytes4⟩ :=
+        decode_ref_dyn litA litB distA distB hptL hptD hkl hkd len dist h3 h258 h1d h32768
+          hlsym hdsym r _ hbits1 hinv hcnt
+      have hwf' : tokensWF ts (lzCopy dist len curOut).size := by
+        rw [lzCopy_size]
+        exact hwfrest
+      obtain ⟨r', hok', hrest', hinv', hcnt', hbytes'⟩ :=
+        ih r4 (lzCopy dist len curOut) rest hwf' (fun t' ht' => hok t' (by simp [ht']))
+          hrest4 hinv4 hcnt4
+      refine ⟨r', ?_, hrest', hinv', hcnt', by rw [hbytes', hbytes4]⟩
+      rw [decodeHuffmanStream.go.eq_def]
+      split
+      · rename_i e heq
+        rw [heq] at hok1
+        exact absurd hok1 (by simp)
+      · rename_i nextR sym heq
+        rw [heq] at hok1
+        simp only [Except.ok.injEq, Prod.mk.injEq] at hok1
+        obtain ⟨h1, h2⟩ := hok1
+        subst h1
+        subst h2
+        rw [if_neg (by omega : ¬ (encodeLength len).1 < 256),
+          if_neg (by simp; omega), if_pos (by omega : (encodeLength len).1 ≤ 285)]
+        dsimp only
+        split
+        · rename_i e heq2
+          rw [heq2] at hok2
+          exact absurd hok2 (by simp)
+        · rename_i rLen extraVal heq2
+          rw [heq2] at hok2
+          simp only [Except.ok.injEq, Prod.mk.injEq] at hok2
+          obtain ⟨h1, h2⟩ := hok2
+          subst h1
+          subst h2
+          split
+          · rename_i e heq3
+            rw [heq3] at hok3
+            exact absurd hok3 (by simp)
+          · rename_i rDistSym distSym heq3
+            rw [heq3] at hok3
+            simp only [Except.ok.injEq, Prod.mk.injEq] at hok3
+            obtain ⟨h1, h2⟩ := hok3
+            subst h1
+            subst h2
+            rw [if_neg (by omega : ¬ (encodeDistance dist).1 ≥ 30)]
+            split
+            · rename_i e heq4
+              rw [heq4] at hok4
+              exact absurd hok4 (by simp)
+            · rename_i rDist distExtraVal heq4
+              rw [heq4] at hok4
+              simp only [Except.ok.injEq, Prod.mk.injEq] at hok4
+              obtain ⟨h1, h2⟩ := hok4
+              subst h1
+              subst h2
+              rw [hdbase, hbase]
+              rw [if_neg (by simp; omega)]
+              rw [idrun_copy_eq_lzCopy, List.foldl_cons]
+              exact hok'
+
 end Stdlib.Zlib
