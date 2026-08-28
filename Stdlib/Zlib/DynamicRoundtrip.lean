@@ -289,4 +289,148 @@ theorem writerBits_emitDynamicBlock (plan : DynPlan) (tokens : Array LZToken)
   unfold clenHeaderBits
   simp [natBits, List.append_assoc]
 
+/-
+## Reader-side groundwork: exact-window reads, array/list bridges, and the HCLEN header
+## array reconstruction.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Reading an exact `n`-bit window recovers the written value. -/
+theorem readBits_exact (r : BitReader) (n v : Nat) (rest : List Bool)
+    (hv : v < 2 ^ n) (hn : n ≤ 24)
+    (hbits : readerBits r = natBits n v ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', readBits r n = .ok (r', v) ∧ readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  have hlen : n ≤ (readerBits r).length := by
+    rw [hbits, List.length_append, natBits_length]
+    omega
+  obtain ⟨r', v', hok, hv', hwin, hdrop, hinv', hcnt', hbytes'⟩ :=
+    readBits_spec r n hinv hcnt hn hlen
+  have htake : (readerBits r).take n = natBits n v := by
+    rw [hbits, List.take_append_of_le_length (by simp [natBits_length]),
+      List.take_of_length_le (by simp [natBits_length])]
+  have hveq : v' = v := natBits_inj hv' hv (by rw [hwin, htake])
+  have hrest : readerBits r' = rest := by
+    rw [hdrop, hbits, List.drop_left' (by rw [natBits_length])]
+  subst hveq
+  exact ⟨r', hok, hrest, hinv', hcnt', hbytes'⟩
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `get!` through `toList`. -/
+theorem getElem!_eq_toList_getD (arr : Array Nat) (i : Nat) :
+    arr[i]! = arr.toList.getD i 0 := by
+  by_cases hi : i < arr.size
+  · have hl : i < arr.toList.length := by rw [Array.length_toList]; exact hi
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hl]
+    show arr[i]! = arr.toList[i]
+    rw [Array.getElem_toList hl, Array.getElem!_eq_getD, Array.getD, dif_pos hi]
+    rfl
+  · rw [getElem!_oob arr i hi, List.getD_eq_getElem?_getD]
+    have hl : ¬ i < arr.toList.length := by rw [Array.length_toList]; exact hi
+    rw [List.getElem?_eq_none (by omega)]
+    rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The default-last of a nonempty list is its last index read. -/
+theorem getLastD_eq_getD (d : Nat) : ∀ (l : List Nat), l ≠ [] →
+    l.getLastD d = l.getD (l.length - 1) d := by
+  intro l
+  induction l with
+  | nil => intro h; exact absurd rfl h
+  | cons a l ih =>
+    intro _
+    cases l with
+    | nil => rfl
+    | cons b l' =>
+      show (b :: l').getLastD d = (a :: b :: l').getD ((a :: b :: l').length - 1) d
+      have he : (a :: b :: l').getD ((a :: b :: l').length - 1) d
+          = (b :: l').getD ((b :: l').length - 1) d := by
+        show (a :: b :: l').getD ((b :: l').length - 1 + 1) d = _
+        rfl
+      rw [he]
+      exact ih (by simp)
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `pushRepeated` appends a replicate at the list level. -/
+theorem pushRepeated_toList (val : Nat) : ∀ (n : Nat) (arr : Array Nat),
+    (pushRepeated arr val n).toList = arr.toList ++ List.replicate n val := by
+  intro n
+  induction n with
+  | zero => intro arr; simp [pushRepeated]
+  | succ n ih =>
+    intro arr
+    show (pushRepeated (arr.push val) val n).toList = _
+    rw [ih, Array.toList_push, List.append_assoc]
+    congr 1
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- One 3-bit read per `decodeClenArray` step reconstructs the permuted length array:
+    processed positions carry the plan's lengths, untouched positions stay zero. -/
+theorem decodeClenArray_spec (cl : Array Nat) (hcl : ∀ i, i < 19 → cl[clenOrder[i]!]! < 8)
+    (hclen : Nat) (hhc : hclen ≤ 19) :
+    ∀ (fuel pos : Nat) (r : BitReader) (arr : Array Nat) (rest : List Bool),
+    pos + fuel = hclen →
+    arr.size = 19 →
+    (∀ j, j < 19 → ((∃ i, i < pos ∧ clenOrder[i]! = j) → arr[j]! = cl[j]!) ∧
+      ((¬ ∃ i, i < pos ∧ clenOrder[i]! = j) → arr[j]! = 0)) →
+    readerBits r = (List.range' pos fuel).flatMap
+      (fun i => natBits 3 cl[clenOrder[i]!]!) ++ rest →
+    r.bitBuf.toNat < 2 ^ r.bitCount → r.bitCount < 8 →
+    ∃ r' arr', decodeClenArray hclen fuel pos r arr = .ok (r', arr') ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes ∧
+      arr'.size = 19 ∧
+      (∀ j, j < 19 → ((∃ i, i < hclen ∧ clenOrder[i]! = j) → arr'[j]! = cl[j]!) ∧
+        ((¬ ∃ i, i < hclen ∧ clenOrder[i]! = j) → arr'[j]! = 0)) := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro pos r arr rest htot hsz hinvj hbits hinv hcnt
+    refine ⟨r, arr, rfl, by simpa using hbits, hinv, hcnt, rfl, hsz, ?_⟩
+    have hpe : pos = hclen := by omega
+    subst hpe
+    exact hinvj
+  | succ fuel ih =>
+    intro pos r arr rest htot hsz hinvj hbits hinv hcnt
+    have hpos19 : pos < 19 := by omega
+    have hj19 : clenOrder[pos]! < 19 := clenOrder_lt pos hpos19
+    rw [List.range'_succ, List.flatMap_cons, List.append_assoc] at hbits
+    obtain ⟨r1, hok1, hrest1, hinv1, hcnt1, hbytes1⟩ :=
+      readBits_exact r 3 cl[clenOrder[pos]!]! _
+        (by show _ < 2 ^ 3; have := hcl pos hpos19; omega) (by omega) hbits hinv hcnt
+    have harr' : ∀ j, j < 19 →
+        ((∃ i, i < pos + 1 ∧ clenOrder[i]! = j) →
+          (arr.set! clenOrder[pos]! cl[clenOrder[pos]!]!)[j]! = cl[j]!) ∧
+        ((¬ ∃ i, i < pos + 1 ∧ clenOrder[i]! = j) →
+          (arr.set! clenOrder[pos]! cl[clenOrder[pos]!]!)[j]! = 0) := by
+      intro j hj
+      by_cases hje : clenOrder[pos]! = j
+      · subst hje
+        constructor
+        · intro _
+          rw [getElem!_set!_eq _ _ _ (by omega)]
+        · intro hcon
+          exact absurd ⟨pos, by omega, rfl⟩ hcon
+      · constructor
+        · intro ⟨i, hi, hie⟩
+          rw [getElem!_set!_ne _ _ _ _ hje]
+          refine (hinvj j hj).1 ⟨i, ?_, hie⟩
+          rcases Nat.lt_or_ge i pos with h | h
+          · exact h
+          · exfalso
+            have hip : i = pos := by omega
+            subst hip
+            exact hje hie
+        · intro hcon
+          rw [getElem!_set!_ne _ _ _ _ hje]
+          exact (hinvj j hj).2 (fun ⟨i, hi, hie⟩ => hcon ⟨i, by omega, hie⟩)
+    have hrec := ih (pos + 1) r1 (arr.set! clenOrder[pos]! cl[clenOrder[pos]!]!) rest
+      (by omega) (by rw [size_set!]; exact hsz) harr' hrest1 hinv1 hcnt1
+    obtain ⟨r', arr', hok', hrest', hinv', hcnt', hbytes', hsz', hspec'⟩ := hrec
+    refine ⟨r', arr', ?_, hrest', hinv', hcnt', ?_, hsz', hspec'⟩
+    · rw [decodeClenArray, hok1]
+      exact hok'
+    · rw [hbytes', hbytes1]
+
 end Stdlib.Zlib
