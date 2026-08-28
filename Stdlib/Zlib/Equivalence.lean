@@ -1391,4 +1391,126 @@ theorem compress_fixed_branch (data : ByteArray)
   unfold compress compressPlan
   rw [if_neg h]
 
+/-
+## PA16 L5-reader (fixed path, per-token): decode inverts emission token by token
+
+Each lemma matches the exact read sequence `decodeHuffmanStream`'s loop body issues for
+one token, phrased over total functions only (`decodeHuffmanSymbol`, `readBits`): given a
+reader whose ghost bits start with the token's emitted window, every read succeeds with
+exactly the encoder's values and the decoder's table lookups reconstruct the token's
+`len`/`dist`/byte exactly. The stream-level induction assembling these awaits the
+`decodeHuffmanStream`/`decompress` well-founded conversion.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Reading back a conditional extra-bits window: recovers exactly the written value. -/
+theorem readBits_extra (r : BitReader) (n v : Nat) (rest : List Bool)
+    (hv : v < 2 ^ n) (hn : n ≤ 24)
+    (hbits : readerBits r = natBits n v ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', (if n > 0 then readBits r n
+           else (pure (r, 0) : Except ZlibError (BitReader × Nat))) = .ok (r', v) ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  split
+  · have hlen : n ≤ (readerBits r).length := by
+      rw [hbits, List.length_append, natBits_length]
+      omega
+    obtain ⟨r', v', hok, hv', hwin, hdrop, hinv', hcnt', hbytes'⟩ :=
+      readBits_spec r n hinv hcnt hn hlen
+    have htake : (readerBits r).take n = natBits n v := by
+      rw [hbits, List.take_left' (by rw [natBits_length])]
+    have hveq : v' = v := natBits_inj hv' hv (by rw [hwin, htake])
+    have hrest : readerBits r' = rest := by
+      rw [hdrop, hbits, List.drop_left' (by rw [natBits_length])]
+    subst hveq
+    exact ⟨r', hok, hrest, hinv', hcnt', hbytes'⟩
+  · rename_i hn0
+    have h0 : n = 0 := by omega
+    subst h0
+    have hv0 : v = 0 := by omega
+    subst hv0
+    exact ⟨r, rfl, by simpa [natBits] using hbits, hinv, hcnt, rfl⟩
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Decoding one literal token's bits under the fixed tables. -/
+theorem decode_lit_fixed (b : UInt8) (r : BitReader) (rest : List Bool)
+    (hbits : readerBits r = tokenBitsFixed (.lit b) ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', decodeHuffmanSymbol r fixedLitLenTable = .ok (r', b.toNat) ∧ b.toNat < 256 ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  have hb : b.toNat < 256 := b.toNat_lt
+  obtain ⟨r', hok, hrest, hinv', hcnt', hbytes'⟩ :=
+    decodeHuffmanSymbol_fixedLit (sym := b.toNat) (by omega) r rest
+      (by simpa [tokenBitsFixed] using hbits) hinv hcnt
+  exact ⟨r', hok, hb, hrest, hinv', hcnt', hbytes'⟩
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Decoding the end-of-block symbol's bits under the fixed tables. -/
+theorem decode_eob_fixed (r : BitReader) (rest : List Bool)
+    (hbits : readerBits r = symbolBits fixedLitLenTable 256 ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', decodeHuffmanSymbol r fixedLitLenTable = .ok (r', 256) ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes :=
+  decodeHuffmanSymbol_fixedLit (sym := 256) (by omega) r rest hbits hinv hcnt
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Decoding one back-reference token's bits under the fixed tables: the four reads the
+    decoder issues (length symbol, length extras, distance symbol, distance extras) each
+    succeed with exactly the encoder's values, the decoder's table lookups reconstruct
+    `len` and `dist` exactly, and its guards (`sym ≤ 285`, `distSym < 30`) pass. -/
+theorem decode_ref_fixed (len dist : Nat) (h3 : 3 ≤ len) (h258 : len ≤ 258)
+    (h1d : 1 ≤ dist) (h32768 : dist ≤ 32768) (r : BitReader) (rest : List Bool)
+    (hbits : readerBits r = tokenBitsFixed (.ref len dist) ++ rest)
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r1 r2 r3 r4 extraL extraD,
+      decodeHuffmanSymbol r fixedLitLenTable = .ok (r1, (encodeLength len).1) ∧
+      257 ≤ (encodeLength len).1 ∧ (encodeLength len).1 ≤ 285 ∧
+      (if lengthTable[(encodeLength len).1 - 257]!.2 > 0
+        then readBits r1 lengthTable[(encodeLength len).1 - 257]!.2
+        else (pure (r1, 0) : Except ZlibError (BitReader × Nat))) = .ok (r2, extraL) ∧
+      lengthTable[(encodeLength len).1 - 257]!.1 + extraL = len ∧
+      decodeHuffmanSymbol r2 fixedDistTable = .ok (r3, (encodeDistance dist).1) ∧
+      (encodeDistance dist).1 < 30 ∧
+      (if distanceTable[(encodeDistance dist).1]!.2 > 0
+        then readBits r3 distanceTable[(encodeDistance dist).1]!.2
+        else (pure (r3, 0) : Except ZlibError (BitReader × Nat))) = .ok (r4, extraD) ∧
+      distanceTable[(encodeDistance dist).1]!.1 + extraD = dist ∧
+      readerBits r4 = rest ∧
+      r4.bitBuf.toNat < 2 ^ r4.bitCount ∧ r4.bitCount < 8 ∧ r4.bytes = r.bytes := by
+  obtain ⟨hL257, hL285, hLeb, hLev, hLbase, hLtbl⟩ := encodeLength_spec len (by omega) h3
+  obtain ⟨hDc, hDeb, hDev, hDbase, hDtbl⟩ := encodeDistance_spec' dist h1d h32768
+  -- reshape the bit stream into the four windows
+  have hbits' : readerBits r =
+      symbolBits fixedLitLenTable (encodeLength len).1 ++
+        (natBits (encodeLength len).2.1 (encodeLength len).2.2 ++
+          (symbolBits fixedDistTable (encodeDistance dist).1 ++
+            (natBits (encodeDistance dist).2.1 (encodeDistance dist).2.2 ++ rest))) := by
+    rw [hbits]
+    simp [tokenBitsFixed, List.append_assoc]
+  -- 1. length/literal symbol
+  obtain ⟨r1, hok1, hrest1, hinv1, hcnt1, hbytes1⟩ :=
+    decodeHuffmanSymbol_fixedLit (sym := (encodeLength len).1) (by omega) r _ hbits' hinv hcnt
+  -- 2. length extra bits
+  obtain ⟨r2, hok2, hrest2, hinv2, hcnt2, hbytes2⟩ :=
+    readBits_extra r1 (encodeLength len).2.1 (encodeLength len).2.2 _ hLev (by omega)
+      hrest1 hinv1 hcnt1
+  -- 3. distance symbol
+  obtain ⟨r3, hok3, hrest3, hinv3, hcnt3, hbytes3⟩ :=
+    decodeHuffmanSymbol_fixedDist (sym := (encodeDistance dist).1) (by omega) r2 _
+      hrest2 hinv2 hcnt2
+  -- 4. distance extra bits
+  obtain ⟨r4, hok4, hrest4, hinv4, hcnt4, hbytes4⟩ :=
+    readBits_extra r3 (encodeDistance dist).2.1 (encodeDistance dist).2.2 rest hDev (by omega)
+      hrest3 hinv3 hcnt3
+  refine ⟨r1, r2, r3, r4, (encodeLength len).2.2, (encodeDistance dist).2.2,
+    hok1, hL257, hL285, ?_, ?_, hok3, by omega, ?_, ?_, hrest4, hinv4, hcnt4, ?_⟩
+  · rw [hLtbl]; exact hok2
+  · rw [hLbase]
+  · rw [hDtbl]; exact hok4
+  · rw [hDbase]
+  · rw [hbytes4, hbytes3, hbytes2, hbytes1]
+
 end Stdlib.Zlib
