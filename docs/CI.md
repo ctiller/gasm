@@ -41,15 +41,14 @@ wiring in a path that would 404 the first time the workflow runs.
 | 7 | Doc-facade linter (TC21) | `python scripts/check_doc_facade.py` | required | required |
 | — | Roundtrip properties | `lake exe test_roundtrip` | required | required |
 | — | Stdlib unit suites | `lake exe test_zlib`, `lake exe test_png`, `lake exe test_smolalloc` | required | required |
-| — | x86-64 semantics fuzzer | `lake exe x86_fuzzer` | required | required |
+| — | x86-64 semantics fuzzer | `lake exe x86_fuzzer` (hardware oracle — emits a native PE and executes it against real silicon) | required | **not run** (§4) |
 | — | Wasm semantics fuzzer | `lake exe wasm_fuzzer` (oracle: node) | required | required |
 | — | x86-64 encoding fuzzer | `lake exe encoding_fuzzer` (oracle: NASM) | required | required |
 | — | GZIP differential fuzzer (in-Lean) | `lake exe gzip_fuzzer` (oracle: python3/python/py) | required | required |
 | — | Spike Wasm validator differential | `lake exe validate_spike_wasm` (oracle: node) | required | required |
-| — | Spike 1/2 Wasm host-execution | `lake exe test_spike1_wasm`, `lake exe test_spike2_wasm` (oracle: node) | required | required |
+| — | Spike 1/2/3 Wasm host-execution | `lake exe test_spike1_wasm`, `lake exe test_spike2_wasm`, `lake exe test_spike3_wasm` (oracle: node) | required | required |
 | — | Spike 1–5 Windows PE emission | `lake exe spike1_hello_windows` … `lake exe spike5_gunzip_windows` | required | build+run (emit only, see §4) |
 | — | Spike 1/2/3/4/5 Windows PE **execution** | `lake exe test_spike1_windows` … `lake exe test_spike5` (executes the emitted `.exe` as a child process) | required | **not run** (§4) |
-| — | Spike 3 Wasm host-execution | `lake exe test_spike3_wasm` (hardcodes `powershell.exe` to pipe stdin — see §4) | required | **not run** (§4) |
 | — | GZIP native-binary cross-fuzzer | `python scripts/fuzz_gzip.py` (executes the emitted `spike5_gzip.exe`/`spike5_gunzip.exe` natively) | required | **not run** (§4) |
 | — | Microarchitectural perf fuzzer | `lake exe perf_fuzzer` | **excluded from hosted CI** (§5) | **excluded from hosted CI** (§5) |
 | — | Calibration data governance (Law 14) | `python scripts/check_calibration.py` | **not present** (§7) | **not present** (§7) |
@@ -121,6 +120,12 @@ runs the large majority of gates**, following the `lakefile.toml` fix in §3. Wh
 not cover, and why each is a *build-time-independent, execution-time* limitation rather than
 something the linker fix could touch:
 
+- **`x86_fuzzer`** (`Gasm.Targets.X86_64.SemanticsFuzzerCLI` / `SemanticsFuzzer` /
+  `HardwareHarness`) is a *hardware* oracle, not a pure-Lean one: every run emits a native PE
+  executable (via `Gasm.Targets.Windows.Emitter`/`Win32API`) and executes it directly against
+  the host CPU, unconditionally, as its own mandatory "HARDWARE ORACLE SANITY CHECK" control
+  vectors — it is not merely untested on Linux, it structurally cannot produce a result there.
+  See the incident bullet below.
 - **Executing an emitted Windows PE `.exe`** (`test_spike1_windows`, `test_spike2_windows`,
   `test_spike3_windows`, `test_spike4`, `test_spike5`) needs a Windows loader (or Wine, not
   installed and not proposed — adding an emulation layer to "verify Windows" is worse evidence
@@ -131,20 +136,57 @@ something the linker fix could touch:
 - **`scripts/fuzz_gzip.py`** spawns `lake exe spike5_gzip_windows`/`spike5_gunzip_windows` and
   then runs the resulting native `.exe` files directly as subprocesses — same limitation as
   above, inherited by a Python script rather than a Lean one.
-- **`test_spike3_wasm`** is, despite its name, not portable: `Spikes/Spike3SortLines/Wasm/Test.lean`
-  pipes stdin to `node` via a hardcoded `cmd := "powershell.exe"` (to work around Lean's
-  `IO.Process` not offering piped-stdin-from-file directly), unlike Spike 1/2's Wasm tests
-  which spawn `node` directly and are genuinely portable. This is a pre-existing implementation
-  detail, not something introduced by this task; fixing it (replacing the PowerShell shim with
-  a portable piped-stdin invocation) is flagged as a finding in §9 rather than fixed here — it
-  is a Spike-code change unrelated to CI wiring, and this task's mandate is CI design, not a
-  rewrite of spike test harnesses.
 - **`perf_fuzzer`** is excluded from both hosted platforms for a different reason — see §5.
 
-The matrix is written explicitly per-gate in the workflow YAML (one step per gate, not one
-opaque "run everything" script) specifically so that GitHub's own UI shows, per platform,
-which gates ran and which didn't — satisfying the requirement that "a gate that only ever runs
-on one platform is visibly marked as such" without needing to read this document to know it.
+**`test_spike3_wasm` was Windows-only for a different, now-fixed reason and is portable as of
+this revision.** `Spikes/Spike3SortLines/Wasm/Test.lean` used to pipe stdin to `node` via a
+hardcoded `cmd := "powershell.exe" ... "Get-Content ... -Raw | node -e ..."` shim (to work
+around Lean's `IO.Process` not offering piped-stdin-from-a-file directly). That shim is gone:
+the test now spawns `node` directly with `stdin := .piped`, via `IO.Process.output`'s `input?`
+parameter, exactly like Spike 1/2's Wasm tests already did. It runs on both platforms now. See
+the incident bullet below for why this needed fixing at all, not just for portability.
+
+**Incident: CI run 33137239582 (`build_bare_metal_target`, another team's PR) — two false-red
+failures, both CI/harness defects, neither in that team's code.**
+
+1. **The Linux job ran `x86_fuzzer`.** Before this revision, `x86_fuzzer` was listed as
+   `required`/`required` in the table above and was an actual (not skipped) step in the Linux
+   job's PR-time block. On `ubuntu-latest` the control-vector PE cannot execute at all, so the
+   gate's own fail-closed hardware-oracle-sanity check correctly aborted
+   ("HARDWARE ORACLE SANITY CHECK FAILED: the harness could not execute the control vectors at
+   all ... 0/272 expected bytes (exit code 255)"). That behavior is exactly right — the defect
+   was CI running a hardware-execution gate on a platform with no path to execute it, not
+   anything in the gate itself or in the PR under test. Fixed by removing the real invocation
+   from the Linux job (§2's table now reads `not run` for Linux) and replacing it with an
+   explicit always-`if: false` step (see below) so the omission is visible rather than a
+   silent absence.
+2. **`test_spike3_windows` failed intermittently with a BOM in its piped stdin.** The
+   PowerShell shim described above (`Get-Content ... -Raw | .\spike3_sort.exe`) re-encoded the
+   test input a second time on its way into the child's stdin; PowerShell's own pipe/console
+   encoding is configuration-dependent and was observed injecting a UTF-8 BOM (`EF BB BF`) at
+   the start of the piped bytes on some runs (`... got "apple\r\nbanana\r\n\uFEFFcherry\r\n"` —
+   the sorter placed `\uFEFFcherry` correctly per its own lexicographic ordering, since `0xEF`
+   sorts above `b`; the sorter was not the bug). Fixed in both `Spikes/Spike3SortLines/Windows/Test.lean`
+   and `Spikes/Spike3SortLines/Wasm/Test.lean` (which shared the identical pattern) by dropping
+   the PowerShell/temp-file intermediary entirely and spawning the child process directly with
+   `stdin := .piped`, writing the test's exact bytes via `IO.Process.output`'s `input?`
+   parameter (`Handle.putStr`, the same raw-UTF-8-no-BOM primitive `IO.FS.writeFile` itself
+   uses) — never tolerating a leading BOM on the read side, which would have masked a real BOM
+   defect instead of eliminating its source. A repo-wide search confirmed these were the only
+   two stdin-piping call sites using this pattern.
+
+**Visibility mechanism, corrected.** The matrix is written explicitly per-gate in the workflow
+YAML (one step per gate, not one opaque "run everything" script), and every gate that is
+Windows-only now has a same-named placeholder step in the Linux job's step list with
+`if: false`, so GitHub's Checks UI always renders an explicit "Skipped" line for it — never a
+gate that is simply absent from the job's step list, which is indistinguishable from nobody
+having thought to add it. Before this revision, the claim that "Windows-only gates are named
+explicitly rather than silently dropped" was only true at the source-comment level (the gaps
+were named in the YAML's *comments*, per the block previously at the end of the Linux job) —
+it was not true in the Checks UI itself, where a step with no entry at all in a job's step list
+renders no differently from a gate nobody ever wired in. The `if: false` steps close that gap:
+the claim is now true in the artifact a downstream team actually looks at, not only in this
+document.
 
 ## 5. `perf_fuzzer`: the hardware carve-out
 
@@ -248,8 +290,10 @@ merging, per the original task brief's own framing.
   acceptance bar ("a failing check names which specific gate failed") actually asks for — but
   the day TC5 lands, both workflows should be simplified to call it, per TC5's own note that
   "TC6 is a thin wrapper around TC5, not a reimplementation of the gate list."
-- **`test_spike3_wasm`'s `powershell.exe` dependency** (§4) is a Spike-code portability gap,
-  named here, not fixed here.
+- **`test_spike3_wasm`'s `powershell.exe` dependency** (§4) was a Spike-code portability gap,
+  previously named here as not fixed in this design's original pass. It is fixed now — see §4's
+  incident bullet — and the gate has been moved into the Linux job's required set. (Resolved;
+  left here as the record.)
 - **Spike 1/2 Windows emit-then-test ordering.** `test_spike1_windows`/`test_spike2_windows`
   do *not* auto-emit their `.exe` if it's missing (unlike Spike 3/4/5, whose `Test.lean` calls
   `emitVerifiedWasmBinary`/equivalent inline) — running the Test executable first fails with
@@ -305,6 +349,47 @@ judged higher-risk to the rest of the verification pass than the marginal eviden
 `Spikes/Common/WasmHostRunner.lean`'s `HostRunOutcome.runnerAbsent` path (exit code `2`,
 documented in `docs/SPIKES.md` §4 item 5) already codifies the same fail-closed contract for
 the Spike 1/2 Wasm tests specifically, and was read directly rather than re-triggered.
+
+## 8a. Verification performed for the CI run 33137239582 incident fix (this task)
+
+Same discipline as §8 — every command below was run from the repository root in the
+foreground, with its exit code captured directly (`$LASTEXITCODE`/`echo "...EXIT=$?"`) on the
+next line, never through a pipe, `tee`, or pager.
+
+| Command | Exit code |
+|---|---|
+| `lake build` (422 jobs) | 0 (real ~6m50s) |
+| `python scripts/check_refs.py` | 0 |
+| `python scripts/check_gates.py` | 0 |
+| `python scripts/check_licenses.py` | 0 |
+| `python scripts/check_record.py` | 0 |
+| `python scripts/check_doc_facade.py` | 0 |
+| `python scripts/check_publishable.py` | 0 |
+| `lake exe check_gates_axioms` | 0 (5818 declarations scanned, 84/84 allowlisted, 0 unauthorized) |
+| `lake exe check_refs_coverage` | 0 (1347 top-level declarations scanned, 0 uncited) |
+| `lake exe x86_fuzzer -- -n 20` (Windows — unaffected by the CI-wiring fix; run to confirm the code itself was untouched) | 0 |
+| `lake exe test_spike3_windows`, run 5 consecutive times | 0 / 0 / 0 / 0 / 0, byte-identical stdout each run (`"apple\r\nbanana\r\ncherry\r\n"`, no BOM) |
+| `lake exe test_spike3_wasm`, run 5 consecutive times | 0 / 0 / 0 / 0 / 0, byte-identical stdout each run |
+
+The `test_spike3_windows`/`test_spike3_wasm` repeated runs are the fix's actual evidence: both
+now spawn their child process directly with `stdin := .piped` (via `IO.Process.output`'s
+`input?` parameter) instead of shelling through `powershell.exe -Command "Get-Content ... -Raw
+| ..."`, eliminating the text-mode re-encoding step that had been observed injecting a UTF-8
+BOM into the piped bytes. Five consecutive green, byte-identical runs of each is the repeated
+demonstration that the flakiness is gone, not merely unreproduced once. A repo-wide grep for
+`powershell.exe`/`Get-Content` in `*.lean` before this fix found exactly these two call sites
+(`Spikes/Spike3SortLines/Windows/Test.lean`, `Spikes/Spike3SortLines/Wasm/Test.lean`) and none
+elsewhere — no other test shares this pattern.
+
+`x86_fuzzer` was re-run on Windows purely as a control: this task's fix to that gate is
+CI-wiring only (§2's table, §4), and its Lean source was not touched, so this run confirms the
+gate itself still passes and the fix did not regress the platform where it is authoritative.
+
+This task's own branch was pushed to GitHub after these changes so both hosted jobs
+(`windows`, `linux`) run for real — a real runner on both platforms is the only authoritative
+evidence for the Linux-side half of this fix, which this local machine cannot provide (§7's
+"Linux job is new and unverified on real Linux hardware" gap still applies to the *new* Linux
+step, `test_spike3_wasm`, exactly as it applied to every other Linux-column entry before it).
 
 ## 9. Caching strategy and why it cannot serve a stale or poisoned artifact
 

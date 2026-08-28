@@ -74,16 +74,25 @@ def runTests : IO UInt32 := do
     IO.FS.writeBinFile "spike3_sort.exe" (emitVerifiedExecutable spike3VerifiedProgram)
   IO.println s!"[*] Testing binary execution with piped stdin: {exePath}..."
 
+  -- Feeds `input` to the child process's stdin via Lean's own `IO.Process.output`
+  -- (which spawns the child with `stdin := .piped` and writes with `Handle.putStr`,
+  -- the same raw-UTF-8-no-BOM primitive `IO.FS.writeFile` itself uses -- see
+  -- `Init/System/IO.lean`'s `Process.output`). This previously shelled out to
+  -- `powershell.exe -Command "Get-Content ... -Raw | ..."`, which piped the file's
+  -- content through a second text-mode re-encoding step; PowerShell's own stdin/pipe
+  -- encoding is configuration-dependent and was observed injecting a UTF-8 BOM
+  -- (`EF BB BF`) at the start of the piped bytes on some runs, corrupting the first
+  -- line of input the sorter saw. Spawning the child directly and writing its stdin
+  -- ourselves removes that intermediary (and the file + cleanup it required)
+  -- entirely, so the bytes the sorter receives are exactly the bytes `input` names.
   let runWithInput (input : String) : IO (String × UInt32) := do
-    IO.FS.writeFile "spike3_test_in.tmp" input
     let out ← IO.Process.output {
-      cmd := "powershell.exe"
-      args := #["-NoProfile", "-Command", "Get-Content spike3_test_in.tmp -Raw | .\\spike3_sort.exe"]
-    }
+      cmd := exePath
+      args := #[]
+    } (some input)
     if out.exitCode != 0 then
       IO.eprintln s!"[DEBUG CMD ERROR] stderr: {repr out.stderr}, stdout: {repr out.stdout}"
-    let cleanStdout := (if out.stdout.startsWith "\r\n" then out.stdout.drop 2 else out.stdout).toString
-    return (cleanStdout, out.exitCode)
+    return (out.stdout, out.exitCode)
 
   try
     -- Test Case A: 3 lines ("cherry\r\napple\r\nbanana\r\n")
@@ -113,9 +122,6 @@ def runTests : IO UInt32 := do
       IO.eprintln s!"[!] FAIL Test C: Expected {repr expectedC}, got {repr stdoutC} (exit {exitCodeC})"
       return 1
     IO.println "[PASS] Test C: Presorted input preserved."
-
-    -- Clean up temporary input file
-    try IO.FS.removeFile "spike3_test_in.tmp" catch _ => pure ()
 
     IO.println "=== All Spike 3 Tests Passed Successfully! ==="
     return 0

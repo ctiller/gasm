@@ -295,7 +295,10 @@ jobs:
 
   # ---------------------------------------------------------------------
   # Linux: builds and runs everything that does not require executing a
-  # Windows PE binary or the powershell.exe stdin shim (docs/CI.md #4).
+  # Windows PE binary or a native hardware oracle (docs/CI.md #4). Every
+  # Windows-only gate below still has a same-named `if: false` placeholder
+  # step in this job so it renders as an explicit "Skipped" line in GitHub's
+  # Checks UI rather than being silently absent from the step list.
   # ubuntu-latest today; the vendor-supplied self-hosted fleet joins this
   # matrix as an additional `runs-on` once that hardware is registered.
   # ---------------------------------------------------------------------
@@ -425,10 +428,23 @@ jobs:
 
       # --- Full gate set: pull_request/workflow_dispatch only ------------
 
-      - name: x86-64 semantics fuzzer
-        if: github.event_name != 'push'
+      # NOT run on Linux -- genuinely Windows-only, not just "not yet ported"
+      # (docs/CI.md #4): Gasm.Targets.X86_64.HardwareHarness emits a native PE
+      # executable and executes it directly against the host CPU as its mandatory
+      # oracle-sanity-check control vectors (see HardwareHarness.lean's
+      # "HARDWARE ORACLE SANITY CHECK" aborts), the same PE-execution dependency
+      # as the Spike Windows-execution gates below -- there is no Linux
+      # equivalent oracle. This step is a placeholder, not the gate itself: it
+      # is `if: false` so it always renders as an explicit "Skipped" line in
+      # GitHub's Checks UI (never silently absent from the step list), per the
+      # "a gate that does not run on a platform must be visibly marked as such"
+      # requirement. It was previously miswired to actually run here, which
+      # made every Linux run fail outright (the control-vector PE cannot
+      # execute on ubuntu-latest) -- see docs/CI.md #4 for the incident.
+      - name: "x86-64 semantics fuzzer (Windows-only: executes a native PE oracle on real silicon; see docs/CI.md #4)"
+        if: false
         shell: bash
-        run: lake exe x86_fuzzer
+        run: echo "not reached -- Windows-only, see docs/CI.md #4"
 
       - name: "Wasm semantics fuzzer (oracle: node)"
         if: github.event_name != 'push'
@@ -461,6 +477,17 @@ jobs:
         if: github.event_name != 'push'
         shell: bash
         run: lake exe test_spike2_wasm
+
+      # Spike 3's Wasm host test used to hardcode a `powershell.exe` stdin shim
+      # (Windows-only, see docs/CI.md #4 history). That shim is gone --
+      # Spikes/Spike3SortLines/Wasm/Test.lean now spawns `node` directly with
+      # `stdin := .piped` via `IO.Process.output`'s `input?` parameter, exactly
+      # like Spike 1/2's Wasm tests above, so this gate is now genuinely
+      # portable and runs here too.
+      - name: "Spike 3 -- Wasm host execution (oracle: node)"
+        if: github.event_name != 'push'
+        shell: bash
+        run: lake exe test_spike3_wasm
 
       # Spike emitters (write PE bytes to a file; no execution) still run
       # here for signal that the emission code path itself doesn't fault,
@@ -496,11 +523,41 @@ jobs:
         shell: bash
         run: lake exe spike5_gunzip_windows
 
-      # NOT run on Linux, and not stubbed out above (docs/CI.md #4/#7):
-      #   test_spike1_windows / test_spike2_windows / test_spike3_windows /
-      #   test_spike4 / test_spike5   -- execute the emitted .exe natively,
-      #                                  which needs a Windows loader.
-      #   test_spike3_wasm            -- hardcodes powershell.exe.
-      #   scripts/fuzz_gzip.py        -- executes spike5_gzip.exe/
-      #                                  spike5_gunzip.exe natively.
-      # Each is covered on the windows job above.
+      # --- Windows-only: visibly marked NOT RUN here, not silently absent ---
+      # (docs/CI.md #4.) Each step below is `if: false` so GitHub's Checks UI
+      # always renders it as an explicit "Skipped" line on the Linux job --
+      # never just missing from the list, which would be indistinguishable
+      # from a gate nobody thought to add. Each is covered for real on the
+      # windows job above. A step that does not exist at all in a job's step
+      # list is invisible in the Checks UI; a `if: false` step is not -- that
+      # distinction is the entire point of adding these.
+
+      - name: "Spike 1 -- Windows PE execution (Windows-only: executes the emitted .exe natively, needs a Windows loader; see docs/CI.md #4)"
+        if: false
+        shell: bash
+        run: echo "not reached -- Windows-only, see docs/CI.md #4"
+
+      - name: "Spike 2 -- Windows PE execution (Windows-only: executes the emitted .exe natively, needs a Windows loader; see docs/CI.md #4)"
+        if: false
+        shell: bash
+        run: echo "not reached -- Windows-only, see docs/CI.md #4"
+
+      - name: "Spike 3 -- Windows PE execution (Windows-only: executes the emitted .exe natively, needs a Windows loader; see docs/CI.md #4)"
+        if: false
+        shell: bash
+        run: echo "not reached -- Windows-only, see docs/CI.md #4"
+
+      - name: "Spike 4 -- Windows PE execution (Windows-only: executes the emitted .exe natively, needs a Windows loader; see docs/CI.md #4)"
+        if: false
+        shell: bash
+        run: echo "not reached -- Windows-only, see docs/CI.md #4"
+
+      - name: "Spike 5 -- Windows PE execution (Windows-only: executes the emitted .exe natively, needs a Windows loader; see docs/CI.md #4)"
+        if: false
+        shell: bash
+        run: echo "not reached -- Windows-only, see docs/CI.md #4"
+
+      - name: "GZIP native-binary cross-fuzzer (Windows-only: scripts/fuzz_gzip.py executes spike5_gzip.exe/spike5_gunzip.exe natively; see docs/CI.md #4)"
+        if: false
+        shell: bash
+        run: echo "not reached -- Windows-only, see docs/CI.md #4"

@@ -83,14 +83,23 @@ def main : IO UInt32 := do
 
   let nodeScript := Spikes.Common.WasmHostRunner.nodeWasiScript wasmPath (pipeStdin := true)
 
+  -- Spawns `node` directly with `stdin := .piped` (via `IO.Process.output`'s `input?`
+  -- parameter, which writes through `Handle.putStr` -- the same raw-UTF-8-no-BOM
+  -- primitive `IO.FS.writeFile` uses) instead of shelling out to
+  -- `powershell.exe -Command "Get-Content ... -Raw | node -e ..."`. That PowerShell
+  -- pipe re-encoded the file's content a second time on its way into node's stdin,
+  -- and was observed injecting a UTF-8 BOM (`EF BB BF`) at the start of the piped
+  -- bytes on some runs, corrupting the first line the sorter read. Writing node's
+  -- stdin directly from Lean removes that intermediary (and the file + cleanup it
+  -- required) entirely, so the bytes node receives are exactly the bytes `input`
+  -- names -- and this is also what makes this test genuinely portable: it no longer
+  -- hardcodes `powershell.exe` (docs/CI.md #4), matching Spike 1/2's Wasm tests.
   let runHostWithInput (input : String) : IO (String × UInt32) := do
-    IO.FS.writeFile "spike3_wasm_test.tmp" input
     let out ← IO.Process.output {
-      cmd := "powershell.exe"
-      args := #["-NoProfile", "-Command", s!"Get-Content spike3_wasm_test.tmp -Raw | node -e \"{nodeScript}\""]
-    }
-    let cleanStdout := (if out.stdout.startsWith "\r\n" then out.stdout.drop 2 else out.stdout).toString
-    return (cleanStdout, out.exitCode)
+      cmd := "node"
+      args := #["-e", nodeScript]
+    } (some input)
+    return (out.stdout, out.exitCode)
 
   try
     -- Host Test A: 3 lines
@@ -116,9 +125,6 @@ def main : IO UInt32 := do
       IO.eprintln s!"[!] FAIL Host Test C: Expected {repr expectedC}, got {repr stdoutC} (exit {exitCodeC})"
       return 1
     IO.println "[PASS] Host Test C: Presorted input preserved via Node.js WASI."
-
-    -- Clean up temporary input file
-    try IO.FS.removeFile "spike3_wasm_test.tmp" catch _ => pure ()
 
     IO.println "=== All Spike 3 Wasm Tests Passed Successfully! ==="
     return 0
