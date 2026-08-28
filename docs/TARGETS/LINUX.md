@@ -94,6 +94,44 @@ For freestanding Linux executables, `gasm` directly emits standard ELF64 binarie
 - **Headers & Code Segment (`PT_LOAD`)**: VMA `0x400000`, Flags `PF_R | PF_X`.
 - **Data Segment (`PT_LOAD`)**: VMA `0x401000` or `0x402000`, Flags `PF_R` (or `PF_R | PF_W`).
 
+### 3.3 ELF64 Parser & Stability Fuzzer
+
+`gasm` emitted ELF64 binaries with no in-tree way to read them back until this section's
+machinery landed: `Gasm/Targets/ELF/Parser.lean` is a total (no `partial def`), panic-free,
+`Except`-returning ELF64 reader -- `bytes -> Except ElfParseError Elf64Parsed` -- accepting
+exactly what `Gasm.Targets.Linux.emitELF64Executable` and the shared `Gasm.Targets.ELF`
+structures describe (64-bit, little-endian, `ET_EXEC`/`ET_DYN`, `EM_X86_64`), and rejecting
+every other case through a typed `ElfParseError` rather than a hang, a silent accept, or a
+panic.
+
+**Parser-stability property.** `Spikes/Common/ElfStabilityFuzzer.lean` checks, with no
+external oracle, that `parseElf64 b = .ok r1 -> parseElf64 (serializeElf64Parsed r1) = .ok r2
+-> r1 = r2` -- the same "1.5-roundtrip" shape as `Stdlib/Png/StabilityFuzzer.lean`. It runs
+this against the real ELF64 bytes every one of the five Linux Spikes (1-5, including the
+Spike 5 gunzip variant) emits via `LinuxExecutable.emit`, plus randomized, structurally
+mutated instances generated from `Gasm.Targets.Linux.emitELF64Executable` itself (never
+uniform noise alone -- see that module's own header for the vacuity-floor rationale this
+mirrors). It additionally cross-checks each Spike's parsed `.text`/`.rodata` section payload
+byte-for-byte against the exact `textBytes`/`rodataBytes` that `LinuxExecutable` was built
+from -- the direct check for an emitter defect (a mismatch here means the writer and this
+project's own understanding of what it wrote have diverged).
+
+**Roundtrip theorem: not proven, scope of the gap.** `serializeElf64Parsed`'s placement
+strategy (each piece written at its own recorded file offset, gaps zero-filled) is only
+provably correct under a `WellFormed`-shaped hypothesis on the `Elf64Parsed` value being
+written back (offsets pairwise non-overlapping and consistent with declared sizes; `e_phnum`/
+`e_shnum` matching the `phdrs`/`shdrs` list lengths; `e_shstrndx` in range) -- every ELF64
+file this project's own writer produces satisfies it, but an arbitrary/adversarial
+`Elf64Parsed` need not (e.g. two `Elf64_Shdr` entries sharing one `sh_offset` breaks the
+sorted-chunk-append reconstruction). Proving `parseElf64 (serializeElf64Parsed x) = .ok x` for
+such well-formed `x` is a real, further engineering task, not merely an unstated gap: it needs
+`ByteArray.get!`/`.extract` lemmas through `++` (append) that do not yet exist in this tree
+(`Stdlib/Zlib/ByteArrayBridge.lean` only has `.push`-indexed lemmas today), plus the
+`WellFormed` predicate itself. **Status**: tracked as follow-on work, not attempted in this
+pass; the empirical parser-stability fuzzer above is this pass's substitute evidence, per this
+project's own established PNG-parser precedent (`Stdlib/Png/StabilityFuzzer.lean`'s own header
+makes the identical trade explicitly).
+
 ---
 
 ## 4. Module Architecture & Roadmap
@@ -104,6 +142,20 @@ The Linux target implementation is organized under `Gasm/Targets/Linux/`:
 - `ELFFormat.lean`: ELF64 header, Program Header (`Elf64_Phdr`), Section Header (`Elf64_Shdr`), and constants (re-exporting from unified `Gasm.Targets.ELF`).
 - `Emitter.lean`: Byte serialization for ELF64 headers and segments.
 - `Linker.lean`: Static freestanding ELF64 linker and memory layout engine (`LinuxExecutable`, `linkLinuxProgramStatic`).
+
+The shared ELF64 machinery lives under `Gasm/Targets/ELF/` (used by both `Linux` and
+`BareMetal`):
+- `Format.lean`: `Elf64_Ehdr`/`Elf64_Phdr`/`Elf64_Shdr` structures, format constants, and
+  little-endian byte writers.
+- `Parser.lean`: the total, panic-free ELF64 reader and `Elf64Parsed` structured result (see
+  §3.3 above).
+
+The parser-stability fuzzer (`lake exe elf_stability_fuzzer`, see §3.3 above) lives at
+`Spikes/Common/ElfStabilityFuzzer.lean` rather than under `Gasm/Targets/ELF/`, because it must
+import every `Spikes.SpikeN*.Linux.Program` module to check against each Spike's real emitted
+binary -- `Gasm/` never depends downward on `Spikes/` elsewhere in this tree, and
+`Spikes/Common/` is this tree's established location for cross-spike shared tooling (see
+`Spikes/Common/WasmHostRunner.lean`).
 
 ### Spikes & Verification
 **Status** (corrected 2026-08-28): this section previously read "All 5 Linux Spikes are fully

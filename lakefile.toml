@@ -36,14 +36,14 @@ defaultTargets = [
   "spike3_sort_lines_windows", "test_spike3_windows",
   "spike3_sort_lines_linux", "test_spike3_linux",
   "spike3_sort_lines_wasm", "test_spike3_wasm",
-  "test_smolalloc", "test_zlib", "test_png", "test_http11", "gzip_fuzzer", "perf_fuzzer", "encoding_fuzzer", "test_roundtrip",
+  "test_smolalloc", "test_zlib", "test_png", "test_http11", "test_fmt", "gzip_fuzzer", "perf_fuzzer", "encoding_fuzzer", "test_roundtrip",
   "check_x86_obligations",
   "spike4_http_windows", "spike4_http_linux", "spike4_http_wasm", "test_spike4",
   "spike5_gzip_windows", "spike5_gunzip_windows",
   "spike5_gzip_linux", "spike5_gunzip_linux",
   "spike5_gzip_wasm", "test_spike5",
   "x86_fuzzer", "wasm_fuzzer", "validate_spike_wasm",
-  "png_stability_fuzzer", "x86_stability_fuzzer"
+  "png_stability_fuzzer", "x86_stability_fuzzer", "elf_stability_fuzzer"
 ]
 
 [[lean_lib]]
@@ -226,6 +226,10 @@ name = "test_http11"
 root = "Stdlib.Http11.Test"
 
 [[lean_exe]]
+name = "test_fmt"
+root = "Stdlib.Fmt.Test"
+
+[[lean_exe]]
 name = "gzip_fuzzer"
 root = "Stdlib.Zlib.GzipFuzzer"
 
@@ -236,6 +240,10 @@ root = "Stdlib.Png.StabilityFuzzer"
 [[lean_exe]]
 name = "x86_stability_fuzzer"
 root = "Gasm.Targets.X86_64.StabilityFuzzer"
+
+[[lean_exe]]
+name = "elf_stability_fuzzer"
+root = "Spikes.Common.ElfStabilityFuzzer"
 
 [[lean_exe]]
 name = "spike5_gzip_windows"

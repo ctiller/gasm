@@ -66,6 +66,15 @@ def SHT_PROGBITS : UInt32 := 1
 def SHT_STRTAB : UInt32 := 3
 
 /- REF: elf-sysv-psabi#object-files -/
+/-- Section header type: Occupies no file space (SHT_NOBITS = 8) -- e.g. `.bss`. Not emitted by
+    this project's writer today, but a general-purpose reader must recognize it: unlike every
+    other section type, a NOBITS section's `sh_size` describes memory it occupies once loaded,
+    NOT a byte range present in the file, so a parser that blindly read `[sh_offset, sh_offset +
+    sh_size)` from the file for one would either read garbage or spuriously reject a well-formed
+    file whose declared size exceeds the file's actual length. -/
+def SHT_NOBITS : UInt32 := 8
+
+/- REF: elf-sysv-psabi#object-files -/
 /-- Section header flag: Writable (SHF_WRITE = 1). -/
 def SHF_WRITE : UInt64 := 1
 
