@@ -29,8 +29,8 @@ why: a byte-native representation keeps every structural-recursion and
 `List.append` argument in this file a standard `List` induction, with no
 UTF-8 encode/decode lemma required anywhere in the round-trip proof.
 
-No `partial def` appears in this file or in `Request.lean`/`Response.lean`:
-every recursive function here is either plain structural recursion (accepted
+No `partial def` appears anywhere in this library (`Types.lean`, `Writer.lean`,
+`Parser.lean`, `Roundtrip.lean`): every recursive function here is either plain structural recursion (accepted
 automatically by Lean's equation compiler) or well-founded recursion with an
 explicit `termination_by`/`decreasing_by` (`peelLines`), matching the "total
 functions, explicit termination measures" requirement for code that parses
