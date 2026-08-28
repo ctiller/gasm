@@ -74,5 +74,6 @@ import Gasm.Targets.BareMetal.Device
 import Gasm.Targets.BareMetal.Emitter
 import Gasm.Targets.BareMetal.Executable
 import Gasm.Targets.BareMetal.Linker
+import Gasm.Targets.BareMetal.QEMU
 
 import Gasm.Targets.WASI.ABI
