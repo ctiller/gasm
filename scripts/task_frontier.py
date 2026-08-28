@@ -327,12 +327,137 @@ def dependents_of(tasks: List[Task], tid: str) -> List[Task]:
     return [t for t in tasks if tid in t.after]
 
 
+# --- TASKS.md status board: generation and drift check --------------------------------
+#
+# TASKS.md's own header has said since 2026-08-27 that the status board "becomes generated
+# output ... regenerated mechanically from docs/tasks/*.md frontmatter rather than
+# hand-edited; until then, keep it in sync by hand when a task's status changes." Keeping it
+# in sync by hand did not work: on 2026-08-28 the hand-maintained board was wrong about 37
+# of 81 tasks -- 22 tasks had no row at all (every MH*, MT*, BR*, PA10-PA18, TC22) and 15
+# rows contradicted their own file's frontmatter, in every case by UNDERSTATING progress
+# (TC4/TC5/TC7/TC9/TC16/TC17/TC21/G1 read `done` in frontmatter and sat unticked here).
+#
+# That is Law 12's unlinked-twin defect: one fact -- a task's status -- encoded twice and
+# drifted. The fix is to stop encoding it twice. The board is now DERIVED, and
+# `--check-board` is what keeps it derived. Frontmatter is the single source of truth: a
+# status change is made in docs/tasks/<file>.md and the board regenerated, never the reverse.
+#
+# Scope note: this is the "regenerates TASKS.md's status board" deliverable of
+# docs/tasks/TC13-task-dag-tooling.md, landed early and alone because the drift it prevents
+# was measured and live. TC13's other deliverables -- cycle detection, reverse-edge
+# derivation, priority validation -- are untouched and remain TC13's.
+
+BOARD_HEADING = "## Status board"
+BOARD_END_HEADING = "## The four BARs"
+
+# Status -> board marker, per the legend TASKS.md's own header states:
+#   [x] done - [~] designing/design-review/implementing - [ ] ready (deps met) - [b] blocked
+STATUS_MARK = {
+    "done": "x",
+    "designing": "~",
+    "design-review": "~",
+    "implementing": "~",
+    "ready": " ",
+    "blocked": "b",
+}
+
+# Board grouping order, by task-id prefix; mirrors the hand-maintained board's visual
+# grouping. A prefix not listed here sorts last rather than being dropped, so a new task
+# family cannot silently fail to appear.
+PREFIX_ORDER = ["TC", "PA", "MH", "BR", "MT", "N", "G", "F", "B", "MD"]
+
+ID_SPLIT_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
+BOARD_ROW_RE = re.compile(r"^- \[(.)\] (\S+) ")
+
+
+def _id_sort_key(tid: str) -> Tuple[int, str, int]:
+    m = ID_SPLIT_RE.match(tid)
+    prefix, num = (m.group(1), int(m.group(2))) if m else (tid, 0)
+    rank = PREFIX_ORDER.index(prefix) if prefix in PREFIX_ORDER else len(PREFIX_ORDER)
+    return (rank, prefix, num)
+
+
+def render_board(tasks: List[Task]) -> str:
+    """The status board as it should be, derived entirely from frontmatter."""
+    lines: List[str] = []
+    prev_prefix = None
+    for t in sorted(tasks, key=lambda t: _id_sort_key(t.id)):
+        m = ID_SPLIT_RE.match(t.id)
+        prefix = m.group(1) if m else t.id
+        if prev_prefix is not None and prefix != prev_prefix:
+            lines.append("")
+        prev_prefix = prefix
+        mark = STATUS_MARK.get(t.status, "?")
+        rel = t.file.relative_to(REPO_ROOT).as_posix()
+        after = ", ".join(t.after) if t.after else "—"
+        row = f"- [{mark}] {t.id} {t.title} → `{rel}` — after: {after}"
+        if t.status == "blocked" and str(t.blocked_on).strip():
+            row += f" (blocked on: {str(t.blocked_on).strip()})"
+        lines.append(row)
+    return "\n".join(lines)
+
+
+def _split_tasks_md(text: str) -> Tuple[str, str, str]:
+    """(before, current_board, after) around TASKS.md's status-board section."""
+    start = text.find(BOARD_HEADING)
+    if start < 0:
+        raise SystemExit(f"[!] TASKS.md: '{BOARD_HEADING}' heading not found")
+    body_start = start + len(BOARD_HEADING)
+    end = text.find(BOARD_END_HEADING, body_start)
+    if end < 0:
+        raise SystemExit(f"[!] TASKS.md: '{BOARD_END_HEADING}' heading not found after the board")
+    return text[:body_start], text[body_start:end], text[end:]
+
+
+def _rows(block: str) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for line in block.split("\n"):
+        m = BOARD_ROW_RE.match(line.rstrip())
+        if m:
+            out[m.group(2)] = line.rstrip()
+    return out
+
+
+def board_diff(tasks: List[Task]) -> List[str]:
+    """Human-readable drift between TASKS.md's board and the frontmatter it derives from."""
+    _, current, _ = _split_tasks_md((REPO_ROOT / "TASKS.md").read_text(encoding="utf-8"))
+    want, have = _rows(render_board(tasks)), _rows(current)
+    problems: List[str] = []
+    for tid in sorted(set(want) - set(have), key=_id_sort_key):
+        problems.append(f"no board row for '{tid}' (the task file exists; the board omits it)")
+    for tid in sorted(set(have) - set(want), key=_id_sort_key):
+        problems.append(f"stale board row for '{tid}' (no task file declares that id)")
+    for tid in sorted(set(want) & set(have), key=_id_sort_key):
+        if want[tid] != have[tid]:
+            problems.append(f"board row for '{tid}' disagrees with its frontmatter:\n"
+                            f"      board: {have[tid]}\n"
+                            f"      want:  {want[tid]}")
+    return problems
+
+
+def regenerate_board(tasks: List[Task]) -> bool:
+    """Rewrite TASKS.md's status board from frontmatter. True if the file changed."""
+    path = REPO_ROOT / "TASKS.md"
+    text = path.read_text(encoding="utf-8")
+    before, _, after = _split_tasks_md(text)
+    new = f"{before}\n\n{render_board(tasks)}\n\n{after}"
+    if new == text:
+        return False
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(new)
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="Leverage-ranked task frontier for gasm's docs/tasks/*.md")
     parser.add_argument("--all", action="store_true", help="full ranking of every task, not just the frontier")
     parser.add_argument("--track", default=None, help="filter to a single track (e.g. trust-core, proof-arch, networking, graphics, perf, build-scale, debt-intake)")
     parser.add_argument("--json", action="store_true", help="machine-readable JSON output")
     parser.add_argument("--validate", action="store_true", help="run validation only; no ranking output")
+    parser.add_argument("--check-board", action="store_true",
+                        help="verify TASKS.md's status board matches docs/tasks/*.md frontmatter; exit 1 on drift")
+    parser.add_argument("--regenerate-board", action="store_true",
+                        help="rewrite TASKS.md's status board from docs/tasks/*.md frontmatter")
     args = parser.parse_args()
 
     tasks, parse_errors = load_tasks()
@@ -346,6 +471,29 @@ def main():
             print(f"[!] {e}")
         print(f"\n{len(errors)} error(s). Fix docs/tasks/*.md frontmatter and re-run.")
         sys.exit(1)
+
+    if args.regenerate_board:
+        changed = regenerate_board(tasks)
+        print(f"[+] TASKS.md status board {'regenerated' if changed else 'already current'} "
+              f"from {len(tasks)} task files.")
+        sys.exit(0)
+
+    if args.check_board:
+        problems = board_diff(tasks)
+        if problems:
+            print("=" * 70)
+            print(" gasm Task Frontier — TASKS.md STATUS BOARD OUT OF DATE")
+            print("=" * 70)
+            for p in problems:
+                print(f"[!] {p}")
+            print(f"\n{len(problems)} drift(s) between TASKS.md's status board and "
+                  f"docs/tasks/*.md frontmatter.")
+            print("    Frontmatter is the single source of truth. Fix the task file if the "
+                  "STATUS is wrong,")
+            print("    then run: python scripts/task_frontier.py --regenerate-board")
+            sys.exit(1)
+        print(f"[+] TASKS.md status board matches all {len(tasks)} task files' frontmatter.")
+        sys.exit(0)
 
     if args.validate:
         print(f"[+] {len(tasks)} task files parsed and validated OK (docs/tasks/*.md).")
