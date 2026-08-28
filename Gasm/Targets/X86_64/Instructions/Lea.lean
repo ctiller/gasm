@@ -147,4 +147,56 @@ def lea_rsp (dst : Reg64) (disp : UInt8) : AnyX86_64Instruction :=
 def lea_rsp32 (dst : Reg64) (disp : Int32) : AnyX86_64Instruction :=
   ⟨LeaRspDisp32.mk dst disp⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/-- Co-located decoder for the LEA family: `0x8D` with `mod=0,rm=5` (RIP-relative),
+    `mod=0/1/2,rm=4` (SIB-encoded RSP-relative, disp0/disp8/disp32). Rejects (rather than
+    misdecodes) an R12-based SIB-base-4 encoding (`rexB` set), since `LeaRspDisp`/`LeaRspDisp32`
+    have no base-register field to represent R12 — mirrors the soundness fix documented on the
+    original monolithic decoder's 0x8D branch. Errors for any other byte pattern. -/
+def leaTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (hasRex, _, rexR, _, rexB, opcode, opOffset) =>
+    if opcode == 0x8D then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (mod, reg, rm, modPos) =>
+        let dst := codeToReg64 reg (if hasRex then rexR else false)
+        if mod == 0 && rm == 5 then
+          match readInt32LE bytes modPos with
+          | .error e => .error e
+          | .ok disp32 => .ok (lea_rip dst disp32, (modPos + 4) - offset)
+        else if mod == 0 && rm == 4 then
+          if rexB then
+            .error "leaTryDecode: unsupported base register (R12 via REX.B) for 0x8D SIB form"
+          else
+            match readUInt8 bytes modPos with
+            | .error e => .error e
+            | .ok _sib => .ok (lea_rsp dst 0, (modPos + 1) - offset)
+        else if mod == 1 && rm == 4 then
+          if rexB then
+            .error "leaTryDecode: unsupported base register (R12 via REX.B) for 0x8D SIB form"
+          else
+            match readUInt8 bytes modPos with
+            | .error e => .error e
+            | .ok _sib =>
+              match readUInt8 bytes (modPos + 1) with
+              | .error e => .error e
+              | .ok disp8 => .ok (lea_rsp dst disp8, (modPos + 2) - offset)
+        else if mod == 2 && rm == 4 then
+          if rexB then
+            .error "leaTryDecode: unsupported base register (R12 via REX.B) for 0x8D SIB form"
+          else
+            match readUInt8 bytes modPos with
+            | .error e => .error e
+            | .ok _sib =>
+              match readInt32LE bytes (modPos + 1) with
+              | .error e => .error e
+              | .ok disp32 => .ok (lea_rsp32 dst disp32, (modPos + 5) - offset)
+        else
+          .error "leaTryDecode: unsupported addressing mode for 0x8D LEA"
+    else
+      .error s!"leaTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not LEA"
+
 end Gasm.Targets.X86_64.Instructions

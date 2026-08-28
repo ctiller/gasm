@@ -106,4 +106,29 @@ def call_rip (disp : Int32) : AnyX86_64Instruction :=
 def call_rel32 (disp : Int32) : AnyX86_64Instruction :=
   ⟨CallRel32.mk disp⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/-- Co-located decoder for the CALL family: `0xE8` (CALL rel32) and `0xFF /2` with the specific
+    `0x15` ModR/M byte (indirect `CALL [RIP + disp32]`). Errors for any other byte pattern. -/
+def callTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, _, _, _, opcode, opOffset) =>
+    if opcode == 0xE8 then
+      match readInt32LE bytes opOffset with
+      | .error e => .error e
+      | .ok disp32 => .ok (call_rel32 disp32, (opOffset + 4) - offset)
+    else if opcode == 0xFF then
+      match readUInt8 bytes opOffset with
+      | .error e => .error e
+      | .ok modrmByte =>
+        if modrmByte == 0x15 then
+          match readInt32LE bytes (opOffset + 1) with
+          | .error e => .error e
+          | .ok disp32 => .ok (call_rip disp32, (opOffset + 5) - offset)
+        else
+          .error "callTryDecode: unsupported ModR/M for 0xFF CALL"
+    else
+      .error s!"callTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not CALL"
+
 end Gasm.Targets.X86_64.Instructions

@@ -132,6 +132,35 @@ def readUInt8 (bytes : ByteArray) (offset : Nat) : Except String UInt8 :=
   else
     Except.error s!"Unexpected end of byte stream at offset {offset}"
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/-- Reads an 8-bit ModR/M byte at `offset` and unpacks it into (mod, reg, rm, nextOffset), where
+    `nextOffset` points just past the ModR/M byte. Shared boilerplate for every per-family
+    `tryDecode` that reads a ModR/M byte (Stage B: `Instructions/*.lean` own their decode logic
+    directly instead of `Decoder.lean`'s monolithic `decodeX86_64Instr`). -/
+def readModRM (bytes : ByteArray) (offset : Nat) : Except String (UInt8 × UInt8 × UInt8 × Nat) := do
+  let b ← readUInt8 bytes offset
+  let (mod, reg, rm) := extractModRM b
+  pure (mod, reg, rm, offset + 1)
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/-- Parses an optional REX prefix at `offset`, then reads the opcode byte that follows it.
+    Returns `(hasRex, rexW, rexR, rexX, rexB, opcode, nextOffset)` where `nextOffset` points just
+    past the opcode byte (the position of any ModR/M/immediate bytes). Every x86-64 instruction
+    this decoder supports shares this REX-then-opcode preamble; under Stage B each per-family
+    `tryDecode` calls this directly instead of relying on `decodeX86_64Instr`'s monolithic
+    preamble, so this helper (not the preamble itself) is the single place that logic lives. -/
+def parseRexAndOpcode (bytes : ByteArray) (offset : Nat) :
+    Except String (Bool × Bool × Bool × Bool × Bool × UInt8 × Nat) := do
+  let b0 ← readUInt8 bytes offset
+  let (hasRex, rexW, rexR, rexX, rexB, curOffset) :=
+    if isRex b0 then
+      let (w, r, x, b) := parseRex b0
+      (true, w, r, x, b, offset + 1)
+    else
+      (false, false, false, false, false, offset)
+  let opcode ← readUInt8 bytes curOffset
+  pure (hasRex, rexW, rexR, rexX, rexB, opcode, curOffset + 1)
+
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Reads a 16-bit little-endian integer from the ByteArray at the given offset. -/
 def readUInt16LE (bytes : ByteArray) (offset : Nat) : Except String UInt16 := do

@@ -109,4 +109,34 @@ def and_r64_imm8 (dst : Reg64) (imm : UInt8) : AnyX86_64Instruction :=
 def and_r64 (dst src : Reg64) : AnyX86_64Instruction :=
   ⟨AndR64R64.mk dst src⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/-- Co-located decoder for the AND family: `0x21` (AND r64, r64) and `0x83 /4` (AND r64, imm8).
+    This codebase has no AND r64, imm32 form (no `0x81 /4` case). Errors for any other byte
+    pattern. -/
+def andTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, rexR, _, rexB, opcode, opOffset) =>
+    if opcode == 0x21 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, pos) =>
+        let dst := codeToReg64 rm rexB
+        let src := codeToReg64 reg rexR
+        .ok (and_r64 dst src, pos - offset)
+    else if opcode == 0x83 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, modPos) =>
+        if reg == 4 then
+          let dst := codeToReg64 rm rexB
+          match readUInt8 bytes modPos with
+          | .error e => .error e
+          | .ok imm8 => .ok (and_r64_imm8 dst imm8, (modPos + 1) - offset)
+        else
+          .error "andTryDecode: 0x83 sub-opcode is not AND"
+    else
+      .error s!"andTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not AND"
+
 end Gasm.Targets.X86_64.Instructions

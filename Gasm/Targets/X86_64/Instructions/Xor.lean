@@ -70,4 +70,22 @@ instance : X86_64Instruction XorR32R32 where
 def xor_r32 (dst src : Reg32) : AnyX86_64Instruction :=
   ⟨XorR32R32.mk dst src⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/-- Co-located decoder for the XOR family: `0x31` (XOR r32, r32). Errors for any other byte
+    pattern. -/
+def xorTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, rexR, _, rexB, opcode, opOffset) =>
+    if opcode == 0x31 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, pos) =>
+        let dst := codeToReg32 rm rexB
+        let src := codeToReg32 reg rexR
+        .ok (xor_r32 dst src, pos - offset)
+    else
+      .error s!"xorTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not XOR"
+
 end Gasm.Targets.X86_64.Instructions

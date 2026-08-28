@@ -64,4 +64,17 @@ instance : X86_64Instruction PushR64 where
 def push_r64 (r : Reg64) : AnyX86_64Instruction :=
   ⟨PushR64.mk r⟩
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-design-only-not-implemented-by-this-change -/
+/-- Co-located decoder for the PUSH family: `0x50 .. 0x57` (PUSH r64). Errors for any other byte
+    pattern. -/
+def pushTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  match parseRexAndOpcode bytes offset with
+  | .error e => .error e
+  | .ok (_, _, _, _, rexB, opcode, pos) =>
+    if opcode >= 0x50 && opcode <= 0x57 then
+      let r := codeToReg64 (opcode - 0x50) rexB
+      .ok (push_r64 r, pos - offset)
+    else
+      .error s!"pushTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not PUSH"
+
 end Gasm.Targets.X86_64.Instructions
