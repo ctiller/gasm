@@ -117,6 +117,64 @@ def testDynamicHuffman : IO Unit := do
   if tinyInflated != tiny then throw (IO.userError "Fixed block DEFLATE roundtrip mismatch")
   IO.println s!"    ✓ Dynamic-Huffman block chosen ({dynStream.size} bytes for 4096) and decoded; fixed path preserved."
 
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Hand-crafts a syntactically valid DEFLATE dynamic-Huffman (BTYPE=10) block whose
+    *transmitted* literal/length code lengths are deliberately incomplete (not Kraft-complete):
+    symbol 0 gets code length 1 (bit-pattern "0") while every other literal/length symbol and
+    the sole distance symbol get length 0 (unused). `buildHuffmanTable` never rejects this --
+    `buildHuffmanTable_isBranch` (`Stdlib/Zlib/Huffman.lean`) proves its decode tree is always
+    `branch`-rooted, so `decodeHuffmanStream` can never hang on it -- but the resulting tree's
+    root has a `none` right child (bit-pattern "1" was never assigned to anything), so a "1" bit
+    right where the first literal/length symbol should be must fall into
+    `decodeHuffmanSymbol.step`'s `none` arm: a clean `.error .corruptedHuffmanTree`, not a hang
+    and not a silent misdecode. Built with the same `writeBits`/`emitHuffSymbol`/`buildHuffmanTable`
+    primitives `emitDynamicBlock` uses for legitimate output (RFC 1951 §3.2.7), just fed a
+    hand-picked degenerate length array instead of the package-merge encoder's output. -/
+def malformedDynamicHuffmanStream : ByteArray :=
+  Id.run do
+    -- Code-length alphabet: only symbols 1 ("raw code length 1") and 18 ("repeat zero,
+    -- 11-138 times") are used, each assigned a 1-bit canonical code.
+    let clenLengths : Array Nat := ((Array.replicate 19 0).set! 1 1).set! 18 1
+    let clenTable := buildHuffmanTable clenLengths 7
+    let mut w : BitWriter := {}
+    w := writeBits w 1 1   -- BFINAL = 1 (final block)
+    w := writeBits w 2 2   -- BTYPE = 10 (dynamic Huffman)
+    w := writeBits w 0 5   -- HLIT - 257 = 0  → hlit = 257 (all literal/length symbols declared)
+    w := writeBits w 0 5   -- HDIST - 1 = 0   → hdist = 1  (one distance symbol declared)
+    w := writeBits w 14 4  -- HCLEN - 4 = 14  → hclen = 18 (covers clenOrder[0..17], incl. symbol 1)
+    for i in [0:18] do
+      w := writeBits w clenLengths[clenOrder[i]!]! 3
+    -- RLE-encoded code lengths: symbol 0 (of 258 total lit+dist symbols) gets length 1;
+    -- the remaining 257 all get length 0, via two repeat-zero runs (138 + 119 = 257).
+    w := emitHuffSymbol w clenTable 1
+    w := emitHuffSymbol w clenTable 18
+    w := writeBits w (138 - 11) 7
+    w := emitHuffSymbol w clenTable 18
+    w := writeBits w (119 - 11) 7
+    -- The malformed payload itself: a single "1" bit. The decoded literal/length table's root
+    -- is `branch (some (leaf 0)) none` (only bit-pattern "0" was ever assigned), so this bit
+    -- routes straight into the `none` child.
+    w := writeBits w 1 1
+    return flushBitWriter w
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Test runner verifying that `decompress` handles a malformed dynamic-Huffman table
+    honestly: `decodeHuffmanStream`/`decompress` are now total (well-founded recursion, no
+    `partial def`), so a degenerate transmitted code-length table can no longer hang the
+    decoder -- but it must still be rejected, not silently misdecoded or panic. Feeds
+    `malformedDynamicHuffmanStream` (an incomplete literal/length decode tree) to `decompress`
+    and asserts it returns `.error .corruptedHuffmanTree` -- the same error a `none`-child hit
+    has always raised, now reachable through a route that used to risk non-termination instead. -/
+def testCorruptedDynamicHuffmanTable : IO Unit := do
+  IO.println "[+] Testing malformed dynamic-Huffman table rejection..."
+  match decompress malformedDynamicHuffmanStream with
+  | .error .corruptedHuffmanTree =>
+    IO.println "    ✓ Incomplete dynamic Huffman table cleanly rejected (.corruptedHuffmanTree)."
+  | .error e =>
+    throw (IO.userError s!"Malformed dynamic Huffman table: expected .corruptedHuffmanTree, got {repr e}")
+  | .ok _ =>
+    throw (IO.userError "Malformed dynamic Huffman table: decompress unexpectedly succeeded")
+
 /- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
 /-- Test runner verifying RFC 1950 ZLIB container roundtrips with Adler-32 validation. -/
 def testZlibContainer : IO Unit := do
@@ -155,6 +213,7 @@ def main : IO UInt32 := do
     testAdler32
     testDeflate
     testDynamicHuffman
+    testCorruptedDynamicHuffmanTable
     testZlibContainer
     testGzipContainer
     IO.println "\n[+] ALL STDLIB.ZLIB TESTS PASSED (100% SUCCESS)."
