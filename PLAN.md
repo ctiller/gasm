@@ -1038,3 +1038,15 @@ libdeflate binaries would be the headline scoreboard.
   Tier 2 (Spike5) first (it's also the gzip epic bed), then Tier 1. Gate question for
   Phase 4 design: mechanical prevention for domain-shrinking = contracts must quantify
   over the CANONICAL Environment type, not spike-defined input enums.
+  **PA17 correction (2026-08-27+, `docs/tasks/PA17-spike3-spike4-domain-honesty.md`):** the
+  "Tier 3 — legit pattern" verdict above is right about the *outer composition* (`cases`
+  over `HttpRoute`/`Bool` genuinely is an exhaustive finite-∀) and **wrong if read as "no
+  further action needed"** — each inner constituent theorem is still one `native_decide`
+  check against one literal byte string, not the real per-route/per-stdin domain
+  (`∀ request : ByteArray` / `∀ stdin : ByteArray`), and PA17 found that widening Spike4's
+  claim to its real domain is **false**: both the Windows (5-byte `"/stat"` prefix) and
+  WASI (single-byte `'s'` prefix, strictly broader) route dispatches misroute requests
+  outside the three literal test vectors — see `Spikes/Spike4HttpServer/Equivalence.lean`'s
+  "KNOWN DIVERGENCE" note for the confirmed counterexamples. A future spike author should
+  read "Tier 3" as "outer composition legitimate, inner domain still unverified, do not
+  cite as ∀-request/∀-stdin coverage" — not as "legit, no action needed."
