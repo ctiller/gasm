@@ -190,12 +190,12 @@ theorem digits_length_le_UInt64 (n : UInt64) : (digits n.toNat).length ≤ 20 :=
 ### Byte-level (`formatDecimal`) corollaries
 -/
 
-/- REF: docs/STDLIB_FMT.md#4-encoder-canonical-serialization -/
+/- REF: docs/STDLIB_FMT.md#4-encoder-formatter-canonical-serialization -/
 theorem formatDecimal_ne_nil (n : Nat) : formatDecimal n ≠ [] := by
   unfold formatDecimal
   simpa using digits_ne_nil n
 
-/- REF: docs/STDLIB_FMT.md#4-encoder-canonical-serialization -/
+/- REF: docs/STDLIB_FMT.md#4-encoder-formatter-canonical-serialization -/
 theorem formatDecimal_length_eq (n : Nat) :
     (formatDecimal n).length = (digits n).length := by
   unfold formatDecimal
