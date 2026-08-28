@@ -148,12 +148,21 @@ parseable" (also folded into `unloadable`, since both are exactly the kind
 of blind spot this gate refuses to hide). The parent does its own allowlist
 matching (`byKey`) against whatever the worker reports; the worker itself
 carries no allowlist knowledge.
+
+SHARED PLUMBING: `setupSearchPath`, `resultMarker`, `nameOfDotted`, and the
+spawn-a-worker-and-capture-its-result-line step (`spawnAndGetResultPayload`)
+now live in Tools/GateSubprocess.lean -- Tools/CheckRefsCoverage.lean (Law
+1/3) closes the identical module-coverage gap the identical way, and this
+plumbing was byte-for-byte duplicated between the two tools before that file
+existed. See Tools/GateSubprocess.lean's own header for why only this much
+is shared (each tool's `GASM_SCAN_RESULT` JSON schema stays tool-specific).
 -/
 import Lean
 import Lean.Data.Json
 import Gasm
 import Stdlib
 import Spikes
+import Tools.GateSubprocess
 
 open Lean
 
@@ -403,36 +412,14 @@ def collectAxiomsFor (env : Environment) (ctx : Core.Context) (name : Name) :
   let (axs, _) ← (Lean.collectAxioms (m := Core.CoreM) name).toIO ctx coreState
   return axs
 
-/-- Appends the project's own build output to the Lean search path. A direct
-binary invocation (bypassing `lake exe`, which sets `LEAN_PATH` itself --
-including when THIS tool re-invokes itself as a `--scan-module` worker
-subprocess, since that re-invocation is necessarily direct) would otherwise
-fail to find Gasm/Stdlib/Spikes' oleans. Shared by both the main gate run and
-the worker so the two don't drift. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
-def setupSearchPath : IO Unit := do
-  initSearchPath (← findSysroot)
-  let projectLibDir : System.FilePath := "." / ".lake" / "build" / "lib" / "lean"
-  if ← projectLibDir.pathExists then
-    let sp ← searchPathRef.get
-    searchPathRef.set (sp ++ [projectLibDir])
+-- `setupSearchPath` and `resultMarker` now live in Tools/GateSubprocess.lean,
+-- shared verbatim with Tools/CheckRefsCoverage.lean's identical worker
+-- protocol (see that file's header for why only this plumbing, and not the
+-- tool-specific WorkerResult JSON schema, is shared).
 
-/-- Marker line prefix a `--scan-module` worker process prints its one JSON
-result line under, so the parent can find it even if OTHER stdout noise
-(warnings, etc.) happened to be interleaved. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
-def resultMarker : String := "GASM_SCAN_RESULT "
-
-/-- Turns a module's dotted `Name.toString` form (e.g.
-`"Spikes.Spike1Hello.Windows.Emit"`) back into a `Name`, the same
-`foldl Name.mkStr` construction `moduleNameOfPath` uses. Used only to turn
-the `--scan-module <name>` CLI argument back into the `Name` `importModules`
-needs -- never on an arbitrary declaration name, so the (harmless for module
-names, which are never `.num`-shaped) inability to reconstruct numeric
-`Name` components doesn't matter here. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
-def nameOfDotted (s : String) : Name :=
-  (s.splitOn ".").foldl Name.mkStr Name.anonymous
+-- `nameOfDotted` (inverse of `moduleNameOfPath`, used to turn a
+-- `--scan-module <name>` CLI argument back into a `Name`) also now lives in
+-- Tools/GateSubprocess.lean.
 
 /-- What a `--scan-module` worker process reported, once its one
 `GASM_SCAN_RESULT` JSON line has been parsed. `loadFailed` mirrors the old
@@ -611,40 +598,27 @@ def runGate : IO UInt32 := do
   let selfExe ← IO.appPath
   let cwd ← IO.currentDir
   for target in missing do
-    let spawnResult ←
-      try
-        (Except.ok ·) <$> IO.Process.output
-          { cmd := selfExe.toString, args := #["--scan-module", toString target], cwd := some cwd }
-      catch e =>
-        pure (Except.error e.toString)
-    match spawnResult with
+    match ← spawnAndGetResultPayload selfExe cwd #["--scan-module", toString target] with
     | .error spawnErr =>
-      unloadable := unloadable.push (target, s!"failed to spawn scan subprocess: {spawnErr}")
-    | .ok out =>
-      let resultLines := (out.stdout.splitOn "\n").filter (·.startsWith resultMarker)
-      match resultLines.getLast? with
-      | none =>
-        unloadable := unloadable.push (target,
-          s!"scan subprocess exited {out.exitCode} without a result line (stderr: {out.stderr.trimAscii})")
-      | some line =>
-        let payload := (line.drop resultMarker.length).toString
-        match parseWorkerResult payload with
-        | .error parseErr =>
-          unloadable := unloadable.push (target, s!"malformed scan subprocess result: {parseErr}")
-        | .ok (.loadFailed loadErr) =>
-          unloadable := unloadable.push (target, loadErr)
-        | .ok (.scanned scannedN gatedItems) =>
-          coveredStandalone := coveredStandalone.insert target
-          scanned := scanned + scannedN
-          for (declS, axPairs) in gatedItems do
-            gated := gated + 1
-            let key := matchKey target declS
-            match byKey[key]? with
-            | some _ =>
-              compliant := compliant + 1
-              matchedKeys := matchedKeys.insert key
-            | none =>
-              offenders := offenders.push { declModule := target, declName := declS, axioms := axPairs }
+      unloadable := unloadable.push (target, spawnErr)
+    | .ok payload =>
+      match parseWorkerResult payload with
+      | .error parseErr =>
+        unloadable := unloadable.push (target, s!"malformed scan subprocess result: {parseErr}")
+      | .ok (.loadFailed loadErr) =>
+        unloadable := unloadable.push (target, loadErr)
+      | .ok (.scanned scannedN gatedItems) =>
+        coveredStandalone := coveredStandalone.insert target
+        scanned := scanned + scannedN
+        for (declS, axPairs) in gatedItems do
+          gated := gated + 1
+          let key := matchKey target declS
+          match byKey[key]? with
+          | some _ =>
+            compliant := compliant + 1
+            matchedKeys := matchedKeys.insert key
+          | none =>
+            offenders := offenders.push { declModule := target, declName := declS, axioms := axPairs }
 
   -- `axiom-only` entries exist purely for this tool (no source-text
   -- occurrence will ever back them); one that matched NOTHING in this scan
