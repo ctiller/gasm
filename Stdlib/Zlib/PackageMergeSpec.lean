@@ -850,4 +850,213 @@ theorem countP_eq_of_imp {α : Type} (p q : α → Bool) : ∀ (l : List α),
           exact absurd hqx hqa
         · exact ih (fun y hy => himp y (by simp [hy])) (by omega) x hxl hqx
 
+/-
+## The master counting argument over an annotation multiset.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Code length a symbol receives from an annotation list: its total multiplicity. -/
+def lenOfF (F : List (Nat × Nat)) (s : Nat) : Nat :=
+  F.countP (fun e => e.1 == s)
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- Positive counts exhibit members. -/
+theorem countP_pos_iff {α : Type} (p : α → Bool) : ∀ (l : List α),
+    0 < l.countP p ↔ ∃ x, x ∈ l ∧ p x = true := by
+  intro l
+  induction l with
+  | nil => simp
+  | cons a l ih =>
+    rw [List.countP_cons]
+    by_cases h : p a = true
+    · rw [if_pos h]
+      constructor
+      · intro _
+        exact ⟨a, by simp, h⟩
+      · intro _
+        omega
+    · rw [if_neg h]
+      constructor
+      · intro hpos
+        obtain ⟨x, hx, hpx⟩ := ih.mp (by omega)
+        exact ⟨x, by simp [hx], hpx⟩
+      · intro ⟨x, hx, hpx⟩
+        rcases List.mem_cons.mp hx with hxa | hxl
+        · subst hxa
+          exact absurd hpx h
+        · have := ih.mpr ⟨x, hxl, hpx⟩
+          omega
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- A Prop-`ite` equals its decided Bool-`ite`. -/
+theorem ite_decide_eq {α : Type} (c : Prop) [Decidable c] (a b : α) :
+    (if decide c = true then a else b) = if c then a else b := by
+  by_cases h : c <;> simp [h]
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- **The master count**: an annotation multiset whose symbols are leaves, whose levels are
+    once-only per `(symbol, level)` and range over `[1, W]`, and whose total value is
+    exactly `(2n-2)·2^(W-1)`, forces every one of the `n` leaves to be coded within `W`
+    bits and the resulting lengths to satisfy the Kraft inequality. -/
+theorem master_counting (W N n : Nat) (isLeaf : Nat → Bool) (hW : 1 ≤ W) (hn : 2 ≤ n)
+    (F : List (Nat × Nat))
+    (hrange : ∀ e ∈ F, e.1 < N ∧ 1 ≤ e.2 ∧ e.2 ≤ W)
+    (honce : ∀ s j, F.count (s, j) ≤ 1)
+    (hleafmem : ∀ e ∈ F, isLeaf e.1 = true)
+    (hnleaf : (List.range N).countP isLeaf = n)
+    (htotal : (F.map (fun e => 2 ^ (e.2 - 1))).sum = (2 * n - 2) * 2 ^ (W - 1)) :
+    (∀ s, s < N → isLeaf s = true → 1 ≤ lenOfF F s) ∧
+    (∀ s, lenOfF F s ≤ W) ∧
+    (∀ s, 1 ≤ lenOfF F s → s < N ∧ isLeaf s = true) ∧
+    ((List.range N).map (fun s => if 1 ≤ lenOfF F s then 2 ^ (W - lenOfF F s) else 0)).sum
+      ≤ 2 ^ W := by
+  -- per-symbol indicator facts
+  have hcbound : ∀ s j, F.count (s, j) ≤ 1 := honce
+  have hlen_eq : ∀ s, ((List.range' 1 W).map (fun j => F.count (s, j))).sum = lenOfF F s :=
+    fun s => count_pairs_sum W s F (fun e he => (hrange e he).2)
+  have hind : ∀ s, lenOfF F s ≤ W ∧
+      ((List.range' 1 W).map (fun j => F.count (s, j) * 2 ^ (j - 1))).sum ≤
+        2 ^ W - 2 ^ (W - lenOfF F s) := by
+    intro s
+    have h := indicator_sum_bound W (fun j => F.count (s, j)) (fun j => hcbound s j)
+    rw [hlen_eq s] at h
+    exact h
+  have hlenW : ∀ s, lenOfF F s ≤ W := fun s => (hind s).1
+  -- symbols with positive length are in-range leaves
+  have hposleaf : ∀ s, 1 ≤ lenOfF F s → s < N ∧ isLeaf s = true := by
+    intro s hs
+    obtain ⟨e, heF, hpe⟩ := (countP_pos_iff (fun e => e.1 == s) F).mp (by unfold lenOfF at hs; omega)
+    have hes : e.1 = s := eq_of_beq hpe
+    exact ⟨hes ▸ (hrange e heF).1, hes ▸ hleafmem e heF⟩
+  -- the total value, regrouped per symbol
+  have hregroup := sum_flat_eq_sum_counts W N (fun e => 2 ^ (e.2 - 1)) F hrange
+  rw [htotal] at hregroup
+  have htot2 : (2 * n - 2) * 2 ^ (W - 1) = (n - 1) * 2 ^ W := by
+    have hWpred : W = (W - 1) + 1 := by omega
+    calc (2 * n - 2) * 2 ^ (W - 1) = (n - 1) * (2 ^ (W - 1) * 2) := by
+          rw [show 2 * n - 2 = (n - 1) * 2 from by omega, Nat.mul_assoc,
+            Nat.mul_comm 2 (2 ^ (W - 1))]
+      _ = (n - 1) * 2 ^ W := by
+          congr 1
+          rw [← Nat.pow_succ]
+          congr 1
+          omega
+  rw [htot2] at hregroup
+  -- name the per-symbol pieces
+  have hvalbound : ∀ s, s < N →
+      ((List.range' 1 W).map (fun j => F.count (s, j) * 2 ^ ((s, j).2 - 1))).sum ≤
+        2 ^ W - 2 ^ (W - lenOfF F s) := by
+    intro s _
+    exact (hind s).2
+  -- Σ val ≤ Σ A  where A s = 2^W - 2^(W - len s)
+  have hA : ((List.range N).map (fun s =>
+      ((List.range' 1 W).map (fun j => F.count (s, j) * 2 ^ ((s, j).2 - 1))).sum)).sum ≤
+      ((List.range N).map (fun s => 2 ^ W - 2 ^ (W - lenOfF F s))).sum := by
+    apply sum_map_le
+    intro s hs
+    exact hvalbound s (List.mem_range.mp hs)
+  rw [← hregroup] at hA
+  -- pointwise: A s + (guarded 2^(W - len s)) = guarded 2^W
+  have hsplitAK : ∀ s, (2 ^ W - 2 ^ (W - lenOfF F s)) +
+      (if 1 ≤ lenOfF F s then 2 ^ (W - lenOfF F s) else 0) =
+      (if 1 ≤ lenOfF F s then 2 ^ W else 0) := by
+    intro s
+    by_cases h : 1 ≤ lenOfF F s
+    · rw [if_pos h, if_pos h]
+      have hle : (2 : Nat) ^ (W - lenOfF F s) ≤ 2 ^ W :=
+        Nat.pow_le_pow_right (by omega) (by omega)
+      omega
+    · rw [if_neg h, if_neg h]
+      have hW0 : W - lenOfF F s = W := by omega
+      rw [hW0]
+      omega
+  have hAK : ((List.range N).map (fun s => 2 ^ W - 2 ^ (W - lenOfF F s))).sum +
+      ((List.range N).map (fun s => if 1 ≤ lenOfF F s then 2 ^ (W - lenOfF F s) else 0)).sum =
+      ((List.range N).map (fun s => if 1 ≤ lenOfF F s then 2 ^ W else 0)).sum := by
+    rw [← sum_map_add]
+    exact sum_map_congr _ _ _ (fun s _ => hsplitAK s)
+  -- count of coded symbols
+  have hm_eq : ((List.range N).map (fun s => if 1 ≤ lenOfF F s then 2 ^ W else 0)).sum =
+      ((List.range N).countP (fun s => decide (1 ≤ lenOfF F s))) * 2 ^ W := by
+    rw [← sum_map_ite_const (fun s => decide (1 ≤ lenOfF F s)) (2 ^ W)]
+    exact sum_map_congr _ _ _ (fun s _ => (ite_decide_eq _ _ _).symm)
+  -- m ≤ n
+  have hmn : ((List.range N).countP (fun s => decide (1 ≤ lenOfF F s))) ≤ n := by
+    rw [← hnleaf]
+    apply List.countP_mono_left
+    intro s _ hp
+    exact (hposleaf s (of_decide_eq_true hp)).2
+  -- K ≥ m
+  have hKm : ((List.range N).countP (fun s => decide (1 ≤ lenOfF F s))) * 1 ≤
+      ((List.range N).map (fun s => if 1 ≤ lenOfF F s then 2 ^ (W - lenOfF F s) else 0)).sum := by
+    rw [← sum_map_ite_const (fun s => decide (1 ≤ lenOfF F s)) 1]
+    apply sum_map_le
+    intro s _
+    rw [ite_decide_eq]
+    by_cases h : 1 ≤ lenOfF F s
+    · rw [if_pos h, if_pos h]
+      exact Nat.one_le_two_pow
+    · rw [if_neg h, if_neg h]
+      omega
+  -- A s ≤ guarded (2^W - 1)
+  have hAle : ((List.range N).map (fun s => 2 ^ W - 2 ^ (W - lenOfF F s))).sum ≤
+      ((List.range N).countP (fun s => decide (1 ≤ lenOfF F s))) * (2 ^ W - 1) := by
+    rw [← sum_map_ite_const (fun s => decide (1 ≤ lenOfF F s)) (2 ^ W - 1)]
+    apply sum_map_le
+    intro s _
+    rw [ite_decide_eq]
+    by_cases h : 1 ≤ lenOfF F s
+    · rw [if_pos h]
+      have h2 : (2 : Nat) ^ (W - lenOfF F s) ≥ 1 := Nat.one_le_two_pow
+      omega
+    · rw [if_neg h]
+      have h0 : lenOfF F s = 0 := by omega
+      rw [h0]
+      simp
+  -- arithmetic finish
+  obtain ⟨m, hm⟩ : ∃ m, ((List.range N).countP (fun s => decide (1 ≤ lenOfF F s))) = m :=
+    ⟨_, rfl⟩
+  rw [hm] at hm_eq hmn hKm hAle
+  have hP1 : (1 : Nat) ≤ 2 ^ W := Nat.one_le_two_pow
+  have hmul1 : m * (2 ^ W - 1) + m = m * 2 ^ W := by
+    have : m * ((2 ^ W - 1) + 1) = m * (2 ^ W - 1) + m := by
+      rw [Nat.mul_add]
+      omega
+    rw [← this]
+    congr 1
+    omega
+  have hmul2 : (n - 1) * 2 ^ W + 2 ^ W = n * 2 ^ W := by
+    have : ((n - 1) + 1) * 2 ^ W = (n - 1) * 2 ^ W + 1 * 2 ^ W := Nat.add_mul _ _ _
+    rw [show (n - 1) + 1 = n from by omega] at this
+    omega
+  have hmn2 : m * 2 ^ W ≤ n * 2 ^ W := Nat.mul_le_mul_right _ hmn
+  -- m = n
+  have hmn_eq : m = n := by
+    rcases Nat.lt_or_ge m n with hlt | hge
+    · exfalso
+      -- ΣA ≥ (n-1)·2^W but ΣA ≤ m(2^W - 1) ≤ (n-1)(2^W - 1)
+      have hm_le : m ≤ n - 1 := by omega
+      have h1 : m * (2 ^ W - 1) ≤ (n - 1) * (2 ^ W - 1) :=
+        Nat.mul_le_mul_right _ hm_le
+      have h2 : (n - 1) * (2 ^ W - 1) + (n - 1) = (n - 1) * 2 ^ W := by
+        have h3 : (n - 1) * ((2 ^ W - 1) + 1) = (n - 1) * (2 ^ W - 1) + (n - 1) := by
+          rw [Nat.mul_add]
+          omega
+        rw [← h3]
+        congr 1
+        omega
+      omega
+    · omega
+  subst hmn_eq
+  refine ⟨?_, hlenW, hposleaf, ?_⟩
+  · -- every leaf is coded: counts agree, use the pointwise converse
+    intro s hsN hleaf
+    have hconv := countP_eq_of_imp (fun s => decide (1 ≤ lenOfF F s)) isLeaf (List.range N)
+      (fun x _ hp => (hposleaf x (of_decide_eq_true hp)).2)
+      (by rw [hm, hnleaf])
+      s (List.mem_range.mpr hsN) hleaf
+    exact of_decide_eq_true hconv
+  · -- Kraft: K ≤ 2^W
+    omega
+
 end Stdlib.Zlib
