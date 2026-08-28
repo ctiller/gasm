@@ -1,7 +1,7 @@
 ---
 id: PA15
 title: Fibonacci soundness by loop-invariant induction — replace 91-case native_decide enumeration
-status: ready
+status: done
 blocked_on: ""
 after: []
 related: [PA1, B7]

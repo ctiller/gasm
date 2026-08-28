@@ -25,6 +25,7 @@ import Gasm.Targets.Wasm.Semantics
 import Gasm.Targets.WASI.ABI
 import Spikes.Spike2Fibonacci.Spec
 import Spikes.Spike2Fibonacci.Wasm.Program
+import Spikes.Spike2Fibonacci.Wasm.LoopInvariant
 
 namespace Spikes.Spike2Fibonacci.Wasm
 
@@ -43,10 +44,29 @@ def runFibIterWasm (n : Nat) : Option UInt64 :=
   | _ => none
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Constructive proof that the WebAssembly iterative routine computes exact Fibonacci numbers for all n from 0 to 90. -/
-theorem fib_iter_wasm_soundness :
-    (List.range 91).all (fun n => runFibIterWasm n == some (fibIter n).toUInt64) = true := by
-  native_decide
+/-- **PA15.** The WebAssembly iterative routine computes exact Fibonacci numbers, for every `n` the
+    interpreter's default fuel budget (`defaultWasmFuel = 100000000`) can complete within. Discharged
+    by `fibIterWasm_run` (`Spikes/Spike2Fibonacci/Wasm/LoopInvariant.lean`), whose content is
+    `loop_correct`: an induction on the remaining iteration count against the loop invariant
+    `FibLocals`, established by the routine's prologue and preserved by one pass through the
+    `loop` body. A genuine structural argument -- not `native_decide` executing the interpreter on
+    concrete inputs.
+
+    This is a *different, more general* fact than the theorem it replaces: the previous
+    `(List.range 91).all (...) = true` was a finite check over `n = 0..90`. The bound here is **not**
+    the `UInt64`-overflow point the allowlist entry this replaces assumed was the relevant limit
+    (`fib 93` is the last value that fits in 64 bits without wrapping) -- both sides of this equation
+    wrap `UInt64` arithmetic identically (`Nat.toUInt64` distributes over `+`, discharged as
+    `by simp [Nat.toUInt64]` inside `loop_correct`), so the equation holds *regardless* of `UInt64`
+    overflow. The actual bound is the interpreter's own fuel budget: the routine consumes one unit
+    per loop iteration plus a fixed prologue/epilogue cost, so `n + 26 ≤ defaultWasmFuel`.
+    `fibIterWasm_run` is stated for arbitrary `fuel`, so a caller needing a larger `n` passes more;
+    only this corollary fixes it at the default. -/
+theorem fib_iter_wasm_soundness (n : Nat) (hn : n ≤ 99999974) :
+    runFibIterWasm n = some (fibIter n).toUInt64 := by
+  unfold runFibIterWasm
+  rw [fibIterWasm_run n defaultWasmFuel (by omega)
+    (show n + 26 ≤ 100000000 by omega), fibIter_eq_fibNat]
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Whole-program canonical effect trace equivalence for Spike 2 WebAssembly. -/
