@@ -1045,4 +1045,422 @@ theorem decodeHuffmanStream_go_dyn (litA litB distA distB : Array Nat)
               rw [idrun_copy_eq_lzCopy, List.foldl_cons]
               exact hok'
 
+/-
+## The dynamic-block roundtrip and `deflate_roundtrip_soundness`.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `decodeHuffmanStream` (top-level) on a dynamic-table stream, from `go`'s induction. -/
+theorem decodeHuffmanStream_dyn (litA litB distA distB : Array Nat)
+    (hptL : ∀ i : Nat, litA[i]! = litB[i]!) (hptD : ∀ i : Nat, distA[i]! = distB[i]!)
+    (hkl : kraftOk litA 15) (hkd : kraftOk distA 15)
+    (heob : 0 < litA[256]! ∧ litA[256]! ≤ 15)
+    (hL : ∃ l rr, (buildHuffmanTable litB 15).root = HuffmanNode.branch l rr)
+    (hD : ∃ l rr, (buildHuffmanTable distB 15).root = HuffmanNode.branch l rr)
+    (ts : List LZToken) (r : BitReader) (curOut : ByteArray) (rest : List Bool)
+    (hwf : tokensWF ts curOut.size)
+    (hok : ∀ t ∈ ts, dynTokenOk litA distA t)
+    (hbits : readerBits r = tokensBitsDyn litA distA ts ++
+      (codeBits (canonicalCode litA 15 256) litA[256]! ++ rest))
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', decodeHuffmanStream r (buildHuffmanTable litB 15) (buildHuffmanTable distB 15)
+        hL hD curOut = .ok (r', ts.foldl expandToken curOut) ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  unfold decodeHuffmanStream
+  exact decodeHuffmanStream_go_dyn litA litB distA distB hptL hptD hkl hkd heob hL hD
+    ts r curOut rest hwf hok hbits hinv hcnt
+
+/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
+/-- **L7 (dynamic block)**: `decompress` of a flushed `emitDynamicBlock` — under the plan
+    `buildDynPlan` computes for the same tokens — recovers exactly the expansion of the
+    emitted tokens. -/
+theorem decompress_dynamicBlock (tokens : Array LZToken)
+    (hwf : tokensWF tokens.toList 0) :
+    decompress (flushBitWriter (emitDynamicBlock (buildDynPlan tokens) tokens))
+      = .ok (expandTokens tokens) := by
+  have hok : ∀ t ∈ tokens.toList, tokenRangesOk t := tokensWF_rangesOk _ 0 hwf
+  -- ------------------------------------------------------------------
+  -- Plan facts
+  -- ------------------------------------------------------------------
+  have tfs := tokenFrequencies_spec tokens hok
+  obtain ⟨htf1, htf2, htf256, htflit, htfref⟩ := tfs
+  -- literal/length side
+  have plsL := padFrequencies_spec (tokenFrequencies tokens).1 (by omega)
+  have hpadszL : (padFrequencies (tokenFrequencies tokens).1).size
+      = (tokenFrequencies tokens).1.size := plsL.1
+  have pmL := packageMergeLengths_spec (padFrequencies (tokenFrequencies tokens).1) 15
+    (by omega)
+    (by rw [hpadszL]; exact plsL.2.2)
+    (by
+      have h1 := List.countP_le_length
+        (p := fun s => decide (0 < (padFrequencies (tokenFrequencies tokens).1)[s]!))
+        (l := List.range (padFrequencies (tokenFrequencies tokens).1).size)
+      rw [List.length_range] at h1
+      have h2 : (padFrequencies (tokenFrequencies tokens).1).size = 286 := by
+        rw [hpadszL, htf1]
+      have h3 : (2 : Nat) ^ (15 - 1) = 16384 := by decide
+      omega)
+  have hlitL : (buildDynPlan tokens).litLengths =
+      packageMergeLengths (padFrequencies (tokenFrequencies tokens).1) 15 :=
+    buildDynPlan_litLengths tokens
+  have hlitsize : (buildDynPlan tokens).litLengths.size = 286 := by
+    rw [hlitL, pmL.1, hpadszL, htf1]
+  have hlit15 : ∀ i : Nat, (buildDynPlan tokens).litLengths[i]! ≤ 15 := by
+    intro i
+    by_cases hi : i < (buildDynPlan tokens).litLengths.size
+    · rw [hlitL]
+      apply pmL.2.2.1
+      rw [← pmL.1, ← hlitL]
+      omega
+    · rw [getElem!_oob _ _ hi]
+      show (0 : Nat) ≤ 15
+      omega
+  have hkl : kraftOk (buildDynPlan tokens).litLengths 15 := by
+    rw [hlitL]
+    apply kraftOk_of_symbol_sum
+    · intro s hs
+      rw [← hlitL]
+      exact hlit15 s
+    · rw [pmL.1]
+      exact pmL.2.2.2.2
+  have hlitcov : ∀ s : Nat, s < 286 → 0 < (tokenFrequencies tokens).1[s]! →
+      0 < (buildDynPlan tokens).litLengths[s]! := by
+    intro s hs hpos
+    rw [hlitL]
+    have hs' : s < (padFrequencies (tokenFrequencies tokens).1).size := by
+      rw [hpadszL, htf1]
+      omega
+    apply pmL.2.1 s hs'
+    have := plsL.2.1 s
+    omega
+  -- distance side
+  have plsD := padFrequencies_spec (tokenFrequencies tokens).2 (by omega)
+  have hpadszD : (padFrequencies (tokenFrequencies tokens).2).size
+      = (tokenFrequencies tokens).2.size := plsD.1
+  have pmD := packageMergeLengths_spec (padFrequencies (tokenFrequencies tokens).2) 15
+    (by omega)
+    (by rw [hpadszD]; exact plsD.2.2)
+    (by
+      have h1 := List.countP_le_length
+        (p := fun s => decide (0 < (padFrequencies (tokenFrequencies tokens).2)[s]!))
+        (l := List.range (padFrequencies (tokenFrequencies tokens).2).size)
+      rw [List.length_range] at h1
+      have h2 : (padFrequencies (tokenFrequencies tokens).2).size = 30 := by
+        rw [hpadszD, htf2]
+      have h3 : (2 : Nat) ^ (15 - 1) = 16384 := by decide
+      omega)
+  have hdistL : (buildDynPlan tokens).distLengths =
+      packageMergeLengths (padFrequencies (tokenFrequencies tokens).2) 15 :=
+    buildDynPlan_distLengths tokens
+  have hdistsize : (buildDynPlan tokens).distLengths.size = 30 := by
+    rw [hdistL, pmD.1, hpadszD, htf2]
+  have hdist15 : ∀ i : Nat, (buildDynPlan tokens).distLengths[i]! ≤ 15 := by
+    intro i
+    by_cases hi : i < (buildDynPlan tokens).distLengths.size
+    · rw [hdistL]
+      apply pmD.2.2.1
+      rw [← pmD.1, ← hdistL]
+      omega
+    · rw [getElem!_oob _ _ hi]
+      show (0 : Nat) ≤ 15
+      omega
+  have hkd : kraftOk (buildDynPlan tokens).distLengths 15 := by
+    rw [hdistL]
+    apply kraftOk_of_symbol_sum
+    · intro s hs
+      rw [← hdistL]
+      exact hdist15 s
+    · rw [pmD.1]
+      exact pmD.2.2.2.2
+  have hdistcov : ∀ s : Nat, s < 30 → 0 < (tokenFrequencies tokens).2[s]! →
+      0 < (buildDynPlan tokens).distLengths[s]! := by
+    intro s hs hpos
+    rw [hdistL]
+    have hs' : s < (padFrequencies (tokenFrequencies tokens).2).size := by
+      rw [hpadszD, htf2]
+      omega
+    apply pmD.2.1 s hs'
+    have := plsD.2.1 s
+    omega
+  -- HLIT / HDIST and their trims
+  have htrimL := trimmedSize_spec (buildDynPlan tokens).litLengths 257
+  have hhlit : 257 ≤ (buildDynPlan tokens).hlit ∧ (buildDynPlan tokens).hlit ≤ 286 := by
+    rw [buildDynPlan_hlit]
+    refine ⟨htrimL.1, ?_⟩
+    have := htrimL.2.1
+    rw [hlitsize] at this
+    omega
+  have hlitzero : ∀ i : Nat, (buildDynPlan tokens).hlit ≤ i →
+      (buildDynPlan tokens).litLengths[i]! = 0 := by
+    intro i hi
+    rw [buildDynPlan_hlit] at hi
+    exact htrimL.2.2 i hi
+  have htrimD := trimmedSize_spec (buildDynPlan tokens).distLengths 1
+  have hhdist : 1 ≤ (buildDynPlan tokens).hdist ∧ (buildDynPlan tokens).hdist ≤ 30 := by
+    rw [buildDynPlan_hdist]
+    refine ⟨htrimD.1, ?_⟩
+    have := htrimD.2.1
+    rw [hdistsize] at this
+    omega
+  have hdistzero : ∀ i : Nat, (buildDynPlan tokens).hdist ≤ i →
+      (buildDynPlan tokens).distLengths[i]! = 0 := by
+    intro i hi
+    rw [buildDynPlan_hdist] at hi
+    exact htrimD.2.2 i hi
+  -- the RLE stream and its certificate
+  have hfullval : ∀ v ∈ ((buildDynPlan tokens).litLengths.toList.take
+      (buildDynPlan tokens).hlit ++ (buildDynPlan tokens).distLengths.toList.take
+      (buildDynPlan tokens).hdist), v ≤ 15 := by
+    intro v hv
+    rcases List.mem_append.mp hv with h | h
+    · have hmem := List.mem_of_mem_take h
+      obtain ⟨i, hi, hie⟩ := List.mem_iff_getElem.mp hmem
+      rw [← hie]
+      have : (buildDynPlan tokens).litLengths.toList[i] =
+          (buildDynPlan tokens).litLengths.toList.getD i 0 := by
+        rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+        rfl
+      rw [this, ← getElem!_eq_toList_getD]
+      exact hlit15 i
+    · have hmem := List.mem_of_mem_take h
+      obtain ⟨i, hi, hie⟩ := List.mem_iff_getElem.mp hmem
+      rw [← hie]
+      have : (buildDynPlan tokens).distLengths.toList[i] =
+          (buildDynPlan tokens).distLengths.toList.getD i 0 := by
+        rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+        rfl
+      rw [this, ← getElem!_eq_toList_getD]
+      exact hdist15 i
+  have hrleok : rleOk (buildDynPlan tokens).rleTokens []
+      ((buildDynPlan tokens).litLengths.toList.take (buildDynPlan tokens).hlit ++
+       (buildDynPlan tokens).distLengths.toList.take (buildDynPlan tokens).hdist) := by
+    rw [buildDynPlan_rleTokens]
+    exact rleCodeLengths_ok _ hfullval
+  have hrlebounds := rleOk_bounds _ _ _ hrleok
+  -- the code-length code
+  have hclL : (buildDynPlan tokens).clenLengths =
+      packageMergeLengths (padFrequencies (clenFreqF (buildDynPlan tokens).rleTokens)) 7 :=
+    buildDynPlan_clenLengths tokens
+  have hcfsize := clenFreqF_size (buildDynPlan tokens).rleTokens
+  have plsC := padFrequencies_spec (clenFreqF (buildDynPlan tokens).rleTokens)
+    (by rw [hcfsize]; omega)
+  have hpadszC : (padFrequencies (clenFreqF (buildDynPlan tokens).rleTokens)).size
+      = (clenFreqF (buildDynPlan tokens).rleTokens).size := plsC.1
+  have pmC := packageMergeLengths_spec
+    (padFrequencies (clenFreqF (buildDynPlan tokens).rleTokens)) 7 (by omega)
+    (by rw [hpadszC]; exact plsC.2.2)
+    (by
+      have h1 := List.countP_le_length
+        (p := fun s => decide (0 < (padFrequencies (clenFreqF
+          (buildDynPlan tokens).rleTokens))[s]!))
+        (l := List.range (padFrequencies (clenFreqF
+          (buildDynPlan tokens).rleTokens)).size)
+      rw [List.length_range] at h1
+      have h2 : (padFrequencies (clenFreqF (buildDynPlan tokens).rleTokens)).size = 19 := by
+        rw [hpadszC, hcfsize]
+      have h3 : (2 : Nat) ^ (7 - 1) = 64 := by decide
+      omega)
+  have hclsize : (buildDynPlan tokens).clenLengths.size = 19 := by
+    rw [hclL, pmC.1, hpadszC, hcfsize]
+  have hcl7 : ∀ i : Nat, (buildDynPlan tokens).clenLengths[i]! ≤ 7 := by
+    intro i
+    by_cases hi : i < (buildDynPlan tokens).clenLengths.size
+    · rw [hclL]
+      apply pmC.2.2.1
+      rw [← pmC.1, ← hclL]
+      omega
+    · rw [getElem!_oob _ _ hi]
+      show (0 : Nat) ≤ 7
+      omega
+  have hkc : kraftOk (buildDynPlan tokens).clenLengths 7 := by
+    rw [hclL]
+    apply kraftOk_of_symbol_sum
+    · intro s hs
+      rw [← hclL]
+      exact hcl7 s
+    · rw [pmC.1]
+      exact pmC.2.2.2.2
+  have hrlesyms : ∀ t ∈ (buildDynPlan tokens).rleTokens,
+      0 < (buildDynPlan tokens).clenLengths[t.1]! ∧
+      (buildDynPlan tokens).clenLengths[t.1]! ≤ 7 := by
+    intro t ht
+    refine ⟨?_, hcl7 t.1⟩
+    have h19 : t.1 < 19 := by
+      have := (hrlebounds t ht).1
+      omega
+    have hcf := clenFreqF_covers (buildDynPlan tokens).rleTokens
+      (fun t' ht' => by have := (hrlebounds t' ht').1; omega) t ht
+    rw [hclL]
+    have ht19 : t.1 < (padFrequencies (clenFreqF (buildDynPlan tokens).rleTokens)).size := by
+      rw [hpadszC, hcfsize]
+      omega
+    apply pmC.2.1 t.1 ht19
+    have := plsC.2.1 t.1
+    omega
+  have hhclen := buildDynPlan_hclen tokens
+  have hhcb := hclenF_bounds (buildDynPlan tokens).clenLengths
+  -- per-token coverage
+  have htoks : ∀ t ∈ tokens.toList,
+      dynTokenOk (buildDynPlan tokens).litLengths (buildDynPlan tokens).distLengths t := by
+    intro t ht
+    cases t with
+    | lit b =>
+      show 0 < (buildDynPlan tokens).litLengths[b.toNat]! ∧
+        (buildDynPlan tokens).litLengths[b.toNat]! ≤ 15
+      have hb : b.toNat < 286 := by
+        have := b.toNat_lt
+        omega
+      exact ⟨hlitcov b.toNat hb (htflit b ht), hlit15 _⟩
+    | ref len dist =>
+      have hr := hok _ ht
+      obtain ⟨h3, h258, h1d, h32768⟩ := hr
+      have hL := encodeLength_spec len (by omega) h3
+      have hD := encodeDistance_spec' dist h1d h32768
+      have hcov := htfref len dist ht
+      exact ⟨⟨h3, h258, h1d, h32768⟩,
+        ⟨hlitcov _ (by omega) hcov.1, hlit15 _⟩,
+        ⟨hdistcov _ (by omega) hcov.2, hdist15 _⟩⟩
+  have heob : 0 < (buildDynPlan tokens).litLengths[256]! ∧
+      (buildDynPlan tokens).litLengths[256]! ≤ 15 :=
+    ⟨hlitcov 256 (by omega) htf256, hlit15 _⟩
+  -- ------------------------------------------------------------------
+  -- Writer side
+  -- ------------------------------------------------------------------
+  have hw := writerBits_emitDynamicBlock (buildDynPlan tokens) tokens hkc hkl hkd
+    ⟨hhlit.1, by omega⟩ ⟨hhdist.1, by omega⟩ (by rw [hhclen]; exact ⟨hhcb.1, hhcb.2⟩)
+    (fun i _ => by have := hcl7 clenOrder[i]!; omega)
+    (fun t ht => ⟨(hrlebounds t ht).2.2, (hrlebounds t ht).2.1, hrlesyms t ht⟩)
+    htoks heob
+  have hr := readerBits_of_flushed _ hw.2.2 hw.2.1
+  rw [hw.1] at hr
+  have hm := readerBits_mkBitReader (flushBitWriter (emitDynamicBlock (buildDynPlan tokens) tokens))
+  -- ------------------------------------------------------------------
+  -- Reader side
+  -- ------------------------------------------------------------------
+  unfold decompress
+  rw [decompress.go.eq_def]
+  -- BFINAL = 1
+  have hbits0 : readerBits (mkBitReader (flushBitWriter
+      (emitDynamicBlock (buildDynPlan tokens) tokens))) =
+      natBits 1 1 ++ (natBits 2 2 ++
+        (natBits 5 ((buildDynPlan tokens).hlit - 257) ++
+          (natBits 5 ((buildDynPlan tokens).hdist - 1) ++
+            (natBits 4 ((buildDynPlan tokens).hclen - 4) ++
+              (clenHeaderBits (buildDynPlan tokens) ++
+                (rleBitsF (buildDynPlan tokens).clenLengths (buildDynPlan tokens).rleTokens ++
+                  (tokensBitsDyn (buildDynPlan tokens).litLengths
+                      (buildDynPlan tokens).distLengths tokens.toList ++
+                    (codeBits (canonicalCode (buildDynPlan tokens).litLengths 15 256)
+                        (buildDynPlan tokens).litLengths[256]! ++
+                      List.replicate ((8 - (emitDynamicBlock (buildDynPlan tokens)
+                        tokens).bitCount) % 8) false)))))))) := by
+    rw [hr]
+    simp [List.append_assoc]
+    rfl
+  obtain ⟨rB, hokB, hrestB, hinvB, hcntB, _⟩ :=
+    readBits_exact _ 1 1 _ (by omega) (by omega) hbits0 hm.2.1 hm.2.2
+  obtain ⟨rT, hokT, hrestT, hinvT, hcntT, _⟩ :=
+    readBits_exact rB 2 2 _ (by omega) (by omega) hrestB hinvB hcntB
+  -- the dynamic tables
+  obtain ⟨rTab, litB, distB, hokTab, hptL, hptD, hrestTab, hinvTab, hcntTab, _⟩ :=
+    decodeDynamicTables_spec (buildDynPlan tokens) rT _ hclsize hkc hcl7
+      hhlit hhdist hhclen hlitsize hdistsize hlitzero hdistzero hrleok hrlesyms
+      hrestT hinvT hcntT
+  have hptL' : ∀ i : Nat, (buildDynPlan tokens).litLengths[i]! = litB[i]! :=
+    fun i => (hptL i).symm
+  have hptD' : ∀ i : Nat, (buildDynPlan tokens).distLengths[i]! = distB[i]! :=
+    fun i => (hptD i).symm
+  -- the payload
+  obtain ⟨rS, hokS, hrestS, hinvS, hcntS, _⟩ :=
+    decodeHuffmanStream_dyn (buildDynPlan tokens).litLengths litB
+      (buildDynPlan tokens).distLengths distB hptL' hptD' hkl hkd heob
+      (buildHuffmanTable_isBranch litB 15) (buildHuffmanTable_isBranch distB 15)
+      tokens.toList rTab ByteArray.empty _ (by simpa using hwf) htoks hrestTab
+      hinvTab hcntTab
+  -- ------------------------------------------------------------------
+  -- Choreography: reduce decompress.go's match chain
+  -- ------------------------------------------------------------------
+  split
+  · rename_i e heq
+    rw [heq] at hokB
+    exact absurd hokB (by simp)
+  · rename_i rBfinal bfinal heq
+    rw [heq] at hokB
+    simp only [Except.ok.injEq, Prod.mk.injEq] at hokB
+    obtain ⟨hh1, hh2⟩ := hokB
+    subst hh1
+    subst hh2
+    split
+    · rename_i e heq2
+      rw [heq2] at hokT
+      exact absurd hokT (by simp)
+    · rename_i rBtype btype heq2
+      rw [heq2] at hokT
+      simp only [Except.ok.injEq, Prod.mk.injEq] at hokT
+      obtain ⟨hh1, hh2⟩ := hokT
+      subst hh1
+      subst hh2
+      split
+      · rename_i heqb hx
+        exact absurd heqb (by decide)
+      · rename_i heqb hx
+        exact absurd heqb (by decide)
+      · -- btype = 2: the dynamic branch
+        split
+        · rename_i e heq3
+          rw [heq3] at hokTab
+          exact absurd hokTab (by simp)
+        · rename_i rTables litTbl distTbl heq3
+          rw [heq3] at hokTab
+          simp only [Except.ok.injEq, Prod.mk.injEq] at hokTab
+          obtain ⟨hh1, hh2, hh3⟩ := hokTab
+          subst hh1
+          subst hh2
+          subst hh3
+          split
+          · rename_i e heq4
+            have hcontra : (Except.ok (rS, tokens.toList.foldl expandToken ByteArray.empty) :
+                Except ZlibError (BitReader × ByteArray)) = .error e := by
+              rw [← hokS]
+              exact heq4
+            exact absurd hcontra (by simp)
+          · rename_i nextR nextOut heq4
+            have hcomb : (Except.ok (rS, tokens.toList.foldl expandToken ByteArray.empty) :
+                Except ZlibError (BitReader × ByteArray)) = .ok (nextR, nextOut) := by
+              rw [← hokS]
+              exact heq4
+            simp only [Except.ok.injEq, Prod.mk.injEq] at hcomb
+            obtain ⟨hh1, hh2⟩ := hcomb
+            rw [if_pos (by decide : ((1:Nat) == 1) = true)]
+            rw [← hh2]
+            unfold expandTokens
+            rw [Array.foldl_toList]
+      · rename_i h0 h1 h2
+        exact (h2 heq2 rfl HEq.rfl).elim
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `compress` takes the dynamic branch exactly when it wins the bit-cost comparison. -/
+theorem compress_dynamic_branch (data : ByteArray)
+    (h : dynPlanBitCost (buildDynPlan (tokenize data)) (tokenize data) <
+        fixedBitCost (tokenize data)) :
+    compress data = flushBitWriter (emitDynamicBlock (buildDynPlan (tokenize data))
+      (tokenize data)) := by
+  unfold compress compressPlan
+  rw [if_pos h]
+
+/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
+/-- **DEFLATE roundtrip soundness, universal over the input** (PA16 L7, both encoder
+    branches): for EVERY `ByteArray`, inflating `compress`'s output — whichever of the
+    fixed-Huffman and dynamic-Huffman final blocks the exact bit-cost comparison selected —
+    returns exactly the original bytes. Kernel-checked, structural; no oracles. -/
+theorem deflate_roundtrip_soundness (data : ByteArray) :
+    decompress (compress data) = .ok data := by
+  by_cases h : dynPlanBitCost (buildDynPlan (tokenize data)) (tokenize data) <
+      fixedBitCost (tokenize data)
+  · rw [compress_dynamic_branch data h,
+      decompress_dynamicBlock (tokenize data) (tokenize_wf data),
+      lz77_roundtrip_soundness data]
+  · exact compress_roundtrip_of_fixed_choice data h
+
 end Stdlib.Zlib
