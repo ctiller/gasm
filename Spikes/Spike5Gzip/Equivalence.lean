@@ -69,21 +69,21 @@ def wasmTraceCompress : List AnyEvent :=
 /-- Constructive Proof: x86_64 Windows machine trace matches canonical specification trace for GZIP compression. -/
 theorem spike5_windows_gzip_trace_equivalence :
     (windowsTraceCompress == canonicalCompressTrace) = true := by
-  native_decide
+  decide
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive Proof: x86_64 Linux machine trace matches canonical specification trace for GZIP compression. -/
 theorem spike5_linux_gzip_trace_equivalence :
     (linuxTraceCompress == canonicalCompressTrace) = true := by
-  native_decide
+  decide
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive Proof: WebAssembly WASI machine trace matches canonical specification trace for GZIP compression. -/
 theorem spike5_wasm_gzip_trace_equivalence :
     (wasmTraceCompress == canonicalCompressTrace.map Inject.inject) = true := by
-  native_decide
+  decide +kernel
 
 -- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witness (see the identical
 -- check and its rationale in Spikes/Spike1Hello/Wasm/Equivalence.lean): proves the actual Spike 5
@@ -134,13 +134,13 @@ theorem bit_reversal_8_involution_inst :
 /-- Formally verified theorem: Windows x86_64 machine execution trace for GUNZIP matches specification trace. -/
 theorem spike5_windows_gunzip_trace_equivalence :
     (runAsmTrace (Event := AnyEvent) Windows.spike5GunzipInstructions (Windows.spike5GunzipExecutable.loadWithStdin canonicalCompressedStream) == canonicalDecompressTrace) = true := by
-  native_decide
+  decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Formally verified theorem: Linux x86_64 machine execution trace for GUNZIP matches specification trace. -/
 theorem spike5_linux_gunzip_trace_equivalence :
     (runAsmTrace (Event := AnyEvent) Linux.spike5GunzipInstructions (Linux.spike5GunzipExecutable.loadWithStdin canonicalCompressedStream) == canonicalDecompressTrace) = true := by
-  native_decide
+  decide
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- GZIP Compression Operation Domain. -/

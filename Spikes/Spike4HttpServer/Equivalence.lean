@@ -98,42 +98,42 @@ def wasmTrace404 : List AnyEvent :=
 /-- Constructive Proof: x86_64 Windows Machine matches High-Level Spec on Root (/) route. -/
 theorem spike4_windows_root_trace_equivalence :
     (windowsTraceRoot == modelTraceRoot) = true := by
-  native_decide
+  decide
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive Proof: x86_64 Windows Machine matches High-Level Spec on /status route. -/
 theorem spike4_windows_status_trace_equivalence :
     (windowsTraceStatus == modelTraceStatus) = true := by
-  native_decide
+  decide
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive Proof: x86_64 Windows Machine matches High-Level Spec on 404 Not Found route. -/
 theorem spike4_windows_404_trace_equivalence :
     (windowsTrace404 == modelTrace404) = true := by
-  native_decide
+  decide
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive Proof: WebAssembly WASI matches High-Level Spec on Root (/) route. -/
 theorem spike4_wasm_root_trace_equivalence :
     (wasmTraceRoot == modelTraceRoot.map Inject.inject) = true := by
-  native_decide
+  decide +kernel
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive Proof: WebAssembly WASI matches High-Level Spec on /status route. -/
 theorem spike4_wasm_status_trace_equivalence :
     (wasmTraceStatus == modelTraceStatus.map Inject.inject) = true := by
-  native_decide
+  decide +kernel
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive Proof: WebAssembly WASI matches High-Level Spec on 404 Not Found route. -/
 theorem spike4_wasm_404_trace_equivalence :
     (wasmTrace404 == modelTrace404.map Inject.inject) = true := by
-  native_decide
+  decide +kernel
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- Linux x86_64 concrete machine execution trace on Root (/) request. -/
@@ -155,21 +155,21 @@ def linuxTrace404 : List AnyEvent :=
 /-- Constructive Proof: x86_64 Linux Machine matches High-Level Spec on Root (/) route. -/
 theorem spike4_linux_root_trace_equivalence :
     (linuxTraceRoot == modelTraceRoot) = true := by
-  native_decide
+  decide
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive Proof: x86_64 Linux Machine matches High-Level Spec on /status route. -/
 theorem spike4_linux_status_trace_equivalence :
     (linuxTraceStatus == modelTraceStatus) = true := by
-  native_decide
+  decide
 
 /- REF: docs/REVIEW.md#42-pillar-2-semantic-integrity-adversarial-domain-gap-hunting -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive Proof: x86_64 Linux Machine matches High-Level Spec on 404 Not Found route. -/
 theorem spike4_linux_404_trace_equivalence :
     (linuxTrace404 == modelTrace404) = true := by
-  native_decide
+  decide
 
 -- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witnesses (see the identical
 -- checks and their rationale in Spikes/Spike1Hello/Wasm/Equivalence.lean), one per Spike 4 WASI
