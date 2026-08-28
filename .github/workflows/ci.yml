@@ -225,6 +225,16 @@ jobs:
         shell: pwsh
         run: lake exe gzip_fuzzer
 
+      - name: "PNG parser-stability fuzzer (no external oracle)"
+        if: github.event_name != 'push'
+        shell: pwsh
+        run: lake exe png_stability_fuzzer
+
+      - name: "x86-64 decoder/encoder parser-stability fuzzer (no external oracle)"
+        if: github.event_name != 'push'
+        shell: pwsh
+        run: lake exe x86_stability_fuzzer
+
       - name: "Spike Wasm validator differential (oracle: node)"
         if: github.event_name != 'push'
         shell: pwsh
@@ -496,6 +506,16 @@ jobs:
         if: github.event_name != 'push'
         shell: bash
         run: lake exe gzip_fuzzer
+
+      - name: "PNG parser-stability fuzzer (no external oracle)"
+        if: github.event_name != 'push'
+        shell: bash
+        run: lake exe png_stability_fuzzer
+
+      - name: "x86-64 decoder/encoder parser-stability fuzzer (no external oracle)"
+        if: github.event_name != 'push'
+        shell: bash
+        run: lake exe x86_stability_fuzzer
 
       - name: "Spike Wasm validator differential (oracle: node)"
         if: github.event_name != 'push'
