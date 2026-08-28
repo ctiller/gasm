@@ -21,6 +21,7 @@ import Gasm.Effects.Console
 import Gasm.Effects.Process
 import Gasm.Effects.Network
 import Gasm.Effects.Trace
+import Stdlib.Http11.Parser
 
 namespace Spikes.Spike4HttpServer
 
@@ -44,17 +45,37 @@ structure HttpResponse where
   body        : String
   deriving Repr, DecidableEq
 
+/- REF: docs/STDLIB_HTTP11.md#11-what-this-library-models -/
+/-- Bridges `Stdlib.Http11.Method` (a closed 9-constructor enum) back to this spike's
+    `String`-typed model. -/
+def methodToString : Stdlib.Http11.Method → String
+  | .GET => "GET" | .HEAD => "HEAD" | .POST => "POST" | .PUT => "PUT"
+  | .DELETE => "DELETE" | .CONNECT => "CONNECT" | .OPTIONS => "OPTIONS"
+  | .TRACE => "TRACE" | .PATCH => "PATCH"
+
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
-/-- Pure functional HTTP 1.1 Request-Line Parser. -/
+/-- Pure functional HTTP 1.1 Request-Line Parser. Delegates field-splitting to
+    `Stdlib.Http11.parseRequestLine` (`Stdlib/Http11/Parser.lean`) -- the proven library
+    `docs/STDLIB_HTTP11.md#1-overview--scope`'s routing defect motivated -- rather than
+    re-implementing ad-hoc string splitting here. Only the request-*line*-level parser is used
+    (not the full `parseRequest`, which additionally requires a `Content-Length` header and an
+    exact-length body neither this spike's request vectors nor its wire format carry); this
+    function only ever needed the first line. Behavior is identical to the prior hand-rolled
+    version on every existing request vector (verified: same method/target/version for every
+    well-formed 3-field `GET` request line this spike's Test.lean/Equivalence.lean exercise,
+    including every `N8` route-fix witness path), while now also rejecting a method outside the
+    closed 9-method grammar, a non-origin-form target, or a version other than the literal
+    `HTTP/1.1` -- validation the prior hand-rolled version silently skipped. -/
 def parseRequestLine (req : String) : Option HttpRequest :=
   let lines := req.splitOn "\r\n"
   match lines.head? with
   | none => none
   | some reqLine =>
-    let tokens := reqLine.splitOn " "
-    match tokens with
-    | [m, p, v] => some { method := m, path := p, version := v }
-    | _ => none
+    match Stdlib.Http11.parseRequestLine reqLine.toUTF8.toList with
+    | .error _ => none
+    | .ok (m, target) =>
+        some { method := methodToString m, path := String.fromUTF8! (ByteArray.mk target.toArray),
+               version := "HTTP/1.1" }
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
 /-- Pure HTTP 1.1 Route Dispatcher. -/
