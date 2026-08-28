@@ -18,6 +18,7 @@ import Lean
 import Gasm.Targets.X86_64.Instructions
 import Gasm.Targets.X86_64.Instructions.Base
 import Gasm.Targets.X86_64.RoundtripGate
+import Gasm.Targets.X86_64.MemoryFrame
 
 -- LOUD INVARIANT (see also the import-closure comment atop Instructions.lean): the `run_cmd`
 -- audit below can only see `X86_64Instruction` instances reachable through THIS file's import
