@@ -1,7 +1,7 @@
 ---
 id: PA11
 title: crc32_empty / adler32_empty — kernel-checked decide, no oracle
-status: ready
+status: done
 blocked_on: ""
 after: []
 related: []
@@ -66,3 +66,12 @@ all) is strictly better and should be close to free.
 - 2026-08-27: priority 9.7 — tied with PA10 for cheapest closure in the plan: both facts already
   reduce trivially under kernel evaluation once the empty-buffer loop bound is unfolded; `native_decide`
   is doing no real work here. No prerequisites; start immediately.
+- 2026-08-28 (F2 status audit, verified against the tree at `3341d92`): `status: ready` -> `done`.
+  Closed by `2b35d04` ("feat(proof-arch): migrate PA11/PA18 native_decide checksum and DEFLATE
+  bound proofs to decide/structural"). Verified in the tree, not from the commit message:
+  `Stdlib/Zlib/CRC32.lean:66-68` proves `crc32_empty` by `simp [crc32, updateCrc32, Id.run]` then
+  `decide`, and `Stdlib/Zlib/Adler32.lean:45-47` proves `adler32_empty` the same way -- no
+  `native_decide` in either. Both allowlist entries
+  (`Stdlib/Zlib/CRC32.lean::crc32_empty` and `Stdlib/Zlib/Adler32.lean::adler32_empty`, both
+  `grandfathered`) are deleted from `scripts/gate_allowlist.txt` by that same commit, and neither
+  name appears in the file today.

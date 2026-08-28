@@ -1,7 +1,7 @@
 ---
 id: PA18
 title: Small finite-domain DEFLATE bound checks — verify plain decide suffices, drop native_decide
-status: ready
+status: done
 blocked_on: ""
 after: []
 related: []
@@ -82,3 +82,14 @@ values — still zero oracle, just structural instead of brute-force.
 - 2026-08-27: priority 9.8 — the single cheapest, lowest-risk item in the entire oracle-debt plan:
   small closed domains, no recursion obstruction, no model dependency, no architecture prerequisite.
   If this task's `decide` attempts succeed as expected, it is very likely a same-day close.
+- 2026-08-28 (F2 status audit, verified against the tree at `3341d92`): `status: ready` -> `done`.
+  Closed by `2b35d04`, the same commit that closed PA11. All four entries verified gone from
+  `scripts/gate_allowlist.txt` and all four proofs verified oracle-free in the tree:
+  `Stdlib/Zlib/Equivalence.lean:30-37` (`reverse_bits_8_involutive_inst`, `simp` + `decide`),
+  `:42-50` (`encode_length_bounds_inst`, `simp` + `decide`),
+  `Spikes/Spike5Gzip/Equivalence.lean:124-131` (`bit_reversal_8_involution_inst`, the duplicate,
+  `simp` + `decide`), and `:90-` (`encode_distance_bounds_inst`) which took the task's own named
+  fallback: plain `decide` exhausted heartbeats on the 32768-element domain, so it is closed
+  structurally via `encodeDistance_code_le_29` per-band plus a generic `foldl` invariant, with no
+  enumeration at all -- exactly the disposition the acceptance criteria asked to be reported
+  rather than silently substituted.

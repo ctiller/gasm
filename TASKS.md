@@ -123,22 +123,22 @@ searching other files' `after:` lists, or use `TC13`'s checker once it exists.
 - [ ] PA2 step-lemma library + composition calculus design doc → `docs/tasks/PA2-step-lemma-composition-design.md` — after: PA1
 - [ ] PA3 step-lemma library + composition calculus implementation → `docs/tasks/PA3-step-lemma-composition-impl.md` — after: PA2
 - [ ] PA4 capability adoption (Law 11) — Core machinery as mandatory authoring surface → `docs/tasks/PA4-capability-adoption.md` — after: PA2
-- [ ] PA5 canonicalizeTrace — causal-stamped observation normal form → `docs/tasks/PA5-canonicalize-trace.md` — after: PA2, N2
+- [~] PA5 canonicalizeTrace — causal-stamped observation normal form → `docs/tasks/PA5-canonicalize-trace.md` — after: PA2, N2
 - [~] PA6 read-binder contract shape — ∀ read results including partial/EOF → `docs/tasks/PA6-read-binder-contract.md` — after: PA5, N2
 - [ ] PA7 VerifiedReactiveProgram — mandatory inner/outer proof pairs for reactive loops → `docs/tasks/PA7-verified-reactive-program.md` — after: PA5
 - [ ] PA8 Law 9 migration — Spike5 domain-shrinking fix, then Tier-1 real env quantification → `docs/tasks/PA8-law9-migration.md` — after: PA6
 - [ ] PA9 VerifiedProgram as derived theorem — routine contracts + linker facts → `docs/tasks/PA9-verified-program-derived.md` — after: PA3, PA4
 - [x] PA10 PNG filter scanline invertibility — lift proven per-byte algebra to universal roundtrip → `docs/tasks/PA10-png-filter-scanline-invertibility.md` — after: —
-- [ ] PA11 crc32_empty / adler32_empty — kernel-checked decide, no oracle → `docs/tasks/PA11-trivial-checksum-empty-facts.md` — after: —
+- [x] PA11 crc32_empty / adler32_empty — kernel-checked decide, no oracle → `docs/tasks/PA11-trivial-checksum-empty-facts.md` — after: —
 - [x] PA12 Wasm trap short-circuit + SLEB128 budget witness — structural proofs, no native_decide → `docs/tasks/PA12-wasm-trap-guard-and-leb128-witness.md` — after: —
 - [x] PA13 CRC32 bit-trick lemmas without a SAT certificate — and_one_cases, G_eq_Gbf, xor_byte_shr8 → `docs/tasks/PA13-crc32-bittrick-lemmas-without-sat.md` — after: —
 - [x] PA14 G8bf_table structural closure — CRC table/bit-loop identity without a SAT certificate → `docs/tasks/PA14-crc32-table-identity-structural-closure.md` — after: —
 - [x] PA15 Fibonacci soundness by loop-invariant induction — replace 91-case native_decide enumeration → `docs/tasks/PA15-fibonacci-loop-invariant-induction.md` — after: —
 - [ ] PA16 Zlib/PNG/Gzip codec universal roundtrip soundness — design + structural proof → `docs/tasks/PA16-codec-roundtrip-universal-soundness.md` — after: —
 - [ ] PA17 Spike3-Windows and Spike4 route/session domain honesty — beyond Tier-3 "legit" classification → `docs/tasks/PA17-spike3-spike4-domain-honesty.md` — after: PA7, PA8
-- [ ] PA18 Small finite-domain DEFLATE bound checks — verify plain decide suffices, drop native_decide → `docs/tasks/PA18-small-domain-decide-migration.md` — after: —
+- [x] PA18 Small finite-domain DEFLATE bound checks — verify plain decide suffices, drop native_decide → `docs/tasks/PA18-small-domain-decide-migration.md` — after: —
 
-- [ ] MH1 Semantic memory hook — sealed memory field, width API, access descriptors, fault plumbing → `docs/tasks/MH1-semantic-memory-hook.md` — after: —
+- [x] MH1 Semantic memory hook — sealed memory field, width API, access descriptors, fault plumbing → `docs/tasks/MH1-semantic-memory-hook.md` — after: —
 - [ ] MH2 Memory uop centralization — one provenance-marked cost table, derived per-form uops → `docs/tasks/MH2-memory-uop-centralization.md` — after: MH1
 - [ ] MH3 Capability authoring surface v1 — checked programs, erasure, bypass ledger, pathfinder routine → `docs/tasks/MH3-capability-authoring-surface.md` — after: MH1
 
@@ -163,7 +163,7 @@ searching other files' `after:` lists, or use `TC13`'s checker once it exists.
 - [ ] N5 Spike4 re-verified as VerifiedReactiveProgram → `docs/tasks/N5-spike4-reactive-verified.md` — after: N3, PA7
 - [ ] N6 Networking buildout: TCP semantics, HTTP/1.1, HTTP/2, protobuf codecs, gRPC server → `docs/tasks/N6-networking-buildout.md` — after: N5
 - [ ] N7 Constant-time/secrecy contract class design → `docs/tasks/N7-constant-time-contract-class.md` — after: PA2
-- [ ] N8 Fix Spike 4 HTTP Server stack buffer overflow and uninitialized memory read → `docs/tasks/N8-spike4-stack-buffer-overflow.md` — after: N3
+- [x] N8 Fix Spike 4 HTTP Server stack buffer overflow and uninitialized memory read → `docs/tasks/N8-spike4-stack-buffer-overflow.md` — after: N3
 
 - [x] G1 Graphics doc rework per GRAPHICS_PREBUILD_AUDIT top-10 → `docs/tasks/G1-graphics-doc-rework.md` — after: —
 - [ ] G2 Synchronization DSL design (Vulkan memory model, happens-before, RAW) → `docs/tasks/G2-synchronization-dsl.md` — after: G1
