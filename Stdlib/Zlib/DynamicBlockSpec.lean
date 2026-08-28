@@ -487,4 +487,273 @@ theorem padFrequencies_spec (freqs : Array Nat) (h2 : 2 ≤ freqs.size) :
 
 
 
+/-
+## L2h, encoder side: the §3.2.7 RLE token stream expands back to exactly the code-length
+## sequence it was built from.
+
+`rleOk ts done full` is the decode-step semantics of the code-length alphabet, relative to
+an already-reconstructed prefix `done`: symbols 0–15 append themselves, 16 repeats the last
+reconstructed value 3–6 times (2 extra bits), 17/18 append zero runs (3 and 7 extra bits) —
+ending exactly at `full`. Each arm carries the extra-bits width and range the writer needs.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Step semantics of the RFC 1951 §3.2.7 code-length token stream, from a reconstructed
+    prefix `done` to the full sequence `full`. -/
+def rleOk : List (Nat × Nat × Nat) → List Nat → List Nat → Prop
+  | [], done, full => done = full
+  | (sym, eb, ev) :: ts, done, full =>
+      (sym ≤ 15 ∧ eb = 0 ∧ ev = 0 ∧ rleOk ts (done ++ [sym]) full) ∨
+      (sym = 16 ∧ eb = 2 ∧ ev < 4 ∧ done ≠ [] ∧
+        rleOk ts (done ++ List.replicate (ev + 3) (done.getLastD 0)) full) ∨
+      (sym = 17 ∧ eb = 3 ∧ ev < 8 ∧ rleOk ts (done ++ List.replicate (ev + 3) 0) full) ∨
+      (sym = 18 ∧ eb = 7 ∧ ev < 128 ∧ rleOk ts (done ++ List.replicate (ev + 11) 0) full)
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Concatenating replicates of one value. -/
+theorem replicate_append_replicate {α : Type} (v : α) (n m : Nat) :
+    List.replicate n v ++ List.replicate m v = List.replicate (n + m) v := by
+  induction n with
+  | zero => simp
+  | succ n ih =>
+    rw [List.replicate_succ, List.cons_append, ih, show n + 1 + m = (n + m) + 1 from by omega,
+      List.replicate_succ]
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The default-last of an append with nonempty right part. -/
+theorem getLastD_append_right {α : Type} (xs : List α) {ys : List α} (hne : ys ≠ [])
+    (d : α) : (xs ++ ys).getLastD d = ys.getLastD d := by
+  match ys, hne with
+  | y :: ys', _ =>
+    induction ys' generalizing xs y with
+    | nil => rw [show xs ++ [y] = xs ++ [y] from rfl, List.getLastD_concat]; rfl
+    | cons z ys'' ih =>
+      have h1 : xs ++ (y :: z :: ys'') = (xs ++ [y]) ++ (z :: ys'') := by simp
+      rw [h1, ih (xs ++ [y]) z (by simp)]
+      show (z :: ys'').getLastD d = (y :: z :: ys'').getLastD d
+      rfl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The default-last of a nonempty replicate. -/
+theorem getLastD_replicate {α : Type} (v d : α) (n : Nat) (h : 0 < n) :
+    (List.replicate n v).getLastD d = v := by
+  match n, h with
+  | m + 1, _ =>
+    rw [List.replicate_succ']
+    exact List.getLastD_concat
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Every `rleOk` token is in the code-length alphabet with in-range extra bits. -/
+theorem rleOk_bounds : ∀ (ts : List (Nat × Nat × Nat)) (done full : List Nat),
+    rleOk ts done full → ∀ t ∈ ts, t.1 ≤ 18 ∧ t.2.1 ≤ 7 ∧ t.2.2 < 2 ^ t.2.1 := by
+  intro ts
+  induction ts with
+  | nil => intro done full _ t ht; simp at ht
+  | cons hd ts ih =>
+    intro done full hok t ht
+    obtain ⟨sym, eb, ev⟩ := hd
+    rcases List.mem_cons.mp ht with hta | htl
+    · subst hta
+      rcases hok with ⟨h1, h2, h3, _⟩ | ⟨h1, h2, h3, _, _⟩ | ⟨h1, h2, h3, _⟩ | ⟨h1, h2, h3, _⟩ <;>
+        subst h2
+      · subst h3
+        exact ⟨by omega, by show (0 : Nat) ≤ 7; omega, by show (0 : Nat) < 2 ^ 0; omega⟩
+      · exact ⟨by omega, by show (2 : Nat) ≤ 7; omega, by show ev < 2 ^ 2; omega⟩
+      · exact ⟨by omega, by show (3 : Nat) ≤ 7; omega, by show ev < 2 ^ 3; omega⟩
+      · exact ⟨by omega, by show (7 : Nat) ≤ 7; omega, by show ev < 2 ^ 7; omega⟩
+    · rcases hok with ⟨_, _, _, h⟩ | ⟨_, _, _, _, h⟩ | ⟨_, _, _, h⟩ | ⟨_, _, _, h⟩ <;>
+        exact ih _ full h t htl
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `rleOk` streams only ever extend the prefix; a nonempty stream extends it strictly. -/
+theorem rleOk_length : ∀ (ts : List (Nat × Nat × Nat)) (done full : List Nat),
+    rleOk ts done full → done.length ≤ full.length ∧ (ts ≠ [] → done.length < full.length) := by
+  intro ts
+  induction ts with
+  | nil =>
+    intro done full hok
+    rw [show done = full from hok]
+    exact ⟨Nat.le_refl _, fun h => absurd rfl h⟩
+  | cons hd ts ih =>
+    intro done full hok
+    obtain ⟨sym, eb, ev⟩ := hd
+    have hstep : ∃ ext : List Nat, ext ≠ [] ∧ rleOk ts (done ++ ext) full := by
+      rcases hok with ⟨_, _, _, h⟩ | ⟨_, _, _, _, h⟩ | ⟨_, _, _, h⟩ | ⟨_, _, _, h⟩
+      · exact ⟨[sym], by simp, h⟩
+      · exact ⟨List.replicate (ev + 3) (done.getLastD 0), by simp, h⟩
+      · exact ⟨List.replicate (ev + 3) 0, by simp, h⟩
+      · exact ⟨List.replicate (ev + 11) 0, by simp, h⟩
+    obtain ⟨ext, hne, hrec⟩ := hstep
+    have h1 := (ih _ full hrec).1
+    rw [List.length_append] at h1
+    have h2 : 0 < ext.length := List.length_pos_iff.mpr hne
+    exact ⟨by omega, fun _ => by omega⟩
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- A run of bare literal-value tokens reconstructs its replicate. -/
+theorem rleOk_literals (v : Nat) (hv : v ≤ 15) : ∀ (cnt : Nat) (done full : List Nat)
+    (ts' : List (Nat × Nat × Nat)),
+    rleOk ts' (done ++ List.replicate cnt v) full →
+    rleOk (List.replicate cnt (v, 0, 0) ++ ts') done full := by
+  intro cnt
+  induction cnt with
+  | zero =>
+    intro done full ts' h
+    simpa using h
+  | succ cnt ih =>
+    intro done full ts' h
+    rw [List.replicate_succ, List.cons_append]
+    show rleOk ((v, 0, 0) :: (List.replicate cnt (v, 0, 0) ++ ts')) done full
+    left
+    refine ⟨hv, rfl, rfl, ?_⟩
+    apply ih
+    have hrepl : ([v] : List Nat) ++ List.replicate cnt v = List.replicate (cnt + 1) v := by
+      rw [List.replicate_succ]
+      rfl
+    rw [List.append_assoc, hrepl]
+    exact h
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `encodeRepeatRun` reconstructs its repeat count, provided the prefix ends in the
+    repeated value. -/
+theorem encodeRepeatRun_ok (v : Nat) (hv : v ≤ 15) : ∀ (cnt : Nat) (done full : List Nat)
+    (ts' : List (Nat × Nat × Nat)),
+    done ≠ [] → done.getLastD 0 = v →
+    rleOk ts' (done ++ List.replicate cnt v) full →
+    rleOk (encodeRepeatRun v cnt ++ ts') done full := by
+  intro cnt
+  induction cnt using encodeRepeatRun.induct with
+  | case1 cnt h3 k ih =>
+    intro done full ts' hne hlast hcont
+    rw [encodeRepeatRun, if_pos h3]
+    show rleOk ((16, 2, min cnt 6 - 3) :: (encodeRepeatRun v (cnt - min cnt 6) ++ ts'))
+      done full
+    right; left
+    refine ⟨rfl, rfl, by omega, hne, ?_⟩
+    rw [hlast, show min cnt 6 - 3 + 3 = min cnt 6 from by omega]
+    apply ih
+    · have hlen : 0 < (done ++ List.replicate (min cnt 6) v).length := by
+        rw [List.length_append]
+        have := List.length_pos_iff.mpr hne
+        omega
+      exact List.length_pos_iff.mp hlen
+    · rw [getLastD_append_right done (by simp; omega : List.replicate (min cnt 6) v ≠ []) 0,
+        getLastD_replicate v 0 (min cnt 6) (by omega)]
+    · rw [List.append_assoc, replicate_append_replicate,
+        show min cnt 6 + (cnt - min cnt 6) = cnt from by omega]
+      exact hcont
+  | case2 cnt h3 =>
+    intro done full ts' hne hlast hcont
+    rw [encodeRepeatRun, if_neg h3]
+    exact rleOk_literals v hv cnt done full ts' hcont
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `encodeZeroRun` reconstructs its zero run. -/
+theorem encodeZeroRun_ok : ∀ (cnt : Nat) (done full : List Nat)
+    (ts' : List (Nat × Nat × Nat)),
+    rleOk ts' (done ++ List.replicate cnt 0) full →
+    rleOk (encodeZeroRun cnt ++ ts') done full := by
+  intro cnt
+  induction cnt using encodeZeroRun.induct with
+  | case1 cnt h11 k ih =>
+    intro done full ts' hcont
+    rw [encodeZeroRun, if_pos h11]
+    show rleOk ((18, 7, min cnt 138 - 11) :: (encodeZeroRun (cnt - min cnt 138) ++ ts'))
+      done full
+    right; right; right
+    refine ⟨rfl, rfl, by omega, ?_⟩
+    rw [show min cnt 138 - 11 + 11 = min cnt 138 from by omega]
+    apply ih
+    rw [List.append_assoc, replicate_append_replicate,
+      show min cnt 138 + (cnt - min cnt 138) = cnt from by omega]
+    exact hcont
+  | case2 cnt h11 h3 =>
+    intro done full ts' hcont
+    rw [encodeZeroRun, if_neg h11, if_pos h3]
+    show rleOk ((17, 3, cnt - 3) :: ts') done full
+    right; right; left
+    refine ⟨rfl, rfl, by omega, ?_⟩
+    rw [show cnt - 3 + 3 = cnt from by omega]
+    exact hcont
+  | case3 cnt h11 h3 =>
+    intro done full ts' hcont
+    rw [encodeZeroRun, if_neg h11, if_neg h3]
+    exact rleOk_literals 0 (by omega) cnt done full ts' hcont
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- One run's token block reconstructs the run, chaining into any continuation. -/
+theorem rleRun_ok (v cnt : Nat) (hv : v ≤ 15) (hc : 1 ≤ cnt) (done full : List Nat)
+    (ts' : List (Nat × Nat × Nat))
+    (hcont : rleOk ts' (done ++ List.replicate cnt v) full) :
+    rleOk ((if v == 0 then encodeZeroRun cnt
+            else (v, 0, 0) :: encodeRepeatRun v (cnt - 1)) ++ ts') done full := by
+  by_cases hz : v = 0
+  · subst hz
+    rw [if_pos (show ((0 : Nat) == 0) = true from rfl)]
+    exact encodeZeroRun_ok cnt done full ts' hcont
+  · rw [if_neg (by simpa using hz), List.cons_append]
+    show rleOk ((v, 0, 0) :: (encodeRepeatRun v (cnt - 1) ++ ts')) done full
+    left
+    refine ⟨hv, rfl, rfl, ?_⟩
+    apply encodeRepeatRun_ok v hv (cnt - 1) (done ++ [v]) full ts'
+    · simp
+    · exact List.getLastD_concat
+    · have hrepl : ([v] : List Nat) ++ List.replicate (cnt - 1) v = List.replicate cnt v := by
+        rw [show cnt = (cnt - 1) + 1 from by omega, List.replicate_succ]
+        rfl
+      rw [List.append_assoc, hrepl]
+      exact hcont
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The run decomposition worker: its runs expand to the remaining input. -/
+theorem runLengthsAux_ok (full L₀ : List Nat) :
+    ∀ (xs : List Nat) (v cnt : Nat) (done : List Nat),
+    v ≤ 15 → (∀ u ∈ xs, u ≤ 15) → 1 ≤ cnt →
+    done ++ List.replicate cnt v ++ xs = full →
+    rleOk ((runLengthsAux v cnt xs).flatMap (fun r =>
+      if r.1 == 0 then encodeZeroRun r.2
+      else (r.1, 0, 0) :: encodeRepeatRun r.1 (r.2 - 1))) done full := by
+  intro xs
+  induction xs with
+  | nil =>
+    intro v cnt done hv _ hc htot
+    show rleOk (((v, cnt) :: []).flatMap _) done full
+    rw [List.flatMap_cons, List.flatMap_nil]
+    dsimp only
+    apply rleRun_ok v cnt hv hc done full [] _
+    show done ++ List.replicate cnt v = full
+    rw [← htot]
+    simp
+  | cons x xs ih =>
+    intro v cnt done hv hxs hc htot
+    show rleOk ((runLengthsAux v cnt (x :: xs)).flatMap _) done full
+    rw [runLengthsAux]
+    by_cases hxv : x = v
+    · rw [if_pos (by simpa using hxv)]
+      apply ih v (cnt + 1) done hv (fun u hu => hxs u (by simp [hu])) (by omega)
+      rw [← htot, show List.replicate (cnt + 1) v = List.replicate cnt v ++ [v] from
+        List.replicate_succ']
+      subst hxv
+      simp
+    · rw [if_neg (by simpa using hxv), List.flatMap_cons]
+      dsimp only
+      apply rleRun_ok v cnt hv hc done full _
+      apply ih x 1 (done ++ List.replicate cnt v) (hxs x (by simp))
+        (fun u hu => hxs u (by simp [hu])) (by omega)
+      rw [← htot]
+      simp
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- **L2h, encoder side**: the RLE stream `rleCodeLengths L` reconstructs exactly `L`. -/
+theorem rleCodeLengths_ok (L : List Nat) (hval : ∀ v ∈ L, v ≤ 15) :
+    rleOk (rleCodeLengths L) [] L := by
+  unfold rleCodeLengths runLengths
+  cases L with
+  | nil => rfl
+  | cons x xs =>
+    have h := runLengthsAux_ok (x :: xs) (x :: xs) xs x 1 []
+      (hval x (by simp)) (fun u hu => hval u (by simp [hu])) (by omega)
+      (by simp)
+    exact h
+
 end Stdlib.Zlib
