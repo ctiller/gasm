@@ -143,3 +143,23 @@ Spikes/Spike5Gzip/Windows/GunzipEmit.lean::main::main::axiom-only::downstream `m
 Spikes/Spike5Gzip/Wasm/Emit.lean::main::main::axiom-only::downstream `main` emits from spike5WasmVerifiedProgram, transitively citing the already-grandfathered spike5_wasm_gzip_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
 Spikes/Spike5Gzip/Test.lean::main::main::axiom-only::downstream `main` exercises spike5WindowsVerifiedProgram and spike5WasmVerifiedProgram, transitively citing the already-grandfathered spike5_windows_gzip_trace_equivalence and spike5_wasm_gzip_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
 Gasm/Targets/Wasm/LEB128.lean::encodeI32SLEB128_exceeds_i32_budget_inst::Gasm.Targets.Wasm.encodeI32SLEB128_exceeds_i32_budget_inst::grandfathered::single ground-instance witness (encodeI32SLEB128 (2^40) has size >= 6); encodeSLEB128List is well-founded-recursive (termination_by val.natAbs) so kernel `decide` gets stuck on the Acc.rec proof term and cannot reduce it, unlike the finite-forall theorems above -- this is a single witness value, not a universal claim, so a finite-forall migration does not apply; TC20 completion notes have the full derivation
+
+# --- PA1 (crc32 pathfinder, docs/PATHFINDER_CRC32.md #3.6-policy): bv_decide occurrences.
+# Per the design's explicit ruling: a bv_decide SAT certificate for a proposition
+# universally quantified over its complete finite domain (2^32 values of UInt32, or a
+# pair of such) is admissible under Law 10's finite-forall category exactly as
+# native_decide/decide are for an exhaustive finite domain -- the novelty is only that a
+# SAT solver rather than a brute-force evaluator produced the certificate, which Law 10
+# does not gate on. scripts/check_gates.py does not recognize the `bv_decide` spelling at
+# all (confirmed: it only regexes for native_decide/decide+native), so it will neither
+# flag nor corroborate these lines -- a known, already-documented gap (design doc
+# §3.6-policy, M9(b)) in the fast pre-check's own bookkeeping, not in this axiom-level
+# gate's soundness; teaching check_gates.py the spelling is tracked backlog, not a PA1
+# blocker. Tools/CheckGatesAxioms.lean (the load-bearing gate) already catches every
+# occurrence structurally via hasNativeComponent, which is what these entries authorize.
+Stdlib/Zlib/CRC32Equivalence.lean::and_one_cases::Stdlib.Zlib.CRC32Equivalence.and_one_cases::finite-forall::bv_decide SAT certificate over the complete UInt32 domain (2^32 values); `c &&& 1 = 0 ∨ c &&& 1 = 1` is decided exhaustively, not sampled
+Stdlib/Zlib/CRC32Equivalence.lean::G_eq_Gbf::Stdlib.Zlib.CRC32Equivalence.G_eq_Gbf::finite-forall::bv_decide SAT certificates (one per case, after the and_one_cases split) over the complete UInt32 x UInt32 domain (poly, c) -- the design's branch-free-normalization fix (M9(a)) for the connection theorem's per-bit step
+Stdlib/Zlib/CRC32Equivalence.lean::xor_byte_shr8::Stdlib.Zlib.CRC32Equivalence.xor_byte_shr8::finite-forall::bv_decide SAT certificate over the complete UInt32 x UInt8 domain (2^32 * 2^8 pairs); a byte-width XOR never changes bits >= 8
+Stdlib/Zlib/CRC32Equivalence.lean::G8bf_table::Stdlib.Zlib.CRC32Equivalence.G8bf_table::finite-forall::the design's primary connection-theorem route (docs/PATHFINDER_CRC32.md #3.6): bv_decide SAT certificate over the complete UInt32 x UInt32 domain (poly, x), ~1.8s wall time on this toolchain, closing the table/closed-form identity Gbf8 poly x = (x>>>8) ^^^ Gbf8 poly (x&&&0xFF)
+Stdlib/Zlib/CRC32Equivalence.lean::G8_eq_Gbf8::Stdlib.Zlib.CRC32Equivalence.G8_eq_Gbf8::axiom-only::downstream theorem with no native_decide/bv_decide TEXT of its own that transitively cites the already-allowlisted G_eq_Gbf (applied 8 times) and and_one_cases; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Stdlib/Zlib/CRC32Equivalence.lean::crc32ByteStep_eq_G8::Stdlib.Zlib.CRC32Equivalence.crc32ByteStep_eq_G8::axiom-only::downstream theorem with no native_decide/bv_decide TEXT of its own that transitively cites the already-allowlisted G8bf_table, G_eq_Gbf, and_one_cases, and xor_byte_shr8 via G8_eq_Gbf8's rewrite chain; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)

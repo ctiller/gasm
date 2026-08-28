@@ -28,6 +28,7 @@ import Stdlib.Zlib.Gzip
 import Stdlib.Zlib.Windows
 import Stdlib.Zlib.Wasm
 import Stdlib.Zlib.Equivalence
+import Stdlib.Zlib.CRC32Equivalence
 
 import Stdlib.Png.Spec
 import Stdlib.Png.Filter
