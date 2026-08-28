@@ -37,7 +37,6 @@ instance : X86_64Instruction ImulR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true dstExt false srcExt, 0x0F, 0xAF, makeModRM 3 dstCode srcCode]
-
   step i s :=
     let dVal := s.gprs i.dst
     let sVal := s.gprs i.src
@@ -45,7 +44,6 @@ instance : X86_64Instruction ImulR64R64 where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsImul64 dVal sVal
     { s'' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "IMUL.alu", uopClass := .intALU, eligiblePorts := [.p1], latencyCycles := 3, reciprocalThroughput := 1.0 }]
   toNASM i := s!"imul {i.dst}, {i.src}"
   toLean i := s!"imul_r64 .{i.dst} .{i.src}"
@@ -57,6 +55,7 @@ instance : X86_64Instruction ImulR64R64 where
   roundtripCases :=
     (allReg64List.map (ImulR64R64.mk · .rax)) ++ (allReg64List.map (ImulR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => ImulR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- IMUL r64, r64 helper. -/

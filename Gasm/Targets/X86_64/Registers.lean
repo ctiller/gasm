@@ -18,6 +18,7 @@ import Lean
 import Gasm.Core.Types
 import Gasm.Core.Arch
 import Gasm.Core.CFG
+import Gasm.Targets.X86_64.MemoryCell
 
 namespace Gasm.Targets.X86_64
 
@@ -50,20 +51,58 @@ def reg32To64 (r : Reg32) : Reg64 :=
   | .r8d => .r8  | .r9d => .r9  | .r10d => .r10 | .r11d => .r11
   | .r12d => .r12 | .r13d => .r13 | .r14d => .r14 | .r15d => .r15
 
+/- REF: docs/MEMORY_HOOK.md#6-faults-and-observability -/
+/-- Distinguishable x86-64 stop reasons carried by `X86_64MachineState.fault`. `divideError` is
+    DIV/IDIV's #DE; `memFault` is the data-carrying memory fault the design names (unreachable
+    today -- no memory-map model exists yet, `docs/MEMORY_HOOK.md` §6 stage 2 -- but distinct in
+    the type from the day it exists rather than a third indistinguishable outcome). `halted` is
+    an honest addition beyond the design's two-constructor sketch: the evidence base the design
+    reasoned from (§1.1: "only Div.lean sets it") undercounted the writer sites -- `Hlt.lean`'s
+    HLT, `Linux/Syscall.lean`'s `sysExitHook`, and `BareMetal/Device.lean`'s HLT/debug-exit port
+    also set the old `faulted := true` to stop the trace/loop evaluators, and none of those is a
+    divide error. Folding them into `.divideError` would mislabel a clean halt as a CPU exception;
+    `.halted` keeps every one of those honestly distinct while preserving the exact prior
+    `faulted` boolean behavior (see `X86_64MachineState.faulted` below). -/
+inductive X86_64Fault where
+  | divideError
+  | memFault (kind : MemAccessKind) (width : MemWidth) (addr : Address)
+  | halted
+  deriving DecidableEq, Repr, Inhabited
+
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
-/-- Native machine execution state for x86-64 with unified general-purpose registers. -/
+/-- Native machine execution state for x86-64 with unified general-purpose registers. `memory` is
+    the sealed `X86_64Memory` cell (`docs/MEMORY_HOOK.md` §3.2): no code outside
+    `MemoryCell.lean` can construct or project it directly, so `X86_64Mem.read`/`write` are the
+    only way to observe or change machine memory bytes. -/
 structure X86_64MachineState where
   rip              : Address
   gprs             : Reg64 → UInt64
   flags            : UInt64
-  memory           : Address → Byte
+  memory           : X86_64Memory
   stdinBuffer      : ByteArray := ByteArray.empty
   incomingRequests : List String := []
-  faulted          : Bool := false
+  fault            : Option X86_64Fault := none
+
+/- REF: docs/MEMORY_HOOK.md#6-faults-and-observability -/
+/-- Whether the machine has stopped (a real fault, or a halt/exit signal) -- every existing
+    `if s.faulted then ...` reader compiles unchanged against this `def` since Lean 4 dot-notation
+    resolves the same way whether `faulted` is a field or a function. -/
+def X86_64MachineState.faulted (s : X86_64MachineState) : Bool := s.fault.isSome
+
+/- REF: docs/MEMORY_HOOK.md#6-faults-and-observability -/
+/-- `faulted` in terms of `.fault`, proved once as a small, `s`-abstract lemma. Applying this to a
+    concrete (possibly large, e.g. a record update carrying a near-2⁶⁴ constant) state term only
+    needs the cheap `.fault = none` fact as an argument -- it does not require the elaborator or
+    kernel to separately re-derive the `isSome` unfold against that concrete term's full shape,
+    which is what makes a bare `.faulted = false` goal expensive in exactly that situation
+    (`Spikes/Spike2Fibonacci/Windows/LoopInvariant.lean`'s `fibLoop_iteration` hit this). -/
+theorem X86_64MachineState.faulted_of_fault_none {s : X86_64MachineState} (h : s.fault = none) :
+    s.faulted = false := by
+  unfold X86_64MachineState.faulted; rw [h]; rfl
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 instance : Inhabited X86_64MachineState where
-  default := { rip := 0x401000, gprs := fun _ => 0, flags := 0x202, memory := fun _ => 0 }
+  default := { rip := 0x401000, gprs := fun _ => 0, flags := 0x202, memory := X86_64Mem.zero }
 
 /- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
 /-- Retrieves the 64-bit stack pointer (RSP). -/
@@ -221,53 +260,59 @@ def X86_64MachineState.setFlagsImul64 (s : X86_64MachineState) (a b : UInt64) : 
   let preserved := s.flags &&& (~~~arithmeticStatusMask)
   { s with flags := preserved ||| cf_of }
 
-/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
-/-- Reads an 8-byte little-endian quadword from machine memory. -/
-def X86_64MachineState.read64 (s : X86_64MachineState) (a : Address) : UInt64 :=
-  (s.memory a).toUInt64 |||
-  ((s.memory (a + 1)).toUInt64 <<< 8) |||
-  ((s.memory (a + 2)).toUInt64 <<< 16) |||
-  ((s.memory (a + 3)).toUInt64 <<< 24) |||
-  ((s.memory (a + 4)).toUInt64 <<< 32) |||
-  ((s.memory (a + 5)).toUInt64 <<< 40) |||
-  ((s.memory (a + 6)).toUInt64 <<< 48) |||
-  ((s.memory (a + 7)).toUInt64 <<< 56)
+/- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
+/-- Reads a single byte from machine memory, through the sealed hook. -/
+abbrev X86_64MachineState.read8 (s : X86_64MachineState) (a : Address) : UInt64 :=
+  X86_64Mem.read .w8 a s.memory
+
+/- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
+/-- Reads a 4-byte little-endian doubleword from machine memory, through the sealed hook. This is
+    one of the "missing widths" `docs/MEMORY_HOOK.md` §1.1 names: before this hook,
+    `MovReg32RspDisp32.step` re-implemented this ladder inline because no `read32` existed. -/
+abbrev X86_64MachineState.read32 (s : X86_64MachineState) (a : Address) : UInt64 :=
+  X86_64Mem.read .w32 a s.memory
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
-/-- Writes a single byte into machine memory. -/
-def X86_64MachineState.write8 (s : X86_64MachineState) (a : Address) (v : UInt8) : X86_64MachineState :=
-  { s with memory := fun addr => if addr == a then v else s.memory addr }
+/-- Reads an 8-byte little-endian quadword from machine memory. Definitionally the same byte
+    ladder as before sealing (an `abbrev` into `X86_64Mem.read`), so every existing `rfl` step
+    lemma that unfolds this keeps closing (`docs/MEMORY_HOOK.md` §7). -/
+abbrev X86_64MachineState.read64 (s : X86_64MachineState) (a : Address) : UInt64 :=
+  X86_64Mem.read .w64 a s.memory
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
-/-- Writes an 8-byte little-endian quadword into machine memory. -/
-def X86_64MachineState.write64 (s : X86_64MachineState) (a : Address) (v : UInt64) : X86_64MachineState :=
-  { s with memory := fun addr =>
-    if addr == a then v.toUInt8
-    else if addr == a + 1 then (v >>> 8).toUInt8
-    else if addr == a + 2 then (v >>> 16).toUInt8
-    else if addr == a + 3 then (v >>> 24).toUInt8
-    else if addr == a + 4 then (v >>> 32).toUInt8
-    else if addr == a + 5 then (v >>> 40).toUInt8
-    else if addr == a + 6 then (v >>> 48).toUInt8
-    else if addr == a + 7 then (v >>> 56).toUInt8
-    else s.memory addr }
+/-- Writes a single byte into machine memory. Definitionally the same update as before sealing. -/
+abbrev X86_64MachineState.write8 (s : X86_64MachineState) (a : Address) (v : UInt8) : X86_64MachineState :=
+  { s with memory := X86_64Mem.write .w8 a v.toUInt64 s.memory }
+
+/- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
+/-- Writes a 4-byte little-endian doubleword into machine memory. The other "missing width":
+    before this hook, `MovRspDispImm32.step` re-implemented this ladder inline because no
+    `write32` existed (`docs/MEMORY_HOOK.md` §1.1). -/
+abbrev X86_64MachineState.write32 (s : X86_64MachineState) (a : Address) (v : UInt32) : X86_64MachineState :=
+  { s with memory := X86_64Mem.write .w32 a v.toUInt64 s.memory }
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Writes an 8-byte little-endian quadword into machine memory. Definitionally the same update
+    as before sealing. -/
+abbrev X86_64MachineState.write64 (s : X86_64MachineState) (a : Address) (v : UInt64) : X86_64MachineState :=
+  { s with memory := X86_64Mem.write .w64 a v s.memory }
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Hardware PUSH: decrements RSP by 8 and writes a 64-bit value to the stack. -/
-def X86_64MachineState.push64 (s : X86_64MachineState) (v : UInt64) : X86_64MachineState :=
+abbrev X86_64MachineState.push64 (s : X86_64MachineState) (v : UInt64) : X86_64MachineState :=
   let s' := s.setGpr64 .rsp (s.rsp - 8)
   s'.write64 s'.rsp v
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Hardware POP: reads a 64-bit value from [RSP] and increments RSP by 8. -/
-def X86_64MachineState.pop64 (s : X86_64MachineState) : UInt64 × X86_64MachineState :=
+abbrev X86_64MachineState.pop64 (s : X86_64MachineState) : UInt64 × X86_64MachineState :=
   let v := s.read64 s.rsp
   (v, s.setGpr64 .rsp (s.rsp + 8))
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Reads a string or raw byte stream directly from machine memory. -/
 def X86_64MachineState.readString (s : X86_64MachineState) (buf : Address) (len : Nat) : String :=
-  let bytes := (List.range len).map (fun i => s.memory (buf + i.toUInt64))
+  let bytes := (List.range len).map (fun i => (X86_64Mem.read .w8 (buf + i.toUInt64) s.memory).toUInt8)
   let byteArr := ByteArray.mk bytes.toArray
   match String.fromUTF8? byteArr with
   | some str => str

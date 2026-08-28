@@ -21,6 +21,7 @@ import Gasm.Core.Arch
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Uop
 import Gasm.Targets.X86_64.Instructions.Obligations
+import Gasm.Targets.X86_64.Memory
 
 namespace Gasm.Targets.X86_64.Instructions
 
@@ -34,7 +35,15 @@ open Gasm.Targets.X86_64
     This is the forcing function that makes `decodeX86_64Instr` gaps and misdecodes a build
     failure — see the Encodable Instruction Registry & Roundtrip Gate design section for the
     full rationale, the enumeration convention, and how these lists are consumed by
-    `Gasm/Targets/X86_64/Registry.lean` and the sharded `RoundtripGate/*.lean` gate theorems. -/
+    `Gasm/Targets/X86_64/Registry.lean` and the sharded `RoundtripGate/*.lean` gate theorems.
+
+    `memAccesses` likewise has no default (`docs/MEMORY_HOOK.md` §3.3): the same
+    forcing-function shape as `roundtripCases`, and deliberately the opposite of
+    `canFuzzHardware`'s silent `:= fun _ => true` opt-out, which is how 50 of 88 forms escaped
+    silicon validation unnoticed before that class of gap was closed elsewhere. Every instance
+    must state its declarative access list explicitly -- `[]` for the 74 register-only forms,
+    the real accesses for the 14 memory-touching forms -- so omission is a compile error, not a
+    silently-defaulted no-op. -/
 class X86_64Instruction (ι : Type u) where
   encode          : ι → ByteArray
   step            : ι → X86_64MachineState → X86_64MachineState
@@ -54,6 +63,7 @@ class X86_64Instruction (ι : Type u) where
   -- where its cost coefficients came from.
   validationOracle : ι → ValidationOracle
   costProvenance   : ι → CoefficientProvenance
+  memAccesses     : ι → List MemAccessSpec
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Open existential instruction container packing any type implementing X86_64Instruction. -/
@@ -79,6 +89,7 @@ instance : X86_64Instruction AnyX86_64Instruction where
   roundtripCases := []
   validationOracle pkg := @X86_64Instruction.validationOracle pkg.α pkg.inst pkg.instr
   costProvenance pkg := @X86_64Instruction.costProvenance pkg.α pkg.inst pkg.instr
+  memAccesses pkg := @X86_64Instruction.memAccesses pkg.α pkg.inst pkg.instr
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 instance : ToString AnyX86_64Instruction where

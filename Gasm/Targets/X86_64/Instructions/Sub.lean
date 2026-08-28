@@ -34,7 +34,6 @@ structure SubRspImm8 where
 instance : X86_64Instruction SubRspImm8 where
   encode i :=
     ByteArray.mk #[0x48, 0x83, 0xEC, i.imm]
-
   step i s :=
     let dVal := s.gprs .rsp
     let sVal := signExtend8To64 i.imm
@@ -42,7 +41,6 @@ instance : X86_64Instruction SubRspImm8 where
     let s' := s.setGpr64 .rsp res
     let s'' := s'.setFlagsSub64 dVal sVal
     { s'' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "SUB.rsp", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"sub rsp, byte {i.imm.toNat}"
   toLean i := s!"sub_rsp {formatHex8 i.imm}"
@@ -51,6 +49,7 @@ instance : X86_64Instruction SubRspImm8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := generateStandardFuzzStatesForImm .rsp rng
   roundtripCases := curatedUInt8Cases.map SubRspImm8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=SUB;part=description -/
 /-- SUB r64, r64: Subtracts 64-bit source register from destination register and updates condition flags. -/
@@ -65,7 +64,6 @@ instance : X86_64Instruction SubR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true srcExt false dstExt, 0x29, makeModRM 3 srcCode dstCode]
-
   step i s :=
     let dVal := s.gprs i.dst
     let sVal := s.gprs i.src
@@ -73,7 +71,6 @@ instance : X86_64Instruction SubR64R64 where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsSub64 dVal sVal
     { s'' with rip := s.rip + 3 }
-
   toUops i :=
     if i.dst == i.src then
       -- Zeroing idiom: recognized by modern frontends
@@ -89,6 +86,7 @@ instance : X86_64Instruction SubR64R64 where
   roundtripCases :=
     (allReg64List.map (SubR64R64.mk · .rax)) ++ (allReg64List.map (SubR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => SubR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=SUB;part=description -/
 /-- SUB r64, imm8: Subtracts sign-extended 8-bit immediate from destination register and updates condition flags. -/
@@ -102,7 +100,6 @@ instance : X86_64Instruction SubR64Imm8 where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0x83, makeModRM 3 5 dstCode, i.imm]
-
   step i s :=
     let dVal := s.gprs i.dst
     let sVal := signExtend8To64 i.imm
@@ -110,7 +107,6 @@ instance : X86_64Instruction SubR64Imm8 where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsSub64 dVal sVal
     { s'' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "SUB.alu", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"sub {i.dst}, byte {i.imm.toNat}"
   toLean i := s!"sub_r64_imm8 .{i.dst} {formatHex8 i.imm}"
@@ -121,6 +117,7 @@ instance : X86_64Instruction SubR64Imm8 where
   roundtripCases :=
     (allReg64ListNoRsp.map (SubR64Imm8.mk · 0x00)) ++ (curatedUInt8Cases.map (SubR64Imm8.mk .rax ·)) ++
     (curatedUInt8Cases.map (SubR64Imm8.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=SUB;part=description -/
 /-- SUB RSP, imm32 instruction: decrements stack pointer with 32-bit immediate to allocate large stack frame. -/
@@ -132,7 +129,6 @@ structure SubRspImm32 where
 instance : X86_64Instruction SubRspImm32 where
   encode i :=
     ByteArray.mk #[0x48, 0x81, 0xEC] ++ uint32ToLittleEndian i.imm
-
   step i s :=
     let dVal := s.gprs .rsp
     let sVal := i.imm.toUInt64
@@ -140,7 +136,6 @@ instance : X86_64Instruction SubRspImm32 where
     let s' := s.setGpr64 .rsp res
     let s'' := s'.setFlagsSub64 dVal sVal
     { s'' with rip := s.rip + 7 }
-
   toUops _ := [{ mnemonic := "SUB.rsp32", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   -- `dword` qualifier: see `Add.lean`'s `AddRspImm32.toNASM` comment -- same NASM
   -- shortest-encoding ambiguity (found via P4(a)'s registry-derived encoding fuzzer,
@@ -152,6 +147,7 @@ instance : X86_64Instruction SubRspImm32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := generateStandardFuzzStatesForImm .rsp rng
   roundtripCases := curatedUInt32Cases.map SubRspImm32.mk
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- SUB RSP, imm8 helper. -/
@@ -185,7 +181,6 @@ instance : X86_64Instruction SubR64Imm32 where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0x81, makeModRM 3 5 dstCode] ++ uint32ToLittleEndian i.imm
-
   step i s :=
     let dVal := s.gprs i.dst
     let sVal := signExtendUInt32To64 i.imm
@@ -193,7 +188,6 @@ instance : X86_64Instruction SubR64Imm32 where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsSub64 dVal sVal
     { s'' with rip := s.rip + 7 }
-
   toUops _ := [{ mnemonic := "SUB.imm32", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"sub {i.dst}, dword {i.imm.toNat}"
   toLean i := s!"sub_r64_imm32 .{i.dst} {formatHex32 i.imm}"
@@ -204,6 +198,7 @@ instance : X86_64Instruction SubR64Imm32 where
   roundtripCases :=
     (allReg64ListNoRsp.map (SubR64Imm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (SubR64Imm32.mk .rax ·)) ++
     (curatedUInt32Cases.map (SubR64Imm32.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- SUB r64, imm32 helper. -/

@@ -32,11 +32,9 @@ structure HltOp where
 /- REF: intel-sdm#vol=2;instr=HLT;part=operation -/
 instance : X86_64Instruction HltOp where
   encode _ := ByteArray.mk #[0xF4]
-
   step _ s :=
-    -- Stops machine execution; flagged as faulted/halted to terminate trace/loop evaluators
-    { s with rip := s.rip + 1, faulted := true }
-
+    -- Stops machine execution; flagged as halted to terminate trace/loop evaluators
+    { s with rip := s.rip + 1, fault := some .halted }
   toUops _ := [
     { mnemonic := "HLT", uopClass := .intALU, eligiblePorts := [.p0], latencyCycles := 1, reciprocalThroughput := 1.0 }
   ]
@@ -47,6 +45,7 @@ instance : X86_64Instruction HltOp where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [HltOp.mk]
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- HLT helper. -/

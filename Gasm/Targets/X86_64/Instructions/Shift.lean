@@ -36,7 +36,6 @@ instance : X86_64Instruction ShlR64Imm8 where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0xC1, makeModRM 3 4 dstCode, i.imm]
-
   step i s :=
     let dVal := s.gprs i.dst
     let count := (i.imm &&& 0x3F).toUInt64
@@ -46,7 +45,6 @@ instance : X86_64Instruction ShlR64Imm8 where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsShift64 res cfBit ofBit (i.imm &&& 0x3F)
     { s'' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "SHL.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"shl {i.dst}, byte {i.imm.toNat}"
   toLean i := s!"shl_r64_imm8 .{i.dst} {formatHex8 i.imm}"
@@ -58,6 +56,7 @@ instance : X86_64Instruction ShlR64Imm8 where
   roundtripCases :=
     (allReg64List.map (ShlR64Imm8.mk · 1)) ++ ([(0 : UInt8), 1, 7, 31, 63].map (ShlR64Imm8.mk .rax ·)) ++
     ([(0 : UInt8), 1, 7, 31, 63].map (ShlR64Imm8.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=SAL_SAR_SHL_SHR;part=description -/
 /-- SHR r64, imm8: Shifts bits in destination 64-bit register to the right by count (masked to 6 bits 0..63), filling shifted-in bits with zeros. -/
@@ -71,7 +70,6 @@ instance : X86_64Instruction ShrR64Imm8 where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0xC1, makeModRM 3 5 dstCode, i.imm]
-
   step i s :=
     let dVal := s.gprs i.dst
     let count := (i.imm &&& 0x3F).toUInt64
@@ -81,7 +79,6 @@ instance : X86_64Instruction ShrR64Imm8 where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsShift64 res cfBit ofBit (i.imm &&& 0x3F)
     { s'' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "SHR.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"shr {i.dst}, byte {i.imm.toNat}"
   toLean i := s!"shr_r64_imm8 .{i.dst} {formatHex8 i.imm}"
@@ -93,6 +90,7 @@ instance : X86_64Instruction ShrR64Imm8 where
   roundtripCases :=
     (allReg64List.map (ShrR64Imm8.mk · 1)) ++ ([(0 : UInt8), 1, 7, 31, 63].map (ShrR64Imm8.mk .rax ·)) ++
     ([(0 : UInt8), 1, 7, 31, 63].map (ShrR64Imm8.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=SAL_SAR_SHL_SHR;part=description -/
 /-- SAR r64, imm8: Arithmetic right shift of destination 64-bit register by count (masked to 6 bits 0..63), preserving sign bit. -/
@@ -106,7 +104,6 @@ instance : X86_64Instruction SarR64Imm8 where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0xC1, makeModRM 3 7 dstCode, i.imm]
-
   step i s :=
     let dVal := s.gprs i.dst
     let count := (i.imm &&& 0x3F).toUInt64
@@ -118,7 +115,6 @@ instance : X86_64Instruction SarR64Imm8 where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsShift64 res cfBit ofBit (i.imm &&& 0x3F)
     { s'' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "SAR.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"sar {i.dst}, byte {i.imm.toNat}"
   toLean i := s!"sar_r64_imm8 .{i.dst} {formatHex8 i.imm}"
@@ -130,6 +126,7 @@ instance : X86_64Instruction SarR64Imm8 where
   roundtripCases :=
     (allReg64List.map (SarR64Imm8.mk · 1)) ++ ([(0 : UInt8), 1, 7, 31, 63].map (SarR64Imm8.mk .rax ·)) ++
     ([(0 : UInt8), 1, 7, 31, 63].map (SarR64Imm8.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=SAL_SAR_SHL_SHR;part=operation -/
 /-- Fuzz state generator for r64, cl shift variants: varies the CL count across the documented
@@ -166,7 +163,6 @@ instance : X86_64Instruction ShlR64Cl where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0xD3, makeModRM 3 4 dstCode]
-
   step i s :=
     let dVal := s.gprs i.dst
     let count := s.gprs .rcx &&& 0x3F
@@ -176,7 +172,6 @@ instance : X86_64Instruction ShlR64Cl where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsShift64 res cfBit ofBit (s.gprs .rcx &&& 0x3F).toUInt8
     { s'' with rip := s.rip + 3 }
-
   toUops _ := [{ mnemonic := "SHL.cl", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"shl {i.dst}, cl"
   toLean i := s!"shl_r64_cl .{i.dst}"
@@ -186,6 +181,7 @@ instance : X86_64Instruction ShlR64Cl where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateShiftClFuzzStates i.dst rng
   roundtripCases := allReg64List.map ShlR64Cl.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=SAL_SAR_SHL_SHR;part=description -/
 /-- SHR r64, cl: Shifts bits in destination 64-bit register to the right by count in CL (masked to 6 bits 0..63). -/
@@ -198,7 +194,6 @@ instance : X86_64Instruction ShrR64Cl where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0xD3, makeModRM 3 5 dstCode]
-
   step i s :=
     let dVal := s.gprs i.dst
     let count := s.gprs .rcx &&& 0x3F
@@ -208,7 +203,6 @@ instance : X86_64Instruction ShrR64Cl where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsShift64 res cfBit ofBit (s.gprs .rcx &&& 0x3F).toUInt8
     { s'' with rip := s.rip + 3 }
-
   toUops _ := [{ mnemonic := "SHR.cl", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"shr {i.dst}, cl"
   toLean i := s!"shr_r64_cl .{i.dst}"
@@ -218,6 +212,7 @@ instance : X86_64Instruction ShrR64Cl where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateShiftClFuzzStates i.dst rng
   roundtripCases := allReg64List.map ShrR64Cl.mk
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- SHL r64, imm8 helper. -/

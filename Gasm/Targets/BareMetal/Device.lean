@@ -112,14 +112,14 @@ def stepBareMetal (instr : X86_64Instr) (s : BareMetalMachineState) : BareMetalM
         { s with cpu := sCpu', devices := dev' }
       else if port == DEBUG_EXIT_PORT || port == DEBUG_EXIT_PORT_ALT then
         let dev' := { s.devices with exitStatus := some byteVal.toUInt32 }
-        { s with cpu := { sCpu' with faulted := true }, devices := dev' }
+        { s with cpu := { sCpu' with fault := some .halted }, devices := dev' }
       else
         { s with cpu := sCpu' }
 
     -- 3. HLT (0xF4)
     else if op == 0xF4 then
       let dev' := if s.devices.exitStatus.isNone then { s.devices with exitStatus := some 0 } else s.devices
-      { s with cpu := { sCpu' with faulted := true }, devices := dev' }
+      { s with cpu := { sCpu' with fault := some .halted }, devices := dev' }
 
     else
       { s with cpu := sCpu' }

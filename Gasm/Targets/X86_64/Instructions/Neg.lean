@@ -35,14 +35,12 @@ instance : X86_64Instruction NegR64 where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0xF7, makeModRM 3 3 dstCode]
-
   step i s :=
     let dVal := s.gprs i.dst
     let res := 0 - dVal
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsNeg64 dVal
     { s'' with rip := s.rip + 3 }
-
   toUops _ := [{ mnemonic := "NEG.alu", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"neg {i.dst}"
   toLean i := s!"neg_r64 .{i.dst}"
@@ -51,6 +49,7 @@ instance : X86_64Instruction NegR64 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesFor1Reg i.dst rng
   roundtripCases := allReg64List.map NegR64.mk
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- NEG r64 helper. -/

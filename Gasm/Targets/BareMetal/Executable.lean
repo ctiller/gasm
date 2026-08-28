@@ -65,7 +65,7 @@ def load (exe : BareMetalExecutable) : BareMetalMachineState :=
     rip := exe.entryAddr,
     gprs := fun r => if r == .rsp then 0x200000 + 0x20000 else 0,
     flags := 0,
-    memory := mem
+    memory := X86_64Mem.initRegion mem
   }
   { cpu := cpu, devices := {} }
 

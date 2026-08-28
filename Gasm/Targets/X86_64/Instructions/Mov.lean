@@ -37,11 +37,9 @@ instance : X86_64Instruction MovR32Imm32 where
     let (code, isExt) := reg32Code i.dst
     let rexPrefix := if isExt then #[makeRex false false false true] else #[]
     ByteArray.mk rexPrefix ++ ByteArray.mk #[0xB8 + code] ++ uint32ToLittleEndian i.imm
-    
   step i s :=
     let s' := s.setGpr32 i.dst i.imm
     { s' with rip := s.rip + (if (reg32Code i.dst).2 then 6 else 5) }
-
   toUops _ := [{ mnemonic := "MOV.imm32", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"mov {i.dst}, 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
   toLean i := s!"mov_r32 .{i.dst} {formatHex32 i.imm}"
@@ -52,6 +50,7 @@ instance : X86_64Instruction MovR32Imm32 where
   roundtripCases :=
     (allReg32List.map (MovR32Imm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (MovR32Imm32.mk .eax ·)) ++
     (curatedUInt32Cases.map (MovR32Imm32.mk .r15d ·))
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV reg64, imm64: moves full 64-bit immediate into general-purpose register. -/
@@ -66,11 +65,9 @@ instance : X86_64Instruction MovR64Imm64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let rex := makeRex true false false dstExt
     ByteArray.mk #[rex, 0xB8 + dstCode] ++ uint64ToLittleEndian i.imm
-
   step i s :=
     let s' := s.setGpr64 i.dst i.imm
     { s' with rip := s.rip + 10 }
-
   toUops _ := [{ mnemonic := "MOV.imm64", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"mov {i.dst}, strict qword 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
   toLean i := s!"mov_r64_imm64 .{i.dst} {formatHex64 i.imm}"
@@ -85,6 +82,7 @@ instance : X86_64Instruction MovR64Imm64 where
     -- during a parallel 21-shard build (see docs/TARGETS/X86_64.md).
     (allReg64List.map (MovR64Imm64.mk · 0)) ++ (curatedUInt64Cases.map (MovR64Imm64.mk .rax ·)) ++
     (curatedUInt64Cases.map (MovR64Imm64.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV reg64, reg64 instruction: moves full 64-bit value between general-purpose registers. -/
@@ -99,11 +97,9 @@ instance : X86_64Instruction MovR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true srcExt false dstExt, 0x89, makeModRM 3 srcCode dstCode]
-    
   step i s :=
     let s' := s.setGpr64 i.dst (s.gprs i.src)
     { s' with rip := s.rip + 3 }
-
   toUops _ := [{ mnemonic := "MOV.reg", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"mov {i.dst}, {i.src}"
   toLean i := s!"mov_r64 .{i.dst} .{i.src}"
@@ -114,6 +110,7 @@ instance : X86_64Instruction MovR64R64 where
   roundtripCases :=
     (allReg64List.map (MovR64R64.mk · .rax)) ++ (allReg64List.map (MovR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => MovR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV BYTE PTR [RSP + disp8], val: writes an 8-bit immediate byte directly to stack offset. -/
@@ -152,6 +149,7 @@ instance : X86_64Instruction MovRspDispByte where
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (curatedUInt8Cases.map (MovRspDispByte.mk · 0x00)) ++ (curatedUInt8Cases.map (MovRspDispByte.mk 0x00 ·))
+  memAccesses i := [⟨.store, .w8, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV DWORD PTR [RSP + disp8], imm32: writes a 32-bit immediate doubleword directly to stack offset. -/
@@ -171,16 +169,8 @@ instance : X86_64Instruction MovRspDispImm32 where
   step i s :=
     let base := s.rsp + signExtend8To64 i.disp
     let len := if i.disp == 0 then 7 else 8
-    let s' := { s with
-      memory := fun a =>
-        if a == base then i.imm.toUInt8
-        else if a == base + 1 then (i.imm >>> 8).toUInt8
-        else if a == base + 2 then (i.imm >>> 16).toUInt8
-        else if a == base + 3 then (i.imm >>> 24).toUInt8
-        else s.memory a
-      rip := s.rip + len
-    }
-    s'
+    let s' := s.write32 base i.imm
+    { s' with rip := s.rip + len }
 
   toUops _ := [
     { mnemonic := "MOV.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
@@ -198,6 +188,7 @@ instance : X86_64Instruction MovRspDispImm32 where
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (curatedUInt8Cases.map (MovRspDispImm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (MovRspDispImm32.mk 0x00 ·))
+  memAccesses i := [⟨.store, .w32, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV QWORD PTR [RSP + disp8], imm32: sign-extends 32-bit immediate to 64 bits and writes to stack offset. -/
@@ -216,19 +207,13 @@ instance : X86_64Instruction MovRspDispImm64 where
 
   step i s :=
     let base := s.rsp + signExtend8To64 i.disp
-    let extByte : UInt8 := if (i.imm &&& 0x80000000) != 0 then 0xFF else 0x00
     let len := if i.disp == 0 then 8 else 9
-    let s' := { s with
-      memory := fun a =>
-        if a == base then i.imm.toUInt8
-        else if a == base + 1 then (i.imm >>> 8).toUInt8
-        else if a == base + 2 then (i.imm >>> 16).toUInt8
-        else if a == base + 3 then (i.imm >>> 24).toUInt8
-        else if a >= base + 4 && a < base + 8 then extByte
-        else s.memory a
-      rip := s.rip + len
-    }
-    s'
+    -- Sign-extending the 32-bit immediate to 64 bits first and issuing ONE 64-bit write
+    -- produces byte-for-byte the same result as the old inline lambda (bytes 0-3 = imm's
+    -- bytes, bytes 4-7 = a uniform 0xFF/0x00 extension byte derived from imm's sign bit):
+    -- `signExtendUInt32To64` already builds exactly that 64-bit pattern.
+    let s' := s.write64 base (signExtendUInt32To64 i.imm)
+    { s' with rip := s.rip + len }
 
   toUops _ := [
     { mnemonic := "MOV.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
@@ -246,6 +231,7 @@ instance : X86_64Instruction MovRspDispImm64 where
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (curatedUInt8Cases.map (MovRspDispImm64.mk · 0x00000000)) ++ (curatedUInt32Cases.map (MovRspDispImm64.mk 0x00 ·))
+  memAccesses i := [⟨.store, .w64, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV [dstPtr], srcReg8: Writes the low 8-bit byte of srcReg into memory at [dstPtr]. -/
@@ -300,6 +286,7 @@ instance : X86_64Instruction MovMem8Reg8 where
   roundtripCases :=
     (allReg64List.map (MovMem8Reg8.mk · .rax)) ++ (allReg64List.map (MovMem8Reg8.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => MovMem8Reg8.mk p.1 p.2)
+  memAccesses i := [⟨.store, .w8, ⟨some i.dstPtr, none, 0⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV QWORD PTR [basePtr + disp8], srcReg64: Writes 64-bit register into memory at [basePtr + disp8]. -/
@@ -356,6 +343,7 @@ instance : X86_64Instruction MovMem64DispReg64 where
     (allReg64List.map (MovMem64DispReg64.mk .rax 0 ·)) ++
     (extendedReg64Pairs.map fun p => MovMem64DispReg64.mk p.1 0 p.2) ++
     (curatedUInt8Cases.map (MovMem64DispReg64.mk .r15 · .r15))
+  memAccesses i := [⟨.store, .w64, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV QWORD PTR [basePtr + disp8], imm32: Writes 32-bit immediate sign-extended into 64-bit memory. -/
@@ -416,6 +404,7 @@ instance : X86_64Instruction MovMem64DispImm32 where
     (curatedUInt32Cases.map (MovMem64DispImm32.mk .rax 0 ·)) ++
     (curatedUInt8Cases.map (MovMem64DispImm32.mk .r15 · 0x00000000)) ++
     (curatedUInt32Cases.map (MovMem64DispImm32.mk .r15 0 ·))
+  memAccesses i := [⟨.store, .w64, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV dstReg64, QWORD PTR [basePtr + disp8]: Reads 64-bit value from memory into register. -/
@@ -471,6 +460,7 @@ instance : X86_64Instruction MovReg64Mem64Disp where
     (curatedUInt8Cases.map (MovReg64Mem64Disp.mk .rax .rax ·)) ++
     (extendedReg64Pairs.map fun p => MovReg64Mem64Disp.mk p.1 p.2 0) ++
     (curatedUInt8Cases.map (MovReg64Mem64Disp.mk .r15 .r15 ·))
+  memAccesses i := [⟨.load, .w64, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- MOV reg32, imm32 helper. -/
@@ -550,7 +540,7 @@ instance : X86_64Instruction MovzxR64Mem8 where
   step i s :=
     let (baseCode, _) := reg64Code i.basePtr
     let addr := s.gprs i.basePtr + signExtend8To64 i.disp
-    let val := (s.memory addr).toUInt64
+    let val := s.read8 addr
     let s' := s.setGpr64 i.dstReg val
     let hasSib := baseCode == 4
     let hasDisp := i.disp != 0 || baseCode == 5
@@ -576,6 +566,7 @@ instance : X86_64Instruction MovzxR64Mem8 where
     (curatedUInt8Cases.map (MovzxR64Mem8.mk .rax .rax ·)) ++
     (extendedReg64Pairs.map fun p => MovzxR64Mem8.mk p.1 p.2 0) ++
     (curatedUInt8Cases.map (MovzxR64Mem8.mk .r15 .r15 ·))
+  memAccesses i := [⟨.load, .w8, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV dstReg32, DWORD PTR [RSP + disp8]: Reads 32-bit value from stack memory with 32-to-64-bit zero extension. -/
@@ -593,11 +584,7 @@ instance : X86_64Instruction MovReg32RspDisp32 where
 
   step i s :=
     let addr := s.rsp + signExtend8To64 i.disp
-    let b0 := (s.memory addr).toUInt32
-    let b1 := (s.memory (addr + 1)).toUInt32 <<< 8
-    let b2 := (s.memory (addr + 2)).toUInt32 <<< 16
-    let b3 := (s.memory (addr + 3)).toUInt32 <<< 24
-    let val := b0 ||| b1 ||| b2 ||| b3
+    let val := (s.read32 addr).toUInt32
     let s' := s.setGpr32 i.dstReg val
     let len := 4 + (if (reg32Code i.dstReg).2 then 1 else 0)
     { s' with rip := s.rip + len }
@@ -620,6 +607,7 @@ instance : X86_64Instruction MovReg32RspDisp32 where
   roundtripCases :=
     (allReg32List.map (MovReg32RspDisp32.mk · 0x00)) ++ (curatedUInt8Cases.map (MovReg32RspDisp32.mk .eax ·)) ++
     (curatedUInt8Cases.map (MovReg32RspDisp32.mk .r15d ·))
+  memAccesses i := [⟨.load, .w32, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- MOVZX dstReg64, BYTE PTR [basePtr + disp8] helper. -/
@@ -643,7 +631,7 @@ theorem mov_mem64_disp_imm_sign_extension_soundness :
       rip := 0x1000,
       gprs := fun r => if r == .rax then 0x20000000 else 0,
       flags := 0,
-      memory := fun _ => 0
+      memory := X86_64Mem.zero
     }
     -- Store negative 32-bit immediate 0xFFFFFFF6 (-10) at [rax + 0]
     let instrNeg : AnyX86_64Instruction := mov_mem64_disp_imm .rax 0 0xFFFFFFF6

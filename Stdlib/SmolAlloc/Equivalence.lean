@@ -47,7 +47,7 @@ def smolAllocInvariant (spec : SmolAllocState) (_p : TracedPageState) (mach : X8
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Simulates execution of smol_malloc on an input size in RCX with initial bump pointer in R11 and freelist in R10. -/
-def runSmolMallocAsmState (size : Nat) (arenaBase : UInt64 := 0x20000000) (freeHead : UInt64 := 0) (initialMem : Address → Byte := fun _ => 0) : X86_64MachineState :=
+def runSmolMallocAsmState (size : Nat) (arenaBase : UInt64 := 0x20000000) (freeHead : UInt64 := 0) (initialMem : X86_64Memory := X86_64Mem.zero) : X86_64MachineState :=
   let s0 : X86_64MachineState := {
     rip := 0x1000,
     gprs := fun r =>

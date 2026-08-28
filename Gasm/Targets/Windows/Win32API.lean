@@ -107,15 +107,14 @@ def readFileHook {Event : Type} (s : X86_64MachineState) : X86_64MachineState ×
   let readBytes := s.stdinBuffer.extract 0 count
   let remaining := s.stdinBuffer.extract count avail
   let s_popped := popReturnAddress s
+  -- Order matches the pre-hook code's `if` precedence exactly: the destination-buffer write
+  -- wins on any overlap with the [lpRead, lpRead+4) count-output word (checked first in the
+  -- original raw-lambda chain), so lpRead's word is written first and the buffer bytes second.
+  let s'' := if lpRead == 0 then s_popped.memory else X86_64Mem.write .w32 lpRead count.toUInt64 s_popped.memory
+  let s''' := X86_64Mem.writeBytes bufAddr readBytes.toList s''
   let s' := { (s_popped.setGpr64 .rax 1) with
     stdinBuffer := remaining,
-    memory := fun a =>
-      if a >= bufAddr && a < bufAddr + count.toUInt64 then
-        readBytes.get! (a - bufAddr).toNat
-      else if lpRead != 0 && a >= lpRead && a < lpRead + 4 then
-        let offset := (a - lpRead).toNat
-        (count.toUInt32 >>> ((offset * 8).toUInt32)).toUInt8
-      else s_popped.memory a
+    memory := s'''
   }
   (s', none)
 
@@ -128,12 +127,7 @@ def writeFileHook {Event : Type} [Inject ConsoleEvent Event] (s : X86_64MachineS
   let text := s.readString bufAddr len
   let s_popped := popReturnAddress s
   let s' := { (s_popped.setGpr64 .rax 1) with
-    memory := if lpWritten == 0 then s_popped.memory else fun a =>
-      if a == lpWritten then len.toUInt8
-      else if a == lpWritten + 1 then (len >>> 8).toUInt8
-      else if a == lpWritten + 2 then (len >>> 16).toUInt8
-      else if a == lpWritten + 3 then (len >>> 24).toUInt8
-      else s_popped.memory a
+    memory := if lpWritten == 0 then s_popped.memory else X86_64Mem.write .w32 lpWritten len.toUInt64 s_popped.memory
   }
   (s', some (Inject.inject (ConsoleEvent.out text)))
 
@@ -229,10 +223,7 @@ def recvHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) : X
     let deliveredStr := (String.fromUTF8? deliveredArr).getD req
     let s' := { (s_popped.setGpr64 .rax count.toUInt64) with
       incomingRequests := incomingRequests',
-      memory := fun a =>
-        if a >= bufAddr && a < bufAddr + count.toUInt64 then
-          deliveredArr.get! (a - bufAddr).toNat
-        else s_popped.memory a
+      memory := X86_64Mem.writeBytes bufAddr delivered s_popped.memory
     }
     (s', some (Inject.inject (NetEvent.recv deliveredStr)))
 
@@ -353,7 +344,7 @@ def loadWindowsProcess (imageBase : Address) (entryRva : UInt32) (sections : Lis
   rip    := imageBase + entryRva.toUInt64,
   gprs   := fun r => if r == .rsp then 0x7FFFFFFF0008 else 0,
   flags  := 0,
-  memory := loadMemory imageBase sections imports idataRva
+  memory := X86_64Mem.initRegion (loadMemory imageBase sections imports idataRva)
 }
 
 /- REF: docs/TARGETS/WINDOWS.md#3-pe32-binary-header-loader-invariants -/
@@ -401,7 +392,7 @@ def isValidEntryState (exe : WindowsExecutable) (s : X86_64MachineState) : Bool 
   let layout := computeSectionLayout exe.textBytes.size exe.rdataBytes.size 512
   s.rip == exe.imageBase + exe.entryRva.toUInt64 &&
   s.rsp % 16 == 8 &&
-  (List.range exe.rdataBytes.size).all (fun i => s.memory (exe.imageBase + layout.rdataRva.toUInt64 + i.toUInt64) == exe.rdataBytes.get! i) &&
+  (List.range exe.rdataBytes.size).all (fun i => s.read8 (exe.imageBase + layout.rdataRva.toUInt64 + i.toUInt64) == (exe.rdataBytes.get! i).toUInt64) &&
   (List.range exe.imports.length).all (fun idx => s.read64 (exe.imageBase + layout.idataRva.toUInt64 + (idx * 8).toUInt64) != 0)
 
 end WindowsExecutable

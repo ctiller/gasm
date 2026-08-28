@@ -38,13 +38,11 @@ instance : X86_64Instruction AndR64Imm8 where
     let rex := makeRex true false false dstExt
     let modrm := makeModRM 3 4 dstCode
     ByteArray.mk #[rex, 0x83, modrm, i.imm]
-
   step i s :=
     let imm64 := signExtend8To64 i.imm
     let res := s.gprs i.dst &&& imm64
     let s' := (s.setGpr64 i.dst res).setFlagsLogic64 res
     { s' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "AND.r64_imm8", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   -- `byte` qualifier is load-bearing, not decorative (found via P4(a)'s registry-derived
   -- encoding fuzzer, docs/X86_ISA_EXPANSION_PREREQUISITES.md, on the `curatedUInt8Cases` 0xFF
@@ -65,6 +63,7 @@ instance : X86_64Instruction AndR64Imm8 where
   roundtripCases :=
     (allReg64List.map (AndR64Imm8.mk · 0x00)) ++ (curatedUInt8Cases.map (AndR64Imm8.mk .rax ·)) ++
     (curatedUInt8Cases.map (AndR64Imm8.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=AND;part=description -/
 /-- AND reg64, reg64 instruction: bitwise AND between 64-bit registers. -/
@@ -81,12 +80,10 @@ instance : X86_64Instruction AndR64R64 where
     let rex := makeRex true srcExt false dstExt
     let modrm := makeModRM 3 srcCode dstCode
     ByteArray.mk #[rex, 0x21, modrm]
-
   step i s :=
     let res := s.gprs i.dst &&& s.gprs i.src
     let s' := (s.setGpr64 i.dst res).setFlagsLogic64 res
     { s' with rip := s.rip + 3 }
-
   toUops _ := [{ mnemonic := "AND.r64_r64", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"and {i.dst}, {i.src}"
   toLean i := s!"and_r64 .{i.dst} .{i.src}"
@@ -98,6 +95,7 @@ instance : X86_64Instruction AndR64R64 where
   roundtripCases :=
     (allReg64List.map (AndR64R64.mk · .rax)) ++ (allReg64List.map (AndR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => AndR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- AND reg64, imm8 helper. -/

@@ -48,6 +48,7 @@ instance : X86_64Instruction RetOp where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [RetOp.mk]
+  memAccesses _ := [⟨.load, .w64, ⟨some .rsp, none, 0⟩⟩]
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- RET helper. -/
