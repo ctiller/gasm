@@ -1,7 +1,7 @@
 ---
 id: B3
 title: Stage B decoder modularization (per-instruction tryDecode co-located with encode)
-status: ready
+status: done
 blocked_on: ""
 after: [TC4, B1]
 related: []
@@ -9,8 +9,8 @@ bar: ""
 track: build-scale
 priority: 9.0
 priority_set: 2026-08-28T06:00:00Z
-design: ""
-design_review: ""
+design: inline
+design_review: waived-mechanical
 date: 2026-08-27
 ---
 
@@ -216,3 +216,80 @@ the umbrella complete is convention.
   prereqs". Priority raised 5.0 -> 9.0 accordingly. The measured motivation: a single-instruction
   edit currently rebuilds 39 modules in ~130s, and that cost scales with total ISA size rather
   than with the size of the change — so it worsens precisely as the ISA grows.
+
+### 2026-08-28 — implemented (recovery task, salvaged + completed a crashed agent's WIP)
+
+A prior agent's session was killed mid-task by a reboot, leaving 27 uncommitted files in worktree
+`agent-af93a93ef2af4d1cb`: `tryDecode` functions already added to all 25 `Instructions/<Family>.lean`
+files (correct, but unwired — `RoundtripGate/Common.lean`'s `decodesOk` had been generalized to take
+a decoder parameter, but none of the 26 `RoundtripGate/<Family>.lean` shards or `RoundtripTests.lean`
+had been updated to the new call signature, so the tree did not build). Salvaged: fixed all 26 call
+sites to pass each family's own `<family>TryDecode`; every family's `decide`-based roundtrip gate
+then passed unchanged, confirming the salvaged `tryDecode` bodies were correct.
+
+Completed the rest of the design: `Decoder.lean` reduced from 774 lines to a thin dispatcher
+(`allTryDecoders : List (ByteArray → Nat → Except String (AnyX86_64Instruction × Nat))` +
+`tryDecoders`, tries each family in order, first success wins); new
+`RoundtripGate/DispatchExhaustive.lean` proves dispatch-reachability per family
+(`<family>Family_dispatchReachable`, `decide`-checked, zero axioms); per-family in-bucket
+exclusivity corollaries added to every `RoundtripGate/<Family>.lean` shard, derived from the
+existing roundtrip gate via a new generic `RoundtripGate.inBucketExclusiveOf` lemma in
+`Common.lean` rather than a fresh `O(n²)` `decide`; new `scripts/check_instructions_umbrella.py`
+closes the umbrella import-completeness gap the B1 review flagged (structural detection — "does
+this file declare an `X86_64Instruction` instance?" — not a hand-maintained exclusion list, so it
+stayed correct across the concurrent P4/P5 merge that added `Instructions/Obligations.lean`).
+
+**Drift from the design, found empirically, not anticipated:** wiring `DispatchExhaustive.lean`
+into the default `Gasm` build (so dispatch-reachability is checked on every `lake build`) measured
+at +146s wall time — exhaustively `decide`-checking the real dispatcher against all ~1611
+registered witnesses is expensive, and doing it on every edit would have turned Stage B's own
+build-perf win negative on the metric that matters (wall time). Kept `DispatchExhaustive.lean` out
+of the hot path (not imported by `RoundtripGate.lean`'s aggregator); it remains a complete,
+zero-`sorry`/zero-new-axiom proof, buildable directly
+(`lake build Gasm.Targets.X86_64.RoundtripGate.DispatchExhaustive`), recommended as an explicit CI
+step rather than a local-loop one. See `docs/TARGETS/X86_64.md` §5 for the full writeup.
+
+**Measured (same instruction, `Instructions/Add.lean`'s `add_r64`, edited both times, warm
+`.lake` cache both times):**
+- Before: **39 modules / ~82s** wall (26 `RoundtripGate` shards + `Common` + aggregator + `Decoder`
+  + `Registry` + downstream — reproduced exactly, confirming the task's stated "39 modules /
+  ~130s" measured-elsewhere baseline; the wall-time gap is machine/load variance, the job count
+  matches exactly).
+- After: **14 modules / ~28s** wall (only `RoundtripGate.Add` among the 26 shards; the other 25
+  families' gates stay cached). **-64% modules, -66% wall time.**
+
+**Registry-gate mutation control** (planted an unregistered `X86_64Instruction` instance in
+`Instructions/Hlt.lean`, no matching `Registry.lean` manifest entry): build failed, naming the
+exact offender (`Gasm.Targets.X86_64.Instructions.NopOpMutationControl`); removed, build green.
+Repeated after the final rebase onto main, same result.
+
+**Behavioural gates, before and after, exit 0 both times:** `test_roundtrip` (1612 cases — the
+registry grew slightly since this file's 1594 baseline note),  `x86_fuzzer` (1044 fuzzed / 0
+failed), `encoding_fuzzer` (100/100 NASM-exact matches). `python scripts/check_refs.py`,
+`lake exe check_gates_axioms` (6674 declarations scanned, 79 axiom-dependent, all allowlisted, 0
+not), `lake exe check_x86_obligations`, and `lake exe check_refs_coverage` all exit 0 on the final
+tree.
+
+**Rebased twice onto a moving `main`** (a second team landed the P4/P5 unified x86 instruction
+obligation gate mid-task, touching every `Instructions/<Family>.lean` file with new
+`validationOracle`/`costProvenance` fields) — both rebases were clean, no conflict markers, no
+manual resolution needed (their edits landed inside each `instance ... where` block; this task's
+`tryDecode` additions land after it, at file end).
+
+**Not done, flagged for follow-up, not blocking:** (1) `scripts/check_instructions_umbrella.py` is
+not yet wired into `scripts/run_gates.py`'s `GATE_TABLE` — that file's own self-mutation-test
+convention (a paired `_defect_*` probe per gate) is a real pattern to match, not a trivial addition,
+and this task didn't want to rush it; the script works standalone and is mutation-tested by hand in
+this session. (2) `docs/X86_ISA_EXPANSION_PREREQUISITES.md` P3's suggested "parallelism cap or
+batching for the `decide` shards" (the intermittent-OOM aggravator) was not addressed — no OOM was
+observed in this session's builds, so it wasn't chased, but it's still open per that doc.
+
+**Proof-architecture signal for PA2/PA3** (per the task's own request): both new lemma shapes
+generalized cleanly with zero hand-derivation surprises. In-bucket exclusivity fell out as a pure
+corollary of the roundtrip gate (no new `decide` needed) once framed correctly — a good sign for
+composing local proofs cheaply. Dispatch-reachability's shape was trivial to state
+(`decodesOk`, just re-parameterized) but its *cost* was the real finding: an exhaustive
+`decide`-checked global composition lemma over ~1600 cases is expensive enough that where it lives
+in the build graph is itself a design decision, not an afterthought — worth carrying into Phase 4's
+larger composition work, where the analogous global lemma will be checked over a much bigger case
+set.
