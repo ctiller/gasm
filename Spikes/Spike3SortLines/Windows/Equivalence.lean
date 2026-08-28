@@ -60,13 +60,13 @@ def modelTraceCanonical : List AnyEvent :=
 /-- Constructive proof of semantic trace equivalence between high-level sorting spec and lowered machine execution on canonical input. -/
 theorem spike3_canonical_effect_trace_equivalence_inst :
     (asmTraceCanonical == modelTraceCanonical) = true := by
-  native_decide
+  decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive proof of semantic trace equivalence on empty input. -/
 theorem spike3_empty_effect_trace_equivalence_inst :
     (runAsmTrace (Event := AnyEvent) spike3Instructions spike3Executable.load == modelTraceEmpty) = true := by
-  native_decide
+  decide
 
 /- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
 /-- **Domain-honesty note (PA17).** The real domain Law 9's read-binder clause demands here is

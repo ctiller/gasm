@@ -63,7 +63,7 @@ def specTraceCanonical : List AnyEvent := [
 /-- Formally verified theorem: WebAssembly operational trace on canonical stdin matches specification trace. -/
 theorem spike3_wasm_canonical_effect_trace_equivalence :
     (runWasiTrace spike3WasmInstructions spike3DataSegments defaultSampleInput ["fd_read", "fd_write", "proc_exit"] == specTraceCanonical) = true := by
-  native_decide
+  decide +kernel
 
 -- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witness (see the identical
 -- check and its rationale in Spikes/Spike1Hello/Wasm/Equivalence.lean): proves the actual Spike 3

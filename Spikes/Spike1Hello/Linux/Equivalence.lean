@@ -39,7 +39,7 @@ open Gasm.Targets.Linux
 theorem spike1_canonical_effect_trace_equivalence :
     (runAsmTrace (Event := AnyEvent) spike1Instructions spike1Executable.load ==
      runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)) = true := by
-  native_decide
+  decide
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
