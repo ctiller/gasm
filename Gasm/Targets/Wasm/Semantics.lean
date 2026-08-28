@@ -56,6 +56,21 @@ structure WasmMachineState where
   trapped          : Bool         := false
   exitCode         : Option UInt32 := none
   events           : List AnyEvent := []
+  -- REF: wasm-exec-runtime#administrative-instructions -- fuel-conversion note (see
+  -- `defaultWasmFuel`/`WasmRunResult` below): once the fuel-bounded interpreter core
+  -- (`evalInstrMatch`/`evalInstrs`/`evalLoop`) genuinely runs out of fuel, its own return type
+  -- (`WasmRunResult`, an `Except`) already makes that outcome structurally impossible to confuse
+  -- with a completed run at that layer. This field exists ONLY for the handful of legacy,
+  -- non-`Except`-returning convenience wrappers (`evalInstr`, `stepWasm`, `runWasmFunction`) that
+  -- collapse a `WasmRunResult` back down to the pre-fuel `WasmMachineState × ControlSignal`/
+  -- `WasmMachineState` shapes those call sites (the differential fuzzer, spike helper functions)
+  -- were written against -- it is the one place fuel-exhaustion becomes "just a flag," and it is
+  -- kept structurally parallel to `trapped` (a distinct, dedicated bit that no existing code path
+  -- sets or clears for any other reason) precisely so a caller checking it cannot mistake fuel
+  -- running out for either a trap or a genuine normal completion. No load-bearing whole-program
+  -- equivalence theorem in this codebase reads this field: those go through `runWasiTraceState`'s
+  -- un-collapsed `WasmRunResult`, each proven (`#guard`) never to hit `.error` at all.
+  fuelExhausted    : Bool         := false
   deriving Inhabited
 
 /- REF: wasm-exec-runtime#stack -/
@@ -170,19 +185,74 @@ def writeMem64 (mem : ByteArray) (addr : Nat) (val : UInt64) : ByteArray :=
   let m6 := writeMem8 m5 (addr + 6) b6
   writeMem8 m6 (addr + 7) b7
 
-mutual
-  /- REF: wasm-exec-instructions#instructions -/
-  /-- Operational evaluation for structured WebAssembly instruction execution, MINUS the trap/exit
-      short-circuit guard: that guard is deliberately pulled out to the non-`partial` `evalInstr`
-      wrapper below (and inlined once more at `evalInstrs`'s own call site, the only place within
-      this `mutual` group that dispatches to a single instruction) so that PA12's general
-      short-circuit theorem can be proved by plain unfolding of an ordinary, non-opaque `def`,
-      rather than needing to see inside this group's own `partial` recursion at all. `evalInstr`
-      (defined after `end` below) is the one and only public entry point external callers
-      (`stepWasm`, `runWasmFunction`) use; this function is never called directly from outside the
-      mutual group. -/
-  partial def evalInstrMatch (instr : WasmInstr) (s : WasmMachineState)
-      (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : WasmMachineState × ControlSignal :=
+/- REF: wasm-exec-runtime#administrative-instructions -/
+/-- **Fuel bound for the structurally-recursive Wasm interpreter core (`evalInstrMatch`/
+    `evalInstrs`/`evalLoop` below).** Converting that group from `mutual partial` to fuel-based
+    structural recursion on an explicit `Nat` (following `Gasm/Targets/X86_64/Semantics.lean`'s
+    `runProgramTraceWithLoops` shape) is what makes the group have real defining equations at all
+    -- `partial def`s compile to an `opaque` constant with none (confirmed via `#print evalInstrs`
+    before this change; see `spike1_wasm_canonical_effect_trace_equivalence`'s prior docstring in
+    `Spikes/Spike1Hello/Wasm/Equivalence.lean` and `evalInstr_trapped_next` in
+    `SemanticsFuzzer.lean` for the two places this previously blocked a proof outright), while a
+    real WebAssembly `loop` must still be able to not terminate, so SOME bound is unavoidable for
+    totality. `100000000` (100 million) is chosen generously relative to every actual program this
+    codebase runs the interpreter over -- the largest, Spike 2's iterative Fibonacci, loops at most
+    90 times (`test_spike2_wasm`'s "all 90 Fibonacci numbers"), and every spike's compiled module is
+    under 2.2KB (`validate_spike_wasm`'s byte counts) -- and is cheap regardless of how it compares
+    to real usage: fuel is consumed one unit per interpreter step actually taken (see `evalInstrs`),
+    so the KERNEL reduction cost of a `decide`/`rfl` proof over a short-running program tracks the
+    actual step count, never this nominal ceiling (`Nat` literals reduce via the kernel's built-in
+    GMP-backed arithmetic, not unary `Nat.succ` peeling). Every spike's own `runWasiTraceState` call
+    is proven, not merely assumed, never to exhaust this bound -- see the `#guard
+    !(runWasiTraceState ...).isError` checks alongside each spike's `Equivalence.lean`. If any of
+    those ever start failing as new spikes/programs are added, THAT is the finding to report (per
+    docs/EQUIVALENCE_PROOFS.md#11-the-definition-of-observation-canonical-equivalence-standard's
+    anti-vacuity stance) -- raising this constant to make a failing check pass again is exactly the
+    move this docstring warns against. -/
+def defaultWasmFuel : Nat := 100000000
+
+/- REF: wasm-exec-runtime#administrative-instructions -/
+/-- **Outcome of one fuel-bounded run through the interpreter core.** `.ok (s, sig)` is a genuine
+    stopping point reached within budget -- exactly what the old `mutual partial` group
+    unconditionally returned (trapped or not, distinguished as before via `s.trapped`; a `.next`/
+    `.br _`/`.ret` signal exactly as before). `.error s` is fuel exhaustion, carrying the partial
+    machine state observed at the instant fuel reached zero. Modeled directly on `Except` rather
+    than folding a boolean into `WasmMachineState` (the pattern this project's own debt tracker
+    (TCB.md, "Fuel exhaustion indistinguishable from clean termination") diagnoses as a soundness
+    gap in the sibling `Gasm/Targets/X86_64/Semantics.lean`'s `runProgramTraceWithLoops`, which
+    returns `[]` for fuel-out, "no instruction at rip", AND a clean fault alike) so that a caller
+    pattern-matching on the OUTCOME itself -- not a field reachable only by first assuming the run
+    completed -- cannot mistake "ran out of fuel" for "ran to completion" no matter which
+    projection they reach for first. The pre-fuel external wrappers (`evalInstr`, `stepWasm`,
+    `runWasmFunction`) still collapse this back to their historical unwrapped shapes for caller
+    compatibility (see their own docstrings for exactly what is preserved and what is
+    best-effort); `runWasiTraceState` (`Gasm/Targets/WASI/ABI.lean`) is the one whole-program entry
+    point that returns this type uncollapsed, and is what every load-bearing equivalence theorem in
+    this codebase is proven never to see `.error` from. -/
+abbrev WasmRunResult := Except WasmMachineState (WasmMachineState × ControlSignal)
+
+/-- Convenience check for whether a `WasmRunResult` is the fuel-exhausted outcome, named for
+    readability at `#guard`/proof call sites (`.isOk`/`isError`-style helpers are not derived
+    automatically for `Except`). -/
+abbrev WasmRunResult.isError (r : WasmRunResult) : Bool :=
+  match r with
+  | .error _ => true
+  | .ok _ => false
+
+/- REF: wasm-exec-instructions#instructions -/
+/-- Evaluation for every WebAssembly instruction EXCEPT the three structured control-flow forms
+    (`.block`/`.loop`/`.if_else`) that recurse back into the fuel-bounded `mutual` group below --
+    deliberately kept as an ordinary, non-recursive, non-`mutual` `def` (needs no `fuel` parameter
+    at all) so its equations are trivially available to any tactic without touching the recursive
+    core. `evalInstrMatch` dispatches `.block`/`.loop`/`.if_else` itself and delegates every other
+    instruction here unchanged; the `.block _ _`/`.loop _ _`/`.if_else _ _ _` arms below are
+    therefore dead in practice (never reached by that dispatch) and exist only so this match stays
+    exhaustive over `WasmInstr` -- they return `(s, .next)`, matching this function's own catch-all
+    for any other not-yet-modeled instruction, exactly as the pre-fuel-conversion `evalInstrMatch`
+    did for both. Bodies below are byte-for-byte unchanged from the pre-fuel-conversion
+    `evalInstrMatch`. -/
+def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : WasmMachineState × ControlSignal :=
       match instr with
       | .unreachable => ({ s with trapped := true }, .next)
       | .nop => (s, .next)
@@ -455,83 +525,161 @@ mutual
         let (c, s1) := popI32 s
         if c != 0 then (s1, .br depth) else (s1, .next)
       | .return_op => (s, .ret)
+      -- Dead in practice: `evalInstrMatch` below dispatches all three of these itself and never
+      -- delegates them here (see this function's own docstring). Present only for match
+      -- exhaustiveness, exactly like the trailing `_ => (s, .next)` catch-all.
+      | .block _ _ => (s, .next)
+      | .loop _ _ => (s, .next)
+      | .if_else _ _ _ => (s, .next)
+      | _ => (s, .next)
+
+mutual
+  /- REF: wasm-exec-instructions#instructions -/
+  /-- Dispatches the three structured control-flow instructions (`.block`/`.loop`/`.if_else`),
+      each of which recurses back into this `mutual` group and so needs `fuel`; every other
+      instruction is delegated unchanged to `evalLeafInstr` above. `evalInstr` (defined after
+      `end` below) is the one and only public entry point external callers (`stepWasm`,
+      `runWasmFunction`) use; this function is never called directly from outside the mutual
+      group. Fuel-converted (see `defaultWasmFuel`/`WasmRunResult` above): now an ordinary
+      structurally-recursive, non-`partial` `def` -- `fuel` decreases by exactly one on every
+      entry to this function (whether the matched instruction itself recurses or not), so the
+      whole `mutual` group has a single, uniform, kernel-checkable decreasing measure, exactly
+      mirroring `Gasm/Targets/X86_64/Semantics.lean`'s `runProgramTraceWithLoops`. -/
+  def evalInstrMatch (fuel : Nat) (instr : WasmInstr) (s : WasmMachineState)
+      (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : WasmRunResult :=
+    match fuel with
+    | 0 => .error s
+    | fuel + 1 =>
+      match instr with
       | .block _ body =>
-        let (s', sig) := evalInstrs body s hostCall
-        match sig with
-        | .br 0 => (s', .next)
-        | .br (d + 1) => (s', .br d)
-        | other => (s', other)
-      | .loop _ body =>
-        evalLoop body s hostCall
+        match evalInstrs fuel body s hostCall with
+        | .error s' => .error s'
+        | .ok (s', sig) =>
+          match sig with
+          | .br 0 => .ok (s', .next)
+          | .br (d + 1) => .ok (s', .br d)
+          | other => .ok (s', other)
+      | .loop _ body => evalLoop fuel body s hostCall
       | .if_else _ thenBody elseBody =>
         let (c, s1) := popI32 s
-        let (s', sig) := if c != 0 then evalInstrs thenBody s1 hostCall
-                         else evalInstrs elseBody s1 hostCall
-        match sig with
-        | .br 0 => (s', .next)
-        | .br (d + 1) => (s', .br d)
-        | other => (s', other)
-      | _ => (s, .next)
+        match (if c != 0 then evalInstrs fuel thenBody s1 hostCall
+               else evalInstrs fuel elseBody s1 hostCall) with
+        | .error s' => .error s'
+        | .ok (s', sig) =>
+          match sig with
+          | .br 0 => .ok (s', .next)
+          | .br (d + 1) => .ok (s', .br d)
+          | other => .ok (s', other)
+      | leaf => .ok (evalLeafInstr leaf s hostCall)
 
   /- REF: wasm-exec-instructions#expressions -/
   /-- Evaluates a list of instructions in sequence. The trap/exit guard is inlined here (rather
       than delegated to a call to the `evalInstr` wrapper, which is not yet in scope inside this
       `mutual` group) -- textually identical to the guard in the standalone `evalInstr` below, so
       every instruction dispatched from a sequence is skipped once the state traps or exits,
-      exactly as it was when this guard lived inside a single combined function. -/
-  partial def evalInstrs (instrs : List WasmInstr) (st : WasmMachineState)
-      (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : WasmMachineState × ControlSignal :=
-    match instrs with
-    | [] => (st, .next)
-    | i :: rest =>
-      let (st', sig) :=
-        if st.trapped || st.exitCode.isSome then (st, .next) else evalInstrMatch i st hostCall
-      match sig with
-      | .next => evalInstrs rest st' hostCall
-      | other => (st', other)
+      exactly as it was when this guard lived inside a single combined function. Fuel-converted:
+      `fuel` is consumed once per list element visited (whether that element is actually
+      dispatched to `evalInstrMatch` or skipped by the trap/exit guard), giving the whole `mutual`
+      group its single decreasing measure -- see `evalInstrMatch`'s docstring. -/
+  def evalInstrs (fuel : Nat) (instrs : List WasmInstr) (st : WasmMachineState)
+      (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : WasmRunResult :=
+    match fuel with
+    | 0 => .error st
+    | fuel + 1 =>
+      match instrs with
+      | [] => .ok (st, .next)
+      | i :: rest =>
+        if st.trapped || st.exitCode.isSome then
+          evalInstrs fuel rest st hostCall
+        else
+          match evalInstrMatch fuel i st hostCall with
+          | .error st' => .error st'
+          | .ok (st', .next) => evalInstrs fuel rest st' hostCall
+          | .ok (st', other) => .ok (st', other)
 
   /- REF: wasm-exec-instructions#blocks -/
-  /-- Evaluates a loop body repeatedly until loop exit. -/
-  partial def evalLoop (body : List WasmInstr) (st : WasmMachineState)
-      (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : WasmMachineState × ControlSignal :=
-    let (st', sig) := evalInstrs body st hostCall
-    match sig with
-    | .next => (st', .next)
-    | .br 0 => evalLoop body st' hostCall
-    | .br (d + 1) => (st', .br d)
-    | .ret => (st', .ret)
+  /-- Evaluates a loop body repeatedly until loop exit. THE genuinely non-terminating case in this
+      whole interpreter -- a real Wasm `loop` re-entering via `.br 0` has no structurally-
+      decreasing measure over the instruction list (it evaluates the SAME `body` again), which is
+      exactly why the pre-fuel-conversion group had to be `partial`. `fuel` is what makes this
+      total: each re-entry consumes at least one unit (via the nested `evalInstrs fuel body st
+      hostCall` call, itself fuel-metered), so a loop that never reaches its own exit condition
+      now terminates by returning `.error` (fuel exhausted) rather than diverging -- an
+      OBSERVABLE, distinct outcome (see `WasmRunResult`'s docstring), never silently reported as
+      if the loop had returned normally. This is also the natural inner half of the inner/outer
+      split docs/EQUIVALENCE_PROOFS.md#11-the-definition-of-observation-canonical-equivalence-standard
+      calls for on non-terminating programs: THIS function proves nothing about whether a real
+      infinite loop eventually does useful work (that is an outer progress/liveness obligation,
+      stated separately, e.g. against a `VerifiedReactiveProgram`-style contract), it only makes
+      "run the deterministic body up to N iterations and compare" a well-typed, provable question
+      in the first place -- which it was not at all while `evalLoop` was opaque. -/
+  def evalLoop (fuel : Nat) (body : List WasmInstr) (st : WasmMachineState)
+      (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : WasmRunResult :=
+    match fuel with
+    | 0 => .error st
+    | fuel + 1 =>
+      match evalInstrs fuel body st hostCall with
+      | .error st' => .error st'
+      | .ok (st', sig) =>
+        match sig with
+        | .next => .ok (st', .next)
+        | .br 0 => evalLoop fuel body st' hostCall
+        | .br (d + 1) => .ok (st', .br d)
+        | .ret => .ok (st', .ret)
 end
 
 /- REF: wasm-exec-instructions#instructions -/
-/-- Public entry point for evaluating a single instruction: applies the trap/exit short-circuit
-    guard, then delegates to `evalInstrMatch`'s per-instruction dispatch. Deliberately NOT
-    `partial` and NOT part of the `mutual` group above -- unlike `evalInstrMatch`/`evalInstrs`/
-    `evalLoop` (whose mutual recursion through `evalLoop`'s unbounded iteration genuinely can
-    diverge on a real infinite Wasm loop, so Lean compiles that whole group as an opaque
-    constant with no usable defining equations), THIS wrapper's own body is a single non-recursive
-    `if`, so it is an ordinary total `def` with a real equation Lean can unfold -- exactly what
-    PA12's general trap short-circuit theorem (`evalInstr_trapped_next` in `SemanticsFuzzer.lean`)
-    inducts on, without needing visibility into the opaque partial-recursive body at all
-    (`evalInstrs`/`evalLoop` themselves remain opaque -- see `evalInstr_trapped_next`'s own
-    docstring for why that residual scope limit is genuine, not an oversight). Same signature and
-    identical behaviour to the
-    previous single combined `partial def evalInstr` (confirmed by the differential fuzzer suite
-    below passing unchanged). -/
-def evalInstr (instr : WasmInstr) (s : WasmMachineState)
-    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) :
-    WasmMachineState × ControlSignal :=
-  if s.trapped || s.exitCode.isSome then (s, .next) else evalInstrMatch instr s hostCall
+/-- Collapses a `WasmRunResult` back to the pre-fuel-conversion unwrapped
+    `WasmMachineState × ControlSignal` shape, for the legacy convenience wrappers below. `.ok`
+    passes its pair through unchanged; `.error s` (fuel exhausted) becomes `({ s with
+    fuelExhausted := true }, .next)` -- NOT indistinguishable from ordinary completion, since
+    `fuelExhausted` is a dedicated field no other code path sets (see that field's own docstring
+    on `WasmMachineState`), but ALSO not structurally forced on a caller the way matching a
+    `WasmRunResult` directly is. Every load-bearing whole-program equivalence theorem in this
+    codebase avoids this collapse entirely by going through `runWasiTraceState`
+    (`Gasm/Targets/WASI/ABI.lean`), which returns the un-collapsed `WasmRunResult`. -/
+def collapseWasmRunResult (r : WasmRunResult) : WasmMachineState × ControlSignal :=
+  match r with
+  | .ok p => p
+  | .error s => ({ s with fuelExhausted := true }, .next)
 
 /- REF: wasm-exec-instructions#instructions -/
-/-- Pure operational step evaluation for single instruction. -/
-def stepWasm (instr : WasmInstr) (s : WasmMachineState) : WasmMachineState :=
-  (evalInstr instr s (fun _ st => (st, .next))).1
+/-- Public entry point for evaluating a single instruction: applies the trap/exit short-circuit
+    guard, then delegates to `evalInstrMatch`'s per-instruction dispatch. Deliberately NOT part of
+    the `mutual` group above -- this wrapper's own body is a single non-recursive `if`, so it is
+    an ordinary total `def` with a real equation Lean can unfold -- exactly what PA12's general
+    trap short-circuit theorem (`evalInstr_trapped_next` in `SemanticsFuzzer.lean`) inducts on,
+    without needing visibility into `evalInstrMatch`'s own body at all. Same external signature
+    and identical behaviour (for any run that does not exhaust `fuel`) as the historical
+    `evalInstr` from before the fuel conversion: `fuel` is a NEW trailing parameter with a
+    generous default (`defaultWasmFuel`), so every pre-existing 3-argument call site
+    (`evalInstr instr s hostCall`) still compiles and still behaves identically, confirmed by the
+    differential fuzzer suite below passing unchanged. See `collapseWasmRunResult`'s docstring for
+    exactly what happens on the (for every real program in this codebase, proven never to occur)
+    fuel-exhausted path. -/
+def evalInstr (instr : WasmInstr) (s : WasmMachineState)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (fuel : Nat := defaultWasmFuel) :
+    WasmMachineState × ControlSignal :=
+  if s.trapped || s.exitCode.isSome then (s, .next)
+  else collapseWasmRunResult (evalInstrMatch fuel instr s hostCall)
+
+/- REF: wasm-exec-instructions#instructions -/
+/-- Pure operational step evaluation for single instruction. `fuel` is a new trailing parameter
+    with a generous default (`defaultWasmFuel`), so every pre-existing 2-argument call site
+    (`stepWasm instr s`) still compiles unchanged; see `evalInstr`'s docstring for what "unchanged"
+    means precisely across the fuel conversion. -/
+def stepWasm (instr : WasmInstr) (s : WasmMachineState) (fuel : Nat := defaultWasmFuel) : WasmMachineState :=
+  (evalInstr instr s (fun _ st => (st, .next)) fuel).1
 
 /- REF: wasm-exec-instructions#function-calls -/
-/-- Evaluates an entire sequence of structured WebAssembly instructions starting from initial locals. -/
-def runWasmFunction (body : List WasmInstr) (locals : List WasmVal) : WasmMachineState :=
+/-- Evaluates an entire sequence of structured WebAssembly instructions starting from initial
+    locals. `fuel` is a new trailing parameter with a generous default (`defaultWasmFuel`), so
+    every pre-existing 2-argument call site (`runWasmFunction body locals`) still compiles
+    unchanged. -/
+def runWasmFunction (body : List WasmInstr) (locals : List WasmVal) (fuel : Nat := defaultWasmFuel) : WasmMachineState :=
   let s : WasmMachineState := { locals := locals }
-  (evalInstr (WasmInstr.block .empty body) s (fun _ st => (st, .next))).1
+  (evalInstr (WasmInstr.block .empty body) s (fun _ st => (st, .next)) fuel).1
 
 /- REF: docs/TARGETS/WASM.md#1-webassembly-machine-model -/
 /-- Architecture tag for WebAssembly target. -/

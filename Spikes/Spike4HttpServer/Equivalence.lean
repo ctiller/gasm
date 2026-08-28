@@ -171,6 +171,17 @@ theorem spike4_linux_404_trace_equivalence :
     (linuxTrace404 == modelTrace404) = true := by
   native_decide
 
+-- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witnesses (see the identical
+-- checks and their rationale in Spikes/Spike1Hello/Wasm/Equivalence.lean), one per Spike 4 WASI
+-- route exercised above: proves each actual run never exhausts `defaultWasmFuel` under
+-- `runWasiTraceState`, rather than merely assuming it.
+#guard !Gasm.Targets.Wasm.WasmRunResult.isError
+  (runWasiTraceState spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports ["GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+#guard !Gasm.Targets.Wasm.WasmRunResult.isError
+  (runWasiTraceState spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports ["GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+#guard !Gasm.Targets.Wasm.WasmRunResult.isError
+  (runWasiTraceState spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports ["GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
+
 /- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
 /-- **Domain-honesty note (PA17).** The real per-connection domain Law 9's read-binder clause
     demands here is `∀ (request : ByteArray)` (or the `String` `recv`/`sock_recv` currently model
