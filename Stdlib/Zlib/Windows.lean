@@ -55,7 +55,7 @@ def crc32SymbolicProgram : List SymbolicInstr := [
 
   label "crc32_calc_loop",
   instr (cmp_r64 .r8 .rdx),
-  jge_near_label "crc32_calc_done",
+  jae_near_label "crc32_calc_done",
 
   instr (mov_r64 .r9 .rcx),
   instr (add_r64 .r9 .r8),
@@ -133,7 +133,8 @@ def crc32SymbolicProgram : List SymbolicInstr := [
   jmp_near_label "crc32_calc_loop",
 
   label "crc32_calc_done",
-  instr (not_r64 .rax),
+  instr (mov_r32 .r11d 0xFFFFFFFF),
+  instr (xor_r32 .eax .r11d),
   instr ret_op
 ]
 
