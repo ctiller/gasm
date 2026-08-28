@@ -33,8 +33,8 @@ structure HltOp where
 instance : X86_64Instruction HltOp where
   encode _ := ByteArray.mk #[0xF4]
   step _ s :=
-    -- Stops machine execution; flagged as faulted/halted to terminate trace/loop evaluators
-    { s with rip := s.rip + 1, faulted := true }
+    -- Stops machine execution; flagged as halted to terminate trace/loop evaluators
+    { s with rip := s.rip + 1, fault := some .halted }
   toUops _ := [
     { mnemonic := "HLT", uopClass := .intALU, eligiblePorts := [.p0], latencyCycles := 1, reciprocalThroughput := 1.0 }
   ]

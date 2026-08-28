@@ -41,7 +41,7 @@ instance : X86_64Instruction DivR64 where
     let divisorVal := s.gprs i.divisor
     if divisorVal == 0 then
       -- #DE (Divide Error Exception) - fault retains the faulting instruction RIP
-      { s with faulted := true }
+      { s with fault := some .divideError }
     else
       let dividendNat : Nat := (s.gprs .rdx).toNat * 18446744073709551616 + (s.gprs .rax).toNat
       let divisorNat : Nat := divisorVal.toNat
@@ -49,7 +49,7 @@ instance : X86_64Instruction DivR64 where
       let remNat := dividendNat % divisorNat
       if quotNat > 0xFFFFFFFFFFFFFFFF then
         -- #DE (Quotient Overflow Exception) - fault retains the faulting instruction RIP
-        { s with faulted := true }
+        { s with fault := some .divideError }
       else
         let s' := s.setGpr64 .rax (UInt64.ofNat quotNat)
         let s'' := s'.setGpr64 .rdx (UInt64.ofNat remNat)

@@ -54,6 +54,10 @@ instance : X86_64Instruction CallRipRel where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map CallRipRel.mk
+  -- `targetIat` is RIP-relative (base := none), not register-relative: `disp` folds in the
+  -- instruction's own fixed 6-byte encoded length so evaluating against the pre-step state
+  -- (which still has the *current*, not next, rip) yields the same address `step` computes.
+  memAccesses i := [⟨.load, .w64, ⟨none, none, 6 + i.disp.toInt⟩⟩, ⟨.store, .w64, ⟨some .rsp, none, -8⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=CALL;part=description -/
 /-- CALL rel32 instruction: direct near relative call. -/
@@ -95,6 +99,7 @@ instance : X86_64Instruction CallRel32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map CallRel32.mk
+  memAccesses _ := [⟨.store, .w64, ⟨some .rsp, none, -8⟩⟩]
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- CALL [RIP + disp32] helper. -/
