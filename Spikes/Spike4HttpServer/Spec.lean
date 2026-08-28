@@ -92,12 +92,21 @@ def routeRequest (req : HttpRequest) : HttpResponse :=
 def formatResponse (res : HttpResponse) : String :=
   s!"HTTP/1.1 {res.statusCode} {res.statusText}\r\nContent-Type: {res.contentType}\r\nContent-Length: {res.body.length}\r\nConnection: close\r\n\r\n{res.body}"
 
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
+/-- The single 400 Bad Request response this spike's model emits for every request line
+    `parseRequestLine` rejects. Named (rather than spelled inline in `handleRawRequest`) so the
+    three lowerings can build their `.rdata`/data-segment copy of these exact bytes *from the model*
+    rather than re-spelling the record and risking drift -- the same discipline
+    `respRootBytes`/`respStatusBytes` already follow for the 200 responses. -/
+def badRequestResponse : HttpResponse :=
+  { statusCode := 400, statusText := "Bad Request", contentType := "text/plain", body := "400 Bad Request\r\n" }
+
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
 /-- End-to-end Pure Functional HTTP Request Handler. -/
 def handleRawRequest (rawReq : String) : String :=
   match parseRequestLine rawReq with
   | some req => formatResponse (routeRequest req)
-  | none => formatResponse { statusCode := 400, statusText := "Bad Request", contentType := "text/plain", body := "400 Bad Request\r\n" }
+  | none => formatResponse badRequestResponse
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
 /-- Monadic HTTP Server Loop Specification parameterized over Network effect capabilities. -/
@@ -132,5 +141,72 @@ def canonicalStatusServerTrace : List AnyEvent :=
 def canonical404ServerTrace : List AnyEvent :=
   serverModelTraceFor "GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
+/-!
+## Lowering support: the method-token dispatch table
+
+All three Spike 4 lowerings used to assume, with no check whatsoever, that the four bytes at the
+start of a received request were literally `"GET "`, and read the path window at the fixed offset 4.
+That made every target answer 200 OK to `"FOO / HTTP/1.1..."` where `parseRequestLine` above
+(delegating to `Stdlib.Http11.parseRequestLine`) answers 400 Bad Request, and simultaneously
+mis-read the path of every *valid* request whose method is not exactly three characters long
+(`HEAD`, `POST`, `DELETE`, `CONNECT`, `OPTIONS`, `TRACE`, `PATCH` -- the model routes purely on the
+path, so `"POST / HTTP/1.1"` must get the same 200 root response `"GET / HTTP/1.1"` does).
+
+The definitions below are the bridge the lowerings dispatch from. They are **derived from
+`Stdlib.Http11.Method.toBytes`**, the same wire-token function the proven parser itself uses, rather
+than hand-transcribed into each target -- so the assembly and the model cannot disagree about which
+method tokens exist or how they spell. What the lowerings do *not* do is embed the whole parser:
+they recognise the method token and locate the path from it, and nothing more. The remaining
+request-line obligations `Stdlib.Http11.parseRequestLine` enforces -- exactly three SP-separated
+fields, an origin-form target, a literal `HTTP/1.1` version -- stay unimplemented in the assembly,
+which is why `Spikes/Spike4HttpServer/Equivalence.lean`'s surviving falsity witnesses
+(`witnessVersionNotValidatedDivergence` and its siblings) are recorded there as checked
+counterexamples rather than quietly excluded from a narrowed claim.
+-/
+
+/- REF: docs/STDLIB_HTTP11.md#11-what-this-library-models -/
+/-- The nine method tokens `Stdlib.Http11.Method` admits, in declaration order.
+    `mem_allHttpMethods` immediately below is the structural proof that this list is exhaustive, so
+    a lowering generated from it cannot silently omit a method. -/
+def allHttpMethods : List Stdlib.Http11.Method :=
+  [.GET, .HEAD, .POST, .PUT, .DELETE, .CONNECT, .OPTIONS, .TRACE, .PATCH]
+
+/- REF: docs/STDLIB_HTTP11.md#11-what-this-library-models -/
+/-- `allHttpMethods` really does list every constructor of `Stdlib.Http11.Method`. Structural
+    (`cases` + `simp`), so it needs neither `decide` nor `native_decide` nor an allowlist entry
+    (`docs/REVIEW.md` Law 10, rung 1); if the enum gains a constructor this proof breaks rather
+    than the lowering silently under-approximating the model. -/
+theorem mem_allHttpMethods (m : Stdlib.Http11.Method) : m ∈ allHttpMethods := by
+  cases m <;> simp [allHttpMethods]
+
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- A method's wire token followed by the request line's mandatory delimiting SP -- exactly the
+    prefix a well-formed request line starts with. -/
+def methodTokenBytes (m : Stdlib.Http11.Method) : List UInt8 :=
+  m.toBytes ++ [0x20]
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- `methodTokenBytes m` packed into one little-endian 64-bit word, matching how both an x86-64
+    `mov r64, [mem]` and a Wasm `i64.load` see those bytes. Every token is at most 8 bytes
+    (`CONNECT `/`OPTIONS ` are exactly 8), so no token is truncated. -/
+def methodTokenWord (m : Stdlib.Http11.Method) : UInt64 :=
+  (methodTokenBytes m).foldr (fun b acc => (acc <<< 8) ||| b.toUInt64) 0
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- The byte mask selecting exactly the `methodTokenBytes m` bytes out of such a 64-bit load, so a
+    shorter token is compared against only its own bytes and not whatever follows it in the buffer. -/
+def methodTokenMask (m : Stdlib.Http11.Method) : UInt64 :=
+  (methodTokenBytes m).foldr (fun _ acc => (acc <<< 8) ||| 0xFF) 0
+
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- Where the request target begins, given the method: immediately after the token and its SP. -/
+def methodPathOffset (m : Stdlib.Http11.Method) : Nat :=
+  (methodTokenBytes m).length
+
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- The distinct path offsets the nine methods produce (4, 5, 6, 7, 8) -- the lowerings emit one
+    path-window-setup block per distinct offset rather than one per method. -/
+def methodPathOffsets : List Nat :=
+  (allHttpMethods.map methodPathOffset).eraseDups
 
 end Spikes.Spike4HttpServer

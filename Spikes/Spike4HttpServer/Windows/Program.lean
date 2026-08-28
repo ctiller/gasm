@@ -35,6 +35,7 @@ import Gasm.Targets.X86_64.Assembler
 import Gasm.Targets.Windows.PEFormat
 import Gasm.Targets.Windows.Linker
 import Spikes.Spike4HttpServer.Spec
+import Spikes.Spike4HttpServer.MethodDispatch
 
 namespace Spikes.Spike4HttpServer.Windows
 
@@ -61,6 +62,12 @@ def respStatusBytes : ByteArray :=
 def resp404Bytes : ByteArray :=
   (formatResponse { statusCode := 404, statusText := "Not Found", contentType := "text/plain", body := "404 Not Found\r\n" }).toUTF8
 
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
+/-- Response bytes for 400 Bad Request, taken from the model's own `badRequestResponse` so the
+    lowering cannot drift from what `Spec.handleRawRequest` emits on a rejected request line. -/
+def resp400Bytes : ByteArray :=
+  (formatResponse badRequestResponse).toUTF8
+
 /- REF: windows-winsock2-send#parameters -/
 /-- Offsets in the combined .rdata payload for response strings. -/
 def respRootOffset : Nat := 0
@@ -71,9 +78,12 @@ def respStatusOffset : Nat := respRootBytes.size
 /- REF: windows-winsock2-send#parameters -/
 def resp404Offset : Nat := respStatusOffset + respStatusBytes.size
 
+/- REF: windows-winsock2-send#parameters -/
+def resp400Offset : Nat := resp404Offset + resp404Bytes.size
+
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
 def rdataPayload : ByteArray :=
-  respRootBytes ++ respStatusBytes ++ resp404Bytes
+  respRootBytes ++ respStatusBytes ++ resp404Bytes ++ resp400Bytes
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
 /-- Symbolic program definition for Spike 4 x86_64 Windows HTTP 1.1 Server.
@@ -144,13 +154,33 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   -- 0 and -1 cases without ever reading the (possibly short/uninitialized) request buffer.
   instr (cmp_r64_imm8 .rax 0x00),
   jle_near_label "close_conn",
+] ++
 
-  -- 9. Inspect received HTTP request line at RSP + 0x40
-  -- Check if path is exactly "/status" followed by the request-line's delimiting space (at offset
-  -- 4: "GET /status ..."). Full 8-byte exact compare (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
+  -- 9. Validate the request's HTTP method token (REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md).
+  -- Previously this code assumed, without checking, that the first four bytes were literally
+  -- "GET " and read the path window at the fixed offset 4. That answered 200 OK to
+  -- "FOO / HTTP/1.1..." where Spec.parseRequestLine answers 400 Bad Request, and mis-read the path
+  -- of every valid request whose method token is not exactly three characters. The shared
+  -- generator below (Spikes/Spike4HttpServer/MethodDispatch.lean) tests the leading bytes against
+  -- every Stdlib.Http11.Method token plus its delimiting SP and selects the path offset from the
+  -- token that matched; an unrecognised token falls through to "send_400" immediately after.
+  methodValidationInstrs 0x40 ++
+[
+  label "send_400",
+  lea_data .rdx "rdata_base",
+  instr (add_r64_imm32 .rdx resp400Offset.toUInt32),
+  instr (mov_r32 .r8d resp400Bytes.size.toUInt32),
+  jmp_near_label "do_send",
+] ++
+
+  methodPathWindowInstrs 0x40 "route_dispatch" ++
+[
+  -- 9b. Inspect the request target RSI now points at.
+  -- Check if path is exactly "/status" followed by the request-line's delimiting space.
+  -- Full 8-byte exact compare (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
   -- defect 3) -- the prior 5-byte-masked "/stat" prefix compare mis-routed any path merely starting
   -- with "/stat" (e.g. "/static") to the status handler.
-  instr (lea_rsp .rsi (0x40 + 4)),
+  label "route_dispatch",
   instr (mov_reg64_mem64_disp .rax .rsi 0),
   instr (mov_r64_imm64 .rcx 0x207375746174732F), -- "/status " (7 chars + trailing delimiter space)
   instr (cmp_r64 .rax .rcx),

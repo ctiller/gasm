@@ -371,6 +371,168 @@ def spike4RouteFixedOnAllTargets (req : String) : Bool :=
 -- an over-correction that broke the legitimate case.
 #guard spike4RouteFixedOnAllTargets "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
+/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/-!
+## Method validation (PA17's second defect -- FIXED on all three targets)
+
+Before this change **no** Spike 4 lowering validated the HTTP method. All three assumed, with no
+check at all, that the four bytes at the start of a received request were literally `"GET "`, and
+read the routing window at the fixed offset 4. Two consequences, both real divergences from the
+honest model (`Spec.lean`'s `parseRequestLine`, delegating to the proven
+`Stdlib.Http11.parseRequestLine`):
+
+1. **An invalid method was answered as if it were `GET`.** `"FOO / HTTP/1.1..."` is rejected by the
+   model with 400 Bad Request (`FOO` is not one of `Stdlib.Http11.Method`'s nine constructors), but
+   because `"FOO "` is also four bytes the fixed offset-4 read landed on the request's genuine
+   `"/ "` target and every target answered 200 OK. This is the divergence
+   `witnessMethodNotValidatedDivergence` below was introduced to witness; it is now a *passing*
+   regression vector, which is the flip this fix had to produce.
+2. **A valid non-three-character method mis-read the path.** `Spec.routeRequest` dispatches purely
+   on the target, so the model answers `"POST / HTTP/1.1..."` with the same 200 root response it
+   gives `"GET / ..."`. The lowerings' fixed offset 4 landed mid-token for `HEAD`/`POST` (offset 5),
+   `TRACE`/`PATCH` (6), `DELETE` (7) and `CONNECT`/`OPTIONS` (8), so all seven of those methods were
+   silently misrouted -- a divergence class the pre-fix witness did not name and no test covered.
+
+**The fix** (`Spikes/Spike4HttpServer/MethodDispatch.lean` for the two x86-64 targets,
+`Spikes/Spike4HttpServer/Wasm/Program.lean`'s `wasmMethodValidationInstrs` for WASI): each target
+now tests the leading request bytes, masked to each token's own length, against every
+`Stdlib.Http11.Method` token plus the request line's mandatory delimiting SP, and takes the routing
+window at the offset the matching token selects. No match sends the model's own 400 Bad Request
+bytes (`Spec.badRequestResponse`, from which all three targets build their copy). The nine tokens
+and their offsets are generated from `Spec.allHttpMethods`, whose exhaustiveness over
+`Stdlib.Http11.Method` is proved structurally by `Spec.mem_allHttpMethods` -- so a lowering cannot
+fall out of step with the parser's method grammar without that proof breaking.
+
+**What this does NOT make true.** The fully general `∀ (request : ByteArray)` claim is still false;
+the method was one reason among several, not the last one. See
+`spike4GeneralClaimCounterexamples` below for the surviving reasons, each a checked witness.
+-/
+
+/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/-- PA17's original falsity witness for the fully-general claim: method `"FOO"` is outside
+    `Stdlib.Http11.Method`, so the model answers 400, while every lowering used to answer 200 OK.
+    Retained under its original name because the guard below is the checked record of the flip --
+    it read `!spike4RouteFixedOnAllTargets ...` before the method-validation fix and reads
+    `spike4RouteFixedOnAllTargets ...` after it. -/
+def witnessMethodNotValidatedDivergence : String :=
+  "FOO / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+-- The model's verdict is unchanged: parsing fails, so the honest server answers 400 Bad Request.
+#guard parseRequestLine witnessMethodNotValidatedDivergence == none
+-- FLIPPED by the method-validation fix (was `!spike4RouteFixedOnAllTargets`): all three targets now
+-- agree with the model on this request.
+#guard spike4RouteFixedOnAllTargets witnessMethodNotValidatedDivergence
+
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- A well-formed request line for a given method and target. -/
+def spike4MethodRequest (m : Stdlib.Http11.Method) (path : String) : String :=
+  s!"{methodToString m} {path} HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/-- Every one of `Stdlib.Http11.Method`'s nine tokens, on one target path, agrees with the model on
+    all three lowerings. This is the coverage that pins defect 2 above: the nine methods span five
+    distinct token lengths, so a lowering that reverted to a fixed path offset would fail here for
+    seven of the nine rather than passing incidentally. -/
+def spike4AllMethodsRouteCorrectly (path : String) : Bool :=
+  allHttpMethods.all (fun m => spike4RouteFixedOnAllTargets (spike4MethodRequest m path))
+
+#guard spike4AllMethodsRouteCorrectly "/"
+#guard spike4AllMethodsRouteCorrectly "/status"
+
+-- Method tokens outside the nine, each answered 400 by the model and now by all three targets.
+-- `GETX`/`CONNECTX` specifically pin that the masked compare tests the *delimiter* too, so no
+-- token can match as a mere prefix of a longer word; `GE`/`OPTION` pin the truncated-token
+-- direction; `get` pins case sensitivity.
+#guard spike4RouteFixedOnAllTargets "GETX / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "CONNECTX / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "GE / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "OPTION / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "get / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/-- **The fully-general `∀ (request : ByteArray)` trace-equivalence claim is still FALSE after the
+    method-validation fix, and these are the surviving reasons -- checked, not asserted.**
+
+    PA17's earlier pass recorded the missing method check as the one remaining obstruction. That
+    was incomplete. `Stdlib.Http11.parseRequestLine` imposes four obligations on a request line --
+    exactly three SP-separated fields, a method in the closed nine-token set, an origin-form
+    target, and a literal `HTTP/1.1` version -- and the lowerings now implement the *second* one
+    only. Each entry below is a request the model rejects with 400 Bad Request and at least one
+    lowering answers differently (200 OK for the ones whose target window still happens to land on
+    `"/ "`, 404 for the ones where it lands elsewhere).
+
+    These are recorded as witnesses rather than dissolved into a narrower theorem's hypothesis
+    deliberately: implementing the remaining three obligations means putting a real byte-scanning
+    request-line parser into the assembly of all three targets, which is a different piece of work
+    from validating a fixed set of leading tokens, and pretending the general claim holds by
+    excluding these cases silently is exactly the move this file exists to prevent. Any narrowed
+    theorem stated over these lowerings must carry a hypothesis that names the excluded class --
+    `(parseRequestLine req).isSome`, i.e. "the request line is well-formed" -- with these
+    counterexamples cited as the reason the hypothesis is there.
+
+    The list is organised by `Stdlib.Http11.Error` constructor rather than by hand-picked string, so
+    that "which classes survive" is answerable by construction instead of by testing whichever
+    request someone happened to think of. -/
+def spike4GeneralClaimCounterexamples : List (Stdlib.Http11.Error × String × String) :=
+  [ (.unsupportedVersion, "version other than HTTP/1.1",
+      "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n"),
+    (.malformedRequestLine, "two-field request line (no version)",
+      "GET /\r\nHost: localhost\r\n\r\n"),
+    (.malformedRequestLine, "four-field request line (trailing junk)",
+      "GET / HTTP/1.1 extra\r\nHost: localhost\r\n\r\n"),
+    (.malformedRequestLine, "doubled SP between method and target",
+      "GET  / HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+    (.invalidTarget, "absolute-form target (not origin-form)",
+      "GET http://example.com/ HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+    (.invalidTarget, "target with no leading slash",
+      "GET status HTTP/1.1\r\nHost: localhost\r\n\r\n") ]
+
+/- REF: docs/STDLIB_HTTP11.md#31-error-taxonomy -/
+/-- The request line as `Stdlib.Http11.parseRequestLine` sees it, kept separate from
+    `Spec.parseRequestLine` (which discards the error constructor into `none`) so the witnesses
+    below can be pinned to the specific rejection class they stand for. -/
+def spike4RequestLineError (req : String) : Option Stdlib.Http11.Error :=
+  match Stdlib.Http11.parseRequestLine (((req.splitOn "\r\n").headD "").toUTF8.toList) with
+  | .error e => some e
+  | .ok _ => none
+
+/- REF: docs/STDLIB_HTTP11.md#31-error-taxonomy -/
+/-- The four `Stdlib.Http11.Error` constructors `parseRequestLine` can produce. **Verified by
+    inspection of `Stdlib/Http11/Parser.lean`, not by proof**: `parseRequestLine` has exactly three
+    `.error` sites (`unknownMethod`, `invalidTarget`, `unsupportedVersion`) plus
+    `malformedRequestLine` when `splitThreeFields` returns `none`. `Error` itself has fifteen
+    constructors; the other eleven belong to status-line, header and body parsing, which this
+    spike's request path never reaches. The `#guard` below confirms all four are genuinely
+    reachable; nothing here proves the list is not missing a fifth. -/
+def spike4RequestLineErrorTaxonomy : List Stdlib.Http11.Error :=
+  [.malformedRequestLine, .unknownMethod, .invalidTarget, .unsupportedVersion]
+
+-- Each witness really does produce the rejection class it is filed under (so a change in how the
+-- parser classifies these inputs breaks this file rather than silently mis-labelling the witnesses).
+#guard spike4GeneralClaimCounterexamples.all
+  (fun (e, _, req) => spike4RequestLineError req == some e)
+
+-- Every constructor in the taxonomy is genuinely reachable: the three unhandled ones via a witness
+-- above, `unknownMethod` via `witnessMethodNotValidatedDivergence`.
+#guard spike4RequestLineErrorTaxonomy.all (fun e =>
+  (spike4GeneralClaimCounterexamples.map (fun (c, _, _) => c)).contains e ||
+  spike4RequestLineError witnessMethodNotValidatedDivergence == some e)
+
+-- The completeness statement this section exists for: every way `parseRequestLine` can reject a
+-- request line is either the one class the lowerings now implement (`unknownMethod` -- see
+-- `witnessMethodNotValidatedDivergence` above, which now passes) or has a live counterexample
+-- listed here. Three of the four survive.
+#guard spike4RequestLineErrorTaxonomy.all (fun e =>
+  e == .unknownMethod ||
+  (spike4GeneralClaimCounterexamples.map (fun (c, _, _) => c)).contains e)
+
+-- The model rejects every witness ...
+#guard spike4GeneralClaimCounterexamples.all (fun (_, _, req) => parseRequestLine req == none)
+-- ... and every one is still a live divergence on all three lowerings. If a future change makes any
+-- of these agree, this guard fails and the list must shrink -- the falsity claim above cannot rot
+-- into a stale comment the way the route-prefix justification it replaces did.
+#guard spike4GeneralClaimCounterexamples.all (fun (_, _, req) => !spike4RouteFixedOnAllTargets req)
+
 /- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
 /-- Widened-buffer, variable-size negative-control regression (N8's "variable sizes ... do not
     crash or corrupt stack state" deliverable). Pairs a garbage/oversized-relative-to-the-old-16-byte-

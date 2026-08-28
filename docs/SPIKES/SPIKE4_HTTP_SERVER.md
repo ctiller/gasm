@@ -22,10 +22,22 @@ graph TD
 ```
 
 ### 1.1 Supported HTTP 1.1 Specification Subset
-- **Request Line Parsing**:
-  - Methods: `GET`, `HEAD`, `POST`.
-  - URI Path: `/`, `/hello`, `/status`, and arbitrary paths.
-  - Protocol Version: `HTTP/1.1` and `HTTP/1.0`.
+- **Request Line Parsing** — the model (`Spikes/Spike4HttpServer/Spec.lean`'s `parseRequestLine`)
+  delegates to `Stdlib.Http11.parseRequestLine`, so the accepted grammar is that library's:
+  - Methods: the nine `Stdlib.Http11.Method` tokens — `GET`, `HEAD`, `POST`, `PUT`, `DELETE`,
+    `CONNECT`, `OPTIONS`, `TRACE`, `PATCH`. Any other token is 400 Bad Request. Routing itself is
+    by target only, so all nine methods reach the same three responses.
+  - URI Path: origin-form targets — `/`, `/status`, and arbitrary other paths (404).
+  - Protocol Version: `HTTP/1.1` only. `HTTP/1.0` is 400 Bad Request.
+  - Exactly three SP-separated fields; any other shape is 400 Bad Request.
+- **What the three lowerings implement of that grammar**: the method-token check and the
+  target-based routing (`Spikes/Spike4HttpServer/MethodDispatch.lean` for the x86-64 targets and
+  `Wasm/Program.lean`'s `wasmMethodValidationInstrs` for WASI, both generated from
+  `Spec.allHttpMethods`). The field-count, origin-form-target and version obligations are **not**
+  implemented in the assembly, so the lowerings and the model genuinely disagree on request lines
+  that violate only those. Each such class is a checked counterexample in
+  `Spikes/Spike4HttpServer/Equivalence.lean`'s `spike4GeneralClaimCounterexamples` rather than a
+  silent gap.
 - **Headers**:
   - `Host: <hostname>`
   - `Connection: close` (default server mode for Spike 4 to simplify connection lifecycle)

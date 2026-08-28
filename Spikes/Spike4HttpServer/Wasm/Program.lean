@@ -41,6 +41,12 @@ def respStatusBytes : ByteArray :=
 def resp404Bytes : ByteArray :=
   (formatResponse { statusCode := 404, statusText := "Not Found", contentType := "text/plain", body := "404 Not Found\r\n" }).toUTF8
 
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
+/-- Response bytes for 400 Bad Request, taken from the model's own `badRequestResponse` so the
+    lowering cannot drift from what `Spec.handleRawRequest` emits on a rejected request line. -/
+def resp400Bytes : ByteArray :=
+  (formatResponse badRequestResponse).toUTF8
+
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 def sockListenType : FuncType := { params := [.i32], results := [.i32] }
 
@@ -87,8 +93,33 @@ def spike4TypeSignatures : List FuncType := [
 def spike4DataSegments : List WasmDataSegment := [
   { offset := 0x00,  data := respRootBytes },
   { offset := 0x100, data := respStatusBytes },
-  { offset := 0x200, data := resp404Bytes }
+  { offset := 0x200, data := resp404Bytes },
+  { offset := 0x300, data := resp400Bytes }
 ]
+
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
+/-- Method-token validation for the WASI lowering, the direct analogue of the x86-64
+    `methodValidationInstrs` (`Spikes/Spike4HttpServer/MethodDispatch.lean`) and generated from the
+    same `allHttpMethods` table, so the two targets cannot disagree about the method grammar.
+
+    Leaves local 5 holding a pointer to the request target (`bufPtr + methodPathOffset m` for the
+    method token that matched) or `0` if no token matched -- `0` is not a possible target pointer
+    here because `bufPtr` is nonzero, so the caller tests `i32_eqz` on local 5 to take its 400 Bad
+    Request branch. Written as a flat chain of independent `if` tests rather than a nine-deep
+    `if_else` nest purely for readability; the tests are mutually exclusive because no method
+    token plus its delimiting SP is a masked prefix of another. -/
+def wasmMethodValidationInstrs (bufPtr : UInt32) : List WasmInstr :=
+  .i32_const 0 :: .local_set 5 ::
+    allHttpMethods.flatMap (fun m =>
+      [ .i32_const bufPtr,
+        .i64_load 0 0,
+        .i64_const (methodTokenMask m),
+        .i64_and,
+        .i64_const (methodTokenWord m),
+        .i64_eq,
+        .if_else .empty
+          [ .i32_const (bufPtr + (methodPathOffset m).toUInt32), .local_set 5 ]
+          [] ])
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 /-- WASM instruction sequence for Spike 4 HTTP 1.1 Server:
@@ -97,6 +128,8 @@ def spike4DataSegments : List WasmDataSegment := [
     Local 2: bytes_recv (i32)
     Local 3: resp_ptr (i32)
     Local 4: resp_len (i32)
+    Local 5: path_ptr (i32) -- request-target pointer chosen by the method-token check, 0 if the
+             method was not recognised
 -/
 def spike4WasmInstructions : List WasmInstr := [
   -- 1. sock_listen(8080) -> server_fd
@@ -131,13 +164,28 @@ def spike4WasmInstructions : List WasmInstr := [
       .local_get 1,
       .call 4,
       .drop
-    ] [
-      -- 4. Route request based on the full path at offset 0x404 (buf 0x400 + "GET " prefix).
+    ] ([
+      -- 3c. Validate the request's HTTP method token (REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md).
+      -- This lowering used to assume, with no check, that the request began with the four bytes
+      -- "GET " and read the path window at the fixed offset 0x404 -- answering 200 OK to
+      -- "FOO / HTTP/1.1..." where Spec.parseRequestLine answers 400 Bad Request, and mis-reading
+      -- the path of every valid request whose method token is not exactly three characters long.
+    ] ++ wasmMethodValidationInstrs 0x400 ++ [
+      .local_get 5,
+      .i32_eqz,
+      .if_else .empty [
+        -- Unrecognised method token: 400 Bad Request, matching the model's rejection.
+        .i32_const 0x300,
+        .local_set 3,
+        .i32_const resp400Bytes.size.toUInt32,
+        .local_set 4
+      ] [
+      -- 4. Route request based on the full path at the offset the method token selected.
       -- Exact 8-byte compare against "/status " (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
       -- defect 3) -- the prior check read a *single* byte at offset 0x405 ('s'), matching ANY path
       -- merely starting with "/s" ("/static", "/search", "/settings", even the bare path "/s");
       -- strictly weaker than the Windows/Linux 5-byte "/stat" prefix bug it mirrors.
-      .i32_const 0x404,
+      .local_get 5,
       .i64_load 0 0,
       .i64_const 0x207375746174732F, -- "/status " (7 chars + trailing delimiter space)
       .i64_eq,
@@ -149,8 +197,8 @@ def spike4WasmInstructions : List WasmInstr := [
         .local_set 4
       ] [
         -- Else check if path is exactly "/ " (root, delimited by the following space) -- both
-        -- bytes at 0x404/0x405 checked together, not just the delimiter byte alone.
-        .i32_const 0x404,
+        -- bytes of the path window checked together, not just the delimiter byte alone.
+        .local_get 5,
         .i32_load 0 0,
         .i32_const 0x0000FFFF,
         .i32_and,
@@ -169,6 +217,7 @@ def spike4WasmInstructions : List WasmInstr := [
           .i32_const resp404Bytes.size.toUInt32,
           .local_set 4
         ]
+      ]
       ],
 
       -- 5. sock_send(client_fd, resp_ptr, resp_len)
@@ -182,7 +231,7 @@ def spike4WasmInstructions : List WasmInstr := [
       .local_get 1,
       .call 4,
       .drop
-    ],
+    ]),
 
     -- 7. Loop back to accept next connection
     .br 0
@@ -192,7 +241,7 @@ def spike4WasmInstructions : List WasmInstr := [
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 def spike4WasmFunction : WasmFunction := {
   name := "_start",
-  locals := [.i32, .i32, .i32, .i32, .i32],
+  locals := [.i32, .i32, .i32, .i32, .i32, .i32],
   body := spike4WasmInstructions
 }
 

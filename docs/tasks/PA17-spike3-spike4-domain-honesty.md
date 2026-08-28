@@ -104,3 +104,58 @@ what would have caught N8's bugs by construction, not by hand-picked negative te
   because Spike4's reactive contract type and PA8's Environment-quantification mechanism are genuine
   prerequisites, not bureaucratic ordering — attempting this task's Spike4 slice before PA7 lands
   would mean re-doing the outer-contract re-framing PA8 already commits to.
+
+- 2026-08-28 (Spike 4 method-validation pass). **A real defect was found and fixed in all three
+  lowerings, and the general theorem is still false — for reasons the previous pass had not found.**
+
+  *Defect, fixed.* No Spike 4 lowering validated the HTTP method: Windows, Linux and WASI all
+  assumed the first four request bytes were literally `"GET "` and read the routing window at the
+  fixed offset 4. Two divergences from `Spec.parseRequestLine` followed. (a) An unrecognised
+  four-byte method (`"FOO "`) was answered 200 OK where the model answers 400 — the witness the
+  previous pass recorded. (b) **Not previously noticed:** every *valid* method whose token is not
+  three characters (`HEAD`, `POST`, `TRACE`, `PATCH`, `DELETE`, `CONNECT`, `OPTIONS` — seven of the
+  nine) had its target mis-read, because `Spec.routeRequest` dispatches on the target alone and so
+  requires `"POST / HTTP/1.1"` to get the same 200 root response `"GET / ..."` gets. Fixing (a) with
+  a bare `"GET "` check would have *created* a divergence for `PUT`, which agreed with the model
+  before. The fix therefore validates the whole nine-token grammar: `Spec.allHttpMethods` (with
+  `Spec.mem_allHttpMethods`, a structural exhaustiveness proof over `Stdlib.Http11.Method`)
+  generates a masked token+SP compare per method and selects the target offset from whichever token
+  matched, emitting `Spec.badRequestResponse`'s own bytes on no match. Shared once for the two
+  x86-64 targets in `Spikes/Spike4HttpServer/MethodDispatch.lean` — these had been running
+  byte-identical inspection code, which is how N8's routing bug came to exist twice.
+
+  *Reassessment of the general theorem — still FALSE.* The previous pass recorded method validation
+  as the sole surviving reason. That was incomplete: `Stdlib.Http11.parseRequestLine` imposes four
+  request-line obligations and the lowerings now implement one. `spike4GeneralClaimCounterexamples`
+  in `Spikes/Spike4HttpServer/Equivalence.lean` carries a checked witness per surviving reason —
+  unsupported version (`HTTP/1.0`), two-field line, four-field line, doubled SP, absolute-form
+  target — each `#guard`ed both for the model rejecting it and for the lowerings still diverging, so
+  the falsity claim cannot rot into a stale comment. Closing these means a real byte-scanning
+  request-line parser in three targets, which is a different task from token validation and was not
+  attempted here.
+
+  *Feasibility, re-measured rather than inherited — and the previous pass's diagnosis was wrong in a
+  way that matters.* It reported that `decide` fails on these checks with "genuine reduction-stuck
+  errors", implying the whole trace is unreducible. The stuck message is real but the cause is not
+  global: kernel reduction of the Windows canonical trace succeeds by plain `rfl` up to and
+  including fuel 29 — WSAStartup, socket, bind, listen, accept and the `recv` event itself, 3 of the
+  5 trace events — and fails from fuel 30, the first instruction that *inspects* a value `recvHook`
+  produced (`cmp rax, 0` on the recv return count, immediately followed by the buffer load). The
+  obstruction is `recvHook` (`Gasm/Targets/Windows/Win32API.lean:207`) routing through
+  `String.toUTF8` / `String.fromUTF8?` / `ByteArray`, which are `@[extern]` and do not reduce in the
+  kernel. Concretely:
+  - the linked Windows program is 130 instructions and the full canonical 5-event trace costs only
+    **59 machine steps**, so `Spikes/Spike3SortLines/TraceStepLemmas.lean`-style peeling is well
+    within reach on step count — this is not a scale problem;
+  - the whole 29-step setup prologue already reduces definitionally, so no lemma is needed for it;
+  - what is needed is essentially two rewrite lemmas about `recvHook`: what it leaves in `RAX` (the
+    delivered length) and what `X86_64Mem.writeBytes` leaves at the buffer, stated over an abstract
+    `ByteArray` so `String.toUTF8` never has to reduce. That is the remaining gap to a
+    narrowed-but-honest `∀ req, (parseRequestLine req).isSome → ...` theorem, and it is a
+    substantially smaller and better-localised piece of work than "a generic recv-buffer content
+    proof" suggested.
+
+  *Allowlist.* Unchanged by this pass: the nine grandfathered
+  `spike4_{windows,linux,wasm}_{root,status,404}_trace_equivalence` entries stay, because nothing
+  here replaces them with a structural theorem. Everything this pass added is `#guard`-checked or
+  structurally proved, so it introduced no new entries.

@@ -31,6 +31,7 @@ import Gasm.Targets.X86_64.Assembler
 import Gasm.Targets.Linux.ELFFormat
 import Gasm.Targets.Linux.Linker
 import Spikes.Spike4HttpServer.Spec
+import Spikes.Spike4HttpServer.MethodDispatch
 
 namespace Spikes.Spike4HttpServer.Linux
 
@@ -56,6 +57,12 @@ def respStatusBytes : ByteArray :=
 def resp404Bytes : ByteArray :=
   (formatResponse { statusCode := 404, statusText := "Not Found", contentType := "text/plain", body := "404 Not Found\r\n" }).toUTF8
 
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
+/-- Response bytes for 400 Bad Request, taken from the model's own `badRequestResponse` so the
+    lowering cannot drift from what `Spec.handleRawRequest` emits on a rejected request line. -/
+def resp400Bytes : ByteArray :=
+  (formatResponse badRequestResponse).toUTF8
+
 /- REF: docs/TARGETS/LINUX.md#23-semantic-syscall-interception -/
 /-- Offsets in the combined .rodata payload for response strings. -/
 def respRootOffset : Nat := 0
@@ -66,9 +73,12 @@ def respStatusOffset : Nat := respRootBytes.size
 /- REF: docs/TARGETS/LINUX.md#23-semantic-syscall-interception -/
 def resp404Offset : Nat := respStatusOffset + respStatusBytes.size
 
+/- REF: docs/TARGETS/LINUX.md#23-semantic-syscall-interception -/
+def resp400Offset : Nat := resp404Offset + resp404Bytes.size
+
 /- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
 def rdataPayload : ByteArray :=
-  respRootBytes ++ respStatusBytes ++ resp404Bytes
+  respRootBytes ++ respStatusBytes ++ resp404Bytes ++ resp400Bytes
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
 /-- Symbolic program definition for Spike 4 x86_64 Linux HTTP 1.1 Server.
@@ -131,13 +141,33 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   -- sign-extended, so a signed JLE against 0 catches both without reading the request buffer.
   instr (cmp_r64_imm8 .rax 0x00),
   jle_near_label "close_conn",
+] ++
 
-  -- 8. Inspect received HTTP request line at RSP + 0x40
-  -- Check if path is exactly "/status" followed by the request-line's delimiting space (at offset
-  -- 4: "GET /status ..."). Full 8-byte exact compare (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
+  -- 8. Validate the request's HTTP method token (REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md).
+  -- Previously this code assumed, without checking, that the first four bytes were literally
+  -- "GET " and read the path window at the fixed offset 4. That answered 200 OK to
+  -- "FOO / HTTP/1.1..." where Spec.parseRequestLine answers 400 Bad Request, and mis-read the path
+  -- of every valid request whose method token is not exactly three characters. The generator below
+  -- is shared verbatim with the Windows target (Spikes/Spike4HttpServer/MethodDispatch.lean) --
+  -- these two lowerings ran byte-identical request-inspection code before, which is how N8's
+  -- routing bug came to exist twice; it is now written once.
+  methodValidationInstrs 0x40 ++
+[
+  label "send_400",
+  lea_data .rsi "rdata_base",
+  instr (add_r64_imm32 .rsi resp400Offset.toUInt32),
+  instr (mov_r32 .edx resp400Bytes.size.toUInt32),
+  jmp_near_label "do_send",
+] ++
+
+  methodPathWindowInstrs 0x40 "route_dispatch" ++
+[
+  -- 8b. Inspect the request target RSI now points at.
+  -- Check if path is exactly "/status" followed by the request-line's delimiting space.
+  -- Full 8-byte exact compare (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
   -- defect 3) -- the prior 5-byte-masked "/stat" prefix compare mis-routed any path merely starting
   -- with "/stat" (e.g. "/static") to the status handler.
-  instr (lea_rsp .rsi (0x40 + 4)),
+  label "route_dispatch",
   instr (mov_reg64_mem64_disp .rax .rsi 0),
   instr (mov_r64_imm64 .rcx 0x207375746174732F), -- "/status " (7 chars + trailing delimiter space)
   instr (cmp_r64 .rax .rcx),
