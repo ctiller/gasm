@@ -149,6 +149,72 @@ def writeBytes (a : Address) (bytes : List Byte) (m : X86_64Memory) : X86_64Memo
     | b :: rest, m' => loop (offset + 1) rest (writeByte m' (a + offset.toUInt64) b)
   loop 0 bytes m
 
+--------------------------------------------------------------------------------------------------
+-- §3.4 lemma set (byte-granular half): read-over-write and `initRegion` read-back, proved once
+-- here so every width-indexed fact in `Memory.lean` reduces to these instead of re-deriving
+-- byte-selection arithmetic per width pair (`docs/MEMORY_HOOK.md` §3.4).
+--------------------------------------------------------------------------------------------------
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- Read-over-write, same address, byte-granular: a single-byte write is read back exactly. -/
+@[simp] theorem readByte_writeByte_same (m : X86_64Memory) (a : Address) (v : Byte) :
+    readByte (writeByte m a v) a = v := by
+  simp [readByte, writeByte]
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- Read-over-write, disjoint addresses, byte-granular: a single-byte write at `a` never disturbs
+    a read at any other address. -/
+@[simp] theorem readByte_writeByte_diff (m : X86_64Memory) (a a' : Address) (v : Byte) (h : a' ≠ a) :
+    readByte (writeByte m a v) a' = readByte m a' := by
+  simp [readByte, writeByte, h]
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- Read-over-write, disjoint ranges: a width-`w` write at `a` never disturbs a byte read at any
+    address outside `[a, a+w.bytes)`. This is the one generic fact every `writesWithin` frame
+    lemma (§3.3) reduces to. `hno` is the no-overflow side condition `docs/MEMORY_HOOK.md` §3.4
+    names (matching `MemoryPerm.validRange`'s convention): without it, `a`'s range could wrap
+    past `2⁶⁴` and make an address that is numerically "less than `a`" actually alias into the
+    write's range, which `omega` catches as a genuine counterexample if this hypothesis is
+    dropped. -/
+theorem readByte_write_disjoint (w : MemWidth) (a : Address) (v : UInt64) (m : X86_64Memory) (a' : Address)
+    (hno : a.toNat + w.bytes ≤ 2 ^ 64)
+    (h : a'.toNat < a.toNat ∨ a.toNat + w.bytes ≤ a'.toNat) :
+    readByte (write w a v m) a' = readByte m a' := by
+  have hbytes1 : 1 ≤ w.bytes := by cases w <;> decide
+  have ha1 : a' ≠ a := by intro he; subst he; omega
+  cases w with
+  | w8 => simpa [write] using readByte_writeByte_diff m a a' v.toUInt8 ha1
+  | w16 =>
+    have ha2 : a' ≠ a + 1 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    simp only [write]; unfold readByte
+    simp [ha1, ha2]
+  | w32 =>
+    have ha2 : a' ≠ a + 1 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    have ha3 : a' ≠ a + 2 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    have ha4 : a' ≠ a + 3 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    simp only [write]; unfold readByte
+    simp [ha1, ha2, ha3, ha4]
+  | w64 =>
+    have ha2 : a' ≠ a + 1 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    have ha3 : a' ≠ a + 2 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    have ha4 : a' ≠ a + 3 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    have ha5 : a' ≠ a + 4 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    have ha6 : a' ≠ a + 5 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    have ha7 : a' ≠ a + 6 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    have ha8 : a' ≠ a + 7 := by intro he; rw [he] at h; simp [MemWidth.bytes] at h hno; omega
+    simp only [write]; unfold readByte
+    simp [ha1, ha2, ha3, ha4, ha5, ha6, ha7, ha8]
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- `initRegion` read-back: reading any byte of an installed image returns exactly what the
+    installing function says at that address. -/
+theorem readByte_initRegion (f : Address → Byte) (a : Address) :
+    readByte (initRegion f) a = f a := rfl
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- `zero`'s bytes are all zero. -/
+theorem readByte_zero (a : Address) : readByte zero a = 0 := rfl
+
 end X86_64Mem
 
 end Gasm.Targets.X86_64
