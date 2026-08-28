@@ -292,24 +292,29 @@ def grantedFootprint (Γ : Frame) (s : X86_64MachineState) : List Address :=
     proposition-builder), not a `theorem`, precisely because it is not claimed to hold in
     general -- a bare `axiom`/`sorry` here would be exactly the facade Law 8 prohibits.
 
-    RECORDED DEPENDENCY (adversarial review, in-flight as this lands): a review of MH1's chain
-    found `X86_64Memory`'s `private mk ::` seal does not privatize Lean's auto-generated
-    `casesOn`/`rec` eliminators (available in PROOFS, not just runtime code -- a leak via
-    `m.casesOn (fun f => f)` compiles and is `rfl`-equal to the sealed field), and that
-    `ReadsWithin` (`Gasm/Targets/X86_64/MemoryFrame/Common.lean`) does not constrain the resulting
-    MEMORY of its two related steps, only `agreeOutsideMemory` -- so a hypothetical memory-to-
-    memory form could read an undeclared location and smuggle it into a declared write without
-    `ReadsWithin` catching it. Neither defect is exploited by any of today's 14 registered forms
-    (confirmed by the reviewer), and NEITHER `MemSafeStatement` here NOR `AccessOK`/`Frame.WF`/
-    `AccessOK.addresses_subset_granted` above cite the seal or `WritesWithin`/`ReadsWithin` at
-    all -- this file's soundness does not rest on either premise. The pathfinder instance
+    RECORDED DEPENDENCY (adversarial review, both items now resolved upstream during MH3's own
+    development -- kept as a record of what was checked, not a live caveat). A review of MH1's
+    chain raised two questions this file's soundness was checked against:
+    (a) whether `X86_64Memory`'s `private mk ::` seal genuinely makes raw access unrepresentable,
+        given Lean's auto-generated `casesOn`/`rec` eliminators are not themselves privatized.
+        Resolved as tier 3, on measured grounds (`readByte` is public and total, so the seal's
+        real value is a NAMED, AUDITED chokepoint, not privacy `casesOn` could bypass; enforced by
+        `Gasm/Targets/X86_64/MemoryFrameAudit.lean`'s lint) -- restated per that resolution: raw
+        memory access cannot be reached without going through a named, audited operation, not
+        "cannot be reached at all."
+    (b) whether `ReadsWithin` (`Gasm/Targets/X86_64/MemoryFrame/Common.lean`) constrained the
+        resulting MEMORY of its two related steps strongly enough to rule out a hypothetical
+        memory-to-memory form smuggling an undeclared read into a declared write. Resolved: a
+        `StoreAgreeOn` conjunct was added; all 14 registered forms close under the strengthened
+        obligation.
+    NEITHER `MemSafeStatement` here NOR `AccessOK`/`Frame.WF`/`AccessOK.addresses_subset_granted`
+    above ever cited the seal or `WritesWithin`/`ReadsWithin` as a premise -- this file's
+    soundness did not, and does not, rest on either. The pathfinder instance
     (`Stdlib/SmolAlloc/MemSafety.lean`'s `freshAllocHeaderMemSafe`) independently verifies its two
     forms' declared-vs-actual correspondence directly against their own `step` definitions
     (`mov_mem64_disp`/`mov_mem64_disp_imm`, both pure register/immediate stores, not memory-to-
-    memory) rather than citing the general connection theorems. A FUTURE `MemSafeStatement`
-    instance that instead cites `WritesWithin`/`ReadsWithin` directly (as PA4 migrations of
-    memory-to-memory forms, should any be added, would need to) inherits `ReadsWithin`'s present
-    weakness until the fix lands; recorded here rather than silently assumed away. -/
+    memory) rather than citing the general connection theorems -- a route that would have been
+    sound either way, and remains the more direct one for this pathfinder regardless. -/
 def MemSafeStatement {Γ : Frame} {Inv : X86_64MachineState → Prop} (prog : CheckedProgram Γ Inv)
     (Pre : X86_64MachineState → Prop) : Prop :=
   ∀ s₀, Pre s₀ → Inv s₀ → Frame.WF Γ s₀ →
