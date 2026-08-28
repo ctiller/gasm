@@ -57,7 +57,7 @@ instance : X86_64Instruction CallRipRel where
   -- `targetIat` is RIP-relative (base := none), not register-relative: `disp` folds in the
   -- instruction's own fixed 6-byte encoded length so evaluating against the pre-step state
   -- (which still has the *current*, not next, rip) yields the same address `step` computes.
-  memAccesses i := [⟨.load, .w64, ⟨none, none, 6 + i.disp.toInt⟩⟩, ⟨.store, .w64, ⟨some .rsp, none, -8⟩⟩]
+  memAccesses i := [⟨.load, .w64, ⟨none, none, 6 + signExtend32To64 i.disp⟩⟩, ⟨.store, .w64, ⟨some .rsp, none, -8⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=CALL;part=description -/
 /-- CALL rel32 instruction: direct near relative call. -/

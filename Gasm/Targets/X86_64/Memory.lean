@@ -49,28 +49,18 @@ open Gasm.Core
 structure MemRef where
   base  : Option Reg64 := none
   index : Option (Reg64 × Nat) := none
-  disp  : Int := 0
+  disp  : UInt64 := 0
 
-/- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
-/-- Encodes a (possibly negative) displacement as its UInt64 two's-complement bit pattern -- the
-    same wraparound convention the pre-hook code already used ad hoc (e.g. `push64`'s `s.rsp - 8`
-    via plain `UInt64` subtraction). -/
-def dispToUInt64 (d : Int) : UInt64 :=
-  if d ≥ 0 then d.toNat.toUInt64 else 0 - (-d).toNat.toUInt64
-
-/- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
-/-- Reinterprets a `UInt8` displacement byte as the signed `Int` it encodes -- the `MemRef.disp`
-    counterpart of `signExtend8To64` (which produces the `UInt64` result directly instead of the
-    signed intermediate). Every memory form with a `disp : UInt8` field uses this to state its
-    `memAccesses` descriptor. -/
-def int8OfUInt8 (u : UInt8) : Int :=
-  if u.toNat ≥ 128 then (u.toNat : Int) - 256 else (u.toNat : Int)
-
--- The connecting fact `dispToUInt64 (int8OfUInt8 u) = signExtend8To64 u` (needed by every
--- writesWithin/readsWithin frame lemma to show a descriptor's declared address matches the
--- step's actual computed address) cannot be stated here: `signExtend8To64` is declared in
--- `Instructions/Base.lean`, which imports THIS file for `MemAccessSpec` -- importing it back
--- would cycle. It is proved instead in `MemoryFrame/Common.lean`, which imports both.
+-- `disp` is `UInt64`, not the design's literal `Int`: callers supply it as the already-signed-
+-- extended UInt64 bit pattern (`signExtend8To64 i.disp`, `signExtend32To64 i.disp`, or a literal
+-- like `-8` -- UInt64 has a `Neg` instance and the pre-hook code already used plain `UInt64`
+-- subtraction/negation for stack displacements, e.g. `push64`'s `s.rsp - 8`). This is a
+-- deliberate simplification of the design's `disp : Int` sketch: an `Int`-mediated round trip
+-- (`UInt8` -> signed `Int` -> two's-complement `UInt64`) needs a nontrivial connecting lemma to
+-- `signExtend8To64`/`signExtend32To64` to prove a descriptor's address matches `step`'s actual
+-- computed address -- exactly the fact every `writesWithin`/`readsWithin` frame lemma needs --
+-- and callers already HAVE that UInt64 value in hand (it's what `step` itself computes), so
+-- routing through `Int` only to convert back was pure overhead with no expressiveness gained.
 
 /- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
 /-- Evaluates a `MemRef` against the pre-step machine state: every declared access's dynamic
@@ -83,7 +73,7 @@ def MemRef.effectiveAddress (m : MemRef) (s : X86_64MachineState) : Address :=
   let idxVal : UInt64 := match m.index with
     | some (r, scale) => s.gprs r * scale.toUInt64
     | none => 0
-  baseVal + idxVal + dispToUInt64 m.disp
+  baseVal + idxVal + m.disp
 
 /- REF: docs/MEMORY_HOOK.md#3-layer-s-the-semantic-hook -/
 /-- One declared access: static shape (kind, width, addressing term), dynamic address obtained by

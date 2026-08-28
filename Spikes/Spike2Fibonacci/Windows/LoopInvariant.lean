@@ -399,7 +399,7 @@ would be sitting on `(fibNat k, fibNat (k+1))` with `m` iterations left to run.
 def fibLoopInvariant (k m : Nat) (s : X86_64MachineState) : Prop :=
   s.rip = loopStartAddr ∧
   s.faulted = false ∧
-  s.memory = (fun _ => 0) ∧
+  s.memory = X86_64Mem.zero ∧
   s.gprs .rcx = m.toUInt64 ∧
   s.gprs .rax = (fibNat k).toUInt64 ∧
   s.gprs .rdx = (fibNat (k + 1)).toUInt64
@@ -437,7 +437,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   generalize hs1 : X86_64Instruction.step (cmp_r64_imm8 .rcx 0) s = s1
   have hrip1 : s1.rip = 4112 := by rw [← hs1, step_cmp_r64_imm8, hrip]; rfl
   have hfaulted1 : s1.faulted = false := by rw [← hs1]; exact hfaulted
-  have hmem1 : s1.memory = (fun _ => 0) := by rw [← hs1]; exact hmem
+  have hmem1 : s1.memory = X86_64Mem.zero := by rw [← hs1]; exact hmem
   have hrax1 : s1.gprs .rax = (fibNat k).toUInt64 := by rw [← hs1]; exact hrax
   have hrdx1 : s1.gprs .rdx = (fibNat (k + 1)).toUInt64 := by rw [← hs1]; exact hrdx
   have hrcx1 : s1.gprs .rcx = (m + 1).toUInt64 := by rw [← hs1]; exact hrcx
@@ -453,7 +453,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   generalize hs2 : X86_64Instruction.step (je_rel8 (Assembler.toDisp8 4132 4114)) s1 = s2
   have hrip2 : s2.rip = 4114 := by rw [← hs2, step_je_rel8, hzf1]; simp [hrip1]
   have hfaulted2 : s2.faulted = false := by rw [← hs2]; exact hfaulted1
-  have hmem2 : s2.memory = (fun _ => 0) := by rw [← hs2]; exact hmem1
+  have hmem2 : s2.memory = X86_64Mem.zero := by rw [← hs2]; exact hmem1
   have hrax2 : s2.gprs .rax = (fibNat k).toUInt64 := by rw [← hs2]; exact hrax1
   have hrdx2 : s2.gprs .rdx = (fibNat (k + 1)).toUInt64 := by rw [← hs2]; exact hrdx1
   have hrcx2 : s2.gprs .rcx = (m + 1).toUInt64 := by rw [← hs2]; exact hrcx1
@@ -464,7 +464,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   generalize hs3 : X86_64Instruction.step (mov_r64 .r8 .rax) s2 = s3
   have hrip3 : s3.rip = 4117 := by rw [← hs3, step_mov_r64, hrip2]; rfl
   have hfaulted3 : s3.faulted = false := by rw [← hs3]; exact hfaulted2
-  have hmem3 : s3.memory = (fun _ => 0) := by rw [← hs3]; exact hmem2
+  have hmem3 : s3.memory = X86_64Mem.zero := by rw [← hs3]; exact hmem2
   have hr8_3 : s3.gprs .r8 = (fibNat k).toUInt64 := by rw [← hs3, step_mov_r64]; exact hrax2
   have hrdx3 : s3.gprs .rdx = (fibNat (k + 1)).toUInt64 := by rw [← hs3, step_mov_r64]; exact hrdx2
   have hrcx3 : s3.gprs .rcx = (m + 1).toUInt64 := by rw [← hs3, step_mov_r64]; exact hrcx2
@@ -475,7 +475,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   generalize hs4 : X86_64Instruction.step (add_r64 .r8 .rdx) s3 = s4
   have hrip4 : s4.rip = 4120 := by rw [← hs4, step_add_r64, hrip3]; rfl
   have hfaulted4 : s4.faulted = false := by rw [← hs4]; exact hfaulted3
-  have hmem4 : s4.memory = (fun _ => 0) := by rw [← hs4]; exact hmem3
+  have hmem4 : s4.memory = X86_64Mem.zero := by rw [← hs4]; exact hmem3
   have hr8_4 : s4.gprs .r8 = (fibNat (k + 2)).toUInt64 := by
     rw [← hs4, step_add_r64]
     show s3.gprs .r8 + s3.gprs .rdx = (fibNat (k + 2)).toUInt64
@@ -492,7 +492,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   generalize hs5 : X86_64Instruction.step (mov_r64 .rax .rdx) s4 = s5
   have hrip5 : s5.rip = 4123 := by rw [← hs5, step_mov_r64, hrip4]; rfl
   have hfaulted5 : s5.faulted = false := by rw [← hs5]; exact hfaulted4
-  have hmem5 : s5.memory = (fun _ => 0) := by rw [← hs5]; exact hmem4
+  have hmem5 : s5.memory = X86_64Mem.zero := by rw [← hs5]; exact hmem4
   have hrax5 : s5.gprs .rax = (fibNat (k + 1)).toUInt64 := by
     rw [← hs5, step_mov_r64]; exact hrdx4
   have hr8_5 : s5.gprs .r8 = (fibNat (k + 2)).toUInt64 := by rw [← hs5, step_mov_r64]; exact hr8_4
@@ -504,7 +504,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   generalize hs6 : X86_64Instruction.step (mov_r64 .rdx .r8) s5 = s6
   have hrip6 : s6.rip = 4126 := by rw [← hs6, step_mov_r64, hrip5]; rfl
   have hfaulted6 : s6.faulted = false := by rw [← hs6]; exact hfaulted5
-  have hmem6 : s6.memory = (fun _ => 0) := by rw [← hs6]; exact hmem5
+  have hmem6 : s6.memory = X86_64Mem.zero := by rw [← hs6]; exact hmem5
   have hrax6 : s6.gprs .rax = (fibNat (k + 1)).toUInt64 := by rw [← hs6, step_mov_r64]; exact hrax5
   have hrdx6 : s6.gprs .rdx = (fibNat (k + 2)).toUInt64 := by
     rw [← hs6, step_mov_r64]; exact hr8_5
@@ -516,7 +516,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   generalize hs7 : X86_64Instruction.step (sub_r64_imm8 .rcx 1) s6 = s7
   have hrip7 : s7.rip = 4130 := by rw [← hs7, step_sub_r64_imm8, hrip6]; rfl
   have hfaulted7 : s7.faulted = false := by rw [← hs7]; exact hfaulted6
-  have hmem7 : s7.memory = (fun _ => 0) := by rw [← hs7]; exact hmem6
+  have hmem7 : s7.memory = X86_64Mem.zero := by rw [← hs7]; exact hmem6
   have hrax7 : s7.gprs .rax = (fibNat (k + 1)).toUInt64 := by rw [← hs7, step_sub_r64_imm8]; exact hrax6
   have hrdx7 : s7.gprs .rdx = (fibNat (k + 2)).toUInt64 := by rw [← hs7, step_sub_r64_imm8]; exact hrdx6
   have hrcx7 : s7.gprs .rcx = m.toUInt64 := by
@@ -540,16 +540,35 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   have hfetch8 : instructionAtRip 0x1000 fibIterInstructions s7.rip =
       some (jmp_rel8 (Assembler.toDisp8 4108 4132)) := by
     rw [hrip7]; exact fetch_jmp
+  -- `faulted` is now `s.fault.isSome` (MH1, docs/MEMORY_HOOK.md §6): unlike `.fault` (a raw
+  -- field, exactly as cheap to project through a record update as the old `faulted : Bool`
+  -- field was), checking `.faulted = false` here needs an extra `isSome` unfold that, combined
+  -- with `jmp`'s near-2^64 backward-displacement `rip` constant, sends the KERNEL's defeq check
+  -- into the same pathological path this file's header comment already documents for `isDefEq`
+  -- during elaboration -- confirmed empirically (deep-recursion failure at this theorem even
+  -- with `maxRecDepth` raised 4x). Routing through `.fault = none` first (cheap: same shape as
+  -- the pre-MH1 `faulted` field) and only converting to `.faulted = false` on the small, already-
+  -- resolved `none` term sidesteps it, mirroring the file's existing `step_jmp_rel8`-first
+  -- workaround one layer further.
+  have hfault7 : s7.fault = none := by
+    have hfaulted7' := hfaulted7
+    unfold X86_64MachineState.faulted at hfaulted7'
+    cases h : s7.fault with
+    | none => rfl
+    | some f => rw [h] at hfaulted7'; simp at hfaulted7'
   have hnf8 : (X86_64Instruction.step (jmp_rel8 (Assembler.toDisp8 4108 4132)) s7).faulted = false := by
-    rw [step_jmp_rel8]; exact hfaulted7
+    rw [step_jmp_rel8]
+    exact X86_64MachineState.faulted_of_fault_none hfault7
   rw [show fuel + 1 = fuel + 0 + 1 from rfl, runProgramWithLoops_step hfetch8 hnf8]
   generalize hs8 : X86_64Instruction.step (jmp_rel8 (Assembler.toDisp8 4108 4132)) s7 = s8
   have hrip8' : s8.rip = 4108 := by
     rw [← hs8, step_jmp_rel8, hrip7]
     exact jmp_target
   have hrip8 : s8.rip = loopStartAddr := hrip8'.trans loopStartAddr_eq.symm
-  have hfaulted8 : s8.faulted = false := by rw [← hs8, step_jmp_rel8]; exact hfaulted7
-  have hmem8 : s8.memory = (fun _ => 0) := by rw [← hs8, step_jmp_rel8]; exact hmem7
+  have hfault8 : s8.fault = none := by
+    rw [← hs8, step_jmp_rel8]; exact hfault7
+  have hfaulted8 : s8.faulted = false := X86_64MachineState.faulted_of_fault_none hfault8
+  have hmem8 : s8.memory = X86_64Mem.zero := by rw [← hs8, step_jmp_rel8]; exact hmem7
   have hrax8 : s8.gprs .rax = (fibNat (k + 1)).toUInt64 := by rw [← hs8, step_jmp_rel8]; exact hrax7
   have hrdx8 : s8.gprs .rdx = (fibNat (k + 1 + 1)).toUInt64 := by rw [← hs8, step_jmp_rel8]; exact hrdx7
   have hrcx8 : s8.gprs .rcx = m.toUInt64 := by rw [← hs8, step_jmp_rel8]; exact hrcx7
@@ -574,7 +593,7 @@ theorem fibLoop_done (k fuel : Nat) (s : X86_64MachineState) (hinv : fibLoopInva
   generalize hs1 : X86_64Instruction.step (cmp_r64_imm8 .rcx 0) s = s1
   have hrip1 : s1.rip = 4112 := by rw [← hs1, step_cmp_r64_imm8, hrip]; rfl
   have hfaulted1 : s1.faulted = false := by rw [← hs1]; exact hfaulted
-  have hmem1 : s1.memory = (fun _ => 0) := by rw [← hs1]; exact hmem
+  have hmem1 : s1.memory = X86_64Mem.zero := by rw [← hs1]; exact hmem
   have hrax1 : s1.gprs .rax = (fibNat k).toUInt64 := by rw [← hs1]; exact hrax
   have hzf1 : s1.zf = true := by
     have hz : s1.zf = (s.setFlagsCmp64 (s.gprs .rcx) (signExtend8To64 0)).zf := by rw [← hs1]; rfl
@@ -588,7 +607,7 @@ theorem fibLoop_done (k fuel : Nat) (s : X86_64MachineState) (hinv : fibLoopInva
   have hrip2 : s2.rip = 4132 := by
     rw [← hs2, step_je_rel8, hzf1]; simp [hrip1]; exact je_taken_target
   have hfaulted2 : s2.faulted = false := by rw [← hs2]; exact hfaulted1
-  have hmem2 : s2.memory = (fun _ => 0) := by rw [← hs2]; exact hmem1
+  have hmem2 : s2.memory = X86_64Mem.zero := by rw [← hs2]; exact hmem1
   have hrax2 : s2.gprs .rax = (fibNat k).toUInt64 := by rw [← hs2]; exact hrax1
   have hfetch3 : instructionAtRip 0x1000 fibIterInstructions s2.rip = some ret_op := by
     rw [hrip2]; exact fetch_ret
@@ -647,7 +666,7 @@ theorem fibLoopInvariant_prologue (n fuel : Nat) :
   generalize hs0 : initMachineState 0x1000 [n.toUInt64] = s0
   have hrip0 : s0.rip = 0x1000 := by rw [← hs0]; rfl
   have hfaulted0 : s0.faulted = false := by rw [← hs0]; rfl
-  have hmem0 : s0.memory = (fun _ => 0) := by rw [← hs0]; rfl
+  have hmem0 : s0.memory = X86_64Mem.zero := by rw [← hs0]; rfl
   have hrcx0 : s0.gprs .rcx = n.toUInt64 := by rw [← hs0]; rfl
   have hrax0 : s0.gprs .rax = 0 := by rw [← hs0]; rfl
   have hrdx0 : s0.gprs .rdx = 0 := by rw [← hs0]; rfl
@@ -657,7 +676,7 @@ theorem fibLoopInvariant_prologue (n fuel : Nat) :
   generalize hs1 : X86_64Instruction.step (xor_r32 .eax .eax) s0 = s1
   have hrip1 : s1.rip = 4098 := by rw [← hs1, step_xor_r32, hrip0]; rfl
   have hfaulted1 : s1.faulted = false := by rw [← hs1, step_xor_r32]; exact hfaulted0
-  have hmem1 : s1.memory = (fun _ => 0) := by rw [← hs1, step_xor_r32]; exact hmem0
+  have hmem1 : s1.memory = X86_64Mem.zero := by rw [← hs1, step_xor_r32]; exact hmem0
   have hrcx1 : s1.gprs .rcx = n.toUInt64 := by rw [← hs1, step_xor_r32]; exact hrcx0
   have hrax1 : s1.gprs .rax = 0 := by
     rw [← hs1, step_xor_r32]
@@ -669,7 +688,7 @@ theorem fibLoopInvariant_prologue (n fuel : Nat) :
   generalize hs2 : X86_64Instruction.step (mov_r64_imm64 .rdx 1) s1 = s2
   have hrip2 : s2.rip = 4108 := by rw [← hs2, step_mov_r64_imm64, hrip1]; rfl
   have hfaulted2 : s2.faulted = false := by rw [← hs2, step_mov_r64_imm64]; exact hfaulted1
-  have hmem2 : s2.memory = (fun _ => 0) := by rw [← hs2, step_mov_r64_imm64]; exact hmem1
+  have hmem2 : s2.memory = X86_64Mem.zero := by rw [← hs2, step_mov_r64_imm64]; exact hmem1
   have hrcx2 : s2.gprs .rcx = n.toUInt64 := by rw [← hs2, step_mov_r64_imm64]; exact hrcx1
   have hrax2 : s2.gprs .rax = 0 := by rw [← hs2, step_mov_r64_imm64]; exact hrax1
   have hrdx2 : s2.gprs .rdx = 1 := by rw [← hs2, step_mov_r64_imm64]; rfl

@@ -89,6 +89,17 @@ structure X86_64MachineState where
     resolves the same way whether `faulted` is a field or a function. -/
 def X86_64MachineState.faulted (s : X86_64MachineState) : Bool := s.fault.isSome
 
+/- REF: docs/MEMORY_HOOK.md#6-faults-and-observability -/
+/-- `faulted` in terms of `.fault`, proved once as a small, `s`-abstract lemma. Applying this to a
+    concrete (possibly large, e.g. a record update carrying a near-2⁶⁴ constant) state term only
+    needs the cheap `.fault = none` fact as an argument -- it does not require the elaborator or
+    kernel to separately re-derive the `isSome` unfold against that concrete term's full shape,
+    which is what makes a bare `.faulted = false` goal expensive in exactly that situation
+    (`Spikes/Spike2Fibonacci/Windows/LoopInvariant.lean`'s `fibLoop_iteration` hit this). -/
+theorem X86_64MachineState.faulted_of_fault_none {s : X86_64MachineState} (h : s.fault = none) :
+    s.faulted = false := by
+  unfold X86_64MachineState.faulted; rw [h]; rfl
+
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 instance : Inhabited X86_64MachineState where
   default := { rip := 0x401000, gprs := fun _ => 0, flags := 0x202, memory := X86_64Mem.zero }

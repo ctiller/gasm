@@ -215,6 +215,13 @@ theorem readByte_initRegion (f : Address → Byte) (a : Address) :
 /-- `zero`'s bytes are all zero. -/
 theorem readByte_zero (a : Address) : readByte zero a = 0 := rfl
 
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- Reading any width at any address of `zero` yields `0` -- the fact every proof that used to
+    state `s.memory = (fun _ => 0)` and then `simp [X86_64MachineState.read64]` through it now
+    needs one extra step for (`docs/MEMORY_HOOK.md` §7's "gains one definitional layer"). -/
+@[simp] theorem read_zero (w : MemWidth) (a : Address) : read w a zero = 0 := by
+  cases w <;> simp [read, readByte_zero]
+
 end X86_64Mem
 
 end Gasm.Targets.X86_64
