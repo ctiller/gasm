@@ -18,6 +18,7 @@ import Lean
 import Gasm.Core.Types
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Instructions.Base
+import Gasm.Targets.X86_64.MemCostModel
 
 namespace Gasm.Targets.X86_64.Instructions
 
@@ -119,6 +120,17 @@ structure MovRspDispByte where
   val  : UInt8
   deriving DecidableEq, Repr, Inhabited
 
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- `MovRspDispByte`'s declared memory access, hoisted to a top-level `def` and shared by both
+    `memAccesses` and `toUops` below (via `memUops`) -- a typeclass instance's fields cannot
+    reference one another during construction, so this is how "derive `toUops` from `memAccesses`"
+    (`docs/MEMORY_HOOK.md` §5.1) is expressed without re-typing the descriptor literal twice
+    (which would itself be exactly the Law-12 twin this hook exists to retire). Every one of the
+    14 memory forms in this file/`Push.lean`/`Pop.lean`/`Call.lean`/`Ret.lean` follows this same
+    shape. -/
+@[simp] def movRspDispByteAccesses (i : MovRspDispByte) : List MemAccessSpec :=
+  [⟨.store, .w8, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
+
 /- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
 instance : X86_64Instruction MovRspDispByte where
   encode i :=
@@ -133,10 +145,7 @@ instance : X86_64Instruction MovRspDispByte where
     let len := if i.disp == 0 then 4 else 5
     { s' with rip := s.rip + len }
 
-  toUops _ := [
-    { mnemonic := "MOV.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
-    { mnemonic := "MOV.storeData", uopClass := .storeData, eligiblePorts := [.p4, .p9], latencyCycles := 1, reciprocalThroughput := 0.5 }
-  ]
+  toUops i := derivedMemUops (movRspDispByteAccesses i) defaultMemCostModel
   toNASM i :=
     if i.disp == 0 then
       s!"mov byte [rsp], 0x{String.ofList (Nat.toDigits 16 i.val.toNat)}"
@@ -149,7 +158,7 @@ instance : X86_64Instruction MovRspDispByte where
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (curatedUInt8Cases.map (MovRspDispByte.mk · 0x00)) ++ (curatedUInt8Cases.map (MovRspDispByte.mk 0x00 ·))
-  memAccesses i := [⟨.store, .w8, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
+  memAccesses := movRspDispByteAccesses
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV DWORD PTR [RSP + disp8], imm32: writes a 32-bit immediate doubleword directly to stack offset. -/
@@ -157,6 +166,12 @@ structure MovRspDispImm32 where
   disp : UInt8
   imm  : UInt32
   deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- See `movRspDispByteAccesses`'s doc comment for why this is hoisted rather than duplicated
+    inline between `memAccesses` and `toUops`. -/
+@[simp] def movRspDispImm32Accesses (i : MovRspDispImm32) : List MemAccessSpec :=
+  [⟨.store, .w32, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
 instance : X86_64Instruction MovRspDispImm32 where
@@ -172,10 +187,7 @@ instance : X86_64Instruction MovRspDispImm32 where
     let s' := s.write32 base i.imm
     { s' with rip := s.rip + len }
 
-  toUops _ := [
-    { mnemonic := "MOV.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
-    { mnemonic := "MOV.storeData", uopClass := .storeData, eligiblePorts := [.p4, .p9], latencyCycles := 1, reciprocalThroughput := 0.5 }
-  ]
+  toUops i := derivedMemUops (movRspDispImm32Accesses i) defaultMemCostModel
   toNASM i :=
     if i.disp == 0 then
       s!"mov dword [rsp], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
@@ -188,7 +200,7 @@ instance : X86_64Instruction MovRspDispImm32 where
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (curatedUInt8Cases.map (MovRspDispImm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (MovRspDispImm32.mk 0x00 ·))
-  memAccesses i := [⟨.store, .w32, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
+  memAccesses := movRspDispImm32Accesses
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV QWORD PTR [RSP + disp8], imm32: sign-extends 32-bit immediate to 64 bits and writes to stack offset. -/
@@ -196,6 +208,12 @@ structure MovRspDispImm64 where
   disp : UInt8
   imm  : UInt32
   deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- See `movRspDispByteAccesses`'s doc comment for why this is hoisted rather than duplicated
+    inline between `memAccesses` and `toUops`. -/
+@[simp] def movRspDispImm64Accesses (i : MovRspDispImm64) : List MemAccessSpec :=
+  [⟨.store, .w64, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
 instance : X86_64Instruction MovRspDispImm64 where
@@ -215,10 +233,7 @@ instance : X86_64Instruction MovRspDispImm64 where
     let s' := s.write64 base (signExtendUInt32To64 i.imm)
     { s' with rip := s.rip + len }
 
-  toUops _ := [
-    { mnemonic := "MOV.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
-    { mnemonic := "MOV.storeData", uopClass := .storeData, eligiblePorts := [.p4, .p9], latencyCycles := 1, reciprocalThroughput := 0.5 }
-  ]
+  toUops i := derivedMemUops (movRspDispImm64Accesses i) defaultMemCostModel
   toNASM i :=
     if i.disp == 0 then
       s!"mov qword [rsp], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
@@ -231,7 +246,7 @@ instance : X86_64Instruction MovRspDispImm64 where
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (curatedUInt8Cases.map (MovRspDispImm64.mk · 0x00000000)) ++ (curatedUInt32Cases.map (MovRspDispImm64.mk 0x00 ·))
-  memAccesses i := [⟨.store, .w64, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
+  memAccesses := movRspDispImm64Accesses
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV [dstPtr], srcReg8: Writes the low 8-bit byte of srcReg into memory at [dstPtr]. -/
@@ -239,6 +254,12 @@ structure MovMem8Reg8 where
   dstPtr : Reg64
   srcReg : Reg64
   deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- See `movRspDispByteAccesses`'s doc comment for why this is hoisted rather than duplicated
+    inline between `memAccesses` and `toUops`. -/
+@[simp] def movMem8Reg8Accesses (i : MovMem8Reg8) : List MemAccessSpec :=
+  [⟨.store, .w8, ⟨some i.dstPtr, none, 0⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
 instance : X86_64Instruction MovMem8Reg8 where
@@ -273,10 +294,7 @@ instance : X86_64Instruction MovMem8Reg8 where
     let instrLen := 2 + rexLen + extraLen
     { s' with rip := s.rip + instrLen }
 
-  toUops _ := [
-    { mnemonic := "MOV.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
-    { mnemonic := "MOV.storeData", uopClass := .storeData, eligiblePorts := [.p4, .p9], latencyCycles := 1, reciprocalThroughput := 0.5 }
-  ]
+  toUops i := derivedMemUops (movMem8Reg8Accesses i) defaultMemCostModel
   toNASM i := s!"mov byte [{i.dstPtr}], {reg64To8BitString i.srcReg}"
   toLean i := s!"mov_mem8 .{i.dstPtr} .{i.srcReg}"
   canFuzzHardware _ := false
@@ -286,7 +304,7 @@ instance : X86_64Instruction MovMem8Reg8 where
   roundtripCases :=
     (allReg64List.map (MovMem8Reg8.mk · .rax)) ++ (allReg64List.map (MovMem8Reg8.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => MovMem8Reg8.mk p.1 p.2)
-  memAccesses i := [⟨.store, .w8, ⟨some i.dstPtr, none, 0⟩⟩]
+  memAccesses := movMem8Reg8Accesses
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV QWORD PTR [basePtr + disp8], srcReg64: Writes 64-bit register into memory at [basePtr + disp8]. -/
@@ -295,6 +313,12 @@ structure MovMem64DispReg64 where
   disp    : UInt8
   srcReg  : Reg64
   deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- See `movRspDispByteAccesses`'s doc comment for why this is hoisted rather than duplicated
+    inline between `memAccesses` and `toUops`. -/
+@[simp] def movMem64DispReg64Accesses (i : MovMem64DispReg64) : List MemAccessSpec :=
+  [⟨.store, .w64, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
 instance : X86_64Instruction MovMem64DispReg64 where
@@ -323,10 +347,7 @@ instance : X86_64Instruction MovMem64DispReg64 where
     let len := 3 + (if hasSib then 1 else 0) + (if hasDisp then 1 else 0)
     { s' with rip := s.rip + len }
 
-  toUops _ := [
-    { mnemonic := "MOV.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
-    { mnemonic := "MOV.storeData", uopClass := .storeData, eligiblePorts := [.p4, .p9], latencyCycles := 1, reciprocalThroughput := 0.5 }
-  ]
+  toUops i := derivedMemUops (movMem64DispReg64Accesses i) defaultMemCostModel
   toNASM i :=
     if i.disp == 0 then
       s!"mov qword [{i.basePtr}], {i.srcReg}"
@@ -343,7 +364,7 @@ instance : X86_64Instruction MovMem64DispReg64 where
     (allReg64List.map (MovMem64DispReg64.mk .rax 0 ·)) ++
     (extendedReg64Pairs.map fun p => MovMem64DispReg64.mk p.1 0 p.2) ++
     (curatedUInt8Cases.map (MovMem64DispReg64.mk .r15 · .r15))
-  memAccesses i := [⟨.store, .w64, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
+  memAccesses := movMem64DispReg64Accesses
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV QWORD PTR [basePtr + disp8], imm32: Writes 32-bit immediate sign-extended into 64-bit memory. -/
@@ -352,6 +373,12 @@ structure MovMem64DispImm32 where
   disp    : UInt8
   imm     : UInt32
   deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- See `movRspDispByteAccesses`'s doc comment for why this is hoisted rather than duplicated
+    inline between `memAccesses` and `toUops`. -/
+@[simp] def movMem64DispImm32Accesses (i : MovMem64DispImm32) : List MemAccessSpec :=
+  [⟨.store, .w64, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
 instance : X86_64Instruction MovMem64DispImm32 where
@@ -379,10 +406,7 @@ instance : X86_64Instruction MovMem64DispImm32 where
     let len := 7 + (if hasSib then 1 else 0) + (if hasDisp then 1 else 0)
     { s' with rip := s.rip + len }
 
-  toUops _ := [
-    { mnemonic := "MOV.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
-    { mnemonic := "MOV.storeData", uopClass := .storeData, eligiblePorts := [.p4, .p9], latencyCycles := 1, reciprocalThroughput := 0.5 }
-  ]
+  toUops i := derivedMemUops (movMem64DispImm32Accesses i) defaultMemCostModel
   toNASM i :=
     if i.disp == 0 then
       s!"mov qword [{i.basePtr}], 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
@@ -404,7 +428,7 @@ instance : X86_64Instruction MovMem64DispImm32 where
     (curatedUInt32Cases.map (MovMem64DispImm32.mk .rax 0 ·)) ++
     (curatedUInt8Cases.map (MovMem64DispImm32.mk .r15 · 0x00000000)) ++
     (curatedUInt32Cases.map (MovMem64DispImm32.mk .r15 0 ·))
-  memAccesses i := [⟨.store, .w64, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
+  memAccesses := movMem64DispImm32Accesses
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV dstReg64, QWORD PTR [basePtr + disp8]: Reads 64-bit value from memory into register. -/
@@ -413,6 +437,12 @@ structure MovReg64Mem64Disp where
   basePtr : Reg64
   disp    : UInt8
   deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- See `movRspDispByteAccesses`'s doc comment for why this is hoisted rather than duplicated
+    inline between `memAccesses` and `toUops`. -/
+@[simp] def movReg64Mem64DispAccesses (i : MovReg64Mem64Disp) : List MemAccessSpec :=
+  [⟨.load, .w64, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
 instance : X86_64Instruction MovReg64Mem64Disp where
@@ -441,9 +471,7 @@ instance : X86_64Instruction MovReg64Mem64Disp where
     let len := 3 + (if hasSib then 1 else 0) + (if hasDisp then 1 else 0)
     { s' with rip := s.rip + len }
 
-  toUops _ := [
-    { mnemonic := "MOV.load", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 4, reciprocalThroughput := 0.5 }
-  ]
+  toUops i := derivedMemUops (movReg64Mem64DispAccesses i) defaultMemCostModel
   toNASM i :=
     if i.disp == 0 then
       s!"mov {i.dstReg}, qword [{i.basePtr}]"
@@ -460,7 +488,7 @@ instance : X86_64Instruction MovReg64Mem64Disp where
     (curatedUInt8Cases.map (MovReg64Mem64Disp.mk .rax .rax ·)) ++
     (extendedReg64Pairs.map fun p => MovReg64Mem64Disp.mk p.1 p.2 0) ++
     (curatedUInt8Cases.map (MovReg64Mem64Disp.mk .r15 .r15 ·))
-  memAccesses i := [⟨.load, .w64, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
+  memAccesses := movReg64Mem64DispAccesses
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- MOV reg32, imm32 helper. -/
@@ -520,6 +548,12 @@ structure MovzxR64Mem8 where
   disp    : UInt8 := 0
   deriving DecidableEq, Repr, Inhabited
 
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- See `movRspDispByteAccesses`'s doc comment for why this is hoisted rather than duplicated
+    inline between `memAccesses` and `toUops`. -/
+@[simp] def movzxR64Mem8Accesses (i : MovzxR64Mem8) : List MemAccessSpec :=
+  [⟨.load, .w8, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
+
 /- REF: intel-sdm#vol=2;instr=MOVZX;part=operation -/
 instance : X86_64Instruction MovzxR64Mem8 where
   encode i :=
@@ -547,9 +581,7 @@ instance : X86_64Instruction MovzxR64Mem8 where
     let len := 4 + (if hasSib then 1 else 0) + (if hasDisp then 1 else 0)
     { s' with rip := s.rip + len }
 
-  toUops _ := [
-    { mnemonic := "MOVZX.load", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 4, reciprocalThroughput := 0.5 }
-  ]
+  toUops i := derivedMemUops (movzxR64Mem8Accesses i) defaultMemCostModel
   toNASM i :=
     if i.disp == 0 then
       s!"movzx {i.dstReg}, byte [{i.basePtr}]"
@@ -566,7 +598,7 @@ instance : X86_64Instruction MovzxR64Mem8 where
     (curatedUInt8Cases.map (MovzxR64Mem8.mk .rax .rax ·)) ++
     (extendedReg64Pairs.map fun p => MovzxR64Mem8.mk p.1 p.2 0) ++
     (curatedUInt8Cases.map (MovzxR64Mem8.mk .r15 .r15 ·))
-  memAccesses i := [⟨.load, .w8, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
+  memAccesses := movzxR64Mem8Accesses
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV dstReg32, DWORD PTR [RSP + disp8]: Reads 32-bit value from stack memory with 32-to-64-bit zero extension. -/
@@ -574,6 +606,12 @@ structure MovReg32RspDisp32 where
   dstReg : Reg32
   disp   : UInt8
   deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- See `movRspDispByteAccesses`'s doc comment for why this is hoisted rather than duplicated
+    inline between `memAccesses` and `toUops`. -/
+@[simp] def movReg32RspDisp32Accesses (i : MovReg32RspDisp32) : List MemAccessSpec :=
+  [⟨.load, .w32, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
 instance : X86_64Instruction MovReg32RspDisp32 where
@@ -589,9 +627,7 @@ instance : X86_64Instruction MovReg32RspDisp32 where
     let len := 4 + (if (reg32Code i.dstReg).2 then 1 else 0)
     { s' with rip := s.rip + len }
 
-  toUops _ := [
-    { mnemonic := "MOV.load", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 4, reciprocalThroughput := 0.5 }
-  ]
+  toUops i := derivedMemUops (movReg32RspDisp32Accesses i) defaultMemCostModel
   -- Signed-displacement formatting is load-bearing here too (see the sibling fix throughout this
   -- file, found via P4(a)'s registry-derived encoding fuzzer,
   -- docs/X86_ISA_EXPANSION_PREREQUISITES.md): `{i.disp.toNat}` rendered `0x80` (disp=`0x80`, i.e.
@@ -607,7 +643,7 @@ instance : X86_64Instruction MovReg32RspDisp32 where
   roundtripCases :=
     (allReg32List.map (MovReg32RspDisp32.mk · 0x00)) ++ (curatedUInt8Cases.map (MovReg32RspDisp32.mk .eax ·)) ++
     (curatedUInt8Cases.map (MovReg32RspDisp32.mk .r15d ·))
-  memAccesses i := [⟨.load, .w32, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
+  memAccesses := movReg32RspDisp32Accesses
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- MOVZX dstReg64, BYTE PTR [basePtr + disp8] helper. -/
