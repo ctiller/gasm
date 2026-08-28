@@ -516,4 +516,63 @@ theorem natToDigitBytes_not_crlf (n : Nat) : ∀ b ∈ natToDigitBytes n, b ≠ 
   have := natToDigitBytes_range n b hb
   constructor <;> (intro hcontra; subst hcontra; simp [CR, LF] at this <;> omega)
 
+
+/- REF: docs/STDLIB_HTTP11.md#23-header-fields -/
+/-- Composable "no CR/LF byte" fact for a list append -- the round-trip proof's workhorse for
+    showing an entire written line (built from several concatenated pieces) never contains a
+    line terminator. -/
+theorem no_crlf_append {as bs : List UInt8} (ha : ∀ b ∈ as, b ≠ CR ∧ b ≠ LF)
+    (hb : ∀ b ∈ bs, b ≠ CR ∧ b ≠ LF) : ∀ b ∈ as ++ bs, b ≠ CR ∧ b ≠ LF := by
+  intro b hmem
+  rcases List.mem_append.mp hmem with h | h
+  · exact ha b h
+  · exact hb b h
+
+/- REF: docs/STDLIB_HTTP11.md#23-header-fields -/
+/-- Composable "no CR/LF byte" fact for a `cons` -- the single-separator-byte (`SP`, `COLON`)
+    counterpart to `no_crlf_append`. -/
+theorem no_crlf_cons {x : UInt8} {bs : List UInt8} (hx : x ≠ CR ∧ x ≠ LF)
+    (hb : ∀ b ∈ bs, b ≠ CR ∧ b ≠ LF) : ∀ b ∈ x :: bs, b ≠ CR ∧ b ≠ LF := by
+  intro b hmem
+  rcases List.mem_cons.mp hmem with rfl | h
+  · exact hx
+  · exact hb b h
+
+/- REF: docs/STDLIB_HTTP11.md#24-token-and-field-value-character-classes -/
+/-- A `tchar` byte is never `CR` or `LF` -- `tchar`'s range excludes every C0 control byte. -/
+theorem isTChar_not_crlf {b : UInt8} (h : isTChar b = true) : b ≠ CR ∧ b ≠ LF := by
+  unfold isTChar at h
+  constructor <;> (intro hc; subst hc; exact absurd h (by decide))
+
+/- REF: docs/STDLIB_HTTP11.md#24-token-and-field-value-character-classes -/
+/-- A visible-US-ASCII byte is never `CR` or `LF` -- `vchar`'s range (`0x21`-`0x7E`) excludes
+    every C0 control byte. -/
+theorem isVChar_not_crlf {b : UInt8} (h : isVChar b = true) : b ≠ CR ∧ b ≠ LF := by
+  unfold isVChar at h
+  constructor <;> (intro hc; subst hc; exact absurd h (by decide))
+
+/- REF: docs/STDLIB_HTTP11.md#24-token-and-field-value-character-classes -/
+/-- A header field-value byte (`vchar`, `SP`, or `HTAB`) is never `CR` or `LF`. -/
+theorem isFieldValueByte_not_crlf {b : UInt8} (h : isFieldValueByte b = true) :
+    b ≠ CR ∧ b ≠ LF := by
+  unfold isFieldValueByte at h
+  simp only [Bool.or_eq_true] at h
+  rcases h with (h | h) | h
+  · exact isVChar_not_crlf h
+  · constructor <;> (intro hc; subst hc; exact absurd h (by decide))
+  · constructor <;> (intro hc; subst hc; exact absurd h (by decide))
+
+/- REF: docs/STDLIB_HTTP11.md#24-token-and-field-value-character-classes -/
+theorem all_not_crlf_of_all_isTChar {bs : List UInt8} (h : bs.all isTChar = true) :
+    ∀ b ∈ bs, b ≠ CR ∧ b ≠ LF := fun b hb => isTChar_not_crlf (List.all_eq_true.mp h b hb)
+
+/- REF: docs/STDLIB_HTTP11.md#24-token-and-field-value-character-classes -/
+theorem all_not_crlf_of_all_isVChar {bs : List UInt8} (h : bs.all isVChar = true) :
+    ∀ b ∈ bs, b ≠ CR ∧ b ≠ LF := fun b hb => isVChar_not_crlf (List.all_eq_true.mp h b hb)
+
+/- REF: docs/STDLIB_HTTP11.md#24-token-and-field-value-character-classes -/
+theorem all_not_crlf_of_all_isFieldValueByte {bs : List UInt8}
+    (h : bs.all isFieldValueByte = true) : ∀ b ∈ bs, b ≠ CR ∧ b ≠ LF :=
+  fun b hb => isFieldValueByte_not_crlf (List.all_eq_true.mp h b hb)
+
 end Stdlib.Http11
