@@ -555,4 +555,130 @@ theorem endPng_eq (w : PngWriter) (hrow : w.currentRow = w.header.height) :
     ((pngSignature ++ mkChunk "IHDR" (ihdrPayload w.header)) ++
       mkChunk "IDAT" (Stdlib.Zlib.zlibCompress w.rawStream))]
 
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- **IHDR inversion**: parsing the payload `endPng` writes for a standard RGBA8 header
+    recovers the header exactly. -/
+theorem parseIhdr_ihdrPayload (h : PngHeader)
+    (hbd : h.bitDepth = 8) (hct : h.colorType = .truecolorRgba)
+    (hcm : h.compressionMethod = 0) (hfm : h.filterMethod = 0) (him : h.interlaceMethod = 0)
+    (hw : 0 < h.width) (hh : 0 < h.height)
+    (hw32 : h.width < 2 ^ 32) (hh32 : h.height < 2 ^ 32) :
+    parseIhdr (ihdrPayload h) = .ok h := by
+  obtain ⟨wd, htt, bd, ct, cm, fm, im⟩ := h
+  dsimp only at hbd hct hcm hfm him hw hh hw32 hh32
+  subst hbd hct hcm hfm him
+  have hP : ihdrPayload ⟨wd, htt, 8, .truecolorRgba, 0, 0, 0⟩ =
+      ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+        ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+        ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+        (wd.toUInt32 &&& 0xFF).toUInt8,
+        ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+        ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+        ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+        (htt.toUInt32 &&& 0xFF).toUInt8,
+        8, 6, 0, 0, 0] := rfl
+  unfold parseIhdr
+  simp only [Bind.bind, Except.bind, pure, Except.pure]
+  rw [hP]
+  have hsz : (ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (wd.toUInt32 &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (htt.toUInt32 &&& 0xFF).toUInt8,
+      8, 6, 0, 0, 0]).size = 13 := rfl
+  rw [if_neg (show ¬ (ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (wd.toUInt32 &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (htt.toUInt32 &&& 0xFF).toUInt8,
+      8, 6, 0, 0, 0]).size < 13 from by rw [hsz]; omega)]
+  rw [show (ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (wd.toUInt32 &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (htt.toUInt32 &&& 0xFF).toUInt8,
+      8, 6, 0, 0, 0]).get! 0 = ((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8 from rfl,
+    show (ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (wd.toUInt32 &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (htt.toUInt32 &&& 0xFF).toUInt8,
+      8, 6, 0, 0, 0]).get! 1 = ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8 from rfl,
+    show (ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (wd.toUInt32 &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (htt.toUInt32 &&& 0xFF).toUInt8,
+      8, 6, 0, 0, 0]).get! 2 = ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8 from rfl,
+    show (ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (wd.toUInt32 &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (htt.toUInt32 &&& 0xFF).toUInt8,
+      8, 6, 0, 0, 0]).get! 3 = (wd.toUInt32 &&& 0xFF).toUInt8 from rfl,
+    show (ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (wd.toUInt32 &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (htt.toUInt32 &&& 0xFF).toUInt8,
+      8, 6, 0, 0, 0]).get! 4 = ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8 from rfl,
+    show (ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (wd.toUInt32 &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (htt.toUInt32 &&& 0xFF).toUInt8,
+      8, 6, 0, 0, 0]).get! 5 = ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8 from rfl,
+    show (ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (wd.toUInt32 &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (htt.toUInt32 &&& 0xFF).toUInt8,
+      8, 6, 0, 0, 0]).get! 6 = ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8 from rfl,
+    show (ByteArray.mk #[((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (wd.toUInt32 &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8,
+      ((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8,
+      (htt.toUInt32 &&& 0xFF).toUInt8,
+      8, 6, 0, 0, 0]).get! 7 = (htt.toUInt32 &&& 0xFF).toUInt8 from rfl]
+  rw [show ((((wd.toUInt32 >>> 24) &&& 0xFF).toUInt8).toNat <<< 24 |||
+      (((wd.toUInt32 >>> 16) &&& 0xFF).toUInt8).toNat <<< 16 |||
+      (((wd.toUInt32 >>> 8) &&& 0xFF).toUInt8).toNat <<< 8 |||
+      ((wd.toUInt32 &&& 0xFF).toUInt8).toNat) = wd from nat_be_roundtrip wd hw32]
+  rw [show ((((htt.toUInt32 >>> 24) &&& 0xFF).toUInt8).toNat <<< 24 |||
+      (((htt.toUInt32 >>> 16) &&& 0xFF).toUInt8).toNat <<< 16 |||
+      (((htt.toUInt32 >>> 8) &&& 0xFF).toUInt8).toNat <<< 8 |||
+      ((htt.toUInt32 &&& 0xFF).toUInt8).toNat) = htt from nat_be_roundtrip htt hh32]
+  rw [if_neg (show ¬ (wd == 0 || htt == 0) = true from by simp; omega)]
+  rfl
+
 end Stdlib.Png
