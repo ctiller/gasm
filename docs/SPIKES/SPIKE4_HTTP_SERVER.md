@@ -92,4 +92,50 @@ The high-level server model produces system effect events in the `Network`, `Con
 - `Net.Send(responseBytes)`
 - `Net.Close(clientConn)`
 
-The lowering theorems for both Windows x86_64 (`spike4_windows_canonical_trace_equivalence`) and WebAssembly (`spike4_wasm_canonical_trace_equivalence`) prove constructive trace equivalence via `native_decide`, establishing that both distinct physical binaries execute identical verified protocol semantics.
+**Status** (corrected 2026-08-28): this paragraph previously read "the lowering theorems for both
+Windows x86_64 (`spike4_windows_canonical_trace_equivalence`) and WebAssembly
+(`spike4_wasm_canonical_trace_equivalence`) prove constructive trace equivalence via
+`native_decide`, establishing that both distinct physical binaries execute identical verified
+protocol semantics." **Neither of those two theorem names has ever existed in the tree**, and the
+property the sentence asserted is not established — `scripts/gate_allowlist.txt` records, in the
+six `spike4_*_trace_equivalence` entries, PA17's finding that widening these theorems to the real
+per-request domain **"would be FALSE"**. What follows is what is actually proved.
+
+What exists, in `Spikes/Spike4HttpServer/Equivalence.lean`:
+
+- **Nine pointwise trace-equivalence theorems**, `spike4_{windows,wasm,linux}_{root,status,404}_trace_equivalence`
+  (`:99`–`:172`) — three targets, not two; the Linux lowering landed alongside the other two. Each
+  is a single `native_decide` check against **one literal request string**, not a statement about
+  arbitrary requests.
+- **Three route-indexed compositions**, `spike4_{windows,wasm,linux}_route_equivalence (r : HttpRoute)`
+  (`:232`, `:241`, `:250`). The `∀ (r : HttpRoute)` binder is genuinely exhaustive, but `HttpRoute`
+  is a **three-element proxy** for the three literal request strings `routeRequestStr` maps it to —
+  it is not the `∀ (request : ByteArray)` domain a server-correctness claim needs.
+- **Two honest restatements**, `spike4_{windows,wasm}_trace_equivalence_for_request` (`:267`,
+  `:278`), which make that narrow domain an explicit hypothesis (`h : req = routeRequestStr r`)
+  instead of hiding it behind the `HttpRoute` case split — the shape
+  `docs/tasks/PA17-spike3-spike4-domain-honesty.md` asks for.
+- **`spike4WindowsVerifiedProgram` / `spike4LinuxVerifiedProgram` / `spike4WasmVerifiedProgram`**
+  (`:451`, `:460`, `:472`), each carrying a `NOTE (PA17 domain-honesty finding)` recording in the
+  source that this is **not** a Law-9-compliant universal claim despite `VerifiedProgram`'s type
+  signature.
+
+**Why the universal claim is false, not merely unproven.** A counterexample class exists and is
+recorded in the tree. Historically it was route-prefix confusion: the x86-64 lowering matched a
+5-byte `"/stat"` prefix and the WASI lowering a single byte after `"/"`, so `"/static"`,
+`"/status_check"`, `"/search"` and others were misrouted relative to `Spec.lean`'s
+`parseRequestLine`/`routeRequest`. **That bug is fixed** — `docs/tasks/N8-spike4-stack-buffer-overflow.md`
+made all three targets compare the full 8 bytes `"/status "`, and `spike4RouteFixedOnAllTargets`
+(`:354`) re-checks every witness the former "KNOWN DIVERGENCE" note named. The allowlist entries
+still point at that note and are stale in that specific respect.
+
+The falsity survives the fix for an independent reason, recorded in the same file: `parseRequestLine`
+returns `none` (400 Bad Request) for any request line that is not exactly three space-separated
+tokens, and **no lowering can emit that response class at all**. A fully universal
+`∀ (request : ByteArray)` equivalence is therefore false on malformed request lines regardless of
+routing correctness. Reaching a genuine universal statement needs PA6's read-binder contract and
+PA7's reactive-program contract first, per PA17's sequencing.
+
+So: three distinct physical binaries are checked to execute identical protocol semantics **on three
+literal requests each**, plus the broader concrete witness set `spike4RouteFixedOnAllTargets`
+exercises. That is a pointwise result, not the universal one the retired sentence claimed.

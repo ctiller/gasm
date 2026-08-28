@@ -808,12 +808,22 @@ because they are the design's own account of what a seal does and does not buy:
   semantically empty (the blessed API is total and public, so the bytes were never secret)
   and states the property the seal actually buys: every memory touch goes through a *named*
   function, so access sites are enumerable and future instrumentation has one place to land.
-  **Status**: that note describes the intended enforcement as a build-failing check named
-  `Tools/CheckMemoryHookSeal.lean`. No such file exists under `Tools/` at commit `38efb5f`
-  (`Tools/` holds `CheckGatesAxioms`, `CheckRefsCoverage`, `CheckX86Obligations`,
-  `GateSubprocess`, `ValidateSpikeWasm`), and no such gate is wired into
-  `scripts/run_gates.py`. Treat the chokepoint as a convention that is documented and
-  intended-to-be-linted, not one that is currently enforced.
+  **Status** (retracted 2026-08-28): a paragraph here previously reported that the note named
+  its enforcement `Tools/CheckMemoryHookSeal.lean`, that no such file existed, and that the
+  chokepoint was therefore "documented and intended-to-be-linted, not one that is currently
+  enforced." **That finding was an artifact of sampling.** `CheckMemoryHookSeal` was a
+  placeholder name that the note carried for about nine minutes before its author replaced it;
+  an adversarial-review pass read the file inside that window and recorded the placeholder as a
+  defect. The enforcement is real and is named correctly in the note today:
+  `Gasm/Targets/X86_64/MemoryFrameAudit.lean`'s seal audit, which fails the build if any
+  declaration outside the hook module mentions `X86_64Memory.casesOn`/`.rec`/`.recOn`. The
+  bullet's substantive point stands unchanged and is the part worth carrying to ARM: the seal
+  is enforced at Law 13 preference-tier **3** — the bypass is linted, not unrepresentable — and
+  that was a measured choice, not a shortfall. Tier 1 would mean making the type genuinely
+  opaque, which removes definitional unfolding and so forces an axiomatized memory API; the
+  `casesOn` leak it would close is semantically empty anyway, since `readByte` is public and
+  total. Trading an empty lint gap for real non-standard axioms is a bad trade in an
+  axiom-gated tree. See `docs/MEMORY_HOOK.md` §3.2.
 - **`ReadsWithin` originally did not constrain the resulting memory**, so an instruction could
   load from an undeclared address, store the loaded value, and still satisfy the obligation.
   The repair is the `StoreAgreeOn` conjunct (`Gasm/Targets/X86_64/MemoryFrame/Common.lean:56-59`,
