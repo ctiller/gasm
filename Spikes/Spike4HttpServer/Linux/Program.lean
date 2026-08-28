@@ -72,15 +72,16 @@ def rdataPayload : ByteArray :=
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
 /-- Symbolic program definition for Spike 4 x86_64 Linux HTTP 1.1 Server.
-    Stack Layout (total 208 bytes allocated, maintaining (RSP - 208) % 16 == 0):
-      [RSP + 0x20..0x27] : server socket descriptor (8 bytes)
-      [RSP + 0x28..0x2F] : client socket descriptor (8 bytes)
-      [RSP + 0x30..0x3F] : sockaddr_in buffer (16 bytes)
-      [RSP + 0x40..0xBF] : HTTP request recv buffer (128 bytes)
+    Stack Layout (total 320 bytes allocated, maintaining (RSP - 320) % 16 == 0):
+      [RSP + 0x20..0x27]  : server socket descriptor (8 bytes)
+      [RSP + 0x28..0x2F]  : client socket descriptor (8 bytes)
+      [RSP + 0x30..0x3F]  : sockaddr_in buffer (16 bytes)
+      [RSP + 0x40..0x13F] : HTTP request recv buffer (256 bytes -- widened in lockstep with the
+                             Windows target, REF: docs/tasks/N8-spike4-stack-buffer-overflow.md)
 -/
 def spike4SymbolicProgram : List SymbolicInstr := [
-  -- 1. Setup 208-byte stack frame
-  instr (sub_rsp 208),
+  -- 1. Setup 320-byte stack frame (imm32 form: 320 exceeds sub_rsp's 8-bit immediate range)
+  instr (sub_rsp32 320),
 
   -- 2. socket(af = AF_INET (2), type = SOCK_STREAM (1), protocol = IPPROTO_TCP (6))
   instr (mov_r32 .edi 2),
@@ -118,20 +119,27 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   instr syscall_op,
   instr (mov_mem64_disp .rsp 0x28 .rax), -- Save client socket
 
-  -- 7. recv/read(client_fd, buf = RSP + 0x40, count = 128)
+  -- 7. recv/read(client_fd, buf = RSP + 0x40, count = 256)
   instr (mov_reg64_mem64_disp .rdi .rsp 0x28),
   instr (lea_rsp .rsi 0x40),
-  instr (mov_r32 .edx 128),
+  instr (mov_r32 .edx 256),
   instr (mov_r32 .eax 0),  -- SYS_read
   instr syscall_op,
 
+  -- 7b. Validate read() return value (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md, defect 2).
+  -- SYS_read returns the byte count read (> 0), 0 on EOF, or a negative errno on error. RAX is
+  -- sign-extended, so a signed JLE against 0 catches both without reading the request buffer.
+  instr (cmp_r64_imm8 .rax 0x00),
+  jle_near_label "close_conn",
+
   -- 8. Inspect received HTTP request line at RSP + 0x40
-  -- Check if path is "/status" (at offset 4: "GET /status...")
+  -- Check if path is exactly "/status" followed by the request-line's delimiting space (at offset
+  -- 4: "GET /status ..."). Full 8-byte exact compare (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
+  -- defect 3) -- the prior 5-byte-masked "/stat" prefix compare mis-routed any path merely starting
+  -- with "/stat" (e.g. "/static") to the status handler.
   instr (lea_rsp .rsi (0x40 + 4)),
   instr (mov_reg64_mem64_disp .rax .rsi 0),
-  instr (mov_r64_imm64 .rdx 0xFFFFFFFFFF),
-  instr (and_r64 .rax .rdx),
-  instr (mov_r64_imm64 .rcx 0x746174732F), -- "/stat"
+  instr (mov_r64_imm64 .rcx 0x207375746174732F), -- "/status " (7 chars + trailing delimiter space)
   instr (cmp_r64 .rax .rcx),
   je_label "send_status",
 
@@ -172,7 +180,9 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   instr (mov_r32 .eax 1), -- SYS_write
   instr syscall_op,
 
-  -- 10. close(client_fd)
+  -- 10. close(client_fd) -- also the landing point for the read-failure teardown above, since RDI
+  -- is reloaded from the saved client socket unconditionally.
+  label "close_conn",
   instr (mov_reg64_mem64_disp .rdi .rsp 0x28),
   instr (mov_r32 .eax 3), -- SYS_close
   instr syscall_op,
