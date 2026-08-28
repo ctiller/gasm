@@ -124,6 +124,7 @@ searching other files' `after:` lists, or use `TC13`'s checker once it exists.
 - [ ] N5 Spike4 re-verified as VerifiedReactiveProgram → `docs/tasks/N5-spike4-reactive-verified.md` — after: N3, PA7
 - [ ] N6 networking buildout (TCP/HTTP/HTTP2/protobuf/gRPC) → `docs/tasks/N6-networking-buildout.md` — after: N5
 - [ ] N7 constant-time/secrecy contract class design → `docs/tasks/N7-constant-time-contract-class.md` — after: PA2
+- [ ] N8 fix Spike 4 HTTP stack buffer overflow + uninitialized read → `docs/tasks/N8-spike4-stack-buffer-overflow.md` — after: N3
 
 **BAR 3 — before N6 buildout starts: full-codebase fresh-agent deep re-review** (see BAR definitions below).
 
@@ -149,6 +150,8 @@ searching other files' `after:` lists, or use `TC13`'s checker once it exists.
 - [x] B1 build-perf iteration 2: Instructions.lean aggregator sharding → `docs/tasks/B1-build-perf-iteration2.md` — after: TC4
 - [b] B2 Linux strategy → `docs/tasks/B2-linux-strategy.md` — after: TC6
 - [ ] B3 Stage B decoder modularization → `docs/tasks/B3-stage-b-decoder-modularization.md` — after: TC4, B1
+- [ ] B4 pre-index instruction byte offsets in simulator → `docs/tasks/B4-instruction-index-lookup.md` — after: TC4
+- [ ] B7 Wasm OOB trap semantics + memory limits → `docs/tasks/B7-wasm-oob-trap-and-limits.md` — after: TC2
 
 - [ ] MD1 Model/spec debt intake queue (standing triage, `MODEL_DEBT.md`) → `docs/tasks/MD1-model-spec-debt-intake.md` — after: —
 
