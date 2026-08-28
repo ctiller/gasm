@@ -510,9 +510,11 @@ end
     diverge on a real infinite Wasm loop, so Lean compiles that whole group as an opaque
     constant with no usable defining equations), THIS wrapper's own body is a single non-recursive
     `if`, so it is an ordinary total `def` with a real equation Lean can unfold -- exactly what
-    PA12's general trap short-circuit theorem (`evalInstr_trapped_next` /
-    `evalInstrs_trapped_next` in `SemanticsFuzzer.lean`) inducts on, without needing visibility
-    into the opaque partial-recursive body at all. Same signature and identical behaviour to the
+    PA12's general trap short-circuit theorem (`evalInstr_trapped_next` in `SemanticsFuzzer.lean`)
+    inducts on, without needing visibility into the opaque partial-recursive body at all
+    (`evalInstrs`/`evalLoop` themselves remain opaque -- see `evalInstr_trapped_next`'s own
+    docstring for why that residual scope limit is genuine, not an oversight). Same signature and
+    identical behaviour to the
     previous single combined `partial def evalInstr` (confirmed by the differential fuzzer suite
     below passing unchanged). -/
 def evalInstr (instr : WasmInstr) (s : WasmMachineState)

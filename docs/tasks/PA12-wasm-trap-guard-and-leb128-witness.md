@@ -1,7 +1,7 @@
 ---
 id: PA12
 title: Wasm trap short-circuit + SLEB128 budget witness — structural proofs, no native_decide
-status: ready
+status: done
 blocked_on: ""
 after: []
 related: [B7, TC20]
@@ -97,3 +97,81 @@ already-`done` TC2/TC3).
   refactor engineering against code that already exists; flagged `related: [B7]` because B7 touches
   the same `evalInstr` trap machinery this task's first theorem is stated against, not because B7
   blocks starting this task.
+- 2026-08-27: **done, with one honestly-scoped residual.** Allowlist: 84 → 82 entries (both
+  target entries removed; B7 and the bare-metal-target merge, landed underneath this task, moved
+  the pre-task baseline from 80 to 84 — no other entry touched).
+
+  **`trapShortCircuitGuard_inst` → `evalInstr_trapped_next`.** The originating audit's premise
+  ("provable directly by structural induction on `evalInstr`'s own definition... not new model
+  surface") turned out to be false as stated: `evalInstr`/`evalInstrs`/`evalLoop` were a `mutual
+  partial def` group that Lean compiles to a fully **opaque constant** — confirmed empirically,
+  including on a from-scratch minimal reproduction (`partial def countdown ...; #print countdown`
+  prints `opaque countdown`, and `unfold`/`rfl`/`simp only [countdown]` all fail outright). This is
+  a strictly harder obstruction than "kernel `Acc.rec` reduction gets stuck" (which still permits
+  equational rewriting via `unfold`/`simp`, as `LEB128.lean`'s existing well-founded-recursion
+  proofs already demonstrate) — an opaque constant has *no* defining equation for any tactic to
+  use, at any granularity, so no induction was possible against the pre-task definition at all.
+  Fix: refactored `Semantics.lean` so the trap/exit guard lives in a new, ordinary (non-`partial`)
+  `evalInstr` wrapper — `if s.trapped || s.exitCode.isSome then (s, .next) else evalInstrMatch
+  instr s hostCall` — outside the `mutual` group, with `evalInstrMatch` (the renamed original
+  per-instruction dispatch, guard stripped) and `evalInstrs`/`evalLoop` remaining inside it;
+  `evalInstrs`'s one internal call site inlines the identical guard rather than routing through
+  the new external wrapper (which it cannot reference — it is declared after the `mutual` block
+  closes). Same signature, same behaviour (confirmed: `lake exe wasm_fuzzer` unchanged, 76/76
+  passed). Proved, in `SemanticsFuzzer.lean`:
+
+  ```
+  theorem evalInstr_trapped_next (instr : WasmInstr) (s : WasmMachineState)
+      (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+      (h : s.trapped = true) :
+      evalInstr instr s hostCall = (s, .next)
+  ```
+
+  universally quantified over every `WasmInstr`, every `WasmMachineState`, every `hostCall` — not
+  the one 5-instruction example. Closed by `unfold evalInstr; simp [h]`: structural, zero oracle,
+  no allowlist entry. **Honest residual**: `evalInstrs`/`evalLoop` themselves remain opaque —
+  `evalLoop`'s own `.br 0` self-recursion on the *same* loop body has no structurally-decreasing
+  measure (a real Wasm infinite loop must be able to not terminate), so the whole three-function
+  SCC cannot be pulled out of `partial` without a `Fuel`/CCPO-style rewrite of the interpreter — a
+  materially larger, semantics-changing project, not proof engineering, and out of this task's
+  scope. `evalInstr_trapped_next` is therefore the maximal structural generalization available
+  today, documented as such in its own docstring rather than oversold as the full list-level
+  claim. The original concrete 5-instruction scenario is preserved as a `#guard` compile-time
+  check (same compiled/interpreted evaluation `native_decide` used, but no stored declaration and
+  no axiom, so no allowlist entry is needed for it either) rather than restated as a theorem.
+
+  **`encodeI32SLEB128_exceeds_i32_budget_inst`.** This one *did* close exactly as the audit
+  expected — no opacity obstruction, since `encodeSLEB128List` is ordinary well-founded recursion
+  (`termination_by val.natAbs`), which (unlike `partial def`) still gets a real equation Lean's
+  `unfold` tactic can use; the prior `native_decide` was there only because kernel `decide` gets
+  stuck evaluating the `Acc.rec` proof term on a huge concrete instance, not because the equation
+  itself was unavailable. Proved, in `LEB128.lean`, by plain induction (no Mathlib — this project
+  has no such dependency, so `norm_num`/`ring`/`positivity` were replaced by `omega` plus core
+  `Int.pow_add`/`Int.pow_pos`/`decide` on small concrete literals):
+
+  ```
+  theorem encodeSLEB128List_length_ge (k : Nat) : ∀ (v : Int),
+      (2 : Int) ^ (7 * (k + 1)) ≤ v → k + 2 ≤ (encodeSLEB128List v).length
+  ```
+
+  i.e. encoding any value at or above `2^(7*(k+1))` needs at least `k+2` bytes, for every `k` —
+  the actual "size grows with magnitude, no fixed byte budget" claim the module docstring already
+  asserted in prose. Specializing `k = 4` gives `2^35 ≤ v → 6 ≤ length`
+  (`encodeSLEB128List_exceeds_budget`), and the original ground instance (`2^40 ≥ 2^35`) falls out
+  as a corollary (`encodeI32SLEB128_exceeds_i32_budget_inst`, same name, now a `theorem` with no
+  `native_decide` anywhere in its proof). Per the top-level instruction not to overclaim: this is
+  a byte-budget *lower bound under an explicit magnitude hypothesis* — it does not (and does not
+  need to) claim `encodeI32SLEB128` is "wrong"; the roundtrip theorems already proven above it in
+  the same file establish it is arithmetically correct for every `Int` unconditionally, and this
+  new theorem only formalizes the separate, real gap TC20 identified: the missing budget
+  *precondition* a caller must enforce.
+
+  **Gates** (foreground, direct exit codes, tree rebased onto `main`
+  `9072000` first — clean rebase, no conflicts, B7's trap-handling code and the bare-metal-target
+  merge both pre-date this task's changes and neither touches the same lines): `lake build`
+  (422 jobs) exit 0; `lake exe check_gates_axioms`, `lake exe check_refs_coverage`,
+  `lake exe wasm_fuzzer`, `check_gates.py`, `check_refs.py`, `check_licenses.py`, `check_record.py`,
+  `check_doc_facade.py`, `check_publishable.py` — see the session's final report for each exit
+  code. `#print axioms` on both new top-level theorems (`evalInstr_trapped_next`,
+  `encodeI32SLEB128_exceeds_i32_budget_inst`) shows only `{propext, Classical.choice,
+  Quot.sound}` — no native-eval axiom, confirming neither needs an allowlist entry.
