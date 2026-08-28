@@ -51,6 +51,8 @@ instance : X86_64Instruction OrR64R64 where
   toLean i := s!"or_r64 .{i.dst} .{i.src}"
   undefinedFlagsMask _ := 16 -- AF is undefined for OR according to Intel SDM
   canFuzzHardware i := hwSafeReg64 i.dst && hwSafeReg64 i.src
+  validationOracle i := if hwSafeReg64 i.dst && hwSafeReg64 i.src then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesFor2Regs i.dst i.src rng
   roundtripCases :=
     (allReg64List.map (OrR64R64.mk · .rax)) ++ (allReg64List.map (OrR64R64.mk .rax ·)) ++
@@ -82,6 +84,8 @@ instance : X86_64Instruction OrR64Imm8 where
   toLean i := s!"or_r64_imm8 .{i.dst} {formatHex8 i.imm}"
   undefinedFlagsMask _ := 16 -- AF is undefined for OR according to Intel SDM
   canFuzzHardware i := hwSafeReg64 i.dst
+  validationOracle i := if hwSafeReg64 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesForImm i.dst rng
   roundtripCases :=
     (allReg64List.map (OrR64Imm8.mk · 0x00)) ++ (curatedUInt8Cases.map (OrR64Imm8.mk .rax ·)) ++
@@ -113,6 +117,8 @@ instance : X86_64Instruction OrR64Imm32 where
   toLean i := s!"or_r64_imm32 .{i.dst} {formatHex32 i.imm}"
   undefinedFlagsMask _ := 16 -- AF is undefined for OR according to Intel SDM
   canFuzzHardware i := hwSafeReg64 i.dst
+  validationOracle i := if hwSafeReg64 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesForImm i.dst rng
   roundtripCases :=
     (allReg64List.map (OrR64Imm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (OrR64Imm32.mk .rax ·)) ++

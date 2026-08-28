@@ -44,6 +44,8 @@ instance : X86_64Instruction InAlImm8 where
   toNASM i := s!"in al, 0x{String.ofList (Nat.toDigits 16 i.port.toNat)}"
   toLean i := s!"in_al_imm8 {formatHex8 i.port}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "IN reads an I/O port and faults (#GP) under the harness's usermode host process; no privileged execution context is available -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [InAlImm8.mk 0x00, InAlImm8.mk 0x80, InAlImm8.mk 0xFF]
 
@@ -66,6 +68,8 @@ instance : X86_64Instruction InAlDx where
   toNASM _ := "in al, dx"
   toLean _ := "in_al_dx"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "IN reads an I/O port and faults (#GP) under the harness's usermode host process; no privileged execution context is available -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [InAlDx.mk]
 
@@ -89,6 +93,8 @@ instance : X86_64Instruction InEaxImm8 where
   toNASM i := s!"in eax, 0x{String.ofList (Nat.toDigits 16 i.port.toNat)}"
   toLean i := s!"in_eax_imm8 {formatHex8 i.port}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "IN reads an I/O port and faults (#GP) under the harness's usermode host process; no privileged execution context is available -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [InEaxImm8.mk 0x00, InEaxImm8.mk 0x80, InEaxImm8.mk 0xFF]
 
@@ -111,6 +117,8 @@ instance : X86_64Instruction InEaxDx where
   toNASM _ := "in eax, dx"
   toLean _ := "in_eax_dx"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "IN reads an I/O port and faults (#GP) under the harness's usermode host process; no privileged execution context is available -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [InEaxDx.mk]
 

@@ -40,6 +40,8 @@ instance : X86_64Instruction JmpRel8 where
   toNASM i := s!"jmp short $+2 {formatDisp8 i.disp}"
   toLean i := s!"jmp_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JmpRel8.mk
 
@@ -59,6 +61,8 @@ instance : X86_64Instruction JmpRel32 where
   toNASM i := s!"jmp near $+5 {formatDisp32 i.disp}"
   toLean i := s!"jmp_rel32 ({i.disp})"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JmpRel32.mk
 
@@ -79,6 +83,8 @@ instance : X86_64Instruction JeRel8 where
   toNASM i := s!"je short $+2 {formatDisp8 i.disp}"
   toLean i := s!"je_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JeRel8.mk
 
@@ -99,6 +105,8 @@ instance : X86_64Instruction JeRel32 where
   toNASM i := s!"je near $+6 {formatDisp32 i.disp}"
   toLean i := s!"je_rel32 ({i.disp})"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JeRel32.mk
 
@@ -119,6 +127,8 @@ instance : X86_64Instruction JneRel8 where
   toNASM i := s!"jne short $+2 {formatDisp8 i.disp}"
   toLean i := s!"jne_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JneRel8.mk
 
@@ -139,6 +149,8 @@ instance : X86_64Instruction JneRel32 where
   toNASM i := s!"jne near $+6 {formatDisp32 i.disp}"
   toLean i := s!"jne_rel32 ({i.disp})"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JneRel32.mk
 
@@ -159,6 +171,8 @@ instance : X86_64Instruction JlRel8 where
   toNASM i := s!"jl short $+2 {formatDisp8 i.disp}"
   toLean i := s!"jl_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JlRel8.mk
 
@@ -179,6 +193,8 @@ instance : X86_64Instruction JleRel8 where
   toNASM i := s!"jle short $+2 {formatDisp8 i.disp}"
   toLean i := s!"jle_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JleRel8.mk
 
@@ -199,6 +215,8 @@ instance : X86_64Instruction JgRel8 where
   toNASM i := s!"jg short $+2 {formatDisp8 i.disp}"
   toLean i := s!"jg_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JgRel8.mk
 
@@ -219,6 +237,8 @@ instance : X86_64Instruction JgeRel8 where
   toNASM i := s!"jge short $+2 {formatDisp8 i.disp}"
   toLean i := s!"jge_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JgeRel8.mk
 
@@ -239,6 +259,8 @@ instance : X86_64Instruction JgeRel32 where
   toNASM i := s!"jge near $+6 {formatDisp32 i.disp}"
   toLean i := s!"jge_rel32 ({i.disp})"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JgeRel32.mk
 
@@ -259,6 +281,8 @@ instance : X86_64Instruction JbRel8 where
   toNASM i := s!"jb short $+2 {formatDisp8 i.disp}"
   toLean i := s!"jb_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JbRel8.mk
 
@@ -279,6 +303,8 @@ instance : X86_64Instruction JaeRel8 where
   toNASM i := s!"jae short $+2 {formatDisp8 i.disp}"
   toLean i := s!"jae_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JaeRel8.mk
 
@@ -299,6 +325,8 @@ instance : X86_64Instruction JaeRel32 where
   toNASM i := s!"jae near $+6 {formatDisp32 i.disp}"
   toLean i := s!"jae_rel32 ({i.disp})"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JaeRel32.mk
 
@@ -319,6 +347,8 @@ instance : X86_64Instruction JaRel8 where
   toNASM i := s!"ja short $+2 {formatDisp8 i.disp}"
   toLean i := s!"ja_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JaRel8.mk
 
@@ -339,6 +369,8 @@ instance : X86_64Instruction JbeRel8 where
   toNASM i := s!"jbe short $+2 {formatDisp8 i.disp}"
   toLean i := s!"jbe_rel8 {formatHex8 i.disp}"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JbeRel8.mk
 
@@ -359,6 +391,8 @@ instance : X86_64Instruction JleRel32 where
   toNASM i := s!"jle near $+6 {formatDisp32 i.disp}"
   toLean i := s!"jle_rel32 ({i.disp})"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JleRel32.mk
 
@@ -379,6 +413,8 @@ instance : X86_64Instruction JbRel32 where
   toNASM i := s!"jb near $+6 {formatDisp32 i.disp}"
   toLean i := s!"jb_rel32 ({i.disp})"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JbRel32.mk
 
@@ -399,6 +435,8 @@ instance : X86_64Instruction JaRel32 where
   toNASM i := s!"ja near $+6 {formatDisp32 i.disp}"
   toLean i := s!"ja_rel32 ({i.disp})"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "Jcc/JMP transfers control (RIP); HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JaRel32.mk
 

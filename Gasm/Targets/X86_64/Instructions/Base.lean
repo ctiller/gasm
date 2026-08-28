@@ -20,6 +20,7 @@ import Gasm.Core.Rng
 import Gasm.Core.Arch
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Uop
+import Gasm.Targets.X86_64.Instructions.Obligations
 
 namespace Gasm.Targets.X86_64.Instructions
 
@@ -44,6 +45,15 @@ class X86_64Instruction (ι : Type u) where
   undefinedFlagsMask : ι → UInt64 := fun _ => 0
   generateFuzzStates : ι → FuzzerRng → List X86_64MachineState × FuzzerRng
   roundtripCases  : List ι
+  -- P4/P5 unification (docs/X86_ISA_EXPANSION_PREREQUISITES.md, Obligations.lean): deliberately
+  -- NO default, exactly like `roundtripCases` above -- an instance cannot compile without
+  -- declaring both. This is what makes "an instruction with identity semantics, an empty uop
+  -- list, and zero fuzz states compiles cleanly" (the prerequisites document's mutation probe)
+  -- impossible going forward: the author must say, in DATA `Tools/CheckX86Obligations.lean` and
+  -- `scripts/check_x86_obligations.py` can both read, which oracle validated this instance and
+  -- where its cost coefficients came from.
+  validationOracle : ι → ValidationOracle
+  costProvenance   : ι → CoefficientProvenance
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Open existential instruction container packing any type implementing X86_64Instruction. -/
@@ -67,6 +77,8 @@ instance : X86_64Instruction AnyX86_64Instruction where
   -- `Gasm/Targets/X86_64/Registry.lean` as `allEncodableInstructions`, built by lifting every
   -- concrete instruction type's `roundtripCases` through `⟨_⟩`.
   roundtripCases := []
+  validationOracle pkg := @X86_64Instruction.validationOracle pkg.α pkg.inst pkg.instr
+  costProvenance pkg := @X86_64Instruction.costProvenance pkg.α pkg.inst pkg.instr
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 instance : ToString AnyX86_64Instruction where
@@ -215,8 +227,17 @@ def formatDisp32 (disp : Int32) : String :=
   if disp >= 0 then
     s!"+ 0x{String.ofList (Nat.toDigits 16 disp.toNatClampNeg)}"
   else
-    let neg := (-disp).toNatClampNeg
-    s!"- 0x{String.ofList (Nat.toDigits 16 neg)}"
+    -- Negating `Int32.min` (-2147483648, a `curatedInt32Cases` boundary witness) overflows back
+    -- to itself in two's-complement `Int32` arithmetic, which made the old `(-disp).toNatClampNeg`
+    -- silently collapse to 0 for exactly that boundary value: "- 0x0" instead of the correct
+    -- "- 0x80000000" -- found via P4(a)'s registry-derived encoding fuzzer
+    -- (`docs/X86_ISA_EXPANSION_PREREQUISITES.md`), which was the first thing to ever exercise
+    -- `JmpRel32`/`JeRel32`/etc.'s NASM cross-check with this witness. Computing the magnitude via
+    -- `UInt32` (`0 - disp.toUInt32`, unsigned wraparound) instead of `Int32` negation sidesteps
+    -- the overflow entirely: `0x80000000`'s own two's-complement negation IS `0x80000000` when
+    -- read as an unsigned magnitude, which is exactly the correct hex digits to print after "- ".
+    let mag : UInt32 := 0 - disp.toUInt32
+    s!"- 0x{String.ofList (Nat.toDigits 16 mag.toNat)}"
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Formats a UInt8 as a hexadecimal string literal for Lean source code. -/

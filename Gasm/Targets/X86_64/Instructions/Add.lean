@@ -50,6 +50,8 @@ instance : X86_64Instruction AddR64R64 where
   toNASM i := s!"add {i.dst}, {i.src}"
   toLean i := s!"add_r64 .{i.dst} .{i.src}"
   canFuzzHardware i := hwSafeReg64 i.dst && hwSafeReg64 i.src
+  validationOracle i := if hwSafeReg64 i.dst && hwSafeReg64 i.src then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesFor2Regs i.dst i.src rng
   roundtripCases :=
     (allReg64List.map (AddR64R64.mk · .rax)) ++ (allReg64List.map (AddR64R64.mk .rax ·)) ++
@@ -80,6 +82,8 @@ instance : X86_64Instruction AddR64Imm8 where
   toNASM i := s!"add {i.dst}, byte {i.imm.toNat}"
   toLean i := s!"add_r64_imm8 .{i.dst} {formatHex8 i.imm}"
   canFuzzHardware i := hwSafeReg64 i.dst
+  validationOracle i := if hwSafeReg64 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesForImm i.dst rng
   roundtripCases :=
     (allReg64ListNoRsp.map (AddR64Imm8.mk · 0x00)) ++ (curatedUInt8Cases.map (AddR64Imm8.mk .rax ·)) ++
@@ -108,6 +112,8 @@ instance : X86_64Instruction AddRspImm8 where
   toNASM i := s!"add rsp, byte {i.imm.toNat}"
   toLean i := s!"add_rsp {formatHex8 i.imm}"
   canFuzzHardware _ := false -- Stack pointer modifications cannot be executed in-place on host thread stack
+  validationOracle _ := .nasmEncoding "Stack pointer modifications cannot be executed in-place on host thread stack -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := generateStandardFuzzStatesForImm .rsp rng
   roundtripCases := curatedUInt8Cases.map AddRspImm8.mk
 
@@ -131,9 +137,20 @@ instance : X86_64Instruction AddRspImm32 where
     { s'' with rip := s.rip + 7 }
 
   toUops _ := [{ mnemonic := "ADD.rsp32", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
-  toNASM i := s!"add rsp, {i.imm.toNat}"
+  -- The `dword` qualifier is load-bearing, not decorative: found while wiring
+  -- `EncodingFuzzer.lean`'s registry-derived generator (P4(a),
+  -- docs/X86_ISA_EXPANSION_PREREQUISITES.md). Without it, NASM's own assembler -- given
+  -- unqualified "add rsp, 0" text -- silently prefers the shorter `83 /r ib` (imm8) encoding
+  -- whenever the immediate value fits in a byte, diverging from `encode`'s fixed `81 /r id`
+  -- (imm32) form and producing a false-positive byte mismatch that is a `toNASM` ambiguity, not
+  -- a real encoding defect (`AddR64Imm8`/`AddRspImm8` already carry the analogous `byte`
+  -- qualifier for exactly this reason; this form was simply never exercised against NASM before
+  -- the registry-derived generator existed).
+  toNASM i := s!"add rsp, dword {i.imm.toNat}"
   toLean i := s!"add_rsp32 {formatHex32 i.imm}"
   canFuzzHardware _ := false -- Stack pointer modifications cannot be executed in-place on host thread stack
+  validationOracle _ := .nasmEncoding "Stack pointer modifications cannot be executed in-place on host thread stack -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := generateStandardFuzzStatesForImm .rsp rng
   roundtripCases := curatedUInt32Cases.map AddRspImm32.mk
 
@@ -159,9 +176,13 @@ instance : X86_64Instruction AddR64Imm32 where
     { s'' with rip := s.rip + 7 }
 
   toUops _ := [{ mnemonic := "ADD.alu32", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
-  toNASM i := s!"add {i.dst}, {i.imm.toNat}"
+  -- `dword` qualifier: see `AddRspImm32.toNASM`'s comment above -- same NASM shortest-encoding
+  -- ambiguity, same fix, found the same way.
+  toNASM i := s!"add {i.dst}, dword {i.imm.toNat}"
   toLean i := s!"add_r64_imm32 .{i.dst} {formatHex32 i.imm}"
   canFuzzHardware i := hwSafeReg64 i.dst
+  validationOracle i := if hwSafeReg64 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesForImm i.dst rng
   roundtripCases :=
     (allReg64ListNoRsp.map (AddR64Imm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (AddR64Imm32.mk .rax ·)) ++

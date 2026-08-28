@@ -44,6 +44,8 @@ instance : X86_64Instruction RetOp where
   toNASM _ := "ret"
   toLean _ := "ret_op"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "RET pops a return address off RSP and transfers control (RIP); HardwareHarness has no landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [RetOp.mk]
 

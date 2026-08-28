@@ -52,6 +52,8 @@ instance : X86_64Instruction LeaRipRel where
   toNASM i := s!"lea {i.dst}, [rel $+7 {formatDisp32 i.disp}]"
   toLean i := s!"lea_rip .{i.dst} ({i.disp})"
   canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "RIP-relative effective-address computation depends on the harness's own code position, not a fuzzable operand -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases :=
     (allReg64List.map (LeaRipRel.mk · 0)) ++ (curatedInt32Cases.map (LeaRipRel.mk .rax ·)) ++
@@ -88,9 +90,11 @@ instance : X86_64Instruction LeaRspDisp where
     if i.disp == 0 then
       s!"lea {i.dst}, [rsp]"
     else
-      s!"lea {i.dst}, [rsp + 0x{String.ofList (Nat.toDigits 16 i.disp.toNat)}]"
+      s!"lea {i.dst}, [rsp {formatDisp8 i.disp}]"
   toLean i := s!"lea_rsp .{i.dst} {formatHex8 i.disp}"
   canFuzzHardware _ := false -- Stack pointer relative address computation depends on host process stack address
+  validationOracle _ := .nasmEncoding "Stack pointer relative address computation depends on host process stack address -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := generateStandardFuzzStatesForImm .rsp rng
   roundtripCases :=
     (allReg64List.map (LeaRspDisp.mk · 0)) ++ (curatedUInt8Cases.map (LeaRspDisp.mk .rax ·)) ++
@@ -121,6 +125,8 @@ instance : X86_64Instruction LeaRspDisp32 where
   toNASM i := s!"lea {i.dst}, [rsp {formatDisp32 i.disp}]"
   toLean i := s!"lea_rsp32 .{i.dst} ({i.disp})"
   canFuzzHardware _ := false -- Stack pointer relative address computation depends on host process stack address
+  validationOracle _ := .nasmEncoding "Stack pointer relative address computation depends on host process stack address -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := generateStandardFuzzStatesForImm .rsp rng
   roundtripCases :=
     (allReg64List.map (LeaRspDisp32.mk · 0)) ++ (curatedInt32Cases.map (LeaRspDisp32.mk .rax ·)) ++
