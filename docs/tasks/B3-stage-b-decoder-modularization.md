@@ -7,8 +7,8 @@ after: [TC4, B1]
 related: []
 bar: ""
 track: build-scale
-priority: 5.0
-priority_set: 2026-08-27T18:25:47Z
+priority: 9.0
+priority_set: 2026-08-28T06:00:00Z
 design: ""
 design_review: ""
 date: 2026-08-27
@@ -210,3 +210,9 @@ that nothing mechanically enforces. Before or with B3, add the ~10-line check th
 residual audit gap `Registry.lean`'s header documents (an unimported instruction module
 is invisible to the environment audit). Do not let B3 land while the only thing keeping
 the umbrella complete is convention.
+- 2026-08-28 (owner ruling, PLAN.md D30): B3 is a **prerequisite for the x86 ISA expansion**,
+  not routine build-scale work. `docs/X86_ISA_EXPANSION_PREREQUISITES.md` P3 identifies it as
+  blocking, and the owner's response was "decoder modularization -- happy to make those tasks
+  prereqs". Priority raised 5.0 -> 9.0 accordingly. The measured motivation: a single-instruction
+  edit currently rebuilds 39 modules in ~130s, and that cost scales with total ISA size rather
+  than with the size of the change — so it worsens precisely as the ISA grows.

@@ -404,6 +404,33 @@ Vision anchor: `docs/VISION.md`. Governance: `docs/REVIEW.md` Laws 1–14.
   - The target is unchanged: zero, with the count as the score. Only the order changes —
     reduce, demonstrate, then ratchet.
 
+- **D30 — x86 ISA expansion prerequisites, owner rulings (Craig, 2026-08-28)**: responses to
+  `docs/X86_ISA_EXPANSION_PREREQUISITES.md`, whose verdict was "not ready — but not where the
+  hypothesis pointed" (the roundtrip proofs are the healthiest part of the pipeline; the gaps are
+  in the instruction model, which is where wsc actually died).
+  - **P1 machine-state schema (XMM/MXCSR/fault taxonomy) — NOT a prerequisite.** "machine state i
+    expect to be expanded when we need them (spike/demand driven essentially)." This overrides the
+    planning doc's BLOCKING call and applies Law 5 / D7 consistently: SIMD state arrives when a
+    spike demands SIMD, not speculatively. The planner ranked it highest-stakes because SIMD
+    instructions cannot be written against today's state type — which is true, and is exactly why
+    it is not a prerequisite: those instructions are not being written yet.
+  - **P2 memory contracts — design a memory hook.** "let's plan out a memory hook -- apis every
+    instruction needs to go through to access memory, so we can do the perf and permissions in one
+    place." One chokepoint, so Law 11's capability check and the performance model's latency/cache
+    accounting are each implemented once rather than per instruction. Design: `docs/MEMORY_HOOK.md`.
+  - **P3 decoder modularization — promoted to a prerequisite.** "happy to make those tasks prereqs."
+    B3 raised 5.0 -> 9.0. Motivation is measured: one instruction edit rebuilds 39 modules in ~130s,
+    and that cost scales with total ISA size rather than change size.
+  - **P4 + P5 are one thing, and are being built now.** "p4/p5 are the same thing, let's build it
+    now." Validation and calibration are the same obligation — an instruction lands, the build goes
+    green, and nothing has established that what it claims is true. Evidence: a probe instruction
+    with identity semantics, empty uops and zero fuzz states compiled cleanly; 50/88 forms silently
+    opt out of silicon validation; 0/88 cost coefficients cite any source, so `toUops` produces
+    numbers that are present, uniform, and unfalsifiable.
+  - **Correction recorded**: the coordinator had framed ISA expansion as multiplying oracle debt.
+    Measurement says otherwise — **0 allowlist entries per instruction** (`SyscallOp` added zero),
+    ~24 per *target*. The debt mint is the pointwise spike-equivalence convention, not the ISA.
+
 ## Phase 0 — Governance docs ✅ (committed: 03eeece)
 
 - [x] `docs/VISION.md` (new): insights 0–2, gate-is-the-product, two trust obligations,
