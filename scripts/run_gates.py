@@ -450,6 +450,23 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "derived from lakefile.toml rather than hardcoded and why enumeration is "
                  "`git ls-files` rather than a filesystem walk. Needs no build.",
          "cmd": [py, "scripts/check_orphan_modules.py"], "slow": False, "tools": ["python"]},
+        {"key": "check_instructions_umbrella", "desc": "python scripts/check_instructions_umbrella.py",
+         "long": "B3: Gasm/Targets/X86_64/Instructions.lean umbrella completeness. That file is a "
+                 "hand-maintained 'true umbrella' whose import list is the ONLY reason Registry.lean's "
+                 "build-time environment audit can see an instruction family at all -- Lean's "
+                 "environment walk sees the current file's import graph, not every .lean Lake happens "
+                 "to compile -- so an Instructions/<Foo>.lean declaring an X86_64Instruction instance "
+                 "but missing from that list is invisible to the audit rather than flagged by it. "
+                 "Wired in here (and into .github/workflows/ci.yml) as a follow-up to "
+                 "docs/tasks/B3-stage-b-decoder-modularization.md's own 'not done, flagged for "
+                 "follow-up' note: the script existed and nothing invoked it, the identical shape as "
+                 "the check_licenses.py finding recorded two entries above. That note gave the "
+                 "script's missing mutation test as the reason it stayed unwired, so wiring it came "
+                 "with one: `--self-test` plants a real unimported family file (asserts red, names "
+                 "it, reverts, asserts green) plus a negative control that an un-imported "
+                 "NON-family file is correctly ignored. Measured 0.5s; needs no build (pure "
+                 "filesystem-vs-import-list diff).",
+         "cmd": [py, "scripts/check_instructions_umbrella.py"], "slow": False, "tools": ["python"]},
         {"key": "test_roundtrip", "desc": "lake exe test_roundtrip",
          "long": "x86-64 decode/encode roundtrip suite (registry gate's ~21 native_decide shards "
                  "are compiled into lake build itself, not re-invoked here)",

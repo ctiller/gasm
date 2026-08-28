@@ -39,6 +39,7 @@ wiring in a path that would 404 the first time the workflow runs.
 | 5 | Apache-2.0 header compliance | `python scripts/check_licenses.py` | required | required |
 | 6 | Decision-record integrity (D23/ADR-0035) | `python scripts/check_record.py` | required | required |
 | 7 | Doc-facade linter (TC21 + TC22) | `python scripts/check_doc_facade.py` | required | required |
+| 8 | Instructions.lean umbrella completeness (B3) | `python scripts/check_instructions_umbrella.py` | required | required |
 | — | Roundtrip properties | `lake exe test_roundtrip` | required | required |
 | — | Stdlib unit suites | `lake exe test_zlib`, `lake exe test_png`, `lake exe test_smolalloc` | required | required |
 | — | x86-64 semantics fuzzer | `lake exe x86_fuzzer` (hardware oracle — emits a native PE and executes it against real silicon) | required | **not run** (§4) |

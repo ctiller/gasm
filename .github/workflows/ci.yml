@@ -191,6 +191,18 @@ jobs:
         shell: pwsh
         run: python scripts/check_orphan_modules.py
 
+      # B3 follow-up: this script existed but was wired into neither this
+      # workflow nor scripts/run_gates.py's gate table -- the identical
+      # "a gate that exists but never runs protects nothing" shape as the
+      # check_licenses.py finding run_gates.py's own docstring records.
+      # Instructions.lean is a hand-maintained umbrella whose import list is
+      # what makes Registry.lean's environment audit able to see an
+      # instruction family at all; a family file missing from it is invisible
+      # to that audit rather than flagged by it. Pure Python, ~0.5s.
+      - name: Instructions.lean umbrella completeness (B3)
+        shell: pwsh
+        run: python scripts/check_instructions_umbrella.py
+
       - name: Roundtrip properties
         shell: pwsh
         run: lake exe test_roundtrip
@@ -469,6 +481,12 @@ jobs:
       - name: Orphan-module reachability gate (Law 13)
         shell: bash
         run: python scripts/check_orphan_modules.py
+
+      # See the Windows job above for this gate's full rationale (B3 follow-up;
+      # the check_licenses.py never-wired shape). Pure Python, ~0.5s.
+      - name: Instructions.lean umbrella completeness (B3)
+        shell: bash
+        run: python scripts/check_instructions_umbrella.py
 
       - name: Roundtrip properties
         shell: bash
