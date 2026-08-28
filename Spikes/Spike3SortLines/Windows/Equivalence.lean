@@ -63,10 +63,30 @@ theorem spike3_canonical_effect_trace_equivalence_inst :
   native_decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Constructive proof of semantic trace equivalence on empty input. -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-native_decide-restriction-exhaustive-finite-domains-only -/
+/-- Constructive proof of semantic trace equivalence on empty input, discharged by an **honest
+    kernel-checked `decide`** -- no `native_decide`, no `bv_decide`, and therefore no allowlist
+    entry (`#print axioms` -> `[propext, Classical.choice, Quot.sound]`).
+
+    **What unblocked this, since it is not where the plan expected it.** The obstruction was never
+    the ~350-instruction lowered program or its 95-step empty-stdin execution: that side reduces
+    through the kernel fine (measured -- `decide +kernel` closes the trace prefix at fuel
+    1/5/20/50/60/65/70/80 with monotonically growing cost, and reaches the single `exit(0)` event at
+    fuel 95). The obstruction was on the **model** side, in `Spikes/Spike3SortLines/Spec.lean`:
+    `readAllLines` was a `partial def`, which compiles to an `opaque` constant carrying no defining
+    equations, so `modelTraceEmpty` was irreducible in 3 seconds -- `(modelTraceEmpty.length == 1) =
+    true` failed `decide +kernel` as reduction-**stuck**, with no machine trace consulted at all.
+    Converting that one declaration to fuel-based structural recursion (`readAllLinesFueled`, with
+    `readAllLinesFueled_trace` proving the bound immaterial below itself) made the model side reduce
+    instantly and let this equivalence close. Measured cost of the `decide +kernel` below: ~3
+    minutes on the reference machine, versus permanently stuck before.
+
+    **Scope is unchanged and still narrow.** This states exactly what it stated before -- the
+    empty-stdin vector only. The `∀ (stdin : ByteArray)` gap described in the domain-honesty note
+    below remains open; retiring the oracle does not widen the domain. -/
 theorem spike3_empty_effect_trace_equivalence_inst :
     (runAsmTrace (Event := AnyEvent) spike3Instructions spike3Executable.load == modelTraceEmpty) = true := by
-  native_decide
+  decide +kernel
 
 /- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
 /-- **Domain-honesty note (PA17).** The real domain Law 9's read-binder clause demands here is
