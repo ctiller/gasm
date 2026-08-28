@@ -60,8 +60,21 @@ Every perf declaration cites `references/intel_sdm/vol_1.../ch_03_basic_executio
 
 **B7. Wasm: out-of-bounds accesses do not trap — and silently mutate memory size.**
 `readMem8` returns `0` past the end (`Wasm/Semantics.lean:63-64`); `writeMem8` **appends zero-padding and grows the array** (lines 92-97). No load/store checks bounds (lines 326-349). Real Wasm traps. Worse, an OOB store changes `memory_size`'s answer (lines 350-352), so the divergence is observable, not merely latent. **Structurally invisible to the current fuzzer:** `Fuzzable.lean:136-158` generates only in-bounds addresses (16, 64) in exactly one page. **Severity: high** — a live soundness gap in a model the project already claims is engine-validated.
+**RESOLVED 2026-08-27 (`docs/tasks/B7-wasm-oob-trap-and-limits.md`):** `evalInstr`'s memory-access
+cases now check `i + offset + width > mem.size` and set `trapped := true` instead of calling
+`readMem8`/`writeMem8`, matching `wasm-exec-instructions#memory-instructions`'s reduction rule;
+`writeMem8` no longer pads/grows. 9 new differential fuzz cases (boundary/straddle/far-OOB/
+`0xFFFFFFFF` addresses) added to `SemanticsFuzzer.lean`; RED/GREEN control performed (reverting the
+fix made the new cases fail against the unchanged host oracle, confirming the old fuzzer's
+blindness is now closed). See the task file's Notes for the full evidentiary record.
 
 **B8. Wasm: `Limits.max` and `memory_grow` failure are dead.** `Limits.max` (`Types.lean:35`) is never consulted; `memory_grow` (`Semantics.lean:353-358`) always succeeds, never returns `-1`, and binds an unused `_newSize`. Already on PLAN.md Phase 3.
+**RESOLVED 2026-08-27 (`docs/tasks/B7-wasm-oob-trap-and-limits.md`):** `memory_grow` now checks a
+new `WasmMachineState.memMax` field (threaded from a new `WasmModule.memoryMaxPages` /
+`Limits.max`) plus the implicit Wasm32 2^16-page ceiling, pushes the `-1` sentinel and leaves
+memory untouched on either bound's failure, per the spec's `memory.grow` non-determinism note.
+Differentially fuzzed both for growth within a declared max (success) and beyond it (mandatory
+failure), plus beyond the ceiling with no declared max at all.
 
 **B9. Wasm: large ISA and validation gaps.** Absent: all f32/f64 (declared in `ValType`, zero instructions), all *signed* ops (`div_s`, `rem_s`, `lt_s`, `shr_s` …), `clz/ctz/popcnt/rotl/rotr`, sub-width loads/stores beyond `load8_u`/`store8`, `br_table`, `call_indirect`/tables, multi-value, and function calls proper (`.call idx` is delegated wholesale to the host hook, `Semantics.lean:369`). `global_get`/`global_set` exist in the AST (`AST.lean:29-30`) with **no semantics and no globals in the machine state** — they fall through `| _ => (s, .next)` (`Semantics.lean:393`) as silent no-ops. There is no validator: `popI32` on a type mismatch returns `0` (`Semantics.lean:44-47`) rather than rejecting.
 

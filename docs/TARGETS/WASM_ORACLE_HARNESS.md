@@ -219,3 +219,60 @@ in `Text.lean` (`formatValType`, `formatBlockType`, `formatInstr`, `formatInstrL
 `formatWatDataString`) cites the genuine W3C text-format chapters directly, because the *tokens*
 they emit (`i32`, `block`, `local.get`, string escape sequences, …) are spec-mandated; `indent`
 alone is cited here because the *whitespace* it emits is not.
+
+---
+
+## 9. Out-of-Bounds and Memory-Limit Fuzz Coverage
+
+Before this fix cycle, `Semantics.lean`'s `writeMem8` silently zero-padded and grew linear memory
+on an out-of-bounds write instead of trapping, `readMem8` returned `0` instead of trapping, and
+`memory_grow` never consulted `Limits.max` (`Types.lean`) or ever returned the `-1` failure
+sentinel the spec requires. `MODEL_DEBT.md` B7/B8 additionally noted this was structurally
+invisible to this very harness: every memory-instruction fuzz state (`Fuzzable.lean`) generated
+addresses only from a small statically in-bounds set (offsets 16/64 into a full 65536-byte page),
+so the differential fuzzer could never have caught either bug even though it would have diverged
+loudly (the host engine has always genuinely trapped on an out-of-bounds access; only the Lean
+model's behavior was wrong).
+
+**New `WasmDiffCase`s** (`Gasm/Targets/Wasm/SemanticsFuzzer.lean`, "Out-of-Bounds Access &
+Memory-Limit Coverage" section) close that gap directly, generating addresses the old fuzzer
+structurally could not:
+
+- `oobLoad8AtBoundary` / `oobStore8LoadRoundTripBoundary` — 1-byte access at, one past, and far
+  past the end of a one-page memory, plus `0xFFFFFFFF` (`2^32 - 1`).
+- `oobLoad32StraddleBoundary` / `oobStore32LoadRoundTripBoundary` and their 64-bit counterparts
+  (`oobLoad64StraddleBoundary` / `oobStore64LoadRoundTripBoundary`) — addresses that straddle the
+  boundary (the read/write *starts* in-bounds but its width overruns the end), pinning the
+  width-aware `a + N/8 > mem.size` check specifically, as distinct from a naive `addr >= mem.size`
+  check that would wrongly accept a straddling access.
+- `memoryGrowWithinDeclaredMax` / `memoryGrowExceedsDeclaredMax` — a module declaring
+  `Limits.max = 4` pages, fuzzed with deltas both within and beyond that maximum, verified via a
+  trailing `memory.size` so a "failed" grow is checked to have genuinely left memory unchanged, not
+  merely returned `-1` while still mutating something.
+- `memoryGrowExceedsHardCeilingNoDeclaredMax` — no declared `Limits.max` at all, but a delta far
+  beyond the Wasm32 address-space ceiling (2^16 pages / 4 GiB), which every 32-bit linear memory is
+  implicitly bound by regardless of any author-declared maximum. Deliberately does not attempt to
+  grow to exactly `2^16` pages on either engine (a genuine ~4 GiB allocation is slow and
+  environment-dependent for a fuzz vector); only the "obviously over the ceiling" side of that
+  boundary is exercised, which both engines reject before attempting any real allocation. The
+  exact-ceiling boundary itself is a named, intentional gap in this coverage, not a silently
+  assumed one.
+
+**Harness plumbing added to carry a declared maximum through both sides of the comparison:**
+`WasmModule.memoryMaxPages` (`Linker.lean`) is a new, `none`-by-default field threaded into the
+binary/text memory-section encoders (`encodeLimits { min := pages, max := m.memoryMaxPages }` in
+`emitWasmBinary`); `buildTestWasmModuleForResults` (`HostOracle.lean`) gained a matching
+`memoryMaxPages` parameter, and `WasmDiffCase` (`SemanticsFuzzer.lean`) gained a same-named field
+that `verifyWasmDiffCase` forwards to it — so a case fuzzing `memory.grow` against a maximum can
+declare the identical bound on the synthesized host module that the model's fuzzed
+`WasmMachineState.memMax` (`Semantics.lean`) uses, making the comparison meaningful rather than
+comparing an unconstrained model against an unconstrained host.
+
+**Trap-vs-non-trap is not a new distinction this fix invented.** `verifyWasmDiffCase` (§7) already
+matched `WasmRunOutcome.trapped` against the model's own `trapped` flag as a case wholly separate
+from `WasmRunOutcome.ran` and from both `OracleFailure` arms, precisely because a prior fix cycle
+(the `i32_div_u` divide-by-zero trap) already needed exactly that distinction — treating a trap as
+a generic "error" indistinguishable from an oracle malfunction would silently reopen a fail-open
+path (a real trap and a broken oracle must never read as the same thing). The OOB cases above are
+new fuzz *vectors* exercising an existing, already-correct comparison path, not a new comparison
+mechanism.

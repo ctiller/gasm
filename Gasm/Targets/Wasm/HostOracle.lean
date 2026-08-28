@@ -118,10 +118,18 @@ def inferLeafResultTypes (instr : WasmInstr) (initialStack : List WasmVal) (init
     `resultTypes`. This is the single builder shared by the leaf-instruction suite (which derives
     `resultTypes` / `preInstrs` from the instruction and state via `inferLeafResultTypes` /
     `stackSetupInstrs`) and the structured control-flow suite (which supplies both directly, since
-    its instruction is already compound and self-contained). -/
+    its instruction is already compound and self-contained).
+
+    `memoryMaxPages` (B7/B8, docs/TARGETS/WASM_ORACLE_HARNESS.md#9-out-of-bounds-and-memory-limit-fuzz-coverage)
+    forwards straight into the built `WasmModule`'s own `memoryMaxPages` (`Linker.lean`), so a
+    `WasmDiffCase` that fuzzes `memory.grow` against a declared `Limits.max` can declare the SAME
+    maximum on the host module that the Lean model's fuzzed `WasmMachineState.memMax` uses --
+    without this, the host engine would have no maximum at all and could never genuinely refuse a
+    `memory.grow` the model is exercising the failure path for. `none` (the default) preserves
+    the previous no-max encoding exactly for every case that doesn't pass this parameter. -/
 def buildTestWasmModuleForResults (instr : WasmInstr) (resultTypes : List ValType)
     (initialLocals : List WasmVal := []) (initialMemory : Option ByteArray := none)
-    (preInstrs : List WasmInstr := []) : WasmModule := Id.run do
+    (preInstrs : List WasmInstr := []) (memoryMaxPages : Option UInt32 := none) : WasmModule := Id.run do
   let localTypes : List ValType := initialLocals.map fun v => match v with | WasmVal.i32 _ => ValType.i32 | WasmVal.i64 _ => ValType.i64
   let mut localSetup : List WasmInstr := []
   for idx in [0:initialLocals.length] do
@@ -153,7 +161,7 @@ def buildTestWasmModuleForResults (instr : WasmInstr) (resultTypes : List ValTyp
       else []
     | none => []
 
-  { functions := [fn], memoryPages := memPages, dataSegments := dataSegments }
+  { functions := [fn], memoryPages := memPages, dataSegments := dataSegments, memoryMaxPages := memoryMaxPages }
 
 /- REF: docs/TARGETS/WASM_ORACLE_HARNESS.md#2-host-oracle-process-model -/
 /-- Executes a synthesized Wasm test module on the host Node.js engine and classifies the outcome.
