@@ -431,6 +431,25 @@ Vision anchor: `docs/VISION.md`. Governance: `docs/REVIEW.md` Laws 1–14.
     Measurement says otherwise — **0 allowlist entries per instruction** (`SyscallOp` added zero),
     ~24 per *target*. The debt mint is the pointwise spike-equivalence convention, not the ISA.
 
+- **D31 — Memory hook design approved in full (Craig, 2026-08-28)**: "all yes" to
+  `docs/MEMORY_HOOK.md` §10's three questions.
+  - **Q1 accepted**: the v1 enforcement line counts as Law 11 compliance. Literal-displacement
+    accesses discharge by `decide`/`omega`; no-citation accesses and literal overruns are
+    unrepresentable; dynamic bounds are carried-but-semantically-discharged, with flow-sensitive
+    typestate as the PA2/PA3 upgrade the shape is built to accept. The alternative — gating all
+    enforcement behind full typestate — would have blocked the hook on two unstarted tasks.
+  - **Q2 accepted**: `MemRef` becomes the operand convention for the expansion's new memory forms.
+    This is the ruling with the longest reach: it collapses form count, changes roundtrip
+    enumeration, and interacts with B3's decoder modularization — and it needed deciding before
+    Wave B because it changes what gets written.
+  - **Q3 accepted**: the mandatory no-default `memAccesses` field's cost is accepted — 88 one-line
+    edits now, one line per form forever. This is the P4-style forcing function, deliberately the
+    `roundtripCases` shape and deliberately the opposite of `canFuzzHardware`'s silent opt-out,
+    which is how 50 of 88 forms escaped silicon validation unnoticed.
+  - Implementation sequence: MH1 (sealed memory field, width API, access descriptors, fault
+    plumbing) then MH2 (uop centralization) and MH3 (capability authoring surface) in parallel.
+    Expansion Wave B requires MH1-MH3.
+
 ## Phase 0 — Governance docs ✅ (committed: 03eeece)
 
 - [x] `docs/VISION.md` (new): insights 0–2, gate-is-the-product, two trust obligations,
