@@ -1340,15 +1340,15 @@ def compress (data : ByteArray) : ByteArray :=
   (compressPlan data).2
 
 /- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
-/-- Pure RFC 1951 Fixed Huffman block compressor matching assembly machine code engine. -/
-def compressFixed (data : ByteArray) : ByteArray :=
-  Id.run do
-    let mut w : BitWriter := {}
-    -- BFINAL = 1 (1 bit), BTYPE = 01 (2 bits) -> 3 bits of 0b011 = 3
-    w := writeBits w 3 3
-
-    let mut pos := 0
-    while pos < data.size do
+/-- Body of `compressFixed`'s emit loop: from `pos`, emit one LZ77 token's fixed-Huffman
+    codes into `w` and continue. Structural recursion on `fuel` -- never `partial`/`while` --
+    so equation lemmas exist for proofs, the same rule `tokenizeAux` follows. Every step
+    advances `pos` by at least 1 (a certified match advances by `matchLen >= 3`, a literal by
+    1), so `fuel = data.size` always suffices. -/
+def compressFixedLoop (data : ByteArray) : Nat → BitWriter → Nat → BitWriter
+  | 0, w, _pos => w
+  | fuel + 1, w, pos =>
+    if pos < data.size then
       let (matchLen, matchDist) := findLongestMatch data pos 32768 128
       if matchLen >= 3 then
         -- 1. Emit Length Code + extra bits
@@ -1360,37 +1360,32 @@ def compressFixed (data : ByteArray) : ByteArray :=
           else if matchLen <= 66 then (273 + (matchLen - 35) / 8, 3, (matchLen - 35) &&& 7)
           else if matchLen <= 130 then (277 + (matchLen - 67) / 16, 4, (matchLen - 67) &&& 15)
           else (281 + (matchLen - 131) / 32, 5, (matchLen - 131) &&& 31)
-
-        if lenSymbol <= 279 then
-          let code := reverseBits (lenSymbol - 256) 7
-          w := writeBits w code 7
-        else
-          let code := reverseBits (lenSymbol - 280 + 0xC0) 8
-          w := writeBits w code 8
-
-        if lenExtraBits > 0 then
-          w := writeBits w lenExtraVal lenExtraBits
-
+        let w :=
+          if lenSymbol <= 279 then writeBits w (reverseBits (lenSymbol - 256) 7) 7
+          else writeBits w (reverseBits (lenSymbol - 280 + 0xC0) 8) 8
+        let w := if lenExtraBits > 0 then writeBits w lenExtraVal lenExtraBits else w
         -- 2. Emit Distance Code + extra bits (5-bit Fixed Huffman distance code = rev5(distCode))
         let (distCode, distExtraBits, distExtraVal) := encodeDistance matchDist
-        let dCode := reverseBits distCode 5
-        w := writeBits w dCode 5
-        if distExtraBits > 0 then
-          w := writeBits w distExtraVal distExtraBits
-
-        pos := pos + matchLen
+        let w := writeBits w (reverseBits distCode 5) 5
+        let w := if distExtraBits > 0 then writeBits w distExtraVal distExtraBits else w
+        compressFixedLoop data fuel w (pos + matchLen)
       else
         let byteVal := (data.get! pos).toNat
-        if byteVal <= 143 then
-          let code := reverseBits (byteVal + 0x30) 8
-          w := writeBits w code 8
-        else
-          let code := reverseBits (byteVal - 144 + 0x190) 9
-          w := writeBits w code 9
-        pos := pos + 1
+        let w :=
+          if byteVal <= 143 then writeBits w (reverseBits (byteVal + 0x30) 8) 8
+          else writeBits w (reverseBits (byteVal - 144 + 0x190) 9) 9
+        compressFixedLoop data fuel w (pos + 1)
+    else w
 
-    -- End of block (symbol 256 = 7 bits of 0)
-    w := writeBits w 0 7
-    flushBitWriter w
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Pure RFC 1951 Fixed Huffman block compressor matching assembly machine code engine.
+    Bit-identical to the `while`-loop form this replaces; `compressFixedLoop` carries the
+    loop body as structural fuel recursion. -/
+def compressFixed (data : ByteArray) : ByteArray :=
+  -- BFINAL = 1 (1 bit), BTYPE = 01 (2 bits) -> 3 bits of 0b011 = 3
+  let w : BitWriter := writeBits {} 3 3
+  let w := compressFixedLoop data data.size w 0
+  -- End of block (symbol 256 = 7 bits of 0)
+  flushBitWriter (writeBits w 0 7)
 
 end Stdlib.Zlib
