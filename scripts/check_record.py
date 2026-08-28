@@ -96,6 +96,7 @@ Usage:
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -106,6 +107,34 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() not in ("utf-8", "utf8"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def git_tracked_files() -> List[str]:
+    """Every git-tracked file path (POSIX, relative to REPO_ROOT), via
+    `git ls-files -z` -- never a filesystem walk. See scripts/check_gates.py's
+    identically-named helper for the full rationale: this is what makes an
+    untracked nested worktree checkout (e.g. `.claude/worktrees/agent-*/`)
+    structurally impossible to pick up, rather than merely excluded by name.
+    Fails loudly (exits 1) if git is unavailable -- never falls back to a
+    filesystem walk."""
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=REPO_ROOT,
+            capture_output=True, timeout=30,
+        )
+    except (FileNotFoundError, OSError) as e:
+        print(f"[!] FATAL: 'git' is not available or could not be run ({e}). File "
+              f"enumeration for this gate depends on 'git ls-files' -- refusing to fall "
+              f"back to a filesystem walk (that would silently reintroduce the "
+              f"nested-worktree phantom-file bug this enumeration exists to prevent).",
+              file=sys.stderr)
+        sys.exit(1)
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
+        print(f"[!] FATAL: 'git ls-files' exited {proc.returncode}: {stderr}", file=sys.stderr)
+        sys.exit(1)
+    raw = proc.stdout.decode("utf-8", errors="replace")
+    return [p for p in raw.split("\0") if p]
 ALLOWLIST_PATH = REPO_ROOT / "scripts" / "decision_record_allowlist.txt"
 PLAN_MD = REPO_ROOT / "PLAN.md"
 ADR_DIR = REPO_ROOT / "docs" / "adr"
@@ -374,19 +403,23 @@ def _basename_exists_anywhere(basename: str) -> bool:
     """Repo-wide basename search, as a last-resort tolerance for a path written
     relative to a convention this tool doesn't special-case. Indexed once per
     check RUN (see _invalidate_basename_index), not per lookup -- a naive
-    per-target `Path.rglob()` over the whole tree made --self-test's repeated
+    per-target scan over the whole tree made --self-test's repeated
     full-suite runs pathologically slow (a full scan per unresolved target,
-    repeated across 5 sub-tests)."""
+    repeated across 5 sub-tests).
+
+    Indexed from `git ls-files` (tracked files only), not a filesystem walk:
+    a file must be tracked to count as "resolving" a cross-reference here.
+    This also closes a real correctness gap, not just a performance one -- a
+    filesystem walk would let an untracked nested worktree copy (e.g.
+    `.claude/worktrees/agent-*/docs/adr/0001-foo.md`) falsely satisfy this
+    last-resort tolerance for a reference that is genuinely dangling in the
+    real repository, silently hiding the exact defect this check exists to
+    catch."""
     global _BASENAME_INDEX
     if _BASENAME_INDEX is None:
         index: Dict[str, bool] = {}
-        for p in REPO_ROOT.rglob("*"):
-            if not p.is_file():
-                continue
-            parts = set(p.parts)
-            if ".git" in parts or ".lake" in parts:
-                continue
-            index[p.name] = True
+        for rel in git_tracked_files():
+            index[Path(rel).name] = True
         _BASENAME_INDEX = index
     return basename in _BASENAME_INDEX
 

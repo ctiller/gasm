@@ -83,6 +83,7 @@ This script still enforces, on the text it CAN see:
    inside another declaration's proof term/body.
 """
 
+import subprocess
 import sys
 import re
 from pathlib import Path
@@ -95,6 +96,47 @@ if hasattr(sys.stderr, "reconfigure"):
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ALLOWLIST_PATH = REPO_ROOT / "scripts" / "gate_allowlist.txt"
+
+
+def git_tracked_files() -> List[str]:
+    """Every git-tracked file path (POSIX, relative to REPO_ROOT), via
+    `git ls-files -z` -- never a filesystem walk. Enumerating from git is
+    what makes an untracked nested worktree checkout (e.g.
+    `.claude/worktrees/agent-*/`, which contains a full second copy of this
+    source tree) structurally impossible to pick up here: `git ls-files`
+    can only ever report what the repository itself considers tracked, so a
+    stray untracked copy of the tree sitting inside the repo directory -- or
+    a `.lake/` build artifact, or anything else never added -- is invisible
+    to it by construction, not by an exclusion list that the next new kind
+    of stray directory could slip past.
+
+    Runs with an explicit `cwd`, so behavior never depends on the caller's
+    current working directory (repo root vs. any subdirectory).
+
+    Fails LOUDLY if git itself is unavailable or errors, rather than ever
+    falling back to a filesystem walk: a silent fallback would silently
+    reintroduce the exact phantom-file bug this enumeration exists to
+    prevent, precisely in the situation (git missing/broken) where nobody
+    is watching for it.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=REPO_ROOT,
+            capture_output=True, timeout=30,
+        )
+    except (FileNotFoundError, OSError) as e:
+        print(f"[!] FATAL: 'git' is not available or could not be run ({e}). File "
+              f"enumeration for this gate depends on 'git ls-files' -- refusing to fall "
+              f"back to a filesystem walk, since that would silently reintroduce the "
+              f"nested-worktree phantom-violation bug this enumeration exists to prevent.",
+              file=sys.stderr)
+        sys.exit(1)
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
+        print(f"[!] FATAL: 'git ls-files' exited {proc.returncode}: {stderr}", file=sys.stderr)
+        sys.exit(1)
+    raw = proc.stdout.decode("utf-8", errors="replace")
+    return [p for p in raw.split("\0") if p]
 
 VALID_CATEGORIES = {"finite-forall", "grandfathered", "axiom-only"}
 
@@ -193,7 +235,14 @@ def strip_comments(text: str) -> str:
 
 
 def iter_lean_files():
-    for lean_file in sorted(REPO_ROOT.glob("**/*.lean")):
+    """Every git-TRACKED `.lean` file (see git_tracked_files()). A file must
+    be tracked to be checked: an untracked nested worktree copy, or any
+    other untracked stray `.lean` file, is not part of this repository by
+    construction and must never be able to produce a finding here."""
+    for rel in sorted(git_tracked_files()):
+        if not rel.endswith(".lean"):
+            continue
+        lean_file = REPO_ROOT / rel
         if ".lake" in lean_file.parts or ".system_generated" in lean_file.parts:
             continue
         yield lean_file

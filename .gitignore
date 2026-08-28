@@ -62,3 +62,20 @@ desktop.ini
 
 # Local MCP server config (personal tooling, not part of the published project)
 .mcp.json
+
+# Claude Code agent scratch (this repository is public): `.claude/worktrees/`
+# holds ephemeral, per-agent git worktree checkouts that live INSIDE the repo
+# directory -- each one is a full second copy of the tracked source tree.
+# Being untracked, a nested worktree used to be invisible to git but NOT to a
+# gate that walked the raw filesystem (`Path.glob`/`Path.rglob`), which
+# re-discovered every already-allowlisted finding at a bogus nested path the
+# allowlist (keyed on real paths) could never match -- a false-positive
+# generator (scripts/check_gates.py and friends have since been fixed to
+# enumerate from `git ls-files` instead, which structurally cannot see an
+# untracked directory regardless of this ignore rule, but ignoring `.claude/`
+# closes the same gap for anything that still looks at "untracked but not
+# ignored" content, e.g. scripts/check_publishable.py's suspicious-untracked-
+# file sweep). Also: local Claude Code settings/config generally -- none of
+# it is part of the published project, and accidentally committing a nested
+# worktree would publish a duplicate copy of this tree.
+.claude/
