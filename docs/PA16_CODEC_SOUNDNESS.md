@@ -193,6 +193,11 @@ a failing implementation):
 
 ## 2. What the implementation actually does (read, not assumed)
 
+> **Dated 2026-08-27, superseded the same day for the encoder**: this section was read against
+> the fixed-Huffman-only `compress`. Later on 2026-08-27 `compress` gained a dynamic-Huffman
+> (BTYPE=10) block emitter selected by exact bit cost — see §8 for what that changes (and does
+> not change) in the decomposition below. `compressFixed` and the decoder are unchanged.
+
 This matters because it is smaller in scope than the task doc assumed:
 
 - `Deflate.compress` (`Stdlib/Zlib/Deflate.lean:393-433`) writes exactly one block: `BFINAL=1`,
@@ -682,3 +687,83 @@ codebase's compressor round-trips through this codebase's decompressor — and o
 nothing about, and must never be cited as evidence for, theorem 2 (decoder conformance to arbitrary
 valid RFC 1951 streams), which remains completely unverified and is tracked separately as
 `MODEL_DEBT.md` B10.
+
+---
+
+## 8. Post-design update (2026-08-27, dynamic-Huffman encoder pass)
+
+Written by the pass that implemented dynamic-Huffman (BTYPE=10) compression the same day this
+document was ratified. Everything below is verified against the tree, not asserted.
+
+### 8.1 What changed in the implementation
+
+`Stdlib/Zlib/Deflate.lean`'s `compress` now tokenizes once (`tokenize`, a total fuel-recursive
+greedy LZ77 pass whose every emitted back-reference is certified by the total `matchValid`
+predicate — the `findLongestMatch` search is untrusted and its result is validated, so no proof
+ever needs the search's internals, subsuming L3), then selects per stream between the historical
+fixed-Huffman block and a dynamic-Huffman block by exact bit-cost comparison (`compressPlan`;
+ties favor fixed). The dynamic path implements package-merge length-limited code computation
+(`packageMergeLengths`, 15-bit limit; 7-bit for the code-length alphabet), zlib-style
+≥-2-codes-per-tree padding (`padFrequencies`, so every transmitted tree is complete), the
+§3.2.7 code-length alphabet with RLE symbols 16/17/18, and the HLIT/HDIST/HCLEN header
+(`buildDynPlan`/`emitDynamicBlock`). All new code is total (structural or fuel recursion — no
+`partial`, no `while`), deliberately, so it is provable without a P0-style conversion.
+`compressFixed` (the assembly-engine twin) and the decoder are byte-for-byte untouched.
+
+Evidence the encoder emits conformant DEFLATE: `lake exe gzip_fuzzer`'s new Direction 3
+cross-checks every vector's raw-DEFLATE and zlib-container output against CPython `zlib`
+(wbits=-15/15, `d.eof` asserted) under a both-block-types-exercised vacuity floor (observed
+55 dynamic / 53 fixed on `--count 100`, exit 0), and `test_zlib`'s `testDynamicHuffman`
+deterministically asserts the dynamic block is chosen and decoded in-tree. This also
+deterministically exercises `decodeDynamicTables` for the first time (see `MODEL_DEBT.md`
+B10's update for the corrected coverage history).
+
+### 8.2 What this changes in the decomposition
+
+- **§2's "compress never emits BTYPE=10" is no longer true, by design** — the roundtrip target
+  `∀ data, decompress (compress data) = .ok data` now covers `decodeDynamicTables` on the
+  encoder's own output. This was the point: it converts the decoder's hardest path from
+  fuzz-only to on-the-proof-path. §0.2's theorem-2 caveat still stands unchanged (nothing here
+  proves conformance to *foreign* streams).
+- **L2 splits in two.** L2-fixed (the two closed tables) is as written. New obligations for the
+  dynamic branch: (L2v) `packageMergeLengths` validity — every produced length ≤ maxBits, used
+  symbols get nonzero lengths, and (with `padFrequencies`) the Kraft equality, so
+  `buildHuffmanTable` on them is a complete prefix code; (L2d) canonical decode-inverts-encode
+  for an *arbitrary* transmitted length assignment satisfying L2v — this is the general
+  prefix-tree argument the original L2 scoping explicitly avoided, and it is genuinely harder
+  than L2-fixed (no longer a closed finite check; needs structural induction over
+  `insertCode`/`buildHuffmanTable`); (L2h) the §3.2.7 header roundtrip —
+  `decodeDynamicTables` recovers exactly the lengths `buildDynPlan` RLE-encoded (16/17/18
+  expansion is inverse to `rleCodeLengths`/`encodeZeroRun`/`encodeRepeatRun`). A legitimate
+  landing split: `emitFixedBlock`-branch roundtrip first (needs only L2-fixed), then the
+  `emitDynamicBlock` branch (needs L2v+L2d+L2h); the compress-level theorem cases on the one
+  `if` in `compressPlan` and consumes both.
+- **L4 landed, simpler than §4's hand-worked argument.** `lz77_roundtrip_soundness`
+  (`Stdlib/Zlib/Equivalence.lean`) proves `∀ data, expandTokens (tokenize data) = data` —
+  kernel-checked (rung 1, axioms exactly `[propext, Classical.choice, Quot.sound]`), where
+  `expandTokens`/`lzCopy` is byte-for-byte the decoder's copy-loop semantics as a total
+  structural recursion. Finding: the strong induction §4 L4 works through is unnecessary — at
+  every copy step the source index `pos - dist` lies strictly inside the already-correct prefix
+  (`dist ≥ 1`), so a plain induction that re-establishes the prefix invariant (certificate at
+  offset 0, plus a one-position shift of the certificate) absorbs the `dist < len` self-overlap
+  case with no `j < dist`/`j ≥ dist` split. L3 dissolves into `matchValid_spec` (the tokenizer
+  validates rather than trusts the search). Token-level L5 is `tokenizeAux_expand`. What
+  remains of L5 proper is correlating this token layer with the Huffman/bitstream layer.
+- **L1a landed (writer side).** `natBits`/`bytesBits`/`writerBits` + `writerBits_writeBits`
+  (write-append under the operating invariant, which is re-established, so writes compose),
+  `flushBytes_spec`, and `flushBitWriter_bits` (flush = ghost bits + sub-byte zero padding;
+  the writer half of L1c). The `UInt32` arithmetic closed with core's
+  `shiftLeft_add_eq_or_of_lt`/`and_two_pow_sub_one_eq_mod`/`shiftRight_eq_div_pow` — the §7
+  "what would change this verdict" overflow worry did not materialize; the honest invariant is
+  `bitCount + n ≤ 32`, satisfied at every call site (≤ 15 bits onto < 8 pending). L1b
+  (read-consume) and the reader half of L1c remain **blocked on P0**: `readBits` calls
+  `ensureBits`, which is still `partial` and kernel-opaque as of this pass (checked against
+  `main` before and during the pass — P0 has not landed).
+
+### 8.3 Status of the 10 entries after this pass
+
+Unchanged — none closed, none closable yet: every path from here to `deflate_roundtrip_soundness`
+still runs through P0, which this pass deliberately did not duplicate (it was assigned
+elsewhere). What this pass changed is what the theorem will *mean* (it now covers dynamic
+table construction) and how much of its substance is already kernel-checked (the LZ77 layer in
+full; the writer half of the bitstream layer).
