@@ -78,13 +78,18 @@ def frameNamespace : Name := `Gasm.Targets.X86_64.MemoryFrame
     form without frame theorems turns the gate red immediately (the count rises above the
     ceiling), while the known-outstanding backlog does not.
 
-    Today's value is the 74 register-only forms. Their `step` bodies provably never mention
-    `.memory`, and `MemoryFrame/Common.lean`'s `registerOnly_writesWithin`/`registerOnly_readsWithin`
-    batch lemmas reduce each to a one-liner -- the instantiations are simply not written yet, and
-    are owned by a separate in-flight task. **When those land this ceiling must drop to 0**; that
-    is a one-line change here, and the audit prints the achievable value on every build to make
-    the staleness visible rather than silent. -/
-def frameCoverageDebtCeiling : Nat := 74
+    The value is now 0: the debt is fully paid. It was 74 -- the register-only forms, whose `step`
+    bodies provably never mention `.memory` and whose obligations `MemoryFrame/Common.lean`'s
+    `registerOnly_writesWithin`/`registerOnly_readsWithin` batch lemmas reduce to a one-liner each.
+    Those 74 instantiations landed (`MemoryFrame/{Add,Sub,And,Or,Xor,Not,Neg,Shift,Test,Xchg,Cmp,
+    Cmov,Jcc,Div,Imul,Lea,In,Out,Hlt,Syscall}.lean`), the audit below reported `0 form(s) missing`,
+    and the ceiling was lowered to match in the same change.
+
+    At 0 the ceiling is no longer debt but a ratchet: every registered instruction form now has a
+    `writesWithin`/`readsWithin` pair, and any new form added without one turns this gate red
+    immediately. Do not raise this value to land a new form -- write the form's frame theorems
+    instead (register-only forms are a one-liner via the batch lemmas). -/
+def frameCoverageDebtCeiling : Nat := 0
 
 -- AUDIT 1: no module outside `MemoryCell.lean` may name an `X86_64Memory` eliminator.
 run_cmd do
