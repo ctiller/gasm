@@ -1302,4 +1302,234 @@ theorem sum_map_const_of {α : Type} (f : α → Nat) (v : Nat) : ∀ (l : List 
       List.length_cons, Nat.add_mul]
     omega
 
+/-
+## The real `packageMergeLengths`, reduced to its general branch and specified.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- The general (`n ≥ 2`) branch of `packageMergeLengths`, with the imperative loops in
+    `foldl` form. -/
+def pmgLengths (freqs : Array Nat) (W : Nat) : Array Nat :=
+  ((((List.range (W - 1)).foldl
+      (fun cur _ => pmMerge (pmSorted freqs) (pmPackage cur)) (pmSorted freqs)).take
+        (2 * (pmSorted freqs).length - 2)).foldl
+    (fun arr it => it.syms.foldl (fun arr s => arr.set! s (arr[s]! + 1)) arr)
+    (Array.replicate freqs.size 0))
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- With at least two sorted leaves, `packageMergeLengths` is its general branch. -/
+theorem packageMergeLengths_eq_general (freqs : Array Nat) (W : Nat) (a b : PMNode)
+    (rest : List PMNode) (hS : pmSorted freqs = a :: b :: rest) :
+    packageMergeLengths freqs W = pmgLengths freqs W := by
+  have hS' := hS
+  unfold pmSorted pmLeaves pmLeavesOf at hS'
+  unfold packageMergeLengths pmgLengths pmSorted pmLeaves pmLeavesOf
+  dsimp only
+  rw [hS']
+  dsimp only
+  simp only [List.forIn_pure_yield_eq_foldl, Id.run, pure_bind, bind_pure]
+  rfl
+
+/- REF: docs/STDLIB_ZLIB.md#311-length-limited-code-length-computation-encoder-side -/
+/-- **L2v — package-merge validity.** With `n ≥ 2` used symbols and `n - 1 < 2^(W-1)`
+    (`n ≤ 286`, `W = 15` for the literal/length alphabet; `n ≤ 30` and `n ≤ 19` for the
+    others — all comfortably inside), `packageMergeLengths freqs W`:
+    keeps the array size; codes every used symbol (`length ≥ 1`); stays within `W` bits
+    everywhere; codes only used symbols; and satisfies the Kraft inequality
+    `Σ 2^(W - len_s) ≤ 2^W` over the coded symbols. -/
+theorem packageMergeLengths_spec (freqs : Array Nat) (W : Nat) (hW : 1 ≤ W)
+    (hn2 : 2 ≤ (List.range freqs.size).countP (fun s => decide (0 < freqs[s]!)))
+    (hsmall : (List.range freqs.size).countP (fun s => decide (0 < freqs[s]!)) - 1
+      < 2 ^ (W - 1)) :
+    (packageMergeLengths freqs W).size = freqs.size ∧
+    (∀ s, s < freqs.size → 0 < freqs[s]! → 1 ≤ (packageMergeLengths freqs W)[s]!) ∧
+    (∀ s, s < freqs.size → (packageMergeLengths freqs W)[s]! ≤ W) ∧
+    (∀ s, s < freqs.size → 0 < (packageMergeLengths freqs W)[s]! → 0 < freqs[s]!) ∧
+    ((List.range freqs.size).map (fun s =>
+        if 1 ≤ (packageMergeLengths freqs W)[s]! then
+          2 ^ (W - (packageMergeLengths freqs W)[s]!) else 0)).sum ≤ 2 ^ W := by
+  have hlen := pmSorted_length freqs
+  -- the sorted list has at least two leaves: extract its cons-cons shape
+  obtain ⟨a, b, rest, hS⟩ : ∃ a b rest, pmSorted freqs = a :: b :: rest := by
+    cases hL : pmSorted freqs with
+    | nil =>
+      rw [hL] at hlen
+      simp at hlen
+      omega
+    | cons a t =>
+      cases t with
+      | nil =>
+        rw [hL] at hlen
+        simp at hlen
+        omega
+      | cons b rest => exact ⟨a, b, rest, rfl⟩
+  rw [packageMergeLengths_eq_general freqs W a b rest hS]
+  unfold pmgLengths
+  -- notation
+  have hQ : ∀ x ∈ pmSorted freqs, ∀ s ∈ x.syms, s < freqs.size ∧ 0 < freqs[s]! := by
+    intro x hx s hs
+    obtain ⟨t, htN, htf, hxe⟩ := pmSorted_shape freqs hx
+    rw [hxe] at hs
+    have hst : s = t := by
+      rcases List.mem_singleton.mp hs with h
+      exact h
+    subst hst
+    exact ⟨htN, htf⟩
+  have hone : ∀ x ∈ pmSorted freqs, x.syms.length = 1 := by
+    intro x hx
+    obtain ⟨t, _, _, hxe⟩ := pmSorted_shape freqs hx
+    rw [hxe]
+    rfl
+  have hann := annAll_ghostLevels (pmSorted freqs)
+    (fun s => s < freqs.size ∧ 0 < freqs[s]!) hQ (W - 1)
+  have hproj := ghostLevels_proj (pmSorted freqs) (W - 1)
+  -- the solution prefix, in ghost form
+  have hsol : (((List.range (W - 1)).foldl
+      (fun cur _ => pmMerge (pmSorted freqs) (pmPackage cur)) (pmSorted freqs)).take
+        (2 * (pmSorted freqs).length - 2)) =
+      ((ghostLevels (pmSorted freqs) (W - 1)).take
+        (2 * (pmSorted freqs).length - 2)).map pmProj := by
+    rw [List.map_take, hproj]
+  rw [hsol]
+  -- names for the ghost prefix and its annotation multiset
+  have hchar : ∀ t, t < freqs.size →
+      ((((ghostLevels (pmSorted freqs) (W - 1)).take
+          (2 * (pmSorted freqs).length - 2)).map pmProj).foldl
+        (fun arr it => it.syms.foldl (fun arr s => arr.set! s (arr[s]! + 1)) arr)
+        (Array.replicate freqs.size 0))[t]!
+      = lenOfF (((ghostLevels (pmSorted freqs) (W - 1)).take
+          (2 * (pmSorted freqs).length - 2)).flatMap (fun g => g.syms)) t := by
+    intro t htN
+    have hbound : ∀ it ∈ (((ghostLevels (pmSorted freqs) (W - 1)).take
+        (2 * (pmSorted freqs).length - 2)).map pmProj),
+        ∀ s ∈ it.syms, s < (Array.replicate freqs.size 0).size := by
+      intro it hit s hs
+      rw [Array.size_replicate]
+      obtain ⟨g, hg, hge⟩ := List.mem_map.mp hit
+      rw [← hge] at hs
+      obtain ⟨e, he, hes⟩ := List.mem_map.mp hs
+      have hgL : g ∈ ghostLevels (pmSorted freqs) (W - 1) :=
+        List.mem_of_mem_take hg
+      have := hann g hgL e he
+      rw [← hes]
+      exact this.2.2.1
+    have hf := foldl_incr_items _ (Array.replicate freqs.size 0) hbound
+    rw [Array.size_replicate] at hf
+    rw [hf.2 t htN, getElem!_replicate _ _ _ htN]
+    -- per-item counts through the projection
+    have hcnt : ((((ghostLevels (pmSorted freqs) (W - 1)).take
+        (2 * (pmSorted freqs).length - 2)).map pmProj).map
+          (fun it => it.syms.count t)).sum
+        = lenOfF (((ghostLevels (pmSorted freqs) (W - 1)).take
+            (2 * (pmSorted freqs).length - 2)).flatMap (fun g => g.syms)) t := by
+      rw [List.map_map]
+      unfold lenOfF
+      rw [countP_flatMap_syms]
+      apply sum_map_congr
+      intro g _
+      show (pmProj g).syms.count t = g.syms.countP (fun e => e.1 == t)
+      unfold pmProj
+      exact count_map_fst t g.syms
+    rw [hcnt]
+    omega
+  -- apply the master counting theorem
+  have hlenL := ghostLevels_length (pmSorted freqs)
+    (by rw [hS, List.length_cons, List.length_cons]; omega) (W - 1)
+  have hdiv0 : ((pmSorted freqs).length - 1) / 2 ^ (W - 1) = 0 :=
+    Nat.div_eq_of_lt (by rw [hlen]; exact hsmall)
+  rw [hdiv0] at hlenL
+  have htklen : (((ghostLevels (pmSorted freqs) (W - 1)).take
+      (2 * (pmSorted freqs).length - 2))).length = 2 * (pmSorted freqs).length - 2 := by
+    rw [List.length_take, hlenL]
+    have h2 : 2 ≤ (pmSorted freqs).length := by
+      rw [hS, List.length_cons, List.length_cons]
+      omega
+    omega
+  have hmaster := master_counting W freqs.size
+    ((List.range freqs.size).countP (fun s => decide (0 < freqs[s]!)))
+    (fun s => decide (0 < freqs[s]!)) hW hn2
+    (((ghostLevels (pmSorted freqs) (W - 1)).take
+      (2 * (pmSorted freqs).length - 2)).flatMap (fun g => g.syms))
+    (by
+      intro e he
+      obtain ⟨g, hg, hge⟩ := List.mem_flatMap.mp he
+      have hgL : g ∈ ghostLevels (pmSorted freqs) (W - 1) := List.mem_of_mem_take hg
+      have h := hann g hgL e hge
+      have hWe : W - 1 + 1 = W := by omega
+      exact ⟨h.2.2.1, h.1, by omega⟩)
+    (by
+      intro s j
+      rw [count_flatMap_syms]
+      have h1 := ghostCount_take_le (s, j) (2 * (pmSorted freqs).length - 2)
+        (ghostLevels (pmSorted freqs) (W - 1))
+      have h2 := ghostCount_ghostLevels_le_one (pmSorted freqs)
+        (fun s => pmSorted_once freqs s) (W - 1) s j
+      omega)
+    (by
+      intro e he
+      obtain ⟨g, hg, hge⟩ := List.mem_flatMap.mp he
+      have hgL : g ∈ ghostLevels (pmSorted freqs) (W - 1) := List.mem_of_mem_take hg
+      have h := hann g hgL e hge
+      exact decide_eq_true h.2.2.2)
+    rfl
+    (by
+      rw [sum_map_flatMap_syms]
+      have hval : ∀ g ∈ (((ghostLevels (pmSorted freqs) (W - 1)).take
+          (2 * (pmSorted freqs).length - 2))),
+          ((g.syms.map (fun e => 2 ^ (e.2 - 1))).sum) = 2 ^ (W - 1) := by
+        intro g hg
+        have hgL : g ∈ ghostLevels (pmSorted freqs) (W - 1) := List.mem_of_mem_take hg
+        exact itemVal_ghostLevels (pmSorted freqs) hone (W - 1) g hgL
+      rw [sum_map_const_of _ _ _ hval, htklen, hlen])
+  obtain ⟨hcov, hlenW, hposv, hkraft⟩ := hmaster
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  · -- size
+    have hbound : ∀ it ∈ (((ghostLevels (pmSorted freqs) (W - 1)).take
+        (2 * (pmSorted freqs).length - 2)).map pmProj),
+        ∀ s ∈ it.syms, s < (Array.replicate freqs.size 0).size := by
+      intro it hit s hs
+      rw [Array.size_replicate]
+      obtain ⟨g, hg, hge⟩ := List.mem_map.mp hit
+      rw [← hge] at hs
+      obtain ⟨e, he, hes⟩ := List.mem_map.mp hs
+      have hgL : g ∈ ghostLevels (pmSorted freqs) (W - 1) := List.mem_of_mem_take hg
+      have := hann g hgL e he
+      rw [← hes]
+      exact this.2.2.1
+    have hf := foldl_incr_items _ (Array.replicate freqs.size 0) hbound
+    rw [Array.size_replicate] at hf
+    exact hf.1
+  · -- coverage
+    intro s hsN hsf
+    rw [hchar s hsN]
+    exact hcov s hsN (decide_eq_true hsf)
+  · -- width bound
+    intro s hsN
+    rw [hchar s hsN]
+    exact hlenW s
+  · -- only used symbols are coded
+    intro s hsN hpos
+    rw [hchar s hsN] at hpos
+    exact of_decide_eq_true (hposv s (by omega)).2
+  · -- Kraft
+    have hcongr : ((List.range freqs.size).map (fun s =>
+        if 1 ≤ ((((ghostLevels (pmSorted freqs) (W - 1)).take
+            (2 * (pmSorted freqs).length - 2)).map pmProj).foldl
+          (fun arr it => it.syms.foldl (fun arr s => arr.set! s (arr[s]! + 1)) arr)
+          (Array.replicate freqs.size 0))[s]! then
+          2 ^ (W - ((((ghostLevels (pmSorted freqs) (W - 1)).take
+              (2 * (pmSorted freqs).length - 2)).map pmProj).foldl
+            (fun arr it => it.syms.foldl (fun arr s => arr.set! s (arr[s]! + 1)) arr)
+            (Array.replicate freqs.size 0))[s]!) else 0)).sum =
+        ((List.range freqs.size).map (fun s =>
+          if 1 ≤ lenOfF (((ghostLevels (pmSorted freqs) (W - 1)).take
+              (2 * (pmSorted freqs).length - 2)).flatMap (fun g => g.syms)) s then
+            2 ^ (W - lenOfF (((ghostLevels (pmSorted freqs) (W - 1)).take
+              (2 * (pmSorted freqs).length - 2)).flatMap (fun g => g.syms)) s) else 0)).sum := by
+      apply sum_map_congr
+      intro s hs
+      rw [hchar s (List.mem_range.mp hs)]
+    rw [hcongr]
+    exact hkraft
+
 end Stdlib.Zlib
