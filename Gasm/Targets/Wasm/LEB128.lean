@@ -331,7 +331,7 @@ theorem decodeI64SLEB128_encodeI64SLEB128 (v : Int)
   rw [decodeSLEB128_encodeSLEB128]
   simp only [h1, h2, and_self, if_pos]
 
-/-! ### The `encodeI64SLEB128 := encodeI32SLEB128` alias: witness
+/-! ### The `encodeI64SLEB128 := encodeI32SLEB128` alias: general byte-budget bound (PA12)
 
     TCB T7 / TC20 flag the former one-line alias `encodeI64SLEB128 := encodeI32SLEB128` as
     lacking a width bound. Rigorous check (see `docs/tasks/TC20-wasm-emission-roundtrip.md`
@@ -341,30 +341,93 @@ theorem decodeI64SLEB128_encodeI64SLEB128 (v : Int)
     is a missing PRECONDITION: `encodeI32SLEB128 : Int → ByteArray` has no built-in bound
     rejecting (or even flagging) an out-of-i32-range input, so a value like `2 ^ 40`
     (representable in i64, not in i32) silently encodes into more than the 5 bytes the Wasm
-    binary format allows for an `i32.const` operand. The witness below exhibits exactly that:
-    encoding `2 ^ 40` through the (i32-named) encoder produces a 6-byte sequence, i.e. it is
-    unsound to hand this output to a context (such as `i32.const`) that assumes a ≤5-byte i32
-    encoding -- this is confirmed end-to-end by feeding the resulting module to
-    `WebAssembly.validate` in the validator gate (`Tools/ValidateSpikeWasm.lean`), which rejects
-    it. `_inst`-suffixed per Law 8's ground-instance convention: it is a concrete, ground-value
-    sanity check rather than a general theorem (the general theorems are
-    `decodeI32SLEB128_encodeI32SLEB128` / `decodeSLEB128_encodeSLEB128` above). `native_decide`
-    is used here (only here in this file) because `encodeSLEB128List` is well-founded-recursive
-    (`termination_by val.natAbs`) and so does not reduce under kernel `decide`; Law 10 permits
-    `native_decide` for exactly this shape -- a single `_inst`-suffixed ground instance, never
-    cited as verification of the general claim -- and it is allowlisted in
-    `scripts/gate_allowlist.txt` accordingly. -/
+    binary format allows for an `i32.const` operand -- confirmed end-to-end by feeding the
+    resulting module to `WebAssembly.validate` in the validator gate
+    (`Tools/ValidateSpikeWasm.lean`), which rejects it.
+
+    PA12 replaces the former single ground-instance witness (`encodeI32SLEB128 (2 ^ 40)` needs
+    ≥ 6 bytes, `native_decide`d only because `encodeSLEB128List`'s well-founded recursion is
+    stuck under kernel `decide`) with the honest UNIVERSAL statement it stood in for: encoding
+    ANY value at or above a stated threshold needs at least the corresponding number of bytes --
+    genuinely `∀`-quantified, proved by plain induction on the threshold exponent, no oracle. The
+    hypothesis is explicit and real (Law 9): this is a byte-budget LOWER BOUND under a stated
+    magnitude precondition, not a blanket "the encoder is wrong" claim (which the roundtrip
+    theorems above already refute -- the encoder is unconditionally correct arithmetically; the
+    gap is purely the missing budget precondition an `i32.const`-shaped caller must enforce). -/
+
 /- REF: wasm-binary-values#integers -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/-- `encodeSLEB128List` never emits an empty byte sequence, for any input: both branches of its
+    defining `if` produce a list with at least one element (`[b]` or `b :: _`). Used below to
+    turn "the recursive step emits one more byte" into a genuine lower bound. -/
+theorem encodeSLEB128List_length_pos (v : Int) : 1 ≤ (encodeSLEB128List v).length := by
+  unfold encodeSLEB128List
+  by_cases hstop : (v / 128 = 0 ∧ v % 128 < 64) ∨ (v / 128 = -1 ∧ 64 ≤ v % 128)
+  · simp only [hstop, if_pos, List.length_singleton]
+    omega
+  · simp only [hstop, if_neg, not_false_iff, List.length_cons]
+    omega
+
+/- REF: wasm-binary-values#integers -/
+/-- **General SLEB128 byte-budget LOWER bound**, universally quantified over both the threshold
+    index `k` and the value `v` (Law 9: no pinned sample, no fixed magnitude): encoding any value
+    at or above `2 ^ (7 * (k + 1))` needs at least `k + 2` bytes. Proved by induction on `k`: once
+    `v ≥ 2 ^ 7 = 128`, `v / 128 ≥ 1`, so the defining `if`'s stop condition (`v / 128 = 0` or
+    `v / 128 = -1`, both impossible for a positive quotient) can never fire, `encodeSLEB128List`
+    always takes its recursive `else` branch, and the value shrinks by exactly a factor of `128`
+    per byte emitted -- so the byte count grows without bound as the magnitude does, for every
+    `k`, not just the `k = 4` / `2 ^ 40` instance below. This is genuinely the `encodeI32SLEB128`
+    "size grows with magnitude, no fixed byte budget" claim the module docstring already asserts,
+    now a proved theorem rather than a single witness. -/
+theorem encodeSLEB128List_length_ge (k : Nat) : ∀ (v : Int), (2 : Int) ^ (7 * (k + 1)) ≤ v →
+    k + 2 ≤ (encodeSLEB128List v).length := by
+  induction k with
+  | zero =>
+    intro v h
+    unfold encodeSLEB128List
+    have hp : (2 : Int) ^ (7 * (0 + 1)) = 128 := by decide
+    rw [hp] at h
+    have hstop : ¬ ((v / 128 = 0 ∧ v % 128 < 64) ∨ (v / 128 = -1 ∧ 64 ≤ v % 128)) := by omega
+    simp only [hstop, if_neg, not_false_iff, List.length_cons]
+    have hpos := encodeSLEB128List_length_pos (v / 128)
+    omega
+  | succ m ih =>
+    intro v h
+    unfold encodeSLEB128List
+    have hpow : (2 : Int) ^ (7 * (m + 1 + 1)) = (2 : Int) ^ (7 * (m + 1)) * 128 := by
+      have e : 7 * (m + 1 + 1) = 7 * (m + 1) + 7 := by omega
+      have h7 : (2 : Int) ^ (7 : Nat) = 128 := by decide
+      rw [e, Int.pow_add, h7]
+    rw [hpow] at h
+    have hposbase : (0 : Int) < (2 : Int) ^ (7 * (m + 1)) := Int.pow_pos (by decide)
+    have hstop : ¬ ((v / 128 = 0 ∧ v % 128 < 64) ∨ (v / 128 = -1 ∧ 64 ≤ v % 128)) := by omega
+    simp only [hstop, if_neg, not_false_iff, List.length_cons]
+    have hrec := ih (v / 128) (by omega)
+    omega
+
+/- REF: wasm-binary-values#integers -/
+/-- The i32 `.const` operand's byte budget is 5 bytes (`ceil(32/7) = 5`); the smallest threshold
+    `encodeSLEB128List_length_ge` reaches with a 6-byte (`k = 4`) conclusion is `2 ^ 35`, so any
+    value at or above `2 ^ 35` -- a real, honestly-stated hypothesis, not the single literal
+    `2 ^ 40` -- provably exceeds that budget. -/
+theorem encodeSLEB128List_exceeds_budget (val : Int) (h : (2 : Int) ^ 35 ≤ val) :
+    6 ≤ (encodeSLEB128List val).length := by
+  have h35 : (7 * (4 + 1) : Nat) = 35 := by decide
+  have := encodeSLEB128List_length_ge 4 val (by rw [h35]; exact h)
+  omega
+
+/- REF: wasm-binary-values#integers -/
+/-- The original ground witness, now a corollary of `encodeSLEB128List_exceeds_budget`: `2 ^ 40 ≥
+    2 ^ 35`, so `encodeI32SLEB128 (2 ^ 40)` -- an in-i64-range, out-of-i32-range value -- needs at
+    least 6 bytes, one more than the 5-byte i32 budget the Wasm binary format allows for
+    `i32.const`. Kernel-checked (`decide`/structural proof only): no `native_decide`, no
+    `scripts/gate_allowlist.txt` entry needed at all. -/
 theorem encodeI32SLEB128_exceeds_i32_budget_inst :
     6 ≤ (encodeI32SLEB128 (2 ^ 40 : Int)).size := by
-  have h : encodeSLEB128List (2 ^ 40 : Int) =
-      [(128 : Nat).toUInt8, (128 : Nat).toUInt8, (128 : Nat).toUInt8, (128 : Nat).toUInt8,
-        (128 : Nat).toUInt8, (32 : Nat).toUInt8] := by
-    native_decide
+  have hbound : (2 : Int) ^ 35 ≤ (2 : Int) ^ 40 := by decide
+  have hlen := encodeSLEB128List_exceeds_budget (2 ^ 40) hbound
   unfold encodeI32SLEB128
-  rw [h]
-  decide
+  simp only [ByteArray.size, List.size_toArray]
+  omega
 
 /- REF: wasm-binary-values#integers -/
 /-- Encodes a raw UTF-8 string prefixed by its LEB128 length. -/

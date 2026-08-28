@@ -172,12 +172,17 @@ def writeMem64 (mem : ByteArray) (addr : Nat) (val : UInt64) : ByteArray :=
 
 mutual
   /- REF: wasm-exec-instructions#instructions -/
-  /-- Operational evaluation for structured WebAssembly instruction execution. -/
-  partial def evalInstr (instr : WasmInstr) (s : WasmMachineState)
+  /-- Operational evaluation for structured WebAssembly instruction execution, MINUS the trap/exit
+      short-circuit guard: that guard is deliberately pulled out to the non-`partial` `evalInstr`
+      wrapper below (and inlined once more at `evalInstrs`'s own call site, the only place within
+      this `mutual` group that dispatches to a single instruction) so that PA12's general
+      short-circuit theorem can be proved by plain unfolding of an ordinary, non-opaque `def`,
+      rather than needing to see inside this group's own `partial` recursion at all. `evalInstr`
+      (defined after `end` below) is the one and only public entry point external callers
+      (`stepWasm`, `runWasmFunction`) use; this function is never called directly from outside the
+      mutual group. -/
+  partial def evalInstrMatch (instr : WasmInstr) (s : WasmMachineState)
       (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : WasmMachineState × ControlSignal :=
-    if s.trapped || s.exitCode.isSome then
-      (s, .next)
-    else
       match instr with
       | .unreachable => ({ s with trapped := true }, .next)
       | .nop => (s, .next)
@@ -469,13 +474,18 @@ mutual
       | _ => (s, .next)
 
   /- REF: wasm-exec-instructions#expressions -/
-  /-- Evaluates a list of instructions in sequence. -/
+  /-- Evaluates a list of instructions in sequence. The trap/exit guard is inlined here (rather
+      than delegated to a call to the `evalInstr` wrapper, which is not yet in scope inside this
+      `mutual` group) -- textually identical to the guard in the standalone `evalInstr` below, so
+      every instruction dispatched from a sequence is skipped once the state traps or exits,
+      exactly as it was when this guard lived inside a single combined function. -/
   partial def evalInstrs (instrs : List WasmInstr) (st : WasmMachineState)
       (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : WasmMachineState × ControlSignal :=
     match instrs with
     | [] => (st, .next)
     | i :: rest =>
-      let (st', sig) := evalInstr i st hostCall
+      let (st', sig) :=
+        if st.trapped || st.exitCode.isSome then (st, .next) else evalInstrMatch i st hostCall
       match sig with
       | .next => evalInstrs rest st' hostCall
       | other => (st', other)
@@ -491,6 +501,24 @@ mutual
     | .br (d + 1) => (st', .br d)
     | .ret => (st', .ret)
 end
+
+/- REF: wasm-exec-instructions#instructions -/
+/-- Public entry point for evaluating a single instruction: applies the trap/exit short-circuit
+    guard, then delegates to `evalInstrMatch`'s per-instruction dispatch. Deliberately NOT
+    `partial` and NOT part of the `mutual` group above -- unlike `evalInstrMatch`/`evalInstrs`/
+    `evalLoop` (whose mutual recursion through `evalLoop`'s unbounded iteration genuinely can
+    diverge on a real infinite Wasm loop, so Lean compiles that whole group as an opaque
+    constant with no usable defining equations), THIS wrapper's own body is a single non-recursive
+    `if`, so it is an ordinary total `def` with a real equation Lean can unfold -- exactly what
+    PA12's general trap short-circuit theorem (`evalInstr_trapped_next` /
+    `evalInstrs_trapped_next` in `SemanticsFuzzer.lean`) inducts on, without needing visibility
+    into the opaque partial-recursive body at all. Same signature and identical behaviour to the
+    previous single combined `partial def evalInstr` (confirmed by the differential fuzzer suite
+    below passing unchanged). -/
+def evalInstr (instr : WasmInstr) (s : WasmMachineState)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) :
+    WasmMachineState × ControlSignal :=
+  if s.trapped || s.exitCode.isSome then (s, .next) else evalInstrMatch instr s hostCall
 
 /- REF: wasm-exec-instructions#instructions -/
 /-- Pure operational step evaluation for single instruction. -/
