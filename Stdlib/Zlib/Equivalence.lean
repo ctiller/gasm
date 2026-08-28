@@ -1513,4 +1513,379 @@ theorem decode_ref_fixed (len dist : Nat) (h3 : 3 ≤ len) (h258 : len ≤ 258)
   · rw [hDbase]
   · rw [hbytes4, hbytes3, hbytes2, hbytes1]
 
+/-
+## PA16 L5/L7 (fixed path): the stream induction and the fixed-block roundtrip
+
+With `decodeHuffmanStream`/`decompress` now total (branch-rooted `HuffmanTable`
+invariant), the per-token decode lemmas assemble into the stream-level induction and the
+universal fixed-block roundtrip. Scope is stated honestly: `emitFixedBlock_roundtrip_soundness`
+covers the fixed-Huffman encoder for every input; `compress`'s dynamic branch is the
+remaining obligation for the universal `deflate_roundtrip_soundness`.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Positional well-formedness of a token list: every back-reference's distance reaches
+    only into output that exists when the token is decoded, starting from output length
+    `pos`, plus the RFC 1951 ranges. -/
+def tokensWF : List LZToken → Nat → Prop
+  | [], _ => True
+  | .lit _ :: ts, pos => tokensWF ts (pos + 1)
+  | .ref len dist :: ts, pos =>
+    3 ≤ len ∧ len ≤ 258 ∧ 1 ≤ dist ∧ dist ≤ 32768 ∧ dist ≤ pos ∧ tokensWF ts (pos + len)
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- The tokenizer's output, beyond any accumulator, is positionally well-formed at the
+    position it started from. -/
+theorem tokenizeAux_wf (data : ByteArray) :
+    ∀ (fuel pos : Nat) (acc : Array LZToken),
+      ∃ rest, (tokenizeAux data fuel pos acc).toList = acc.toList ++ rest ∧
+        tokensWF rest pos := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro pos acc
+    exact ⟨[], by simp [tokenizeAux], trivial⟩
+  | succ fuel ih =>
+    intro pos acc
+    simp only [tokenizeAux]
+    split
+    · split
+      · rename_i hm
+        obtain ⟨rest, hlist, hwf⟩ := ih (pos + (findLongestMatch data pos).1)
+          (acc.push (.ref (findLongestMatch data pos).1 (findLongestMatch data pos).2))
+        refine ⟨.ref (findLongestMatch data pos).1 (findLongestMatch data pos).2 :: rest, ?_, ?_⟩
+        · rw [hlist, Array.toList_push]
+          simp
+        · obtain ⟨h3, h258, h1d, h32768, hdp, _⟩ := matchValid_spec hm.2
+          exact ⟨h3, h258, h1d, h32768, hdp, hwf⟩
+      · obtain ⟨rest, hlist, hwf⟩ := ih (pos + 1) (acc.push (.lit (data.get! pos)))
+        refine ⟨.lit (data.get! pos) :: rest, ?_, hwf⟩
+        rw [hlist, Array.toList_push]
+        simp
+    · exact ⟨[], by simp, trivial⟩
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- `tokenize`'s output is positionally well-formed from an empty output. -/
+theorem tokenize_wf (data : ByteArray) : tokensWF (tokenize data).toList 0 := by
+  obtain ⟨rest, hlist, hwf⟩ := tokenizeAux_wf data data.size 0 #[]
+  unfold tokenize
+  rw [hlist]
+  simpa using hwf
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- The decoder's imperative back-reference copy loop is exactly the reference `lzCopy`. -/
+theorem idrun_copy_eq_lzCopy (dist : Nat) :
+    ∀ (n : Nat) (out : ByteArray),
+      (Id.run do
+        let mut acc := out
+        for _ in [0:n] do
+          let srcIdx := acc.size - dist
+          acc := acc.push (acc.get! srcIdx)
+        acc) = lzCopy dist n out := by
+  have hfold : ∀ (n : Nat) (out : ByteArray),
+      (Id.run do
+        let mut acc := out
+        for _ in [0:n] do
+          let srcIdx := acc.size - dist
+          acc := acc.push (acc.get! srcIdx)
+        acc) =
+      (List.range' 0 n 1).foldl (fun acc _ => acc.push (acc.get! (acc.size - dist))) out := by
+    intro n out
+    simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
+      List.forIn_pure_yield_eq_foldl, Id.run, pure_bind]
+    simp
+  have hgen : ∀ (l : List Nat) (out : ByteArray),
+      l.foldl (fun acc _ => acc.push (acc.get! (acc.size - dist))) out =
+        lzCopy dist l.length out := by
+    intro l
+    induction l with
+    | nil => intro out; simp [lzCopy]
+    | cons x xs ih =>
+      intro out
+      rw [List.foldl_cons, ih, List.length_cons, lzCopy]
+  intro n out
+  rw [hfold, hgen, List.length_range']
+
+set_option maxHeartbeats 1000000 in
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- L5 (fixed path): the decoder's stream loop, fed exactly the bits `emitTokens` wrote
+    for a positionally well-formed token list, terminates at the end-of-block symbol having
+    expanded exactly those tokens, consuming exactly those bits. -/
+theorem decodeHuffmanStream_go_fixed
+    (hL : ∃ l rr, fixedLitLenTable.root = HuffmanNode.branch l rr)
+    (hD : ∃ l rr, fixedDistTable.root = HuffmanNode.branch l rr) :
+    ∀ (ts : List LZToken) (r : BitReader) (curOut : ByteArray) (rest : List Bool),
+      tokensWF ts curOut.size →
+      readerBits r = tokensBitsFixed ts ++ (symbolBits fixedLitLenTable 256 ++ rest) →
+      r.bitBuf.toNat < 2 ^ r.bitCount → r.bitCount < 8 →
+      ∃ r', decodeHuffmanStream.go fixedLitLenTable fixedDistTable r curOut hL hD =
+          .ok (r', ts.foldl expandToken curOut) ∧
+        readerBits r' = rest ∧
+        r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  intro ts
+  induction ts with
+  | nil =>
+    intro r curOut rest hwf hbits hinv hcnt
+    obtain ⟨rE, hokE, hrestE, hinvE, hcntE, hbytesE⟩ :=
+      decode_eob_fixed r rest (by simpa [tokensBitsFixed] using hbits) hinv hcnt
+    refine ⟨rE, ?_, hrestE, hinvE, hcntE, hbytesE⟩
+    rw [decodeHuffmanStream.go.eq_def]
+    split
+    · rename_i e heq
+      rw [heq] at hokE
+      exact absurd hokE (by simp)
+    · rename_i nextR sym heq
+      rw [heq] at hokE
+      simp only [Except.ok.injEq, Prod.mk.injEq] at hokE
+      obtain ⟨h1, h2⟩ := hokE
+      subst h1
+      subst h2
+      rw [if_neg (by omega : ¬ (256 : Nat) < 256), if_pos (by decide : ((256:Nat) == 256) = true)]
+      rfl
+  | cons t ts ih =>
+    intro r curOut rest hwf hbits hinv hcnt
+    cases t with
+    | lit b =>
+      have hbits1 : readerBits r = tokenBitsFixed (.lit b) ++
+          (tokensBitsFixed ts ++ (symbolBits fixedLitLenTable 256 ++ rest)) := by
+        rw [hbits, tokensBitsFixed]
+        simp [List.append_assoc]
+      obtain ⟨r1, hok1, hb256, hrest1, hinv1, hcnt1, hbytes1⟩ :=
+        decode_lit_fixed b r _ hbits1 hinv hcnt
+      have hwf' : tokensWF ts (curOut.push b).size := by
+        rw [ByteArray.size_push]
+        exact hwf
+      obtain ⟨r', hok', hrest', hinv', hcnt', hbytes'⟩ :=
+        ih r1 (curOut.push b) rest hwf' hrest1 hinv1 hcnt1
+      refine ⟨r', ?_, hrest', hinv', hcnt', by rw [hbytes', hbytes1]⟩
+      rw [decodeHuffmanStream.go.eq_def]
+      split
+      · rename_i e heq
+        rw [heq] at hok1
+        exact absurd hok1 (by simp)
+      · rename_i nextR sym heq
+        rw [heq] at hok1
+        simp only [Except.ok.injEq, Prod.mk.injEq] at hok1
+        obtain ⟨h1, h2⟩ := hok1
+        subst h1
+        subst h2
+        rw [if_pos hb256, List.foldl_cons]
+        have hpush : b.toNat.toUInt8 = b := UInt8.ofNat_toNat
+        rw [hpush]
+        exact hok'
+    | ref len dist =>
+      obtain ⟨h3, h258, h1d, h32768, hdlepos, hwfrest⟩ := hwf
+      have hbits1 : readerBits r = tokenBitsFixed (.ref len dist) ++
+          (tokensBitsFixed ts ++ (symbolBits fixedLitLenTable 256 ++ rest)) := by
+        rw [hbits, tokensBitsFixed]
+        simp [List.append_assoc]
+      obtain ⟨r1, r2, r3, r4, extraL, extraD, hok1, hs257, hs285, hok2, hbase, hok3,
+        hd30, hok4, hdbase, hrest4, hinv4, hcnt4, hbytes4⟩ :=
+        decode_ref_fixed len dist h3 h258 h1d h32768 r _ hbits1 hinv hcnt
+      have hwf' : tokensWF ts (lzCopy dist len curOut).size := by
+        rw [lzCopy_size]
+        exact hwfrest
+      obtain ⟨r', hok', hrest', hinv', hcnt', hbytes'⟩ :=
+        ih r4 (lzCopy dist len curOut) rest hwf' hrest4 hinv4 hcnt4
+      refine ⟨r', ?_, hrest', hinv', hcnt', by rw [hbytes', hbytes4]⟩
+      rw [decodeHuffmanStream.go.eq_def]
+      split
+      · rename_i e heq
+        rw [heq] at hok1
+        exact absurd hok1 (by simp)
+      · rename_i nextR sym heq
+        rw [heq] at hok1
+        simp only [Except.ok.injEq, Prod.mk.injEq] at hok1
+        obtain ⟨h1, h2⟩ := hok1
+        subst h1
+        subst h2
+        rw [if_neg (by omega : ¬ (encodeLength len).1 < 256),
+          if_neg (by simp; omega), if_pos (by omega : (encodeLength len).1 ≤ 285)]
+        dsimp only
+        split
+        · rename_i e heq2
+          rw [heq2] at hok2
+          exact absurd hok2 (by simp)
+        · rename_i rLen extraVal heq2
+          rw [heq2] at hok2
+          simp only [Except.ok.injEq, Prod.mk.injEq] at hok2
+          obtain ⟨h1, h2⟩ := hok2
+          subst h1
+          subst h2
+          split
+          · rename_i e heq3
+            rw [heq3] at hok3
+            exact absurd hok3 (by simp)
+          · rename_i rDistSym distSym heq3
+            rw [heq3] at hok3
+            simp only [Except.ok.injEq, Prod.mk.injEq] at hok3
+            obtain ⟨h1, h2⟩ := hok3
+            subst h1
+            subst h2
+            rw [if_neg (by omega : ¬ (encodeDistance dist).1 ≥ 30)]
+            split
+            · rename_i e heq4
+              rw [heq4] at hok4
+              exact absurd hok4 (by simp)
+            · rename_i rDist distExtraVal heq4
+              rw [heq4] at hok4
+              simp only [Except.ok.injEq, Prod.mk.injEq] at hok4
+              obtain ⟨h1, h2⟩ := hok4
+              subst h1
+              subst h2
+              rw [hdbase, hbase]
+              rw [if_neg (by simp; omega)]
+              rw [idrun_copy_eq_lzCopy, List.foldl_cons]
+              exact hok'
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Positional well-formedness implies plain range validity for every token. -/
+theorem tokensWF_rangesOk : ∀ (ts : List LZToken) (pos : Nat), tokensWF ts pos →
+    ∀ t ∈ ts, tokenRangesOk t := by
+  intro ts
+  induction ts with
+  | nil => intro pos _ t ht; simp at ht
+  | cons t0 ts ih =>
+    intro pos hwf t ht
+    have hsplit : tokenRangesOk t0 ∧ (∀ t' ∈ ts, tokenRangesOk t') := by
+      cases t0 with
+      | lit b => exact ⟨trivial, ih (pos + 1) hwf⟩
+      | ref len dist =>
+        obtain ⟨h3, h258, h1d, h32768, _, hrest⟩ := hwf
+        exact ⟨⟨h3, h258, h1d, h32768⟩, ih (pos + len) hrest⟩
+    rcases List.mem_cons.mp ht with rfl | hmem
+    · exact hsplit.1
+    · exact hsplit.2 t hmem
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `decodeHuffmanStream` (top-level) on a fixed-table stream, from `go`'s induction. -/
+theorem decodeHuffmanStream_fixed
+    (hL : ∃ l rr, fixedLitLenTable.root = HuffmanNode.branch l rr)
+    (hD : ∃ l rr, fixedDistTable.root = HuffmanNode.branch l rr)
+    (ts : List LZToken) (r : BitReader) (curOut : ByteArray) (rest : List Bool)
+    (hwf : tokensWF ts curOut.size)
+    (hbits : readerBits r = tokensBitsFixed ts ++ (symbolBits fixedLitLenTable 256 ++ rest))
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r', decodeHuffmanStream r fixedLitLenTable fixedDistTable hL hD curOut =
+        .ok (r', ts.foldl expandToken curOut) ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  unfold decodeHuffmanStream
+  exact decodeHuffmanStream_go_fixed hL hD ts r curOut rest hwf hbits hinv hcnt
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- L7 (fixed block): `decompress` of a flushed `emitFixedBlock` recovers exactly the
+    expansion of the emitted tokens. -/
+theorem decompress_fixedBlock (tokens : Array LZToken)
+    (hwf : tokensWF tokens.toList 0) :
+    decompress (flushBitWriter (emitFixedBlock tokens)) = .ok (expandTokens tokens) := by
+  have hok : ∀ t ∈ tokens.toList, tokenRangesOk t := tokensWF_rangesOk _ 0 hwf
+  obtain ⟨pad, hbits, hinv, hcnt⟩ := fixedBlock_readerBits tokens hok
+  unfold decompress
+  rw [decompress.go.eq_def]
+  -- BFINAL: 1 bit, value 1
+  have hlen1 : 1 ≤ (readerBits (mkBitReader (flushBitWriter (emitFixedBlock tokens)))).length := by
+    rw [hbits]; simp
+  obtain ⟨rB, v1, hok1, hv1, hwin1, hdrop1, hinv1, hcnt1, _⟩ :=
+    readBits_spec (mkBitReader (flushBitWriter (emitFixedBlock tokens))) 1 hinv hcnt
+      (by omega) hlen1
+  have hv1' : v1 = 1 := by
+    apply natBits_inj hv1 (by decide : (1:Nat) < 2 ^ 1)
+    rw [hwin1, hbits]
+    rfl
+  subst hv1'
+  have hdrop1' : readerBits rB = true :: false ::
+      (tokensBitsFixed tokens.toList ++ symbolBits fixedLitLenTable 256 ++
+        List.replicate pad false) := by
+    rw [hdrop1, hbits]
+    rfl
+  -- BTYPE: 2 bits, value 1
+  have hlen2 : 2 ≤ (readerBits rB).length := by
+    rw [hdrop1']; simp
+  obtain ⟨rT, v2, hok2, hv2, hwin2, hdrop2, hinv2, hcnt2, _⟩ :=
+    readBits_spec rB 2 hinv1 hcnt1 (by omega) hlen2
+  have hv2' : v2 = 1 := by
+    apply natBits_inj hv2 (by decide : (1:Nat) < 2 ^ 2)
+    rw [hwin2, hdrop1']
+    rfl
+  subst hv2'
+  have hdrop2' : readerBits rT = tokensBitsFixed tokens.toList ++
+      (symbolBits fixedLitLenTable 256 ++ List.replicate pad false) := by
+    rw [hdrop2, hdrop1']
+    simp [List.append_assoc]
+  -- the stream decode result, obtained while `rT` is still in scope
+  obtain ⟨r', hstream', hrest', hinv', hcnt', _⟩ :=
+    decodeHuffmanStream_fixed (buildHuffmanTable_isBranch fixedLitLenLengths 9)
+      (buildHuffmanTable_isBranch fixedDistLengths 5) tokens.toList rT ByteArray.empty
+      (List.replicate pad false) (by simpa using hwf) hdrop2' hinv2 hcnt2
+  -- reduce the outer match chain
+  split
+  · rename_i e heq
+    rw [heq] at hok1
+    exact absurd hok1 (by simp)
+  · rename_i rBfinal bfinal heq
+    rw [heq] at hok1
+    simp only [Except.ok.injEq, Prod.mk.injEq] at hok1
+    obtain ⟨hh1, hh2⟩ := hok1
+    subst hh1
+    subst hh2
+    split
+    · rename_i e heq2
+      rw [heq2] at hok2
+      exact absurd hok2 (by simp)
+    · rename_i rBtype btype heq2
+      rw [heq2] at hok2
+      simp only [Except.ok.injEq, Prod.mk.injEq] at hok2
+      obtain ⟨hh1, hh2⟩ := hok2
+      subst hh1
+      subst hh2
+      -- `match btype` with btype := 1: four literal branches, three impossible
+      split
+      · rename_i heqb hx
+        exact absurd heqb (by decide)
+      · -- btype = 1: the fixed-Huffman block branch
+        split
+        · rename_i e heq3
+          have hcontra : (Except.ok (r', tokens.toList.foldl expandToken ByteArray.empty) :
+              Except ZlibError (BitReader × ByteArray)) = .error e := by
+            rw [← hstream']
+            exact heq3
+          exact absurd hcontra (by simp)
+        · rename_i nextR nextOut heq3
+          have hcomb : (Except.ok (r', tokens.toList.foldl expandToken ByteArray.empty) :
+              Except ZlibError (BitReader × ByteArray)) = .ok (nextR, nextOut) := by
+            rw [← hstream']
+            exact heq3
+          simp only [Except.ok.injEq, Prod.mk.injEq] at hcomb
+          obtain ⟨hh1, hh2⟩ := hcomb
+          rw [if_pos (by decide : ((1:Nat) == 1) = true)]
+          rw [← hh2]
+          unfold expandTokens
+          rw [Array.foldl_toList]
+      · rename_i heqb hx
+        exact absurd heqb (by decide)
+      · rename_i h0 h1 h2
+        exact (h1 heq2 rfl HEq.rfl).elim
+
+/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
+/-- **Fixed-Huffman DEFLATE roundtrip soundness, universal over the input** (PA16 L7,
+    fixed-block encoder only — NOT a statement about `compress`'s dynamic branch): for
+    EVERY `ByteArray`, inflating the flushed fixed-Huffman block emitted for its greedy
+    LZ77 tokenization returns exactly the original bytes. -/
+theorem emitFixedBlock_roundtrip_soundness (data : ByteArray) :
+    decompress (flushBitWriter (emitFixedBlock (tokenize data))) = .ok data := by
+  rw [decompress_fixedBlock (tokenize data) (tokenize_wf data),
+    lz77_roundtrip_soundness data]
+
+/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
+/-- `compress` roundtrips whenever its exact bit-cost comparison selects the fixed-Huffman
+    block. The dynamic branch is the remaining open obligation for the universal
+    `deflate_roundtrip_soundness`. -/
+theorem compress_roundtrip_of_fixed_choice (data : ByteArray)
+    (h : ¬ dynPlanBitCost (buildDynPlan (tokenize data)) (tokenize data) <
+        fixedBitCost (tokenize data)) :
+    decompress (compress data) = .ok data := by
+  rw [compress_fixed_branch data h]
+  exact emitFixedBlock_roundtrip_soundness data
+
 end Stdlib.Zlib
