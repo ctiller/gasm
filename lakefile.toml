@@ -36,7 +36,7 @@ defaultTargets = [
   "spike3_sort_lines_windows", "test_spike3_windows",
   "spike3_sort_lines_linux", "test_spike3_linux",
   "spike3_sort_lines_wasm", "test_spike3_wasm",
-  "test_smolalloc", "test_zlib", "test_png", "gzip_fuzzer", "perf_fuzzer", "encoding_fuzzer", "test_roundtrip",
+  "test_smolalloc", "test_zlib", "test_png", "test_http11", "gzip_fuzzer", "perf_fuzzer", "encoding_fuzzer", "test_roundtrip",
   "check_x86_obligations",
   "spike4_http_windows", "spike4_http_linux", "spike4_http_wasm", "test_spike4",
   "spike5_gzip_windows", "spike5_gunzip_windows",
@@ -220,6 +220,10 @@ root = "Stdlib.Zlib.Test"
 [[lean_exe]]
 name = "test_png"
 root = "Stdlib.Png.Test"
+
+[[lean_exe]]
+name = "test_http11"
+root = "Stdlib.Http11.Test"
 
 [[lean_exe]]
 name = "gzip_fuzzer"

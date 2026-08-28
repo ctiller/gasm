@@ -38,6 +38,12 @@ import Stdlib.Png.Filter
 import Stdlib.Png.Streaming
 import Stdlib.Png.Equivalence
 
+import Stdlib.Http11.Basic
+import Stdlib.Http11.Types
+import Stdlib.Http11.Writer
+import Stdlib.Http11.Parser
+import Stdlib.Http11.Roundtrip
+
 import Stdlib.Zlib
 import Stdlib.Gzip
 import Stdlib.Png
