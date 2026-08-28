@@ -636,4 +636,168 @@ theorem decodeDynamicTables_go_spec (clA clB : Array Nat)
           subst hh2
           exact hgo
 
+/-
+## `decodeDynamicTables` reconstructs the plan's tables from the emitted header bits.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- `getD` through a truncating `take`. -/
+theorem getD_take_of_lt (l : List Nat) (n i : Nat) (h : i < n) :
+    (l.take n).getD i 0 = l.getD i 0 := by
+  rw [List.getD_eq_getElem?_getD, List.getD_eq_getElem?_getD,
+    List.getElem?_take_of_lt h]
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- **The dynamic-table header roundtrip**: fed exactly the bits `emitDynamicBlock` wrote
+    for the counts, the permuted clen lengths, and the RLE stream, `decodeDynamicTables`
+    succeeds with tables built from `get!`-pointwise copies of the plan's length arrays,
+    consuming exactly those bits. -/
+theorem decodeDynamicTables_spec (plan : DynPlan) (r : BitReader) (rest : List Bool)
+    (hclsize : plan.clenLengths.size = 19)
+    (hkc : kraftOk plan.clenLengths 7)
+    (hcl7 : ∀ i : Nat, plan.clenLengths[i]! ≤ 7)
+    (hhlit : 257 ≤ plan.hlit ∧ plan.hlit ≤ 286)
+    (hhdist : 1 ≤ plan.hdist ∧ plan.hdist ≤ 30)
+    (hhclen : plan.hclen = hclenF plan.clenLengths)
+    (hlitsize : plan.litLengths.size = 286)
+    (hdistsize : plan.distLengths.size = 30)
+    (hlitzero : ∀ i : Nat, plan.hlit ≤ i → plan.litLengths[i]! = 0)
+    (hdistzero : ∀ i : Nat, plan.hdist ≤ i → plan.distLengths[i]! = 0)
+    (hrleok : rleOk plan.rleTokens []
+      (plan.litLengths.toList.take plan.hlit ++ plan.distLengths.toList.take plan.hdist))
+    (hrlesyms : ∀ t ∈ plan.rleTokens,
+      0 < plan.clenLengths[t.1]! ∧ plan.clenLengths[t.1]! ≤ 7)
+    (hbits : readerBits r = natBits 5 (plan.hlit - 257) ++ (natBits 5 (plan.hdist - 1) ++
+      (natBits 4 (plan.hclen - 4) ++ (clenHeaderBits plan ++
+      (rleBitsF plan.clenLengths plan.rleTokens ++ rest)))))
+    (hinv : r.bitBuf.toNat < 2 ^ r.bitCount) (hcnt : r.bitCount < 8) :
+    ∃ r' litB distB,
+      decodeDynamicTables r = .ok (r', buildHuffmanTable litB 15, buildHuffmanTable distB 15) ∧
+      (∀ i : Nat, litB[i]! = plan.litLengths[i]!) ∧
+      (∀ i : Nat, distB[i]! = plan.distLengths[i]!) ∧
+      readerBits r' = rest ∧
+      r'.bitBuf.toNat < 2 ^ r'.bitCount ∧ r'.bitCount < 8 ∧ r'.bytes = r.bytes := by
+  have hhc := hclenF_bounds plan.clenLengths
+  rw [← hhclen] at hhc
+  -- the three count reads
+  obtain ⟨r1, hok1, hrest1, hinv1, hcnt1, hbytes1⟩ :=
+    readBits_exact r 5 (plan.hlit - 257) _ (by show _ < 2 ^ 5; omega) (by omega)
+      hbits hinv hcnt
+  obtain ⟨r2, hok2, hrest2, hinv2, hcnt2, hbytes2⟩ :=
+    readBits_exact r1 5 (plan.hdist - 1) _ (by show _ < 2 ^ 5; omega) (by omega)
+      hrest1 hinv1 hcnt1
+  obtain ⟨r3, hok3, hrest3, hinv3, hcnt3, hbytes3⟩ :=
+    readBits_exact r2 4 (plan.hclen - 4) _ (by show _ < 2 ^ 4; omega) (by omega)
+      hrest2 hinv2 hcnt2
+  -- the permuted clen length reads
+  have hclbits : readerBits r3 = (List.range' 0 plan.hclen).flatMap
+      (fun i => natBits 3 plan.clenLengths[clenOrder[i]!]!) ++
+      (rleBitsF plan.clenLengths plan.rleTokens ++ rest) := by
+    rw [hrest3]
+    unfold clenHeaderBits
+    rw [List.range_eq_range']
+  have hcl8 : ∀ i, i < 19 → plan.clenLengths[clenOrder[i]!]! < 8 := by
+    intro i _
+    have := hcl7 clenOrder[i]!
+    omega
+  obtain ⟨r4, clenArr, hok4, hrest4, hinv4, hcnt4, hbytes4, hclsz, hclspec⟩ :=
+    decodeClenArray_spec plan.clenLengths hcl8 plan.hclen (by omega) plan.hclen 0 r3
+      (Array.replicate 19 0) _ (by omega) (by rw [Array.size_replicate])
+      (by
+        intro j hj
+        refine ⟨fun ⟨i, hi, _⟩ => absurd hi (by omega), fun _ => ?_⟩
+        exact getElem!_replicate 19 0 j hj)
+      hclbits hinv3 hcnt3
+  -- the reconstructed clen array reads back the plan's, at every index
+  have hptC : ∀ i : Nat, plan.clenLengths[i]! = clenArr[i]! := by
+    intro j
+    by_cases hj : j < 19
+    · obtain ⟨i, hi19, hie⟩ := clenOrder_surj j hj
+      rcases Nat.lt_or_ge i plan.hclen with hilt | hige
+      · exact ((hclspec j hj).1 ⟨i, hilt, hie⟩).symm
+      · have hzero : plan.clenLengths[j]! = 0 := by
+          rw [← hie]
+          exact hclenF_covers plan.clenLengths i hi19 (by omega)
+        have hnone : ¬ ∃ i', i' < plan.hclen ∧ clenOrder[i']! = j := by
+          intro ⟨i', hi', hie'⟩
+          have : i' = i := clenOrder_inj i' (by omega) i hi19 (by rw [hie', hie])
+          omega
+        rw [hzero, (hclspec j hj).2 hnone]
+    · rw [getElem!_oob plan.clenLengths j (by omega),
+        getElem!_oob clenArr j (by rw [hclsz]; omega)]
+  -- the code-length parsing loop
+  have hfull_len : (plan.litLengths.toList.take plan.hlit ++
+      plan.distLengths.toList.take plan.hdist).length = plan.hlit + plan.hdist := by
+    rw [List.length_append, List.length_take, List.length_take,
+      Array.length_toList, Array.length_toList, hlitsize, hdistsize]
+    omega
+  obtain ⟨r5, lenArr, hok5, hltl, hrest5, hinv5, hcnt5, hbytes5⟩ :=
+    decodeDynamicTables_go_spec plan.clenLengths clenArr hptC hkc
+      (plan.hlit + plan.hdist) _ hfull_len plan.rleTokens [] r4 (Array.mkEmpty _) rest
+      hrleok rfl hrlesyms hrest4 hinv4 hcnt4
+  -- name the two trimmed arrays the decoder builds
+  refine ⟨r5, lenArr.extract 0 plan.hlit, lenArr.extract plan.hlit (plan.hlit + plan.hdist),
+    ?_, ?_, ?_, hrest5, hinv5, hcnt5,
+    by rw [hbytes5, hbytes4, hbytes3, hbytes2, hbytes1]⟩
+  · -- assemble the do-chain
+    unfold decodeDynamicTables
+    rw [hok1]
+    simp only [Bind.bind, Except.bind]
+    rw [hok2]
+    simp only [Bind.bind, Except.bind]
+    rw [hok3]
+    simp only [Bind.bind, Except.bind]
+    rw [show plan.hlit - 257 + 257 = plan.hlit from by omega,
+      show plan.hdist - 1 + 1 = plan.hdist from by omega,
+      show plan.hclen - 4 + 4 = plan.hclen from by omega]
+    rw [hok4]
+    simp only [Bind.bind, Except.bind]
+    rw [hok5]
+  · -- literal lengths read back pointwise
+    intro i
+    have hA_len : (plan.litLengths.toList.take plan.hlit).length = plan.hlit := by
+      rw [List.length_take, Array.length_toList, hlitsize]
+      omega
+    have hextl : (lenArr.extract 0 plan.hlit).toList =
+        plan.litLengths.toList.take plan.hlit := by
+      rw [Array.toList_extract, hltl]
+      show ((plan.litLengths.toList.take plan.hlit ++
+        plan.distLengths.toList.take plan.hdist).drop 0).take (plan.hlit - 0) = _
+      rw [List.drop_zero, Nat.sub_zero,
+        List.take_append_of_le_length (by simp [hA_len]),
+        List.take_of_length_le (by simp [hA_len])]
+    rw [getElem!_eq_toList_getD, hextl]
+    by_cases hi : i < plan.hlit
+    · rw [getD_take_of_lt _ _ _ hi, ← getElem!_eq_toList_getD]
+    · rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none (by rw [hA_len]; omega)]
+      show (0 : Nat) = plan.litLengths[i]!
+      rw [hlitzero i (by omega)]
+  · -- distance lengths read back pointwise
+    intro i
+    have hA_len : (plan.litLengths.toList.take plan.hlit).length = plan.hlit := by
+      rw [List.length_take, Array.length_toList, hlitsize]
+      omega
+    have hB_len : (plan.distLengths.toList.take plan.hdist).length = plan.hdist := by
+      rw [List.length_take, Array.length_toList, hdistsize]
+      omega
+    have hextl : (lenArr.extract plan.hlit (plan.hlit + plan.hdist)).toList =
+        plan.distLengths.toList.take plan.hdist := by
+      rw [Array.toList_extract, hltl]
+      show ((plan.litLengths.toList.take plan.hlit ++
+        plan.distLengths.toList.take plan.hdist).drop plan.hlit).take
+          (plan.hlit + plan.hdist - plan.hlit) = _
+      rw [show plan.hlit + plan.hdist - plan.hlit = plan.hdist from by omega,
+        show (plan.litLengths.toList.take plan.hlit ++
+          plan.distLengths.toList.take plan.hdist).drop plan.hlit =
+          (plan.litLengths.toList.take plan.hlit ++
+            plan.distLengths.toList.take plan.hdist).drop
+              (plan.litLengths.toList.take plan.hlit).length from by rw [hA_len],
+        List.drop_left, List.take_of_length_le (by simp [hB_len])]
+    rw [getElem!_eq_toList_getD, hextl]
+    by_cases hi : i < plan.hdist
+    · rw [getD_take_of_lt _ _ _ hi, ← getElem!_eq_toList_getD]
+    · rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none (by rw [hB_len]; omega)]
+      show (0 : Nat) = plan.distLengths[i]!
+      rw [hdistzero i (by omega)]
+
 end Stdlib.Zlib
