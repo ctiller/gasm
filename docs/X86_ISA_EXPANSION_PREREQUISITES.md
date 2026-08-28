@@ -482,6 +482,18 @@ doc-facade linter (a display-quoted theorem, not a MUST-claim), but an expansion
 the target spec as ground truth would be misled about the memory model's actual state. Fix is a
 one-paragraph honesty edit — do it before onboarding an expansion team onto that document.
 
+**RESOLVED 2026-08-28**: the theorem block is removed; `docs/TARGETS/X86_64.md` §3 now carries
+an explicit `**Status**:` marker separating hardware ground truth (real) from model claims
+(none). The memory-ordering design itself is `docs/X86_MEMORY_MODEL.md`, implemented via
+Spike 8 (`docs/SPIKES/SPIKE8_MULTITHREADING.md`, MT1–MT6). It also fixes the expansion
+dependency: any wave containing a `LOCK`-prefixed RMW, `CMPXCHG`/`XADD`, a memory-operand
+`XCHG`, or a fence acquires that model and MT1's pattern-setting landing as prerequisites
+(the model's §6; `MODEL_DEBT.md` §B2). The linter blind spot this finding exposed — a
+fenced ` ```lean ` code block declaring a theorem whose name exists nowhere in the tree is
+structurally invisible to `MECHANISM_ABSENT`'s same-line prose shape, and a fabricated
+theorem is *more* misleading than fabricated prose — is a Law 13 missing-gate finding, filed
+with a measured precision analysis as `docs/tasks/TC22-doc-lean-fence-facade.md`.
+
 ---
 
 ## 8. Summary table

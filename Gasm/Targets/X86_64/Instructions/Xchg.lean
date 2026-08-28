@@ -25,7 +25,16 @@ open Gasm.Core
 open Gasm.Targets.X86_64
 
 /- REF: intel-sdm#vol=2;instr=XCHG;part=description -/
-/-- XCHG r64, r64: Swaps the contents of two 64-bit general-purpose registers without affecting condition flags. -/
+/-- XCHG r64, r64: Swaps the contents of two 64-bit general-purpose registers without affecting condition flags.
+
+NOTE for future authors (docs/X86_MEMORY_MODEL.md §5): this reg-reg form touches no memory and
+carries no atomicity semantics — `memAccesses` is honestly `[]`. XCHG with a *memory* operand is
+architecturally LOCK'd on x86 (implicitly atomic, with or without the prefix; intel-sdm XCHG
+description). The sanctioned landing for the memory form (`XchgR64Mem64`) is MT1
+(`docs/tasks/MT1-atomic-primitives.md`), blocked on docs/X86_MEMORY_MODEL.md and declaring the
+atomicity as a single `.rmw` access descriptor citing that model's ordering rules (its §2.3) —
+adding the form outside that path would create an unannotated atomic, the exact retrofit debt
+docs/X86_MEMORY_MODEL.md §6 exists to prevent. -/
 structure XchgR64R64 where
   dst : Reg64
   src : Reg64
