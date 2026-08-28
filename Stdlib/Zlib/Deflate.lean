@@ -940,34 +940,53 @@ def encodeDistance (dist : Nat) : (Nat × Nat × Nat) :=
   else (29, 13, dist - 24577)
 
 /- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
-/-- LZ77 match search finding longest matching substring in sliding lookback window. -/
-def findLongestMatch (data : ByteArray) (pos : Nat) (maxLookback : Nat := 32768) (maxTries : Nat := 128) : (Nat × Nat) :=
-  Id.run do
-    let total := data.size
-    if pos + 3 > total then return (0, 0)
-    let startLookback := if pos > maxLookback then pos - maxLookback else 0
-    let mut bestLen := 0
-    let mut bestDist := 0
-    let maxMatchLen := Nat.min 258 (total - pos)
+/-- Inner match-extension step of the LZ77 search: the longest common run starting at
+    `candidate` and `pos`, capped at `maxMatchLen`, counting up from `len`. Structural
+    recursion on `fuel` -- never `partial`/`while` -- so equation lemmas exist for proofs,
+    the same rule `tokenizeAux` below already follows. Every step advances `len` by one and
+    stops at `maxMatchLen`, so `fuel = maxMatchLen - len` always suffices. -/
+def matchExtend (data : ByteArray) (pos candidate maxMatchLen : Nat) : Nat → Nat → Nat
+  | 0, len => len
+  | fuel + 1, len =>
+    if len < maxMatchLen && data.get! (candidate + len) == data.get! (pos + len) then
+      matchExtend data pos candidate maxMatchLen fuel (len + 1)
+    else len
 
-    let mut candidate := pos
-    let mut tries := 0
-    while candidate > startLookback && tries < maxTries do
-      candidate := candidate - 1
-      tries := tries + 1
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Outer candidate scan of the LZ77 search: walks `candidate` backwards from `pos` while it
+    stays above `startLookback`, keeping the longest run seen so far, and stopping early on a
+    maximal 258-byte match. Structural recursion on `fuel`, which carries the original
+    `tries < maxTries` budget: the loop body ran at most `maxTries` times, so `fuel =
+    maxTries` reproduces it exactly. -/
+def matchScan (data : ByteArray) (pos startLookback maxMatchLen : Nat) :
+    Nat → Nat → Nat → Nat → (Nat × Nat)
+  | 0, _candidate, bestLen, bestDist => (bestLen, bestDist)
+  | fuel + 1, candidate, bestLen, bestDist =>
+    if candidate > startLookback then
+      let candidate := candidate - 1
       if data.get! candidate == data.get! pos &&
          data.get! (candidate + 1) == data.get! (pos + 1) &&
          data.get! (candidate + 2) == data.get! (pos + 2) then
-        let mut len := 3
-        while len < maxMatchLen && data.get! (candidate + len) == data.get! (pos + len) do
-          len := len + 1
+        let len := matchExtend data pos candidate maxMatchLen (maxMatchLen - 3) 3
         if len > bestLen then
-          bestLen := len
-          bestDist := pos - candidate
-          if bestLen == 258 then
-            return (bestLen, bestDist)
+          if len == 258 then (len, pos - candidate)
+          else matchScan data pos startLookback maxMatchLen fuel candidate len (pos - candidate)
+        else matchScan data pos startLookback maxMatchLen fuel candidate bestLen bestDist
+      else matchScan data pos startLookback maxMatchLen fuel candidate bestLen bestDist
+    else (bestLen, bestDist)
 
-    if bestLen >= 3 then (bestLen, bestDist) else (0, 0)
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- LZ77 match search finding longest matching substring in sliding lookback window.
+    Bit-identical to the `while`-loop form this replaces; `matchScan`/`matchExtend` document
+    how the two loop budgets map onto structural fuel. -/
+def findLongestMatch (data : ByteArray) (pos : Nat) (maxLookback : Nat := 32768) (maxTries : Nat := 128) : (Nat × Nat) :=
+  let total := data.size
+  if pos + 3 > total then (0, 0)
+  else
+    let startLookback := if pos > maxLookback then pos - maxLookback else 0
+    let maxMatchLen := Nat.min 258 (total - pos)
+    let best := matchScan data pos startLookback maxMatchLen maxTries pos 0 0
+    if best.1 >= 3 then best else (0, 0)
 
 /- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
 /-- An LZ77 token: either a literal byte or a (length, distance) back-reference. -/
