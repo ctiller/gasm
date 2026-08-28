@@ -103,28 +103,22 @@ theorem step_mov_reg64_mem64_disp (dstReg basePtr : Reg64) (disp : UInt8) (s : X
             (if disp != 0 || (reg64Code basePtr).1 == 5 then 1 else 0)) } := rfl
 
 /- REF: docs/tasks/PA1-crc32-pathfinder.md -/
+-- MH1 (docs/MEMORY_HOOK.md): the raw `memory : Address -> Byte` field is sealed behind
+-- X86_64Memory; `s.memory a` no longer type-checks. `step_mov_r32_rsp`/`step_mov_rsp64` are
+-- restated against the width-indexed hook API the corresponding `step` definitions
+-- (`Gasm/Targets/X86_64/Instructions/Mov.lean`'s `MovReg32RspDisp32`/`MovRspDispImm64`) were
+-- themselves migrated onto, so both remain `rfl` (MovRspDispImm64's single `write64` call of the
+-- pre-sign-extended value is byte-identical to the old 8-byte inline ladder this theorem used to
+-- assert -- see that instance's own comment).
 theorem step_mov_r32_rsp (dstReg : Reg32) (disp : UInt8) (s : X86_64MachineState) :
     X86_64Instruction.step (mov_r32_rsp dstReg disp) s =
-      { s.setGpr32 dstReg
-          ((s.memory (s.rsp + signExtend8To64 disp)).toUInt32 |||
-           ((s.memory (s.rsp + signExtend8To64 disp + 1)).toUInt32 <<< 8) |||
-           ((s.memory (s.rsp + signExtend8To64 disp + 2)).toUInt32 <<< 16) |||
-           ((s.memory (s.rsp + signExtend8To64 disp + 3)).toUInt32 <<< 24)) with
+      { s.setGpr32 dstReg (s.read32 (s.rsp + signExtend8To64 disp)).toUInt32 with
         rip := s.rip + (4 + (if (reg32Code dstReg).2 then 1 else 0)) } := rfl
 
 /- REF: docs/tasks/PA1-crc32-pathfinder.md -/
 theorem step_mov_rsp64 (disp : UInt8) (imm : UInt32) (s : X86_64MachineState) :
     X86_64Instruction.step (mov_rsp64 disp imm) s =
-      { s with
-        memory := fun a =>
-          let base := s.rsp + signExtend8To64 disp
-          let extByte : UInt8 := if (imm &&& 0x80000000) != 0 then 0xFF else 0x00
-          if a == base then imm.toUInt8
-          else if a == base + 1 then (imm >>> 8).toUInt8
-          else if a == base + 2 then (imm >>> 16).toUInt8
-          else if a == base + 3 then (imm >>> 24).toUInt8
-          else if a >= base + 4 && a < base + 8 then extByte
-          else s.memory a,
+      { s.write64 (s.rsp + signExtend8To64 disp) (signExtendUInt32To64 imm) with
         rip := s.rip + (if disp == 0 then 8 else 9) } := rfl
 
 /- REF: docs/tasks/PA1-crc32-pathfinder.md -/
