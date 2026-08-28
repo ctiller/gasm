@@ -39,7 +39,6 @@ instance : X86_64Instruction XorR32R32 where
     let rexNeeded := dstExt || srcExt
     let rexPrefix := if rexNeeded then #[makeRex false srcExt false dstExt] else #[]
     ByteArray.mk rexPrefix ++ ByteArray.mk #[0x31, makeModRM 3 srcCode dstCode]
-
   step i s :=
     let dVal := (s.gprs (reg32To64 i.dst)).toUInt32
     let sVal := (s.gprs (reg32To64 i.src)).toUInt32
@@ -47,7 +46,6 @@ instance : X86_64Instruction XorR32R32 where
     let s' := (s.setGpr32 i.dst res).setFlagsLogic 32 res.toUInt64
     let len := if (reg32Code i.dst).2 || (reg32Code i.src).2 then 3 else 2
     { s' with rip := s.rip + len }
-
   toUops i :=
     if i.dst == i.src then
       -- Zeroing idiom: eliminated in the Rename stage with 0 execution latency and 0 execution port allocation
@@ -64,6 +62,7 @@ instance : X86_64Instruction XorR32R32 where
   roundtripCases :=
     (allReg32List.map (XorR32R32.mk · .eax)) ++ (allReg32List.map (XorR32R32.mk .eax ·)) ++
     (extendedReg32Pairs.map fun p => XorR32R32.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- XOR reg32, reg32 helper. -/

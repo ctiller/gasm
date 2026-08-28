@@ -36,11 +36,9 @@ structure SyscallOp where
 /- REF: intel-sdm#vol=2;instr=SYSCALL;part=operation -/
 instance : X86_64Instruction SyscallOp where
   encode _ := ByteArray.mk #[0x0F, 0x05]
-
   step _ s :=
     let nextRip := s.rip + 2
     { (s.setGpr64 .rcx nextRip).setGpr64 .r11 s.flags with rip := linuxSyscallEntry }
-
   toUops _ := [
     { mnemonic := "SYSCALL.trap", uopClass := .branch, eligiblePorts := [.p0, .p6], latencyCycles := 20, reciprocalThroughput := 20.0 }
   ]
@@ -51,6 +49,7 @@ instance : X86_64Instruction SyscallOp where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [SyscallOp.mk]
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- SYSCALL helper. -/

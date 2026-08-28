@@ -37,7 +37,6 @@ instance : X86_64Instruction DivR64 where
     let rex := makeRex true false false ext
     let modrm := makeModRM 3 6 code
     ByteArray.mk #[rex, 0xF7, modrm]
-
   step i s :=
     let divisorVal := s.gprs i.divisor
     if divisorVal == 0 then
@@ -55,7 +54,6 @@ instance : X86_64Instruction DivR64 where
         let s' := s.setGpr64 .rax (UInt64.ofNat quotNat)
         let s'' := s'.setGpr64 .rdx (UInt64.ofNat remNat)
         { s'' with rip := s.rip + 3 }
-
   toUops _ := [
     { mnemonic := "DIV.prep", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 },
     { mnemonic := "DIV.intDiv", uopClass := .intDiv, eligiblePorts := [.p0], latencyCycles := 14, reciprocalThroughput := 10.0 },
@@ -106,6 +104,7 @@ instance : X86_64Instruction DivR64 where
         states := states ++ [s]
     (states, rng)
   roundtripCases := allReg64List.map DivR64.mk
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- DIV r64 helper. -/

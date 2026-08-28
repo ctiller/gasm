@@ -37,11 +37,9 @@ instance : X86_64Instruction CmoveR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true dstExt false srcExt, 0x0F, 0x44, makeModRM 3 dstCode srcCode]
-
   step i s :=
     let s' := if s.zf then s.setGpr64 i.dst (s.gprs i.src) else s
     { s' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "CMOVE.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"cmove {i.dst}, {i.src}"
   toLean i := s!"cmove_r64 .{i.dst} .{i.src}"
@@ -52,6 +50,7 @@ instance : X86_64Instruction CmoveR64R64 where
   roundtripCases :=
     (allReg64List.map (CmoveR64R64.mk · .rax)) ++ (allReg64List.map (CmoveR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => CmoveR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=CMOVcc;part=description -/
 /-- CMOVNE / CMOVNZ r64, r64: Conditional move if not zero / not equal (ZF = 0). -/
@@ -66,11 +65,9 @@ instance : X86_64Instruction CmovneR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true dstExt false srcExt, 0x0F, 0x45, makeModRM 3 dstCode srcCode]
-
   step i s :=
     let s' := if !s.zf then s.setGpr64 i.dst (s.gprs i.src) else s
     { s' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "CMOVNE.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"cmovne {i.dst}, {i.src}"
   toLean i := s!"cmovne_r64 .{i.dst} .{i.src}"
@@ -81,6 +78,7 @@ instance : X86_64Instruction CmovneR64R64 where
   roundtripCases :=
     (allReg64List.map (CmovneR64R64.mk · .rax)) ++ (allReg64List.map (CmovneR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => CmovneR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=CMOVcc;part=description -/
 /-- CMOVL / CMOVNGE r64, r64: Conditional move if less (SF != OF). -/
@@ -95,11 +93,9 @@ instance : X86_64Instruction CmovlR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true dstExt false srcExt, 0x0F, 0x4C, makeModRM 3 dstCode srcCode]
-
   step i s :=
     let s' := if s.sf != s.of_ then s.setGpr64 i.dst (s.gprs i.src) else s
     { s' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "CMOVL.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"cmovl {i.dst}, {i.src}"
   toLean i := s!"cmovl_r64 .{i.dst} .{i.src}"
@@ -110,6 +106,7 @@ instance : X86_64Instruction CmovlR64R64 where
   roundtripCases :=
     (allReg64List.map (CmovlR64R64.mk · .rax)) ++ (allReg64List.map (CmovlR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => CmovlR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=CMOVcc;part=description -/
 /-- CMOVLE / CMOVNG r64, r64: Conditional move if less or equal (ZF = 1 or SF != OF). -/
@@ -124,11 +121,9 @@ instance : X86_64Instruction CmovleR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true dstExt false srcExt, 0x0F, 0x4E, makeModRM 3 dstCode srcCode]
-
   step i s :=
     let s' := if s.zf || s.sf != s.of_ then s.setGpr64 i.dst (s.gprs i.src) else s
     { s' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "CMOVLE.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"cmovle {i.dst}, {i.src}"
   toLean i := s!"cmovle_r64 .{i.dst} .{i.src}"
@@ -139,6 +134,7 @@ instance : X86_64Instruction CmovleR64R64 where
   roundtripCases :=
     (allReg64List.map (CmovleR64R64.mk · .rax)) ++ (allReg64List.map (CmovleR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => CmovleR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=CMOVcc;part=description -/
 /-- CMOVG / CMOVNLE r64, r64: Conditional move if greater (ZF = 0 and SF = OF). -/
@@ -153,11 +149,9 @@ instance : X86_64Instruction CmovgR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true dstExt false srcExt, 0x0F, 0x4F, makeModRM 3 dstCode srcCode]
-
   step i s :=
     let s' := if !s.zf && s.sf == s.of_ then s.setGpr64 i.dst (s.gprs i.src) else s
     { s' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "CMOVG.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"cmovg {i.dst}, {i.src}"
   toLean i := s!"cmovg_r64 .{i.dst} .{i.src}"
@@ -168,6 +162,7 @@ instance : X86_64Instruction CmovgR64R64 where
   roundtripCases :=
     (allReg64List.map (CmovgR64R64.mk · .rax)) ++ (allReg64List.map (CmovgR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => CmovgR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=CMOVcc;part=description -/
 /-- CMOVGE / CMOVNL r64, r64: Conditional move if greater or equal (SF = OF). -/
@@ -182,11 +177,9 @@ instance : X86_64Instruction CmovgeR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true dstExt false srcExt, 0x0F, 0x4D, makeModRM 3 dstCode srcCode]
-
   step i s :=
     let s' := if s.sf == s.of_ then s.setGpr64 i.dst (s.gprs i.src) else s
     { s' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "CMOVGE.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"cmovge {i.dst}, {i.src}"
   toLean i := s!"cmovge_r64 .{i.dst} .{i.src}"
@@ -197,6 +190,7 @@ instance : X86_64Instruction CmovgeR64R64 where
   roundtripCases :=
     (allReg64List.map (CmovgeR64R64.mk · .rax)) ++ (allReg64List.map (CmovgeR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => CmovgeR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=CMOVcc;part=description -/
 /-- CMOVB / CMOVC r64, r64: Conditional move if below / carry (CF = 1). -/
@@ -211,11 +205,9 @@ instance : X86_64Instruction CmovbR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true dstExt false srcExt, 0x0F, 0x42, makeModRM 3 dstCode srcCode]
-
   step i s :=
     let s' := if s.cf then s.setGpr64 i.dst (s.gprs i.src) else s
     { s' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "CMOVB.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"cmovb {i.dst}, {i.src}"
   toLean i := s!"cmovb_r64 .{i.dst} .{i.src}"
@@ -226,6 +218,7 @@ instance : X86_64Instruction CmovbR64R64 where
   roundtripCases :=
     (allReg64List.map (CmovbR64R64.mk · .rax)) ++ (allReg64List.map (CmovbR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => CmovbR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=CMOVcc;part=description -/
 /-- CMOVAE / CMOVNC r64, r64: Conditional move if above or equal / not carry (CF = 0). -/
@@ -240,11 +233,9 @@ instance : X86_64Instruction CmovaeR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true dstExt false srcExt, 0x0F, 0x43, makeModRM 3 dstCode srcCode]
-
   step i s :=
     let s' := if !s.cf then s.setGpr64 i.dst (s.gprs i.src) else s
     { s' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "CMOVAE.alu", uopClass := .intALU, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }]
   toNASM i := s!"cmovae {i.dst}, {i.src}"
   toLean i := s!"cmovae_r64 .{i.dst} .{i.src}"
@@ -255,6 +246,7 @@ instance : X86_64Instruction CmovaeR64R64 where
   roundtripCases :=
     (allReg64List.map (CmovaeR64R64.mk · .rax)) ++ (allReg64List.map (CmovaeR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => CmovaeR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- CMOVE r64, r64 helper. -/

@@ -44,6 +44,7 @@ instance : X86_64Instruction JmpRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JmpRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=JMP;part=description -/
 /-- JMP rel32: Unconditional direct relative near jump. -/
@@ -65,6 +66,7 @@ instance : X86_64Instruction JmpRel32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JmpRel32.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JE / JZ rel8: Jump short if equal / zero (ZF = 1). -/
@@ -87,6 +89,7 @@ instance : X86_64Instruction JeRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JeRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JE / JZ rel32: Jump near if equal / zero (ZF = 1). -/
@@ -109,6 +112,7 @@ instance : X86_64Instruction JeRel32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JeRel32.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JNE / JNZ rel8: Jump short if not equal / not zero (ZF = 0). -/
@@ -131,6 +135,7 @@ instance : X86_64Instruction JneRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JneRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JNE / JNZ rel32: Jump near if not equal / not zero (ZF = 0). -/
@@ -153,6 +158,7 @@ instance : X86_64Instruction JneRel32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JneRel32.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JL / JNGE rel8: Jump short if less / not greater or equal (SF != OF). -/
@@ -175,6 +181,7 @@ instance : X86_64Instruction JlRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JlRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JLE / JNG rel8: Jump short if less or equal / not greater (ZF = 1 or SF != OF). -/
@@ -197,6 +204,7 @@ instance : X86_64Instruction JleRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JleRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JG / JNLE rel8: Jump short if greater / not less or equal (ZF = 0 and SF = OF). -/
@@ -219,6 +227,7 @@ instance : X86_64Instruction JgRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JgRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JGE / JNL rel8: Jump short if greater or equal / not less (SF = OF). -/
@@ -241,6 +250,7 @@ instance : X86_64Instruction JgeRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JgeRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JGE / JNL rel32: Jump near if greater or equal (SF = OF). -/
@@ -263,6 +273,7 @@ instance : X86_64Instruction JgeRel32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JgeRel32.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JB / JNAE / JC rel8: Jump short if below / not above or equal / carry (CF = 1). -/
@@ -285,6 +296,7 @@ instance : X86_64Instruction JbRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JbRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JAE / JNB / JNC rel8: Jump short if above or equal / not below / not carry (CF = 0). -/
@@ -307,6 +319,7 @@ instance : X86_64Instruction JaeRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JaeRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JAE / JNB / JNC rel32: Jump near if above or equal / not below / not carry (CF = 0). -/
@@ -329,6 +342,7 @@ instance : X86_64Instruction JaeRel32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JaeRel32.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JA / JNBE rel8: Jump short if above / not below or equal (CF = 0 and ZF = 0). -/
@@ -351,6 +365,7 @@ instance : X86_64Instruction JaRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JaRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JBE / JNA rel8: Jump short if below or equal / not above (CF = 1 or ZF = 1). -/
@@ -373,6 +388,7 @@ instance : X86_64Instruction JbeRel8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedUInt8Cases.map JbeRel8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JLE / JNG rel32: Jump near if less or equal (ZF = 1 or SF != OF). -/
@@ -395,6 +411,7 @@ instance : X86_64Instruction JleRel32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JleRel32.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JB / JC rel32: Jump near if below / carry (CF = 1). -/
@@ -417,6 +434,7 @@ instance : X86_64Instruction JbRel32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JbRel32.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=Jcc;part=description -/
 /-- JA / JNBE rel32: Jump near if above (CF = 0 and ZF = 0). -/
@@ -439,6 +457,7 @@ instance : X86_64Instruction JaRel32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map JaRel32.mk
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- JMP rel8 helper. -/

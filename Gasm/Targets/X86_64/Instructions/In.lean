@@ -33,11 +33,9 @@ structure InAlImm8 where
 /- REF: intel-sdm#vol=2;instr=IN;part=operation -/
 instance : X86_64Instruction InAlImm8 where
   encode i := ByteArray.mk #[0xE4, i.port]
-
   step _ s :=
     -- Pure model step: advances RIP by 2 bytes (port I/O intercepted by platform device model)
     { s with rip := s.rip + 2 }
-
   toUops _ := [
     { mnemonic := "IN.port8", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 1, reciprocalThroughput := 0.5 }
   ]
@@ -48,6 +46,7 @@ instance : X86_64Instruction InAlImm8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [InAlImm8.mk 0x00, InAlImm8.mk 0x80, InAlImm8.mk 0xFF]
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=IN;part=description -/
 /-- IN AL, DX instruction: input byte from I/O port specified in DX into AL. -/
@@ -57,11 +56,9 @@ structure InAlDx where
 /- REF: intel-sdm#vol=2;instr=IN;part=operation -/
 instance : X86_64Instruction InAlDx where
   encode _ := ByteArray.mk #[0xEC]
-
   step _ s :=
     -- Pure model step: advances RIP by 1 byte (port I/O intercepted by platform device model)
     { s with rip := s.rip + 1 }
-
   toUops _ := [
     { mnemonic := "IN.portDx", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 1, reciprocalThroughput := 0.5 }
   ]
@@ -72,6 +69,7 @@ instance : X86_64Instruction InAlDx where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [InAlDx.mk]
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=IN;part=description -/
 /-- IN EAX, imm8 instruction: input doubleword from 8-bit immediate I/O port into EAX. -/
@@ -82,11 +80,9 @@ structure InEaxImm8 where
 /- REF: intel-sdm#vol=2;instr=IN;part=operation -/
 instance : X86_64Instruction InEaxImm8 where
   encode i := ByteArray.mk #[0xE5, i.port]
-
   step _ s :=
     -- Pure model step: advances RIP by 2 bytes
     { s with rip := s.rip + 2 }
-
   toUops _ := [
     { mnemonic := "IN.portImm32", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 1, reciprocalThroughput := 0.5 }
   ]
@@ -97,6 +93,7 @@ instance : X86_64Instruction InEaxImm8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [InEaxImm8.mk 0x00, InEaxImm8.mk 0x80, InEaxImm8.mk 0xFF]
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=IN;part=description -/
 /-- IN EAX, DX instruction: input doubleword from I/O port specified in DX into EAX. -/
@@ -106,11 +103,9 @@ structure InEaxDx where
 /- REF: intel-sdm#vol=2;instr=IN;part=operation -/
 instance : X86_64Instruction InEaxDx where
   encode _ := ByteArray.mk #[0xED]
-
   step _ s :=
     -- Pure model step: advances RIP by 1 byte
     { s with rip := s.rip + 1 }
-
   toUops _ := [
     { mnemonic := "IN.portDx32", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 1, reciprocalThroughput := 0.5 }
   ]
@@ -121,6 +116,7 @@ instance : X86_64Instruction InEaxDx where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [InEaxDx.mk]
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- IN AL, imm8 helper. -/

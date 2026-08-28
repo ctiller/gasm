@@ -37,7 +37,6 @@ instance : X86_64Instruction AddR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true srcExt false dstExt, 0x01, makeModRM 3 srcCode dstCode]
-
   step i s :=
     let dVal := s.gprs i.dst
     let sVal := s.gprs i.src
@@ -45,7 +44,6 @@ instance : X86_64Instruction AddR64R64 where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsAdd64 dVal sVal
     { s'' with rip := s.rip + 3 }
-
   toUops _ := [{ mnemonic := "ADD.alu", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"add {i.dst}, {i.src}"
   toLean i := s!"add_r64 .{i.dst} .{i.src}"
@@ -56,6 +54,7 @@ instance : X86_64Instruction AddR64R64 where
   roundtripCases :=
     (allReg64List.map (AddR64R64.mk · .rax)) ++ (allReg64List.map (AddR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => AddR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=ADD;part=description -/
 /-- ADD r64, imm8: Adds sign-extended 8-bit immediate to destination register and updates condition flags. -/
@@ -69,7 +68,6 @@ instance : X86_64Instruction AddR64Imm8 where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0x83, makeModRM 3 0 dstCode, i.imm]
-
   step i s :=
     let dVal := s.gprs i.dst
     let sVal := signExtend8To64 i.imm
@@ -77,7 +75,6 @@ instance : X86_64Instruction AddR64Imm8 where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsAdd64 dVal sVal
     { s'' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "ADD.alu", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"add {i.dst}, byte {i.imm.toNat}"
   toLean i := s!"add_r64_imm8 .{i.dst} {formatHex8 i.imm}"
@@ -88,6 +85,7 @@ instance : X86_64Instruction AddR64Imm8 where
   roundtripCases :=
     (allReg64ListNoRsp.map (AddR64Imm8.mk · 0x00)) ++ (curatedUInt8Cases.map (AddR64Imm8.mk .rax ·)) ++
     (curatedUInt8Cases.map (AddR64Imm8.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=ADD;part=description -/
 /-- ADD RSP, imm8 instruction: deallocates stack frame space. -/
@@ -99,7 +97,6 @@ structure AddRspImm8 where
 instance : X86_64Instruction AddRspImm8 where
   encode i :=
     ByteArray.mk #[0x48, 0x83, 0xC4, i.imm]
-
   step i s :=
     let dVal := s.gprs .rsp
     let sVal := signExtend8To64 i.imm
@@ -107,7 +104,6 @@ instance : X86_64Instruction AddRspImm8 where
     let s' := s.setGpr64 .rsp res
     let s'' := s'.setFlagsAdd64 dVal sVal
     { s'' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "ADD.rsp", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"add rsp, byte {i.imm.toNat}"
   toLean i := s!"add_rsp {formatHex8 i.imm}"
@@ -116,6 +112,7 @@ instance : X86_64Instruction AddRspImm8 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := generateStandardFuzzStatesForImm .rsp rng
   roundtripCases := curatedUInt8Cases.map AddRspImm8.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=ADD;part=description -/
 /-- ADD RSP, imm32 instruction: increments stack pointer with 32-bit immediate to deallocate large stack frame. -/
@@ -127,7 +124,6 @@ structure AddRspImm32 where
 instance : X86_64Instruction AddRspImm32 where
   encode i :=
     ByteArray.mk #[0x48, 0x81, 0xC4] ++ uint32ToLittleEndian i.imm
-
   step i s :=
     let dVal := s.gprs .rsp
     let sVal := i.imm.toUInt64
@@ -135,7 +131,6 @@ instance : X86_64Instruction AddRspImm32 where
     let s' := s.setGpr64 .rsp res
     let s'' := s'.setFlagsAdd64 dVal sVal
     { s'' with rip := s.rip + 7 }
-
   toUops _ := [{ mnemonic := "ADD.rsp32", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   -- The `dword` qualifier is load-bearing, not decorative: found while wiring
   -- `EncodingFuzzer.lean`'s registry-derived generator (P4(a),
@@ -153,6 +148,7 @@ instance : X86_64Instruction AddRspImm32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := generateStandardFuzzStatesForImm .rsp rng
   roundtripCases := curatedUInt32Cases.map AddRspImm32.mk
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=ADD;part=description -/
 /-- ADD r64, imm32: Adds sign-extended 32-bit immediate to destination register and updates condition flags. -/
@@ -166,7 +162,6 @@ instance : X86_64Instruction AddR64Imm32 where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0x81, makeModRM 3 0 dstCode] ++ uint32ToLittleEndian i.imm
-
   step i s :=
     let dVal := s.gprs i.dst
     let sVal := signExtendUInt32To64 i.imm
@@ -174,7 +169,6 @@ instance : X86_64Instruction AddR64Imm32 where
     let s' := s.setGpr64 i.dst res
     let s'' := s'.setFlagsAdd64 dVal sVal
     { s'' with rip := s.rip + 7 }
-
   toUops _ := [{ mnemonic := "ADD.alu32", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   -- `dword` qualifier: see `AddRspImm32.toNASM`'s comment above -- same NASM shortest-encoding
   -- ambiguity, same fix, found the same way.
@@ -187,6 +181,7 @@ instance : X86_64Instruction AddR64Imm32 where
   roundtripCases :=
     (allReg64ListNoRsp.map (AddR64Imm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (AddR64Imm32.mk .rax ·)) ++
     (curatedUInt32Cases.map (AddR64Imm32.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- ADD r64, r64 helper. -/

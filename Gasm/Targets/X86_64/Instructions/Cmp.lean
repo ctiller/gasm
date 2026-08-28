@@ -39,11 +39,9 @@ instance : X86_64Instruction CmpR64R64 where
     let rex := makeRex true srcExt false dstExt
     let modrm := makeModRM 3 srcCode dstCode
     ByteArray.mk #[rex, 0x39, modrm]
-
   step i s :=
     let s' := s.setFlagsCmp64 (s.gprs i.dst) (s.gprs i.src)
     { s' with rip := s.rip + 3 }
-
   toUops _ := [{ mnemonic := "CMP.reg", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"cmp {i.dst}, {i.src}"
   toLean i := s!"cmp_r64 .{i.dst} .{i.src}"
@@ -54,6 +52,7 @@ instance : X86_64Instruction CmpR64R64 where
   roundtripCases :=
     (allReg64List.map (CmpR64R64.mk · .rax)) ++ (allReg64List.map (CmpR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => CmpR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=CMP;part=description -/
 /-- CMP r64, imm8: Compares 64-bit register with sign-extended 8-bit immediate. -/
@@ -69,11 +68,9 @@ instance : X86_64Instruction CmpR64Imm8 where
     let rex := makeRex true false false dstExt
     let modrm := makeModRM 3 7 dstCode
     ByteArray.mk #[rex, 0x83, modrm, i.imm]
-
   step i s :=
     let s' := s.setFlagsCmp64 (s.gprs i.dst) (signExtend8To64 i.imm)
     { s' with rip := s.rip + 4 }
-
   toUops _ := [{ mnemonic := "CMP.imm8", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"cmp {i.dst}, byte {i.imm.toNat}"
   toLean i := s!"cmp_r64_imm8 .{i.dst} {formatHex8 i.imm}"
@@ -84,6 +81,7 @@ instance : X86_64Instruction CmpR64Imm8 where
   roundtripCases :=
     (allReg64List.map (CmpR64Imm8.mk · 0x00)) ++ (curatedUInt8Cases.map (CmpR64Imm8.mk .rax ·)) ++
     (curatedUInt8Cases.map (CmpR64Imm8.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- CMP r64, r64 helper. -/
@@ -109,11 +107,9 @@ instance : X86_64Instruction CmpR64Imm32 where
     let rex := makeRex true false false dstExt
     let modrm := makeModRM 3 7 dstCode
     ByteArray.mk #[rex, 0x81, modrm] ++ uint32ToLittleEndian i.imm
-
   step i s :=
     let s' := s.setFlagsCmp64 (s.gprs i.dst) (signExtendUInt32To64 i.imm)
     { s' with rip := s.rip + 7 }
-
   toUops _ := [{ mnemonic := "CMP.imm32", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"cmp {i.dst}, dword {i.imm.toNat}"
   toLean i := s!"cmp_r64_imm32 .{i.dst} {formatHex32 i.imm}"
@@ -124,6 +120,7 @@ instance : X86_64Instruction CmpR64Imm32 where
   roundtripCases :=
     (allReg64List.map (CmpR64Imm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (CmpR64Imm32.mk .rax ·)) ++
     (curatedUInt32Cases.map (CmpR64Imm32.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- CMP r64, imm32 helper. -/

@@ -37,14 +37,12 @@ instance : X86_64Instruction TestR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true srcExt false dstExt, 0x85, makeModRM 3 srcCode dstCode]
-
   step i s :=
     let dVal := s.gprs i.dst
     let sVal := s.gprs i.src
     let temp := dVal &&& sVal
     let s' := s.setFlagsLogic64 temp
     { s' with rip := s.rip + 3 }
-
   toUops _ := [{ mnemonic := "TEST.alu", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"test {i.dst}, {i.src}"
   toLean i := s!"test_r64 .{i.dst} .{i.src}"
@@ -56,6 +54,7 @@ instance : X86_64Instruction TestR64R64 where
   roundtripCases :=
     (allReg64List.map (TestR64R64.mk · .rax)) ++ (allReg64List.map (TestR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => TestR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=TEST;part=description -/
 /-- TEST r64, imm32: Computes bitwise logical AND between 64-bit register and sign-extended 32-bit immediate, sets condition flags without modifying registers. -/
@@ -69,14 +68,12 @@ instance : X86_64Instruction TestR64Imm32 where
   encode i :=
     let (dstCode, dstExt) := reg64Code i.dst
     ByteArray.mk #[makeRex true false false dstExt, 0xF7, makeModRM 3 0 dstCode] ++ uint32ToLittleEndian i.imm
-
   step i s :=
     let dVal := s.gprs i.dst
     let sVal := signExtendUInt32To64 i.imm
     let temp := dVal &&& sVal
     let s' := s.setFlagsLogic64 temp
     { s' with rip := s.rip + 7 }
-
   toUops _ := [{ mnemonic := "TEST.alu", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
   toNASM i := s!"test {i.dst}, dword {i.imm.toNat}"
   toLean i := s!"test_r64_imm32 .{i.dst} {formatHex32 i.imm}"
@@ -88,6 +85,7 @@ instance : X86_64Instruction TestR64Imm32 where
   roundtripCases :=
     (allReg64List.map (TestR64Imm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (TestR64Imm32.mk .rax ·)) ++
     (curatedUInt32Cases.map (TestR64Imm32.mk .r15 ·))
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- TEST r64, r64 helper. -/

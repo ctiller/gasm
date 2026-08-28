@@ -59,6 +59,20 @@ def dispToUInt64 (d : Int) : UInt64 :=
   if d ≥ 0 then d.toNat.toUInt64 else 0 - (-d).toNat.toUInt64
 
 /- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
+/-- Reinterprets a `UInt8` displacement byte as the signed `Int` it encodes -- the `MemRef.disp`
+    counterpart of `signExtend8To64` (which produces the `UInt64` result directly instead of the
+    signed intermediate). Every memory form with a `disp : UInt8` field uses this to state its
+    `memAccesses` descriptor. -/
+def int8OfUInt8 (u : UInt8) : Int :=
+  if u.toNat ≥ 128 then (u.toNat : Int) - 256 else (u.toNat : Int)
+
+-- The connecting fact `dispToUInt64 (int8OfUInt8 u) = signExtend8To64 u` (needed by every
+-- writesWithin/readsWithin frame lemma to show a descriptor's declared address matches the
+-- step's actual computed address) cannot be stated here: `signExtend8To64` is declared in
+-- `Instructions/Base.lean`, which imports THIS file for `MemAccessSpec` -- importing it back
+-- would cycle. It is proved instead in `MemoryFrame/Common.lean`, which imports both.
+
+/- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
 /-- Evaluates a `MemRef` against the pre-step machine state: every declared access's dynamic
     address is `MemRef.effectiveAddress` at the state `step` was called with, uniformly
     (`docs/MEMORY_HOOK.md` §3.3). -/

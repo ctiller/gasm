@@ -37,13 +37,11 @@ instance : X86_64Instruction XchgR64R64 where
     let (dstCode, dstExt) := reg64Code i.dst
     let (srcCode, srcExt) := reg64Code i.src
     ByteArray.mk #[makeRex true srcExt false dstExt, 0x87, makeModRM 3 srcCode dstCode]
-
   step i s :=
     let dVal := s.gprs i.dst
     let sVal := s.gprs i.src
     let s' := (s.setGpr64 i.dst sVal).setGpr64 i.src dVal
     { s' with rip := s.rip + 3 }
-
   toUops _ := [
     { mnemonic := "XCHG.alu1", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 },
     { mnemonic := "XCHG.alu2", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }
@@ -57,6 +55,7 @@ instance : X86_64Instruction XchgR64R64 where
   roundtripCases :=
     (allReg64List.map (XchgR64R64.mk · .rax)) ++ (allReg64List.map (XchgR64R64.mk .rax ·)) ++
     (extendedReg64Pairs.map fun p => XchgR64R64.mk p.1 p.2)
+  memAccesses _ := []
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- XCHG r64, r64 helper. -/
