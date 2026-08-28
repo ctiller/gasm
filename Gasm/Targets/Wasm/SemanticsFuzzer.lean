@@ -63,6 +63,13 @@ structure WasmDiffCase where
   resultTypesFor : WasmMachineState → List ValType
   preInstrsFor   : WasmMachineState → List WasmInstr := fun _ => []
   genStates      : FuzzerRng → Nat → Prod (List WasmMachineState) FuzzerRng
+  -- REF: docs/TARGETS/WASM_ORACLE_HARNESS.md#9-out-of-bounds-and-memory-limit-fuzz-coverage --
+  -- the declared `Limits.max` (in pages) the synthesized host module should be built with
+  -- (forwarded to `buildTestWasmModuleForResults`'s `memoryMaxPages` in `verifyWasmDiffCase`
+  -- below), so a case fuzzing `memory.grow` against a maximum can make the host module and the
+  -- model's fuzzed `WasmMachineState.memMax` agree on the same bound. `none` (the default)
+  -- matches every existing case, which declares no maximum.
+  memoryMaxPages : Option UInt32 := none
 
 /- REF: wasm-syntax-instructions#instructions -/
 /-- Wraps a single leaf instruction as a `WasmDiffCase`: its declared result type and setup
@@ -650,6 +657,277 @@ def cfStoreI32ThenLoadByte0Endianness : WasmDiffCase :=
         curRng := r
       (states, curRng) }
 
+-- ================================================================================================
+-- B7/B8 (MODEL_DEBT.md, docs/tasks/B7-wasm-oob-trap-and-limits.md): out-of-bounds memory access
+-- and `memory.grow`/`Limits.max` fuzz coverage. `Semantics.lean`'s `writeMem8` used to silently
+-- zero-pad and grow linear memory on an out-of-bounds write instead of trapping, and
+-- `memory_grow` never consulted `Limits.max` or failed at all -- and the pre-fix fuzzer generated
+-- addresses only from a small statically in-bounds set (`Fuzzable.lean`'s `.i32_store`/`.i32_load`
+-- states use address 16 or 64 into a full 65536-byte page), making both bugs structurally
+-- invisible to differential testing. The cases below deliberately generate boundary-straddling,
+-- far-out-of-bounds, and `UInt32.max` (2^32 - 1) addresses so the host oracle and the (now
+-- trapping) Lean model are compared on exactly the accesses the old fuzzer could never produce.
+-- ================================================================================================
+
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- `i32.load8_u` at and around the exact end of a one-page (65536-byte) linear memory: valid
+    addresses `0`/`65535` (the very last in-bounds byte, i.e. "at the limit") must succeed on both
+    engines, while `65536` ("one past the limit"), `65537`, `100000` ("far past it"), and
+    `0xFFFFFFFF` (`2^32 - 1`) must all genuinely TRAP on both -- pinning `evalInstr`'s
+    `.i32_load8_u` bounds check (`a + 1 > s1.memory.size`) against the spec's `t.load` reduction
+    rule (`wasm-exec-instructions#memory-instructions`: "If `i + ao.offset + N/8 >
+    |mems[x].bytes|`, then: Trap."), which the pre-B7 model violated by returning `0` instead. -/
+def oobLoad8AtBoundary : WasmDiffCase :=
+  { name := "oob_load8_at_boundary"
+    instr := .block (.val .i32) [.local_get 0, .i32_load8_u 0 0]
+    resultTypesFor := fun _ => [ValType.i32]
+    genStates := fun rng randCount => Id.run do
+      let mem := ByteArray.mk (Array.replicate 65536 (0x5A : UInt8))
+      let mut states : List WasmMachineState := []
+      let mut curRng := rng
+      let addrs : List UInt32 := [0, 1, 65534, 65535, 65536, 65537, 65538, 100000, 0xFFFFFFFF]
+      for a in addrs do
+        states := states ++ [{ locals := [WasmVal.i32 a], memory := mem }]
+      for _ in [0:randCount] do
+        let (bucket, r1) := curRng.nextNat 3
+        let (raw, r2) := r1.nextUInt32
+        let addr : UInt32 :=
+          if bucket == 0 then UInt32.ofNat (65536 + (raw.toNat % 8))
+          else if bucket == 1 then UInt32.ofNat (65528 + (raw.toNat % 16))
+          else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
+        states := states ++ [{ locals := [WasmVal.i32 addr], memory := mem }]
+        curRng := r2
+      (states, curRng) }
+
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- `i32.store8` then immediate `i32.load8_u` at the SAME fuzzed address: for an in-bounds address
+    the round trip must return exactly the stored byte (masked to 0xFF) on both engines, exercising
+    correctness right at the boundary (`65534`/`65535`, "at the limit") in addition to the pure
+    trap check; for an out-of-bounds address (`65536` upward, or `0xFFFFFFFF`) the STORE itself
+    must trap immediately, so the trailing `local.get`/`load` never execute (`evalInstr`'s trap
+    short-circuit, `trapShortCircuitGuard_inst`) and both engines must report a trap, never a
+    value. Pins `evalInstr`'s `.i32_store8` bounds check (`a + 1 > s2.memory.size`). -/
+def oobStore8LoadRoundTripBoundary : WasmDiffCase :=
+  { name := "oob_store8_load_roundtrip_boundary"
+    instr := .block (.val .i32)
+      [.local_get 0, .local_get 1, .i32_store8 0 0, .local_get 0, .i32_load8_u 0 0]
+    resultTypesFor := fun _ => [ValType.i32]
+    genStates := fun rng randCount => Id.run do
+      let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+      let mut states : List WasmMachineState := []
+      let mut curRng := rng
+      let addrs : List UInt32 := [0, 1, 65534, 65535, 65536, 65537, 65538, 100000, 0xFFFFFFFF]
+      for a in addrs do
+        for v in [(0x00 : UInt32), 0xAB, 0xFF] do
+          states := states ++ [{ locals := [WasmVal.i32 a, WasmVal.i32 v], memory := mem }]
+      for _ in [0:randCount] do
+        let (bucket, r1) := curRng.nextNat 3
+        let (raw, r2) := r1.nextUInt32
+        let addr : UInt32 :=
+          if bucket == 0 then UInt32.ofNat (65536 + (raw.toNat % 8))
+          else if bucket == 1 then UInt32.ofNat (65528 + (raw.toNat % 16))
+          else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
+        let (v, r3) := r2.nextUInt32
+        states := states ++ [{ locals := [WasmVal.i32 addr, WasmVal.i32 v], memory := mem }]
+        curRng := r3
+      (states, curRng) }
+
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- `i32.load` (4-byte width) straddling the exact end of a one-page memory: `65532` is the last
+    address whose full 4-byte read stays in-bounds ("at the limit", `65532 + 4 = 65536 =`
+    memory size); `65533`/`65534`/`65535` each straddle the boundary by reading 1-3 bytes past the
+    end ("unaligned near the boundary" -- the read WOULD start in-bounds but overrun) and must
+    trap; `65536` (fully past) and `0xFFFFFFFF` (`2^32 - 1`) must also trap. This specifically
+    exercises `evalInstr`'s width-aware check (`a + 4 > s1.memory.size`, not merely `a >=
+    s1.memory.size`) -- a model that only checked the start address would wrongly accept
+    `65533..65535`. -/
+def oobLoad32StraddleBoundary : WasmDiffCase :=
+  { name := "oob_load32_straddle_boundary"
+    instr := .block (.val .i32) [.local_get 0, .i32_load 2 0]
+    resultTypesFor := fun _ => [ValType.i32]
+    genStates := fun rng randCount => Id.run do
+      let mem := ByteArray.mk (Array.replicate 65536 (0x7A : UInt8))
+      let mut states : List WasmMachineState := []
+      let mut curRng := rng
+      let addrs : List UInt32 := [65530, 65531, 65532, 65533, 65534, 65535, 65536, 100000, 0xFFFFFFFC, 0xFFFFFFFF]
+      for a in addrs do
+        states := states ++ [{ locals := [WasmVal.i32 a], memory := mem }]
+      for _ in [0:randCount] do
+        let (bucket, r1) := curRng.nextNat 3
+        let (raw, r2) := r1.nextUInt32
+        let addr : UInt32 :=
+          if bucket == 0 then UInt32.ofNat (65524 + (raw.toNat % 20))
+          else if bucket == 1 then UInt32.ofNat (65536 + (raw.toNat % 16))
+          else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
+        states := states ++ [{ locals := [WasmVal.i32 addr], memory := mem }]
+        curRng := r2
+      (states, curRng) }
+
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- `i32.store` then immediate `i32.load` round trip at a straddling/boundary address, the 4-byte
+    analogue of `oobStore8LoadRoundTripBoundary`: valid boundary addresses (`65532`, "at the
+    limit") must round-trip the exact stored value; anything straddling or past the boundary
+    (`65533..65535`, `65536`, `0xFFFFFFFF`) must have the STORE trap before the load ever runs. -/
+def oobStore32LoadRoundTripBoundary : WasmDiffCase :=
+  { name := "oob_store32_load_roundtrip_boundary"
+    instr := .block (.val .i32)
+      [.local_get 0, .local_get 1, .i32_store 2 0, .local_get 0, .i32_load 2 0]
+    resultTypesFor := fun _ => [ValType.i32]
+    genStates := fun rng randCount => Id.run do
+      let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+      let mut states : List WasmMachineState := []
+      let mut curRng := rng
+      let addrs : List UInt32 := [65530, 65531, 65532, 65533, 65534, 65535, 65536, 100000, 0xFFFFFFFC, 0xFFFFFFFF]
+      for a in addrs do
+        for v in curated32BitValues.take 3 do
+          states := states ++ [{ locals := [WasmVal.i32 a, WasmVal.i32 v], memory := mem }]
+      for _ in [0:randCount] do
+        let (bucket, r1) := curRng.nextNat 3
+        let (raw, r2) := r1.nextUInt32
+        let addr : UInt32 :=
+          if bucket == 0 then UInt32.ofNat (65524 + (raw.toNat % 20))
+          else if bucket == 1 then UInt32.ofNat (65536 + (raw.toNat % 16))
+          else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
+        let (v, r3) := r2.nextUInt32
+        states := states ++ [{ locals := [WasmVal.i32 addr, WasmVal.i32 v], memory := mem }]
+        curRng := r3
+      (states, curRng) }
+
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- `i64.load` (8-byte width) straddling the boundary: `65528` is the last address whose full
+    8-byte read stays in-bounds ("at the limit", `65528 + 8 = 65536`); `65529..65535` each
+    straddle by 1-7 bytes ("unaligned near the boundary") and must trap; `65536` and `0xFFFFFFFF`
+    must also trap. 64-bit analogue of `oobLoad32StraddleBoundary`, pinning the `a + 8 >
+    s1.memory.size` check in `evalInstr`'s `.i64_load` case. -/
+def oobLoad64StraddleBoundary : WasmDiffCase :=
+  { name := "oob_load64_straddle_boundary"
+    instr := .block (.val .i64) [.local_get 0, .i64_load 3 0]
+    resultTypesFor := fun _ => [ValType.i64]
+    genStates := fun rng randCount => Id.run do
+      let mem := ByteArray.mk (Array.replicate 65536 (0xC3 : UInt8))
+      let mut states : List WasmMachineState := []
+      let mut curRng := rng
+      let addrs : List UInt32 := [65526, 65527, 65528, 65529, 65530, 65531, 65535, 65536, 100000, 0xFFFFFFF8, 0xFFFFFFFF]
+      for a in addrs do
+        states := states ++ [{ locals := [WasmVal.i32 a], memory := mem }]
+      for _ in [0:randCount] do
+        let (bucket, r1) := curRng.nextNat 3
+        let (raw, r2) := r1.nextUInt32
+        let addr : UInt32 :=
+          if bucket == 0 then UInt32.ofNat (65520 + (raw.toNat % 24))
+          else if bucket == 1 then UInt32.ofNat (65536 + (raw.toNat % 16))
+          else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
+        states := states ++ [{ locals := [WasmVal.i32 addr], memory := mem }]
+        curRng := r2
+      (states, curRng) }
+
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- `i64.store` then immediate `i64.load` round trip at a straddling/boundary address, the 64-bit
+    analogue of `oobStore32LoadRoundTripBoundary`. -/
+def oobStore64LoadRoundTripBoundary : WasmDiffCase :=
+  { name := "oob_store64_load_roundtrip_boundary"
+    instr := .block (.val .i64)
+      [.local_get 0, .local_get 1, .i64_store 3 0, .local_get 0, .i64_load 3 0]
+    resultTypesFor := fun _ => [ValType.i64]
+    genStates := fun rng randCount => Id.run do
+      let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+      let mut states : List WasmMachineState := []
+      let mut curRng := rng
+      let addrs : List UInt32 := [65526, 65527, 65528, 65529, 65530, 65531, 65535, 65536, 100000, 0xFFFFFFF8, 0xFFFFFFFF]
+      for a in addrs do
+        for v in curated64BitValues.take 3 do
+          states := states ++ [{ locals := [WasmVal.i32 a, WasmVal.i64 v], memory := mem }]
+      for _ in [0:randCount] do
+        let (bucket, r1) := curRng.nextNat 3
+        let (raw, r2) := r1.nextUInt32
+        let addr : UInt32 :=
+          if bucket == 0 then UInt32.ofNat (65520 + (raw.toNat % 24))
+          else if bucket == 1 then UInt32.ofNat (65536 + (raw.toNat % 16))
+          else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
+        let (v, r3) := r2.next
+        states := states ++ [{ locals := [WasmVal.i32 addr, WasmVal.i64 v], memory := mem }]
+        curRng := r3
+      (states, curRng) }
+
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- `memory.grow` followed by `memory.size`, against a module (and matching model `memMax`)
+    declaring `Limits.max = 4` pages starting from 1 page: growing by `0..3` pages stays within the
+    declared maximum and must succeed on both engines, with `memory.size` afterward reflecting the
+    actual growth (`1 + delta`). Paired with `memoryGrowExceedsDeclaredMax` below as the POSITIVE
+    control proving this case's fuzzed vectors can genuinely distinguish success from failure,
+    not just always trap or always succeed. -/
+def memoryGrowWithinDeclaredMax : WasmDiffCase :=
+  { name := "memory_grow_within_declared_max"
+    instr := .block (.val .i32) [.local_get 0, .memory_grow, .drop, .memory_size]
+    resultTypesFor := fun _ => [ValType.i32]
+    memoryMaxPages := some 4
+    genStates := fun rng _randCount => Id.run do
+      let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+      let mut states : List WasmMachineState := []
+      for delta in [(0 : UInt32), 1, 2, 3] do
+        states := states ++ [{ locals := [WasmVal.i32 delta], memory := mem, memMax := some 4 }]
+      (states, rng) }
+
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- `memory.grow` requesting more pages than the module's declared `Limits.max` of `4` (starting
+    from 1 page): the spec's non-determinism note ("Failure MUST occur if the referenced memory
+    instance has a maximum size defined that would be exceeded") makes this the one `memory.grow`
+    outcome that is NOT a free choice of the embedder -- both the model and the host MUST fail
+    (push `-1`) and MUST NOT grow memory at all, so `memory.size` afterward must still read `1`
+    (B8: the pre-fix model always grew unconditionally and could never produce this outcome). -/
+def memoryGrowExceedsDeclaredMax : WasmDiffCase :=
+  { name := "memory_grow_exceeds_declared_max"
+    instr := .block (.val .i32) [.local_get 0, .memory_grow, .drop, .memory_size]
+    resultTypesFor := fun _ => [ValType.i32]
+    memoryMaxPages := some 4
+    genStates := fun rng _randCount => Id.run do
+      let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+      let mut states : List WasmMachineState := []
+      for delta in [(4 : UInt32), 5, 10, 1000] do
+        states := states ++ [{ locals := [WasmVal.i32 delta], memory := mem, memMax := some 4 }]
+      (states, rng) }
+
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- `memory.grow` requesting a delta so large (`~4 billion` pages, representable in an `i32` but
+    utterly unaddressable) that it must fail even with NO declared `Limits.max` at all (`memMax :=
+    none` on the model side, `memoryMaxPages := none` on the host module) -- this is the Wasm32
+    address-space ceiling (2^16 pages / 4 GiB) that every 32-bit linear memory is implicitly bound
+    by, independent of any author-declared maximum. Deliberately does NOT attempt to grow all the
+    way to exactly `2^16` pages on either engine (a genuine ~4 GiB allocation would be slow, and
+    environment-dependent, for a differential fuzz vector); this case only pins the "obviously over
+    the ceiling" side of that boundary, which both engines reject before attempting any real
+    allocation. The exact-ceiling boundary itself is intentionally left unexercised here -- see
+    docs/TARGETS/WASM_ORACLE_HARNESS.md#9-out-of-bounds-and-memory-limit-fuzz-coverage. -/
+def memoryGrowExceedsHardCeilingNoDeclaredMax : WasmDiffCase :=
+  { name := "memory_grow_exceeds_hard_ceiling"
+    instr := .block (.val .i32) [.local_get 0, .memory_grow, .drop, .memory_size]
+    resultTypesFor := fun _ => [ValType.i32]
+    genStates := fun rng _randCount => Id.run do
+      let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+      let states : List WasmMachineState :=
+        [ { locals := [WasmVal.i32 (4000000000 : UInt32)], memory := mem }
+        , { locals := [WasmVal.i32 (0xFFFFFFFF : UInt32)], memory := mem }
+        , { locals := [WasmVal.i32 (70000 : UInt32)], memory := mem } ]
+      (states, rng) }
+
+/- REF: docs/TARGETS/WASM_ORACLE_HARNESS.md#9-out-of-bounds-and-memory-limit-fuzz-coverage -/
+/-- The B7/B8 out-of-bounds-access and memory-limit fuzz suite: OOB load/store at, one past, and
+    far past the boundary of a one-page memory (8/32/64-bit widths, including straddling and
+    `0xFFFFFFFF` addresses), plus `memory.grow` against a declared `Limits.max` (both the success
+    and the mandatory-failure side) and against the implicit Wasm32 page-count ceiling with no
+    declared maximum at all. -/
+def allMemoryLimitCases : List WasmDiffCase := [
+  oobLoad8AtBoundary,
+  oobStore8LoadRoundTripBoundary,
+  oobLoad32StraddleBoundary,
+  oobStore32LoadRoundTripBoundary,
+  oobLoad64StraddleBoundary,
+  oobStore64LoadRoundTripBoundary,
+  memoryGrowWithinDeclaredMax,
+  memoryGrowExceedsDeclaredMax,
+  memoryGrowExceedsHardCeilingNoDeclaredMax
+]
+
 /- REF: wasm-exec-instructions#control-instructions -/
 /-- Comprehensive suite of structured control-flow test cases (block/loop/if_else nesting
     br/br_if/return_op), differentially validated against the host Wasm engine. -/
@@ -770,7 +1048,7 @@ def verifyWasmDiffCase (tc : WasmDiffCase) (rng : FuzzerRng) (maxStates : Nat :=
 
     if !skipHost then
       let preInstrs := tc.preInstrsFor initS
-      let m := buildTestWasmModuleForResults tc.instr resultTypes initS.locals (some initS.memory) preInstrs
+      let m := buildTestWasmModuleForResults tc.instr resultTypes initS.locals (some initS.memory) preInstrs tc.memoryMaxPages
       let hostOutcome ← runWasmHostExecution m
 
       match hostOutcome with
@@ -892,7 +1170,25 @@ def runWasmSemanticsFuzzerSuite (iterationsPerInstr : Nat := 50) (initialSeed : 
     totalInstrsSkipped := s
     totalVectorsTested := v
 
-  let candidateCount := candidateLeafCases.length + candidateControlFlowCases.length
+  let candidateMemoryLimitCases := match instrFilter with
+    | some filterStr => allMemoryLimitCases.filter (fun (c : WasmDiffCase) => c.name.toLower.contains filterStr.toLower)
+    | none => allMemoryLimitCases
+
+  if !candidateMemoryLimitCases.isEmpty then
+    IO.println "--------------------------------------------------------------------------------"
+    IO.println "  Out-of-Bounds Access & Memory-Limit Coverage (B7/B8)"
+    IO.println "--------------------------------------------------------------------------------"
+
+  for tc in candidateMemoryLimitCases do
+    let (res, nextRng) ← verifyWasmDiffCase tc curRng iterationsPerInstr
+    curRng := nextRng
+    let (p, f, s, v) ← reportWasmDiffResult res totalInstrsPassed totalInstrsFailed totalInstrsSkipped totalVectorsTested
+    totalInstrsPassed := p
+    totalInstrsFailed := f
+    totalInstrsSkipped := s
+    totalVectorsTested := v
+
+  let candidateCount := candidateLeafCases.length + candidateControlFlowCases.length + candidateMemoryLimitCases.length
   IO.println "--------------------------------------------------------------------------------"
   -- TC17 vacuity floor: 0 vectors exercised is a hard failure, never a clean summary.
   if totalVectorsTested == 0 then

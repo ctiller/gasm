@@ -50,6 +50,16 @@ structure WasmModule where
   imports      : List Import          := []
   functions    : List WasmFunction    := []
   memoryPages  : Option UInt32        := some 1
+  -- REF: wasm-syntax-types#limits -- the declared maximum (in pages) of this module's memory
+  -- `Limits`, i.e. `Limits.max` (`Types.lean`). B8: previously this was always encoded as `none`
+  -- (`encodeLimits { min := pages }`, no `max` field at all), so no module `emitWasmBinary`
+  -- produced could ever exercise the "memory.grow fails because it would exceed the declared
+  -- maximum" path on a real host engine -- the differential fuzzer's OOB/limit vectors
+  -- (`Gasm/Targets/Wasm/SemanticsFuzzer.lean`) need the host module and the Lean model
+  -- (`WasmMachineState.memMax`, `Semantics.lean`) to agree on the same declared maximum for that
+  -- comparison to be meaningful at all. `none` (the default) preserves the previous no-max
+  -- encoding exactly, so every existing caller (which never sets this field) is unaffected.
+  memoryMaxPages : Option UInt32      := none
   dataSegments : List WasmDataSegment := []
   exports      : List Export          := []
   deriving Inhabited
@@ -166,7 +176,7 @@ def emitWasmBinary (m : WasmModule) (typeSignatures : List FuncType) : Except St
 
   -- 5. Memory Section (ID 5)
   if let some pages := m.memoryPages then
-    let memPayload := encodeULEB128 1 ++ encodeLimits { min := pages }
+    let memPayload := encodeULEB128 1 ++ encodeLimits { min := pages, max := m.memoryMaxPages }
     bytes := bytes ++ encodeSection 5 memPayload
 
   -- 7. Export Section (ID 7)
@@ -230,7 +240,8 @@ def emitWasmText (m : WasmModule) (typeSignatures : List FuncType := []) : Strin
 
   -- Memory
   if let some pages := m.memoryPages then
-    lines := lines ++ [indent 1 s!"(memory (export \"memory\") {pages})"]
+    let maxStr := match m.memoryMaxPages with | some mx => s!" {mx}" | none => ""
+    lines := lines ++ [indent 1 s!"(memory (export \"memory\") {pages}{maxStr})"]
 
   -- Data segments
   for seg in m.dataSegments do

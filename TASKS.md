@@ -151,7 +151,7 @@ searching other files' `after:` lists, or use `TC13`'s checker once it exists.
 - [b] B2 Linux strategy → `docs/tasks/B2-linux-strategy.md` — after: TC6
 - [ ] B3 Stage B decoder modularization → `docs/tasks/B3-stage-b-decoder-modularization.md` — after: TC4, B1
 - [ ] B4 pre-index instruction byte offsets in simulator → `docs/tasks/B4-instruction-index-lookup.md` — after: TC4
-- [ ] B7 Wasm OOB trap semantics + memory limits → `docs/tasks/B7-wasm-oob-trap-and-limits.md` — after: TC2
+- [x] B7 Wasm OOB trap semantics + memory limits → `docs/tasks/B7-wasm-oob-trap-and-limits.md` — after: TC2
 
 - [ ] MD1 Model/spec debt intake queue (standing triage, `MODEL_DEBT.md`) → `docs/tasks/MD1-model-spec-debt-intake.md` — after: —
 
