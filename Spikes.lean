@@ -35,6 +35,9 @@ import Spikes.Spike2Fibonacci.Wasm.Equivalence
 import Spikes.Spike3SortLines.Spec
 import Spikes.Spike3SortLines.Windows.Program
 import Spikes.Spike3SortLines.Windows.Equivalence
+import Spikes.Spike3SortLines.TraceStepLemmas
+import Spikes.Spike3SortLines.Windows.InterceptLemmas
+import Spikes.Spike3SortLines.Windows.InstructionStepLemmas
 import Spikes.Spike3SortLines.Linux.Program
 import Spikes.Spike3SortLines.Linux.Equivalence
 import Spikes.Spike3SortLines.Wasm.Program
