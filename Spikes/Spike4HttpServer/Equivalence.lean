@@ -284,80 +284,149 @@ theorem spike4_wasm_trace_equivalence_for_request (req : String) (r : HttpRoute)
 /- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
 /- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
 /-!
-**KNOWN DIVERGENCE (PA17 finding, confirmed real, not fixed here — see N8 for the fix task).**
+**FIXED (N8).** This note used to document a confirmed route-prefix-confusion divergence between
+`spike4_windows_route_equivalence`/`spike4_wasm_route_equivalence` and the honest per-request model
+(`Spec.lean`'s `parseRequestLine`/`routeRequest`); `docs/tasks/N8-spike4-stack-buffer-overflow.md`
+fixed the underlying assembly/WASI dispatch bug, and the regression suite below (`spike4RouteFixedOnAllTargets`)
+re-checks every witness this note used to name. The historical bug, for the record:
 
-Investigating whether `spike4_windows_route_equivalence`/`spike4_wasm_route_equivalence` could be
-honestly widened from "one literal request per route" to "any request that parses to route `r`"
-(the real domain) found that the wider statement is **false**, for both targets, independently of
-each other and of the three memory-safety defects `docs/tasks/N8-spike4-stack-buffer-overflow.md`
-found by other means. This is not a gap in the proof; it is a bug in the assembly/WASI lowering
-that the one-literal-per-route theorems above cannot see because none of their three inputs ever
-exercises it.
+- **Windows and Linux** (`Spikes/Spike4HttpServer/{Windows,Linux}/Program.lean`, the `send_status`
+  check): the route dispatch loaded 8 bytes at the request buffer's offset 4 and masked to 5 bytes
+  (`0xFFFFFFFFFF`), comparing against `"/stat"` (`0x746174732F`) — so any path merely starting with
+  `/stat` (`"/static"`, `"/status_check"`, `"/statx"`, ...) was misrouted to the 200 OK status
+  handler instead of Spec's 404. Both targets ran the identical routing bytes, so the bug was not
+  Windows-specific despite the task that found it inspecting only the Windows lowering.
+- **WebAssembly** (`Spikes/Spike4HttpServer/Wasm/Program.lean`, step 4): the route dispatch read a
+  *single* byte at offset `0x405` (immediately after the path's leading `/`) and matched `/status`
+  whenever that one byte was `'s'` — strictly weaker than the 5-byte prefix bug above, misrouting
+  any path merely starting with `s` (`"/search"`, `"/shop"`, `"/settings"`, even the bare `"/s"`).
 
-- **Windows** (`Spikes/Spike4HttpServer/Windows/Program.lean`, the `send_status` check, step 9):
-  the route dispatch loads 8 bytes at the request buffer's offset 4 and masks to 5 bytes
-  (`0xFFFFFFFFFF`), comparing against `"/stat"` (`0x746174732F`). Any request whose path starts
-  with the 5 characters `/stat` but is not exactly `/status` — e.g.
-  `req = "GET /static HTTP/1.1\r\nHost: localhost\r\n\r\n"` (`.notFound`'s real route, since
-  `parseRequestLine`/`routeRequest` in `Spec.lean` compare the *full* path string) — is
-  misrouted: the assembly takes the `send_status` branch (200 OK, `application/json` status body)
-  while `routeModelTrace .notFound` is a 404. Empirically confirmed (via a temporary, uncommitted
-  `#eval` during this task's investigation, not a persisted proof — see the rationale below) for
-  `req = "GET /static HTTP/1.1\r\nHost: localhost\r\n\r\n"`:
-  `runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req])`'s
-  `send` event carries
-  `"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n...{\"status\":\"healthy\",\"engine\":\"gasm\"}\r\n"`
-  while `serverModelTraceFor req`'s `send` event carries
-  `"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n...404 Not Found\r\n"` — every other event
-  in the two traces (`listen`/`accept`/`recv`/`close`) is identical, isolating the divergence to
-  exactly the response the routing bug produces. `"/status_check"` and `"/statx"` are two further
-  witnesses of the same 5-byte-prefix confusion.
-- **WebAssembly** (`Spikes/Spike4HttpServer/Wasm/Program.lean`, step 4): the route dispatch reads
-  a *single* byte at offset `0x405` (the character immediately after the leading `/` of the path)
-  and matches route `/status` whenever that one byte is `'s'` — strictly weaker than the Windows
-  check above. Any path merely *starting with `s`* is misrouted to the status handler.
-  Empirically confirmed the same way for `req = "GET /search HTTP/1.1\r\nHost: localhost\r\n\r\n"`:
-  the WASI trace's `send` event carries the same `application/json` status body while the honest
-  model's carries the 404 body, with every other event identical. `"/shop"`, `"/settings"`, and the
-  single-character path `"/s"` are three further witnesses.
-- **Both targets, independently of the prefix bugs above**: `Spec.lean`'s `parseRequestLine`
-  returns `none` (routed by `handleRawRequest` to a 400 Bad Request response, a response class
-  neither lowering ever emits) for any request line that does not split into exactly three
-  space-separated tokens — e.g. a request line with an unencoded space inside the path, or a
-  request line missing its HTTP version token. Neither the Windows nor the WASI dispatch has a
-  code path that can produce anything but the 200-root/200-status/404 shapes `HttpRoute` names,
-  so a fully universal `∀ (request : ByteArray)` claim is false for this reason alone, independent
-  of the prefix bugs.
+**The fix** (REF: `Spikes/Spike4HttpServer/Windows/Program.lean`,
+`Spikes/Spike4HttpServer/Linux/Program.lean`, `Spikes/Spike4HttpServer/Wasm/Program.lean`): all
+three targets now compare the *full* 8 bytes at the path's start against `"/status "` (the 7
+characters plus the request-line's mandatory delimiting space) with no masking — an exact match on
+the whole path token rather than a prefix, so no string that is merely `/status`-prefixed can match
+without literally being `/status`. `spike4RouteFixedOnAllTargets` below re-checks this against
+`serverModelTraceFor` (the honest model) for every witness path this note used to name as broken.
 
-**Why this task does not encode the above as a Lean counterexample theorem.** Doing so would
-require executing the full lowered program (`WSAStartup`/`socket`/`bind`/`listen`/`accept`/`recv`
-preamble plus the routing branch) on a concrete request, which — like every other trace-level fact
-in this file — is only tractable via `native_decide`, and `native_decide` on a *new* declaration
-would add a new oracle-dependent entry to `scripts/gate_allowlist.txt`, contrary to this task's
-"zero new axioms" requirement. The counterexamples above were instead confirmed by direct
-inspection of the assembly/WASI dispatch logic against `Spec.lean`'s `parseRequestLine`/
-`routeRequest` (both quoted precisely above with file:line pointers) and, separately, by
-evaluating the same computation with `#eval` during development (not committed, since `#eval` is
-not a proof and leaves no persisted obligation) — both agree with the analysis above.
+**What N8 did *not* make provable, and why (still true post-fix; PA17's point stands).** The six
+`spike4_{windows,wasm}_{root,status,404}_trace_equivalence` theorems above remain one
+`native_decide` check against one literal request string per route — `HttpRoute` is a 3-element
+proxy for "which route", not the real `∀ (request : ByteArray)` domain a server's correctness claim
+needs (PA17's finding, independent of whether the routing bytes are correct). The regression checks
+below strengthen empirical confidence by exercising many more concrete requests than those six ever
+did, including every literal counterexample this note previously named, but they are still pointwise
+`native_decide`/`#guard` checks, not a structural induction over arbitrary byte strings — reaching
+that (PA17's "real prize") requires PA6's read-binder contract and PA7's reactive-program contract to
+land first, per PA17's own sequencing (`after: [PA7, PA8]`), and is out of N8's scope. Two further
+gaps neither N8 nor this file's regression suite closes: (1) `parseRequestLine` returns `none` (400
+Bad Request) for any request line that isn't exactly three space-separated tokens, a response class
+neither lowering can ever emit — so a fully universal `∀ (request : ByteArray)` claim is false for
+this reason alone, independent of routing correctness; (2) the memory-safety half of N8 (the
+recv-length validation below) is provably absent from a *real* buffer-overflow/EOF-crash standpoint
+by inspection of the assembly, but not provable as a trace-equivalence fact in this model, for the
+reason the next paragraph explains.
 
-**Why this is not what N8's three defects are.** N8's stack-buffer-overflow and
-uninitialized-memory-read findings are about undefined/unsafe behavior on *real* Windows hardware
-that this repository's in-Lean machine model cannot currently observe at all, independent of this
-task: `Win32API.lean`'s `recvHook` writes into a `memory : Address → Byte` function with no
-allocation-boundary faulting, so a write past the declared 16-byte buffer silently succeeds
-without perturbing the (correctly-offset) bytes the routing check reads back — the overflow is
-real on hardware but not a trace-equivalence-visible fact in this model. Likewise, `recvHook`
-(Windows) and `ABI.lean`'s `sock_recv` handler (WASI) and `TraceM`'s own `MonadNetwork.recv` all
-deliver one complete logical request atomically per call, and `accept` only ever succeeds when
-`incomingRequests` is already non-empty — so "recv returns 0 bytes / EOF immediately after a
-successful accept" is structurally unreachable in the model as built today, not merely unproven.
-This is the same "vacuous ∀ proven against a model that cannot produce the input the claim needs
-to range over" gap `docs/tasks/PA6-read-binder-contract.md` names for short/partial reads
-(`MODEL_DEBT.md` §C1), recurring here one layer down (read *atomicity*, not read *length*). The
-route-prefix bug documented above is the one N8 defect this model — and this task's domain-honesty
-audit of it — can actually see and prove false; the other two need N2/PA6's environment-model
-upgrade before they can even be *stated* as a falsifiable trace-equivalence claim.
+**Why the recv-length-validation fix (N8 defect 2) isn't checked against the honest model here.**
+`Win32API.lean`'s `recvHook`, `Syscall.lean`'s `sysReadHook`, and `TraceM`'s own
+`MonadNetwork.recv` (`Gasm/Effects/Trace.lean`) all return `some req` — never `none` — for every
+element already present in `incomingRequests`, *including the empty string*; `none` only occurs
+once the whole request list is exhausted. So while this repository's fixed assembly now closes the
+connection without sending anything when `recv`/`read` returns `0` (see `spike4EmptyRecvClosesWithoutCorruption`
+below), the *honest* `httpServerMonadic` model treats an empty-string request exactly like any
+other: `parseRequestLine ""` fails to split into three tokens and the model sends a 400 Bad Request
+before closing. These two behaviors are genuinely different, not because the fix is wrong, but
+because `MonadNetwork.recv` cannot represent a true zero-byte/EOF read distinctly from "one more
+(possibly empty) logical request" — the same "vacuous ∀ proven against a model that cannot produce
+the input the claim needs to range over" gap `docs/tasks/PA6-read-binder-contract.md` names for
+short/partial reads (`MODEL_DEBT.md` §C1), recurring here one layer down (read *atomicity*, not read
+*length*). `spike4EmptyRecvClosesWithoutCorruption` below instead pins the fixed assembly's *own*
+observable behavior (a regression check, not a spec-equivalence claim) and confirms the connection
+immediately after it is unaffected.
 -/
+
+/- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
+/-- Combined route-correctness regression check across all three lowered targets for one request
+    string, verified against the honest per-request model (`serverModelTraceFor`, `Spec.lean`).
+    Used below to re-check every literal counterexample the (now-fixed) route-prefix bug's
+    "KNOWN DIVERGENCE" note used to name, so the bug documented above cannot silently return on any
+    target. -/
+def spike4RouteFixedOnAllTargets (req : String) : Bool :=
+  let expected := serverModelTraceFor req
+  (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req]) == expected) &&
+  (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [req]) == expected) &&
+  (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req] == expected.map Inject.inject)
+
+-- Every prefix-confusion witness the pre-fix "KNOWN DIVERGENCE" note named, plus the two
+-- specifically called out in docs/tasks/N8-spike4-stack-buffer-overflow.md's routing-bug writeup.
+#guard spike4RouteFixedOnAllTargets "GET /static HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "GET /search HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "GET /status_check HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "GET /statx HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "GET /statuses HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "GET /s HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "GET /shop HTTP/1.1\r\nHost: localhost\r\n\r\n"
+#guard spike4RouteFixedOnAllTargets "GET /settings HTTP/1.1\r\nHost: localhost\r\n\r\n"
+-- The one path that *should* still route to /status: the exact string, confirming the fix isn't
+-- an over-correction that broke the legitimate case.
+#guard spike4RouteFixedOnAllTargets "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+/- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
+/-- Widened-buffer, variable-size negative-control regression (N8's "variable sizes ... do not
+    crash or corrupt stack state" deliverable). Pairs a garbage/oversized-relative-to-the-old-16-byte-
+    buffer request with a well-formed canonical `GET /` request and checks two things about the
+    resulting *two-connection* trace: (1) its length is exactly 8 (`listen` once, then
+    `accept`/`recv`/`send`/`close` for each of the two connections) -- proving the garbage request's
+    recv into the widened 256-byte buffer did not hang, trap, or otherwise prevent the second
+    connection from being accepted and served; (2) the trailing 4 events exactly match the expected
+    honest response to the canonical request -- proving the garbage request did not corrupt any
+    state (buffer content, saved socket descriptors, WSADATA) that the *next* connection depends on.
+    This does not assert anything about the garbage connection's own response content (Spec.lean has
+    no defined behavior for non-"GET path HTTP/1.1" lines other than 400, which neither lowering
+    emits -- a pre-existing, N8-independent gap; see the note above `spike4RouteFixedOnAllTargets`). -/
+def spike4SecondConnectionUnaffectedByFirst (garbageReq : String) : Bool :=
+  let canonicalRoot := "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  let expectedTail : List AnyEvent :=
+    [ AnyEvent.of (NetEvent.accept "127.0.0.1"),
+      AnyEvent.of (NetEvent.recv canonicalRoot),
+      AnyEvent.of (NetEvent.send (formatResponse (routeRequest { method := "GET", path := "/", version := "HTTP/1.1" }))),
+      AnyEvent.of (NetEvent.close 101) ]
+  let check (trace : List AnyEvent) : Bool :=
+    -- `>= 8` is the minimum possible total (listen + 4 events for a teardown-without-send first
+    -- connection + 4 events for the second); the exact count of the *first* connection's own
+    -- events is deliberately not pinned here (see the doc comment above), only that the trace
+    -- ends with precisely the second connection's expected 4 events.
+    trace.length >= 8 && trace.drop (trace.length - 4) == expectedTail
+  check (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [garbageReq, canonicalRoot])) &&
+  check (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [garbageReq, canonicalRoot])) &&
+  check (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [garbageReq, canonicalRoot])
+
+#guard spike4SecondConnectionUnaffectedByFirst "X"                                    -- 1 byte
+#guard spike4SecondConnectionUnaffectedByFirst (String.ofList (List.replicate 15 'A'))    -- 15 bytes
+#guard spike4SecondConnectionUnaffectedByFirst (String.ofList (List.replicate 37 'B'))    -- 37 bytes, deliberately not the canonical valid 37-byte string
+#guard spike4SecondConnectionUnaffectedByFirst (String.ofList (List.replicate 120 'C'))   -- 120 bytes
+#guard spike4SecondConnectionUnaffectedByFirst (String.ofList (List.replicate 250 'D'))   -- 250 bytes, within 8 bytes of the widened 256-byte buffer's capacity
+
+/- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
+/-- Pins the fixed assembly's own behavior for a `recv`/`read` that returns exactly `0` (the one
+    case `docs/tasks/N8-spike4-stack-buffer-overflow.md`'s defect 2 concerns): the connection is
+    closed WITHOUT a `send` event (no uninitialized-buffer content is ever read or transmitted), and
+    the following connection is unaffected. See the note above `spike4RouteFixedOnAllTargets` for
+    why this is a regression check against the fix's own intended behavior rather than a
+    trace-equivalence claim against the honest model (which cannot represent a true zero-byte read
+    distinctly from "one more, possibly-empty, logical request"). -/
+def spike4EmptyRecvClosesWithoutCorruption : Bool :=
+  let emptyOnlyExpected : List AnyEvent :=
+    [ AnyEvent.of (NetEvent.listen 8080),
+      AnyEvent.of (NetEvent.accept "127.0.0.1"),
+      AnyEvent.of (NetEvent.recv ""),
+      AnyEvent.of (NetEvent.close 101) ]
+  (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [""]) == emptyOnlyExpected) &&
+  (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [""]) == emptyOnlyExpected) &&
+  (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [""] == emptyOnlyExpected.map Inject.inject) &&
+  spike4SecondConnectionUnaffectedByFirst ""
+
+#guard spike4EmptyRecvClosesWithoutCorruption
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 instance : EnvironmentLoader HttpRoute where

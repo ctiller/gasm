@@ -118,51 +118,71 @@ def spike4WasmInstructions : List WasmInstr := [
     .call 2,
     .local_set 2,
 
-    -- 4. Route request based on path at offset 0x404
-    -- Check if path starts with "/status" (0x73, 0x74, 0x61, 0x74 at 0x405..0x408)
-    -- Read byte at 0x405:
-    .i32_const 0x405,
-    .i32_load8_u 0 0,
-    .i32_const 0x73, -- 's'
-    .i32_eq,
+    -- 3b. Validate bytes_recv (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md, defect 2 analog
+    -- for this target). sock_recv only ever returns a non-negative count in this model (0 on
+    -- EOF/no data), so a plain i32_eqz suffices -- unlike the native targets there is no negative
+    -- errno return to additionally guard against here. On EOF, skip routing entirely rather than
+    -- inspecting a request buffer sock_recv never wrote into.
+    .local_get 2,
+    .i32_eqz,
     .if_else .empty [
-      -- Match /status:
-      .i32_const 0x100,
-      .local_set 3,
-      .i32_const respStatusBytes.size.toUInt32,
-      .local_set 4
+      -- EOF/no-data teardown: close the connection without touching the request buffer or sending
+      -- a response.
+      .local_get 1,
+      .call 4,
+      .drop
     ] [
-      -- Else check if path starts with "/ " (' ' = 0x20)
-      .i32_const 0x405,
-      .i32_load8_u 0 0,
-      .i32_const 0x20, -- ' '
-      .i32_eq,
+      -- 4. Route request based on the full path at offset 0x404 (buf 0x400 + "GET " prefix).
+      -- Exact 8-byte compare against "/status " (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
+      -- defect 3) -- the prior check read a *single* byte at offset 0x405 ('s'), matching ANY path
+      -- merely starting with "/s" ("/static", "/search", "/settings", even the bare path "/s");
+      -- strictly weaker than the Windows/Linux 5-byte "/stat" prefix bug it mirrors.
+      .i32_const 0x404,
+      .i64_load 0 0,
+      .i64_const 0x207375746174732F, -- "/status " (7 chars + trailing delimiter space)
+      .i64_eq,
       .if_else .empty [
-        -- Match /:
-        .i32_const 0x00,
+        -- Match /status:
+        .i32_const 0x100,
         .local_set 3,
-        .i32_const respRootBytes.size.toUInt32,
+        .i32_const respStatusBytes.size.toUInt32,
         .local_set 4
       ] [
-        -- Else 404:
-        .i32_const 0x200,
-        .local_set 3,
-        .i32_const resp404Bytes.size.toUInt32,
-        .local_set 4
-      ]
+        -- Else check if path is exactly "/ " (root, delimited by the following space) -- both
+        -- bytes at 0x404/0x405 checked together, not just the delimiter byte alone.
+        .i32_const 0x404,
+        .i32_load 0 0,
+        .i32_const 0x0000FFFF,
+        .i32_and,
+        .i32_const 0x202F, -- "/ "
+        .i32_eq,
+        .if_else .empty [
+          -- Match /:
+          .i32_const 0x00,
+          .local_set 3,
+          .i32_const respRootBytes.size.toUInt32,
+          .local_set 4
+        ] [
+          -- Else 404:
+          .i32_const 0x200,
+          .local_set 3,
+          .i32_const resp404Bytes.size.toUInt32,
+          .local_set 4
+        ]
+      ],
+
+      -- 5. sock_send(client_fd, resp_ptr, resp_len)
+      .local_get 1,
+      .local_get 3,
+      .local_get 4,
+      .call 3,
+      .drop,
+
+      -- 6. sock_close(client_fd)
+      .local_get 1,
+      .call 4,
+      .drop
     ],
-
-    -- 5. sock_send(client_fd, resp_ptr, resp_len)
-    .local_get 1,
-    .local_get 3,
-    .local_get 4,
-    .call 3,
-    .drop,
-
-    -- 6. sock_close(client_fd)
-    .local_get 1,
-    .call 4,
-    .drop,
 
     -- 7. Loop back to accept next connection
     .br 0

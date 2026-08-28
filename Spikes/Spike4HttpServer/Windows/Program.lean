@@ -77,21 +77,25 @@ def rdataPayload : ByteArray :=
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
 /-- Symbolic program definition for Spike 4 x86_64 Windows HTTP 1.1 Server.
-    Stack Layout (total 608 bytes allocated, maintaining (RSP - 608) % 16 == 0):
-      [RSP + 0x00..0x1F] : shadow space (32 bytes)
-      [RSP + 0x20..0x27] : server socket descriptor (8 bytes)
-      [RSP + 0x28..0x2F] : client socket descriptor (8 bytes)
-      [RSP + 0x30..0x3F] : sockaddr_in buffer (16 bytes)
-      [RSP + 0x40..0xBF] : HTTP request recv buffer (128 bytes)
-      [RSP + 0xC0..0x258] : WSADATA buffer (408 bytes)
+    Stack Layout (total 736 bytes allocated, maintaining (RSP - 736) % 16 == 0):
+      [RSP + 0x00..0x1F]  : shadow space (32 bytes)
+      [RSP + 0x20..0x27]  : server socket descriptor (8 bytes)
+      [RSP + 0x28..0x2F]  : client socket descriptor (8 bytes)
+      [RSP + 0x30..0x3F]  : sockaddr_in buffer (16 bytes)
+      [RSP + 0x40..0x13F] : HTTP request recv buffer (256 bytes -- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
+                             widened from a prior 128-byte allocation that left no safety margin for real-world
+                             requests with several headers; recv's `len` argument below always equals this buffer's
+                             size, so the write can never exceed it)
+      [RSP + 0x140..0x2D7]: WSADATA buffer (408 bytes -- pushed out to offset 0x140, which exceeds the 8-bit
+                             displacement range of `lea_rsp`, hence `lea_rsp32` below for its pointer)
 -/
 def spike4SymbolicProgram : List SymbolicInstr := [
-  -- 1. Setup 608-byte stack frame (accommodates 408-byte WSADATA + 128-byte recv + locals + shadow space)
-  instr (sub_rsp32 608),
+  -- 1. Setup 736-byte stack frame (accommodates 408-byte WSADATA + 256-byte recv + locals + shadow space)
+  instr (sub_rsp32 736),
 
-  -- 2. WSAStartup(0x0202, lpWSAData = RSP + 0xC0)
+  -- 2. WSAStartup(0x0202, lpWSAData = RSP + 0x140)
   instr (mov_r32 .ecx 0x0202),
-  instr (lea_rsp .rdx 0xC0),
+  instr (lea_rsp32 .rdx 320),
   call_import "WSAStartup",
 
   -- 3. socket(af = AF_INET (2), type = SOCK_STREAM (1), protocol = IPPROTO_TCP (6))
@@ -127,20 +131,28 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   call_import "accept",
   instr (mov_mem64_disp .rsp 0x28 .rax), -- Save client socket
 
-  -- 8. recv(client_fd, buf = RSP + 0x40, len = 128, flags = 0)
+  -- 8. recv(client_fd, buf = RSP + 0x40, len = 256, flags = 0)
   instr (mov_reg64_mem64_disp .rcx .rsp 0x28),
   instr (lea_rsp .rdx 0x40),
-  instr (mov_r32 .r8d 128),
+  instr (mov_r32 .r8d 256),
   instr (xor_r32 .r9d .r9d),
   call_import "recv",
 
+  -- 8b. Validate recv() return value (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md, defect 2).
+  -- recv returns the byte count received (> 0), 0 on graceful peer close, or SOCKET_ERROR (-1) on
+  -- error. RAX is sign-extended by the hook/hardware, so a signed JLE against 0 catches both the
+  -- 0 and -1 cases without ever reading the (possibly short/uninitialized) request buffer.
+  instr (cmp_r64_imm8 .rax 0x00),
+  jle_near_label "close_conn",
+
   -- 9. Inspect received HTTP request line at RSP + 0x40
-  -- Check if path is "/status" (at offset 4: "GET /status...")
+  -- Check if path is exactly "/status" followed by the request-line's delimiting space (at offset
+  -- 4: "GET /status ..."). Full 8-byte exact compare (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
+  -- defect 3) -- the prior 5-byte-masked "/stat" prefix compare mis-routed any path merely starting
+  -- with "/stat" (e.g. "/static") to the status handler.
   instr (lea_rsp .rsi (0x40 + 4)),
   instr (mov_reg64_mem64_disp .rax .rsi 0),
-  instr (mov_r64_imm64 .rdx 0xFFFFFFFFFF),
-  instr (and_r64 .rax .rdx),
-  instr (mov_r64_imm64 .rcx 0x746174732F), -- "/stat"
+  instr (mov_r64_imm64 .rcx 0x207375746174732F), -- "/status " (7 chars + trailing delimiter space)
   instr (cmp_r64 .rax .rcx),
   je_label "send_status",
 
@@ -181,7 +193,9 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   instr (xor_r32 .r9d .r9d),
   call_import "send",
 
-  -- 11. closesocket(client_fd)
+  -- 11. closesocket(client_fd) -- also the landing point for the recv-failure teardown above,
+  -- since RCX is reloaded from the saved client socket unconditionally.
+  label "close_conn",
   instr (mov_reg64_mem64_disp .rcx .rsp 0x28),
   call_import "closesocket",
 
