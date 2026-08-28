@@ -668,4 +668,365 @@ theorem canonical_not_prefix (lengths : Array Nat) (W : Nat) (hk : kraftOk lengt
       omega
     omega
 
+/-
+## The `buildHuffmanTreeAssign` induction: the live `nextCode` counters, the assigned
+## `codes` entries, and decode-tree correctness for every assigned symbol, carried
+## together through step 3's symbol scan.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Prefix population count for one length: how many of the first `pos` symbols carry
+    code length `l`. `rankF` is this count at the symbol's own position. -/
+def cntP (lengths : Array Nat) (l pos : Nat) : Nat :=
+  (List.range pos).countP (fun x => lengths[x]! == l)
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- `cntP` step when the scanned symbol has the counted length. -/
+theorem cntP_succ_eq {lengths : Array Nat} {l pos : Nat} (h : lengths[pos]! = l) :
+    cntP lengths l (pos + 1) = cntP lengths l pos + 1 := by
+  unfold cntP
+  rw [List.range_succ, List.countP_append]
+  simp [List.countP_cons, h]
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- `cntP` step when the scanned symbol has a different length. -/
+theorem cntP_succ_ne {lengths : Array Nat} {l pos : Nat} (h : ¬ lengths[pos]! = l) :
+    cntP lengths l (pos + 1) = cntP lengths l pos := by
+  unfold cntP
+  rw [List.range_succ, List.countP_append]
+  simp [List.countP_cons, h]
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- `rankF` is the prefix count of the symbol's own length at its own position. -/
+theorem rankF_eq_cntP (lengths : Array Nat) (pos : Nat) :
+    rankF lengths pos = cntP lengths (lengths[pos]!) pos := rfl
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- **The step-3 induction**: starting from correctly initialized canonical counters, the
+    assignment scan gives every valid symbol its canonical code in `codes` and makes the
+    decode tree resolve that code's path back to the symbol — for however many symbols the
+    fuel covers. -/
+theorem buildHuffmanTreeAssign_spec (lengths : Array Nat) (W : Nat) (hk : kraftOk lengths W) :
+    ∀ (fuel pos : Nat) (nextCode : Array Nat) (codes : Array (Option (Nat × Nat)))
+      (root : HuffmanNode),
+      nextCode.size = W + 1 →
+      (∀ l, 1 ≤ l → l ≤ W → nextCode[l]! = startCodeF lengths W l + cntP lengths l pos) →
+      codes.size = lengths.size →
+      (∀ s, s < pos → validLen lengths W s →
+        codes[s]! = some (canonicalCode lengths W s, lengths[s]!)) →
+      (∀ s, s < pos → validLen lengths W s →
+        treeWalk root (codeBits (canonicalCode lengths W s) lengths[s]!) = some s) →
+      (∀ s, s < pos + fuel → validLen lengths W s →
+        (buildHuffmanTreeAssign lengths W fuel pos nextCode codes root).1[s]!
+          = some (canonicalCode lengths W s, lengths[s]!)) ∧
+      (∀ s, s < pos + fuel → validLen lengths W s →
+        treeWalk (buildHuffmanTreeAssign lengths W fuel pos nextCode codes root).2.2
+          (codeBits (canonicalCode lengths W s) lengths[s]!) = some s) := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro pos nextCode codes root _ _ _ hcodes htree
+    exact ⟨fun s hs hv => hcodes s (by omega) hv, fun s hs hv => htree s (by omega) hv⟩
+  | succ fuel ih =>
+    intro pos nextCode codes root hncsize hnc hcsize hcodes htree
+    simp only [buildHuffmanTreeAssign]
+    split
+    · -- valid symbol at `pos`: assign and insert
+      rename_i hcond
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at hcond
+      have hvpos : validLen lengths W pos := ⟨hcond.1, hcond.2⟩
+      have hpos_lt : pos < lengths.size := validLen_lt_size hvpos
+      have hlpos : 1 ≤ lengths[pos]! := hcond.1
+      have hlW : lengths[pos]! ≤ W := hcond.2
+      -- the assigned code is the canonical code
+      have hcode_eq : nextCode[lengths[pos]!]! = canonicalCode lengths W pos := by
+        rw [hnc _ hlpos hlW]
+        unfold canonicalCode
+        rw [rankF_eq_cntP]
+      rw [hcode_eq]
+      -- re-established invariants at pos + 1
+      have hncsize' : (nextCode.set! lengths[pos]! (canonicalCode lengths W pos + 1)).size
+          = W + 1 := by rw [size_set!, hncsize]
+      have hnc' : ∀ l, 1 ≤ l → l ≤ W →
+          (nextCode.set! lengths[pos]! (canonicalCode lengths W pos + 1))[l]!
+            = startCodeF lengths W l + cntP lengths l (pos + 1) := by
+        intro l h1 h2
+        by_cases hleq : lengths[pos]! = l
+        · subst hleq
+          rw [getElem!_set!_eq _ _ _ (by omega), cntP_succ_eq rfl]
+          unfold canonicalCode
+          rw [rankF_eq_cntP]
+          omega
+        · rw [getElem!_set!_ne _ _ _ _ hleq, hnc _ h1 h2, cntP_succ_ne hleq]
+      have hcsize' : (codes.set! pos (some (canonicalCode lengths W pos, lengths[pos]!))).size
+          = lengths.size := by rw [size_set!, hcsize]
+      have hcodes' : ∀ s, s < pos + 1 → validLen lengths W s →
+          (codes.set! pos (some (canonicalCode lengths W pos, lengths[pos]!)))[s]!
+            = some (canonicalCode lengths W s, lengths[s]!) := by
+        intro s hs hv
+        rcases Nat.lt_or_ge s pos with hsp | hsp
+        · rw [getElem!_set!_ne _ _ _ _ (by omega)]
+          exact hcodes s hsp hv
+        · have hseq : s = pos := by omega
+          subst hseq
+          rw [getElem!_set!_eq _ _ _ (by omega)]
+      have htree' : ∀ s, s < pos + 1 → validLen lengths W s →
+          treeWalk (insertCode root pos (canonicalCode lengths W pos) lengths[pos]!)
+            (codeBits (canonicalCode lengths W s) lengths[s]!) = some s := by
+        intro s hs hv
+        unfold insertCode
+        rcases Nat.lt_or_ge s pos with hsp | hsp
+        · -- existing symbol: non-disturbance
+          exact insertCode_loop_preserve pos lengths[pos]! (canonicalCode lengths W pos)
+            root _ s (htree s hsp hv)
+            (canonical_not_prefix lengths W hk hv hvpos (by omega))
+            (canonical_not_prefix lengths W hk hvpos hv (by omega))
+        · -- the fresh symbol: self-decode
+          have hseq : s = pos := by omega
+          subst hseq
+          exact insertCode_loop_self s lengths[s]! (canonicalCode lengths W s) root
+      have hres := ih (pos + 1) _ _ _ hncsize' hnc' hcsize' hcodes' htree'
+      have he : pos + 1 + fuel = pos + (fuel + 1) := by omega
+      rw [he] at hres
+      exact hres
+    · -- invalid symbol at `pos`: skip
+      rename_i hcond
+      have hnv : ¬ validLen lengths W pos := by
+        intro hv
+        apply hcond
+        simp only [Bool.and_eq_true, decide_eq_true_eq]
+        exact ⟨hv.1, hv.2⟩
+      have hnc' : ∀ l, 1 ≤ l → l ≤ W →
+          nextCode[l]! = startCodeF lengths W l + cntP lengths l (pos + 1) := by
+        intro l h1 h2
+        rw [hnc _ h1 h2, cntP_succ_ne]
+        intro heq
+        exact hnv ⟨by omega, by omega⟩
+      have hcodes' : ∀ s, s < pos + 1 → validLen lengths W s →
+          codes[s]! = some (canonicalCode lengths W s, lengths[s]!) := by
+        intro s hs hv
+        rcases Nat.lt_or_ge s pos with hsp | hsp
+        · exact hcodes s hsp hv
+        · have hseq : s = pos := by omega
+          subst hseq
+          exact absurd hv hnv
+      have htree' : ∀ s, s < pos + 1 → validLen lengths W s →
+          treeWalk root (codeBits (canonicalCode lengths W s) lengths[s]!) = some s := by
+        intro s hs hv
+        rcases Nat.lt_or_ge s pos with hsp | hsp
+        · exact htree s hsp hv
+        · have hseq : s = pos := by omega
+          subst hseq
+          exact absurd hv hnv
+      have hres := ih (pos + 1) _ _ _ hncsize hnc' hcsize hcodes' htree'
+      have he : pos + 1 + fuel = pos + (fuel + 1) := by omega
+      rw [he] at hres
+      exact hres
+
+/-
+## Bridging `buildHuffmanTable`'s imperative steps 1–2 to the closed forms, and the final
+## per-symbol table specification.
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- No symbols carry length 0 in the assignable sense. -/
+theorem blCountF_zero (lengths : Array Nat) (W : Nat) : blCountF lengths W 0 = 0 := by
+  unfold blCountF
+  rw [if_neg (by omega)]
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- The in-range population count over the whole array is `blCountF`. -/
+theorem cntP_size_eq_blCountF (lengths : Array Nat) (W : Nat) {l : Nat}
+    (h1 : 1 ≤ l) (h2 : l ≤ W) :
+    cntP lengths l lengths.size = blCountF lengths W l := by
+  unfold cntP blCountF
+  rw [if_pos ⟨h1, h2⟩]
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Step 1 (code-length counting) characterized: after scanning the first `n` symbols the
+    histogram holds each in-range length's prefix population, index 0 still zero. -/
+theorem blCountFold_spec (lengths : Array Nat) (W : Nat) : ∀ n : Nat,
+    ((List.range' 0 n).foldl (fun bl i =>
+        if (decide (lengths[i]! > 0) && decide (lengths[i]! ≤ W)) = true then
+          bl.set! lengths[i]! (bl[lengths[i]!]! + 1)
+        else bl) (Array.replicate (W + 1) 0)).size = W + 1 ∧
+    ∀ l, l ≤ W →
+      ((List.range' 0 n).foldl (fun bl i =>
+          if (decide (lengths[i]! > 0) && decide (lengths[i]! ≤ W)) = true then
+            bl.set! lengths[i]! (bl[lengths[i]!]! + 1)
+          else bl) (Array.replicate (W + 1) 0))[l]! =
+        if 1 ≤ l then cntP lengths l n else 0 := by
+  intro n
+  induction n with
+  | zero =>
+    refine ⟨by simp, ?_⟩
+    intro l hl
+    rw [show (List.range' 0 0 : List Nat) = [] from rfl, List.foldl_nil,
+      getElem!_replicate _ _ _ (by omega)]
+    by_cases h1 : 1 ≤ l
+    · rw [if_pos h1]
+      simp [cntP]
+    · rw [if_neg h1]
+  | succ n ih =>
+    rw [List.range'_1_concat, Nat.zero_add, List.foldl_append, List.foldl_cons, List.foldl_nil]
+    constructor
+    · split
+      · rw [size_set!]
+        exact ih.1
+      · exact ih.1
+    · intro l hl
+      split
+      · rename_i hcond
+        simp only [Bool.and_eq_true, decide_eq_true_eq] at hcond
+        by_cases hleq : lengths[n]! = l
+        · subst hleq
+          rw [getElem!_set!_eq _ _ _ (by rw [ih.1]; omega), ih.2 _ hl,
+            if_pos (by omega : 1 ≤ lengths[n]!), if_pos (by omega : 1 ≤ lengths[n]!),
+            cntP_succ_eq rfl]
+        · rw [getElem!_set!_ne _ _ _ _ hleq, ih.2 _ hl]
+          by_cases h1 : 1 ≤ l
+          · rw [if_pos h1, if_pos h1, cntP_succ_ne hleq]
+          · rw [if_neg h1, if_neg h1]
+      · rename_i hcond
+        rw [ih.2 _ hl]
+        by_cases h1 : 1 ≤ l
+        · rw [if_pos h1, if_pos h1, cntP_succ_ne]
+          intro heq
+          apply hcond
+          simp only [Bool.and_eq_true, decide_eq_true_eq]
+          omega
+        · rw [if_neg h1, if_neg h1]
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Step 2 (starting codes) characterized: after processing lengths `1..k` the running
+    code is `startCodeF k` and every processed slot holds its canonical starting code. -/
+theorem nextCodeFold_spec (lengths : Array Nat) (W : Nat) (blArr : Array Nat)
+    (hbl : ∀ l, l ≤ W → blArr[l]! = if 1 ≤ l then blCountF lengths W l else 0) :
+    ∀ k, k ≤ W →
+      ((List.range' 1 k).foldl (fun b a =>
+          ((b.1 + blArr[a - 1]!) <<< 1, b.2.set! a ((b.1 + blArr[a - 1]!) <<< 1)))
+        (0, Array.replicate (W + 1) 0)).1 = startCodeF lengths W k ∧
+      ((List.range' 1 k).foldl (fun b a =>
+          ((b.1 + blArr[a - 1]!) <<< 1, b.2.set! a ((b.1 + blArr[a - 1]!) <<< 1)))
+        (0, Array.replicate (W + 1) 0)).2.size = W + 1 ∧
+      ∀ l, 1 ≤ l → l ≤ k →
+        ((List.range' 1 k).foldl (fun b a =>
+            ((b.1 + blArr[a - 1]!) <<< 1, b.2.set! a ((b.1 + blArr[a - 1]!) <<< 1)))
+          (0, Array.replicate (W + 1) 0)).2[l]! = startCodeF lengths W l := by
+  intro k
+  induction k with
+  | zero =>
+    intro _
+    refine ⟨rfl, by simp, ?_⟩
+    intro l h1 h2
+    omega
+  | succ k ih =>
+    intro hkW
+    have ihk := ih (by omega)
+    rw [List.range'_1_concat, List.foldl_append, List.foldl_cons, List.foldl_nil]
+    rw [show 1 + k - 1 = k from by omega]
+    have hblk : blArr[k]! = blCountF lengths W k := by
+      rw [hbl k (by omega)]
+      by_cases h1 : 1 ≤ k
+      · rw [if_pos h1]
+      · rw [if_neg h1]
+        have hk0 : k = 0 := by omega
+        rw [hk0, blCountF_zero]
+    have hcode : (((List.range' 1 k).foldl (fun b a =>
+          ((b.1 + blArr[a - 1]!) <<< 1, b.2.set! a ((b.1 + blArr[a - 1]!) <<< 1)))
+        (0, Array.replicate (W + 1) 0)).1 + blArr[k]!) <<< 1 = startCodeF lengths W (k + 1) := by
+      rw [ihk.1, hblk, Nat.shiftLeft_eq]
+      show (startCodeF lengths W k + blCountF lengths W k) * 2 ^ 1
+          = (startCodeF lengths W k + blCountF lengths W k) * 2
+      rfl
+    refine ⟨hcode, ?_, ?_⟩
+    · rw [size_set!]
+      exact ihk.2.1
+    · intro l h1 h2
+      by_cases hleq : (1 + k) = l
+      · rw [← hleq]
+        rw [getElem!_set!_eq _ _ _ (by rw [ihk.2.1]; omega), hcode]
+        congr 1
+        omega
+      · rw [getElem!_set!_ne _ _ _ _ hleq]
+        exact ihk.2.2 l h1 (by omega)
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Step 1's result, named: the code-length histogram `buildHuffmanTable` computes. -/
+def blCountArr (lengths : Array Nat) (W : Nat) : Array Nat :=
+  (List.range' 0 lengths.size).foldl (fun bl i =>
+      if (decide (lengths[i]! > 0) && decide (lengths[i]! ≤ W)) = true then
+        bl.set! lengths[i]! (bl[lengths[i]!]! + 1)
+      else bl) (Array.replicate (W + 1) 0)
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Step 2's result, named: the starting-code array `buildHuffmanTable` computes. -/
+def nextCodeArr (lengths : Array Nat) (W : Nat) : Array Nat :=
+  ((List.range' 1 W).foldl (fun b a =>
+      ((b.1 + (blCountArr lengths W)[a - 1]!) <<< 1,
+        b.2.set! a ((b.1 + (blCountArr lengths W)[a - 1]!) <<< 1)))
+    (0, Array.replicate (W + 1) 0)).2
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- `buildHuffmanTable` assembled from its three passes, with steps 1–2 in named form. -/
+theorem buildHuffmanTable_eq (lengths : Array Nat) (W : Nat) :
+    buildHuffmanTable lengths W =
+      { maxBits := W,
+        codes := (buildHuffmanTreeAssign lengths W lengths.size 0 (nextCodeArr lengths W)
+          (Array.replicate lengths.size none) (HuffmanNode.branch none none)).1,
+        root := (buildHuffmanTreeAssign lengths W lengths.size 0 (nextCodeArr lengths W)
+          (Array.replicate lengths.size none) (HuffmanNode.branch none none)).2.2 } := by
+  have ite_pure_yield : ∀ {c : Prop} [Decidable c] (a b : Array Nat),
+      (if c then (pure (ForInStep.yield a) : Id (ForInStep (Array Nat)))
+       else pure (ForInStep.yield b)) = pure (ForInStep.yield (if c then a else b)) := by
+    intro c _ a b
+    split <;> rfl
+  unfold buildHuffmanTable nextCodeArr blCountArr
+  simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size, ite_pure_yield,
+    List.forIn_pure_yield_eq_foldl, Id.run, pure_bind, Nat.sub_zero, Nat.add_sub_cancel,
+    Nat.div_one]
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- The named starting-code array satisfies the closed-form characterization. -/
+theorem nextCodeArr_spec (lengths : Array Nat) (W : Nat) :
+    (nextCodeArr lengths W).size = W + 1 ∧
+    ∀ l, 1 ≤ l → l ≤ W → (nextCodeArr lengths W)[l]! = startCodeF lengths W l := by
+  have h1 := blCountFold_spec lengths W lengths.size
+  have hbl : ∀ l, l ≤ W → (blCountArr lengths W)[l]! =
+      if 1 ≤ l then blCountF lengths W l else 0 := by
+    intro l hl
+    show ((List.range' 0 lengths.size).foldl _ _)[l]! = _
+    rw [h1.2 l hl]
+    by_cases hc : 1 ≤ l
+    · rw [if_pos hc, if_pos hc, cntP_size_eq_blCountF lengths W hc hl]
+    · rw [if_neg hc, if_neg hc]
+  have h2 := nextCodeFold_spec lengths W (blCountArr lengths W) hbl W (Nat.le_refl W)
+  exact ⟨h2.2.1, h2.2.2⟩
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- **L2d, the per-symbol table specification**: under the Kraft bound, `buildHuffmanTable`
+    assigns every valid symbol exactly its RFC 1951 §3.2.2 canonical code at its declared
+    length, and the decode tree resolves that code's MSB-first path back to the symbol —
+    for an ARBITRARY length array, with no finite enumeration anywhere. -/
+theorem buildHuffmanTable_symbol_spec (lengths : Array Nat) (W : Nat) (hk : kraftOk lengths W)
+    {s : Nat} (hv : validLen lengths W s) :
+    (buildHuffmanTable lengths W).codes[s]! = some (canonicalCode lengths W s, lengths[s]!) ∧
+    treeWalk (buildHuffmanTable lengths W).root
+      (codeBits (canonicalCode lengths W s) lengths[s]!) = some s := by
+  have hnc := nextCodeArr_spec lengths W
+  have hspec := buildHuffmanTreeAssign_spec lengths W hk lengths.size 0
+    (nextCodeArr lengths W) (Array.replicate lengths.size none) (HuffmanNode.branch none none)
+    hnc.1
+    (by
+      intro l hl1 hl2
+      rw [hnc.2 l hl1 hl2]
+      show _ = startCodeF lengths W l + cntP lengths l 0
+      simp [cntP])
+    (by simp)
+    (by intro s' hs' _; omega)
+    (by intro s' hs' _; omega)
+  rw [buildHuffmanTable_eq]
+  have hs := validLen_lt_size hv
+  exact ⟨hspec.1 s (by omega) hv, hspec.2 s (by omega) hv⟩
+
 end Stdlib.Zlib
