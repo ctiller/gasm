@@ -232,7 +232,17 @@ each filter step (`sub_filter_step_invertible`/`up_filter_step_invertible`/
 vectors -- see `Stdlib/Png/Equivalence.lean`'s `unfilterFold_filterFold_get`.
 
 ### 6.2 Canonical 1.5-Roundtrip Soundness Theorem
-Every valid PNG byte stream decodes to an canonical image representation, and re-encoding that representation yields a stream that decodes to the exact same image:
+
+**Status**: the universal statement below is a **target, not yet implemented** — no `.lean` file
+declares `png_idempotent_canonical_roundtrip`. It is tracked as PA16 (L10/L11 in
+`docs/PA16_CODEC_SOUNDNESS.md` §4), and is downstream of the DEFLATE obligations
+(`docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems`), since `Png.encode`/
+`Png.decode` route through `Stdlib.Zlib`. What exists in the tree today is
+`png_idempotent_canonical_roundtrip_inst` (`Stdlib/Png/Equivalence.lean:380`) and
+`png_roundtrip_soundness_inst` (`:367`) — `native_decide` ground checks over single hard-coded
+images, not universal theorems. The intended statement is: every valid PNG byte stream decodes to
+a canonical image representation, and re-encoding that representation yields a stream that decodes
+to the exact same image.
 
 ```lean
 theorem png_idempotent_canonical_roundtrip (bytes : ByteArray) :

@@ -96,6 +96,12 @@ $$\forall m_0, m_0 \models \text{Pre} \implies \exists m_{\text{final}}\text{ }k
 
 Every verified routine exports three independent theorems for distinct verification consumers:
 
+**Status**: the `memcpy_*` theorems in §4.1–§4.3 are a **worked illustration of the shape**, not
+tree contents — `memcpy`, `memcpy_program` and all three theorem names appear in no `.lean` file.
+They are the canonical example of what a routine's three-way split looks like; the real instances
+of this pattern live in the spike equivalence modules (`Spikes/*/Equivalence.lean`). Read them as
+a template to write against, not as a claim about what is proved today.
+
 ```
                                  +-------------------------------------+
                                  | Verified Assembly Program AST (ASM) |

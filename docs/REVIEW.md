@@ -223,7 +223,7 @@ This subsection specifies what the two Law 10 gate tools implement, so that Pill
 - **Module-based scoping**: a declaration is in scope for the axiom tool if it was *compiled from* a project module (`env.getModuleIdxFor?` names a module under the `Gasm`/`Stdlib`/`Spikes` umbrella roots) — not if its own name merely looks like it lives under one of those namespaces. This closure-based scoping is itself incomplete: `TCB.md` T2 documents that 32 of 170 project `.lean` modules (every `Spikes/*/Emit.lean`, every `Test.lean`, the fuzzer CLIs, `NASM.lean`, `RoundtripTests.lean`) sit outside the tool's own import closure and are therefore invisible to it today; closing that gap is TC15.
 - **Why the axiom tool keys on fully-qualified name, not bare name**: the Python pre-check can only see unqualified source text, so it keys on `(file, decl)`. The axiom tool sees the compiled environment and keys on `fqn` instead, because a bare-name key is exploitable — `namespace Foo.Bar; theorem crc32_empty : ... := by native_decide` would collide with an unrelated, already-allowlisted `crc32_empty` and pass for free. FQN-keying is what closes that collision.
 - **The two-tool split**: `scripts/check_gates.py` is a fast, milliseconds-scale, line-regex pre-check over `.lean` source text — defense-in-depth, not the gate, because it can only recognize tactic spellings it already knows and cannot see what the compiled kernel environment actually recorded. `lake exe check_gates_axioms` (`Tools/CheckGatesAxioms.lean`) is the load-bearing gate: it imports the project and asks Lean's own axiom-dependency machinery (`Lean.collectAxioms`) which axioms each declaration depends on, which is immune to source-level disguise because it reads what the kernel recorded rather than what the source text says. Neither tool's coverage alone is authoritative; today the two tools' union is what is actually checked (see TC15 for closing that gap for the axiom tool specifically).
-7. **Doc-Facade Linter (TC21):** `python scripts/check_doc_facade.py` must return exit code 0. Detects normative docs (`docs/*.md`, excluding `docs/adr/` and `docs/tasks/`) asserting enforcement the tree does not actually provide: a backtick-quoted Lean identifier cited inside a MUST/is-implemented-shaped claim that does not appear anywhere in the `.lean` tree (`MECHANISM_ABSENT`), or this document naming a script/`lake exe` target as a required gate that either does not exist on disk or exists but is not wired into `scripts/run_gates.py`'s gate table (`GATE_SCRIPT_MISSING`/`GATE_NOT_WIRED` — the shape that let `check_licenses.py` go unwired despite being listed as required, discovered this week). Honors the `**Status**:` escape hatch (Law 9): a claim honestly marked designed-not-built is never flagged. Genuine exceptions require a justified entry in `scripts/doc_facade_allowlist.txt` (5 `::`-delimited fields, same shape as `scripts/gate_allowlist.txt`). See `scripts/check_doc_facade.py`'s own module docstring for the full specification, including the shapes deliberately rejected as unable to be made precise.
+7. **Doc-Facade Linter (TC21):** `python scripts/check_doc_facade.py` must return exit code 0. Detects normative docs (`docs/*.md`, excluding `docs/adr/` and `docs/tasks/`) asserting enforcement the tree does not actually provide: a backtick-quoted Lean identifier cited inside a MUST/is-implemented-shaped claim that does not appear anywhere in the `.lean` tree (`MECHANISM_ABSENT`), or this document naming a script/`lake exe` target as a required gate that either does not exist on disk or exists but is not wired into `scripts/run_gates.py`'s gate table (`GATE_SCRIPT_MISSING`/`GATE_NOT_WIRED` — the shape that let `check_licenses.py` go unwired despite being listed as required, discovered this week), or a ```lean-fenced block DISPLAYING a `theorem`/`lemma` whose name is declared in no `.lean` file (`THEOREM_FENCE_ABSENT`, TC22 — checks 1 and 2 both operate on prose with fenced blocks stripped, so a fabricated theorem shown as code was structurally invisible to them; two had slipped through, `docs/TARGETS/X86_64.md` §3's `x86_mov_store_is_release` and `docs/STDLIB_ZLIB.md` §6.2/§6.3's six roundtrip-soundness theorems). Honors the `**Status**:` escape hatch (Law 9): a claim honestly marked designed-not-built is never flagged. `THEOREM_FENCE_ABSENT` additionally honors a **file-level** design declaration (a `**Status**:`-led line in the file preamble), because design documents here disclose their nature once at file level rather than per section, and scans root-level `*.md` as well as `docs/`. Genuine exceptions require a justified entry in `scripts/doc_facade_allowlist.txt` (5 `::`-delimited fields, same shape as `scripts/gate_allowlist.txt`). See `scripts/check_doc_facade.py`'s own module docstring for the full specification, including the shapes deliberately rejected as unable to be made precise.
 8. **Differential Fuzzers (PR-scoped):** `lake exe test_roundtrip`, `lake exe x86_fuzzer` (hardware oracle), `lake exe encoding_fuzzer` (NASM oracle), `lake exe wasm_fuzzer` (node oracle), and `lake exe gzip_fuzzer` (python stdlib oracle) must all exit 0.
 9. **Spike/Stdlib CLI test suites:** the spike and stdlib `test_*` executables that `defaultTargets` builds — `lake build` compiling them is not the same as running them (the same distinction item 4 draws for `check_gates_axioms`) — must also be invoked and must exit 0. See `scripts/run_gates.py`'s gate table for the current list.
 10. **x86-64 Instruction Obligation Gate (P4/P5, D30/[`0039`](adr/0039-x86-isa-expansion-prerequisites.md)):** `lake exe check_x86_obligations` — **run from the repository root; building the executable is not running it, the same distinction item 4 draws for `check_gates_axioms`** — must exit 0. `docs/X86_ISA_EXPANSION_PREREQUISITES.md` measured that only encode/decode registration was mandatory for a new x86-64 instruction: a probe instruction with identity semantics, an empty uop list, and zero fuzz states compiled cleanly, and two obligations were convention-only — whether ANY oracle (silicon or NASM) ever validated the instance's claimed behavior, and whether its `toUops` cost coefficients traced to any real source. The owner's ruling (D30) is that these are ONE obligation, not two: `Instructions/Base.lean`'s `validationOracle`/`costProvenance` fields are mandatory, no-default fields on `X86_64Instruction` (`Instructions/Obligations.lean`) — exactly like `roundtripCases` — so an instance cannot compile without declaring both; this is the LOAD-BEARING half, immune to a script simply not being run. `lake exe check_x86_obligations` is the honesty check field presence alone cannot provide: it walks the registry and fails if `toUops` is empty, a `.silicon` claim disagrees with `canFuzzHardware` or its fuzz-vector count is below the vacuity floor, any reason/citation string is vacuously short, or a `.optedOut` instance has no matching, justified `scripts/x86_obligation_allowlist.txt` entry (currently empty, correctly — every registered form resolves to `.silicon` or `.nasmEncoding`). The calibration side's honest state (0 of 1611 registry witnesses are `.cited`, all `.modelInternalUnvalidated`) is reported every run, not gated red: no coefficient in this tree has a legitimate source to cite until F1 (`docs/tasks/F1-rdtsc-harness.md`, unbuilt) exists, per `docs/CALIBRATION_GOVERNANCE.md` #9/#11. See `Tools/CheckX86Obligations.lean`'s own module docstring for the full specification.
@@ -267,7 +267,52 @@ Reviewers MUST author an explicit evaluation across four architectural axes:
 3. **Factoring & DRY:** Is common execution, decoding, or emission infrastructure factored into shared modules rather than duplicated across spikes or libraries?
 4. **Diffusion vs. Concentration:** Are critical system invariants centralized in authoritative modules rather than scattered across disparate files?
 
-### 4.4 The Approval State Machine
+### 4.4 Standing Review Notes
+
+Owner-issued directives that reviewers MUST check on every change. Each records whose
+words it is, per the provenance discipline used in `docs/adr/`.
+
+#### 4.4.1 No machine-local facts in the repository (Craig, 2026-08-28)
+
+> "committing things about the local machine is not useful to anyone else, and a potential
+> security risk: don't do that"
+
+Facts about the machine a change happened to be developed on do not belong in tracked
+files. Two independent reasons, and either alone is sufficient:
+
+- **Useless to others.** A timing, job count, path, or hardware detail true on one
+  developer's box is not true on a reviewer's, on CI, or on the vendor Linux fleet. It
+  reads as a fact and behaves as noise, and it cannot be falsified by anyone who did not
+  produce it.
+- **Disclosure surface.** The repository is public. Machine layout, usernames, hostnames,
+  toolchain locations, and hardware fingerprints are attack-surface reconnaissance that
+  the work itself never required publishing.
+
+**The sanctioned path already exists.** Law 14 governs measured data about this machine as
+a third reference class: checked in, regenerable by a committed harness, provenance-stamped
+with host fingerprint and run conditions, never hand-edited. Measurement that matters goes
+through Law 14. Measurement that does not matter goes nowhere.
+
+**The prohibited shape is the casual middle ground** — a machine-derived number written into
+a source comment or a design document as prose, with no harness, no host, and no provenance.
+It is not covered by Law 14 because it was never filed as calibration data, and it is not
+covered by `check_publishable.py`'s `MACHINE_PATH` sweep because it is not a path. Reviewers
+must catch it by reading.
+
+**Known instance at the time of writing**: `Gasm/Targets/X86_64/RoundtripGate.lean`'s Stage B
+note records build timings ("measured: 15 jobs / ~177s ... vs. 14 jobs / ~30s") as a source
+comment. The *decision* it justifies is sound and should stay; the bare local numbers are the
+prohibited shape. **Status**: not yet corrected.
+
+**Gate status**: `scripts/check_publishable.py` mechanically covers machine paths, secrets,
+and tracked binaries (categories `SECRET`, `MACHINE_PATH`, `TRACKED_BINARY`) and currently
+reports zero findings across tracked files. It does **not** cover machine-derived timings or
+hardware descriptions in prose. Under Law 13 that gap is a gate obligation, not a permanent
+exemption; it is unfiled pending a measurement of how often the shape actually occurs.
+
+---
+
+### 4.5 The Approval State Machine
 - **Gate 1 (Mechanical):** Did `python scripts/run_gates.py` (full mode; see Section 4.1) — `lake build`, `python scripts/check_refs.py`, `python scripts/check_gates.py`, `lake exe check_gates_axioms` from the repo root, `python scripts/check_references.py --offline`, `python scripts/check_publishable.py`, `python scripts/check_licenses.py`, `python scripts/check_record.py`, `python scripts/check_doc_facade.py`, `lake exe check_x86_obligations` from the repo root, the differential fuzzers, and the spike/stdlib CLI test suites — pass?
   - *No $\to$ REJECT IMMEDIATELY.*
 - **Gate 2 (Semantic):** Was the Spec-to-Theorem Derivation provided? Are there any `Weakened` or `Uncovered` domain gaps in the matrix?

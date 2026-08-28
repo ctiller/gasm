@@ -61,6 +61,52 @@ def s2b (s : String) : List UInt8 := s.toUTF8.toList
   | .ok r => r.statusCode == 500 ∧ r.reason == s2b "Internal Server Error"
   | .error _ => false
 
+-- === Canonicalization: what the parser deliberately normalizes, and what it must not ===
+--
+-- `docs/STDLIB_HTTP11.md#52-parse-reencode-stability-theorems`: this library's standard is
+-- SEMANTIC round-tripping, not byte round-tripping. `request_roundtrip` proves the parser
+-- inverts the writer for every structured value, but it says nothing about which DISTINCT
+-- byte strings collapse to the same `Request` -- and that collapsing is intended behaviour
+-- for `Content-Length`, not lossiness. Until these vectors it was an undocumented intention,
+-- discoverable only by reading `digitBytesToNat?`/`isContentLengthName`. The third vector is
+-- the boundary: it pins what is NOT canonicalized, so a future "helpful" normalization of
+-- ordinary header names (which would falsify `request_roundtrip`) fails here first, at the
+-- cheap check.
+
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
+/- A leading-zero `Content-Length` denotes the same length: `007` and `7` parse to the same
+    `Request`. The writer re-emits the minimal form (`natToDigitBytes`), which is what makes
+    this canonicalization rather than information loss. -/
+#guard match parseRequest (s2b "POST /x HTTP/1.1\r\nHost: h\r\nContent-Length: 007\r\n\r\nabcdefg"),
+             parseRequest (s2b "POST /x HTTP/1.1\r\nHost: h\r\nContent-Length: 7\r\n\r\nabcdefg") with
+  | .ok r1, .ok r2 =>
+      r1.method == r2.method ∧ r1.target == r2.target ∧ r1.headers == r2.headers ∧
+      r1.body == r2.body ∧ r1.body == s2b "abcdefg"
+  | _, _ => false
+
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
+/- The `Content-Length` field NAME is matched case-insensitively (`isContentLengthName`), and
+    the header is then dropped from `Request.headers` entirely -- it is writer-synthesized from
+    `body.length`, never caller-supplied (`headerFieldOk` forbids it). So `content-length` and
+    `Content-Length` parse to the same `Request`. -/
+#guard match parseRequest (s2b "GET / HTTP/1.1\r\nHost: h\r\ncontent-length: 0\r\n\r\n"),
+             parseRequest (s2b "GET / HTTP/1.1\r\nHost: h\r\nContent-Length: 0\r\n\r\n") with
+  | .ok r1, .ok r2 =>
+      r1.method == r2.method ∧ r1.target == r2.target ∧ r1.headers == r2.headers ∧
+      r1.body == r2.body
+  | _, _ => false
+
+/- REF: docs/STDLIB_HTTP11.md#23-header-fields -/
+/- The boundary. An ORDINARY header's field-name case is preserved verbatim, NOT folded:
+    `host:` and `Host:` are both accepted and parse to DIFFERENT `Request`s. This is forced by
+    `request_roundtrip` -- the writer emits `Request.headers` back byte-for-byte, so any case
+    folding in the parser would immediately falsify it. Case-insensitive treatment is scoped to
+    `Content-Length` alone, and only because that header never survives into `Request.headers`. -/
+#guard match parseRequest (s2b "GET / HTTP/1.1\r\nhost: h\r\nContent-Length: 0\r\n\r\n"),
+             parseRequest (s2b "GET / HTTP/1.1\r\nHost: h\r\nContent-Length: 0\r\n\r\n") with
+  | .ok r1, .ok r2 => !(r1.headers == r2.headers)
+  | _, _ => false
+
 -- === Malformed input: one vector per `Error` rejection reason ===
 
 /- REF: docs/STDLIB_HTTP11.md#31-error-taxonomy -/
@@ -181,8 +227,8 @@ def main : IO UInt32 := do
   IO.println "======================================================================"
   IO.println " Stdlib.Http11 Test Suite (RFC 9112 request/response parser and writer)"
   IO.println "======================================================================"
-  IO.println "[+] All #guard regression vectors passed at build time (20 checks: 4"
-  IO.println "    well-formed parses, 14 Error-taxonomy rejections, 2 status-line edge"
-  IO.println "    cases)."
+  IO.println "[+] All #guard regression vectors passed at build time (23 checks: 4"
+  IO.println "    well-formed parses, 3 canonicalization/preservation vectors, 14"
+  IO.println "    Error-taxonomy rejections, 2 status-line edge cases)."
   IO.println "\n[+] ALL STDLIB.HTTP11 TESTS PASSED (100% SUCCESS)."
   return 0

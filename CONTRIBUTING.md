@@ -82,6 +82,27 @@ the Linux target currently in progress under `docs/TARGETS/`):
   work. A document that already says "this is a design, not yet built" is
   never flagged, no matter how many not-yet-existing identifiers it names.
 
+**Displaying a theorem you have not proved (TC22).** The same linter's
+`THEOREM_FENCE_ABSENT` check covers the shape the rules above cannot see: a
+```lean-fenced block that *shows* a `theorem`/`lemma` declaration whose name is
+declared in no `.lean` file. A displayed theorem manufactures more confidence
+than any sentence — it carries the visual authority of checked code — so this
+one is checked separately, and by declaration site rather than by "the name
+appears somewhere". Marking such a block aspirational works the same way, with
+two extra affordances:
+
+- The `**Status**:` marker may sit anywhere in the **enclosing `#`-heading
+  section** — before or after the block — or in the intro of any **ancestor**
+  section (a marker on `## 4` covers `### 4.1`–`### 4.3`).
+- If the *whole file* is a design document, one `**Status**:`-led line in the
+  **file preamble** (before the second `##` heading) covers every block in it —
+  the way `docs/MEMORY_HOOK.md` §1 does. This is how most design docs here
+  actually disclose, and it is why the file-level escape exists.
+- If neither would be honest — a pedagogical worked example or a placeholder
+  name like `foo_correct` is not "a design pending implementation", and saying
+  so would be its own false claim — add a justified
+  `scripts/doc_facade_allowlist.txt` entry instead.
+
 ## The Stop-and-Design Invariant (Law 5)
 
 > Whenever a task demands any concept, instruction, ABI rule, binary header,

@@ -96,9 +96,20 @@ def gzipPipelineMonadic (m : Type → Type) [Monad m] [MonadFileSystem m] [Monad
 
 ## 5. Semantic Trace Equivalence & Verification Contract
 
-The lowering theorems for both Windows x86_64 (`spike5_windows_gzip_trace_equivalence`) and WebAssembly (`spike5_wasm_gzip_trace_equivalence`) prove constructive trace equivalence against the high-level pure specification:
-```lean
-theorem gzip_roundtrip_soundness (data : ByteArray) :
-  gzipDecompress (gzipCompress data) = .ok data
-```
-Discharged constructively with zero `sorry` and validated in automated test suites.
+The lowering theorems for both Windows x86_64 (`spike5_windows_gzip_trace_equivalence`,
+`Spikes/Spike5Gzip/Equivalence.lean:70`) and WebAssembly (`spike5_wasm_gzip_trace_equivalence`,
+`:84`) prove constructive trace equivalence between each target's lowering and the high-level
+pure specification. Those two theorems are real, discharged constructively with zero `sorry`,
+and exercised in the automated test suites.
+
+**Status** (corrected 2026-08-28): this section previously displayed, as the specification those
+lowerings are equivalent *to*, a block reading `theorem gzip_roundtrip_soundness (data :
+ByteArray) : gzipDecompress (gzipCompress data) = .ok data`, described as "discharged
+constructively with zero `sorry`". **That theorem has never existed in the tree.** Trace
+equivalence between a lowering and a specification is a different claim from soundness of the
+specification itself, and only the former is proved here. The universal GZIP-container roundtrip
+is an open PA16 obligation (L9, itself downstream of L7's dynamic branch); what exists today is
+`gzip_roundtrip_soundness_inst` — a `native_decide` check over one string literal — plus, at the
+DEFLATE layer, the genuinely universal `emitFixedBlock_roundtrip_soundness` and the conditional
+`compress_roundtrip_of_fixed_choice`. See `docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems`
+and `docs/PA16_CODEC_SOUNDNESS.md` §9.

@@ -128,12 +128,35 @@ deterministically in-tree: `test_zlib`'s `testDynamicHuffman` hard-fails if the 
 not chosen and decoded, and `gzip_fuzzer`'s Direction 3 cross-checks every vector's
 fixed-or-dynamic DEFLATE output against CPython `zlib` (raw and container wbits) under a
 both-block-types-exercised vacuity floor (observed 55 dynamic / 53 fixed on `--count 100`).
+**UPDATED 2026-08-28 (PA16 P0 + fixed-path closure pass), two more parts, both narrowing this
+entry further for `decodeDynamicTables` only.** *(3) The dynamic path now has a direct,
+deterministic NEGATIVE regression, not only the positive one.* `Stdlib/Zlib/Test.lean:168`'s
+`testCorruptedDynamicHuffmanTable` hand-builds a degenerate dynamic block —
+`malformedDynamicHuffmanStream`, whose RLE-encoded code-length table assigns length 1 to exactly
+one of 258 literal/length symbols, so the decoded tree's root is `branch (some (leaf 0)) none` —
+feeds it to `decompress`, and requires `.error .corruptedHuffmanTree`. That covers the
+"malformed-input rejection" clause below for the dynamic-table path specifically: a degenerate
+transmitted table is now proven-by-test to be rejected cleanly rather than silently misdecoded or
+panicking. *(4) Non-termination on a malformed dynamic table is closed, and closed by proof, not
+by test.* PA16 P0 landed: zero `partial def` remain in `Stdlib/Zlib/`, and `decodeHuffmanStream`/
+`decompress` are well-founded **unconditionally** (the branch-rooted `HuffmanTable` invariant),
+which covers the dynamic path as much as the fixed one. Before that, a degenerate transmitted
+code-length table was a plausible hang; it is now a total function's clean error return.
+*A precision note on part (1) above, which is now stale as written:* "no *direct* reference to
+either function outside `Deflate.lean`" is no longer literally true as a grep result for
+`decodeDynamicTables` — the name now appears in `Stdlib/Zlib/Test.lean` (:93, :104),
+`Stdlib/Zlib/GzipFuzzer.lean` (:218) and `Stdlib/Zlib/Huffman.lean` (:176). Those four are doc
+comments and one vacuity-failure message, not call sites: every in-tree exercise of the function
+still reaches it *through* `decompress`'s BTYPE dispatch. Both readings — "not called directly"
+and "named outside its file" — are worth keeping distinct, since it is the coverage, not the
+grep, that changed.
 **What remains open of B10:** `decodeStoredBlock` still has only the indirect probabilistic
-coverage described in (1) — no in-tree encoder path reaches it (`gzipCompressStored` writes its
-stored block inline and is itself uncalled); and decoder *conformance* (correctly decoding any
-foreign valid RFC 1951 stream — malformed-input rejection, over-subscribed/incomplete foreign
-code sets, multi-block framing beyond what Python's encoder happens to emit) remains unproven and
-largely untested, exactly as the original entry states. The roundtrip theorem PA16 targets now
+coverage described in (1) — re-verified 2026-08-28, the name appears in no `.lean` file outside
+`Stdlib/Zlib/Deflate.lean`, and no in-tree encoder path reaches it (`gzipCompressStored` writes
+its stored block inline and is itself still uncalled); and decoder *conformance* (correctly
+decoding any foreign valid RFC 1951 stream — over-subscribed/incomplete foreign code sets beyond
+the one degenerate table part (3) pins, multi-block framing beyond what Python's encoder happens
+to emit) remains unproven and largely untested, exactly as the original entry states. The roundtrip theorem PA16 targets now
 covers dynamic-table construction *on the encoder's own output* once proven, but still says
 nothing about foreign streams.
 

@@ -132,20 +132,46 @@ for the zlib/gzip codecs this library's proof style follows.
 
 ### 5.2 Parse-Reencode Stability Theorems
 
-`Stdlib.Http11.request_parse_reencode_stable : ∀ (b : ByteArray) (r₁ r₂ : Request), parseRequest b
-= .ok r₁ → parseRequest (writeRequest r₁) = .ok r₂ → r₁ = r₂` (and `response_parse_reencode_stable`
-likewise) range over *every* byte string, not just ones produced by the writer — including
-malformed, adversarial, or ambiguous input. This is the theorem that would catch a lossy parser:
-one that accepts `b`, discards information the writer cannot reproduce, and so reparses its own
-canonical rewrite into a different value. It is proved here as a direct corollary of §5.1's
-universal roundtrip theorem plus the parser's own determinism (both are pure functions of their
-input): instantiating §5.1 at `r₁` gives `parseRequest (writeRequest r₁) = .ok r₁` unconditionally,
-which the second hypothesis (`... = .ok r₂`) then forces to equal `.ok r₂` by injectivity of
-`Except.ok`. §5.1 is therefore this theorem's non-vacuity floor exactly as intended: on its own,
-§5.2 would be satisfiable by a parser that always returns `.error` (the hypothesis `parseRequest b
-= .ok r₁` would simply never fire), but §5.1 independently forbids that parser, since it requires
-`writeRequest r` to parse successfully for every `r`. Both are stated and proved, never one
-without the other.
+`Stdlib.Http11.request_parse_reencode_stable : ∀ (b : List UInt8) (r₁ r₂ : Request), parseRequest b
+= .ok r₁ → parseRequest (writeRequest r₁) = .ok r₂ → r₁ = r₂` (`Roundtrip.lean:342`), and
+`response_parse_reencode_stable` (`:480`) with the identical shape. The `b` binder ranges over
+*every* byte string, not just ones the writer produces.
+
+**What the `b` binder does and does not carry (corrected 2026-08-28).** This section previously
+claimed the theorem "would catch a lossy parser: one that accepts `b`, discards information the
+writer cannot reproduce, and so reparses its own canonical rewrite into a different value". That
+was wrong on the mechanics. In both theorems `b` and the first hypothesis (`_h1`, underscored in
+the source for exactly this reason) are **bound and never used**: the entire proof is
+`rw [request_roundtrip r1] at h2; exact Except.ok.inj h2`. No fact about `b` can reach the
+conclusion, because the conclusion `r₁ = r₂` mentions only `Request` values.
+
+**Why that is a strength, not a shortfall.** The reason no fact about `b` is needed is that §5.1
+already gives something *stronger*: `∀ r : Request, parseRequest (writeRequest r) = .ok r` is an
+unconditional inverse law over every inhabitant of the type, which makes the 1.5-roundtrip shape a
+corollary rather than an independent obligation. A property one rewrite away from an existing
+universal law is a property you already had. The same statement has real force in a **fuzzer**,
+which cannot quantify over `Request` and must sample `b` instead; it has little independent force
+as a theorem sitting beside §5.1. Both are kept and proved: the property was asked for, and its
+being a corollary is information a reader should have rather than something to hide by deleting
+the theorem.
+
+**Byte-level losslessness is the wrong standard here, deliberately.** HTTP requires *semantic*
+round-tripping, not byte round-tripping, and canonicalization is the parser's job. `Content-Length:
+007` and `Content-Length: 7` denote the same message and parse to the same `Request`
+(`digitBytesToNat?` accepts leading zeros; `natToDigitBytes` re-emits the minimal form). That is
+correct behaviour, not lossiness to be engineered away. What was genuinely missing is that this
+canonicalization was *implicit* — discoverable only by reading `Basic.lean` — so it is now pinned
+by regression vectors in `Stdlib/Http11/Test.lean` (§3): `007`/`7` parse equal, and
+`content-length:`/`Content-Length:` parse equal (the name match is case-insensitive and the header
+is writer-synthesized, never carried in `Request.headers`). The boundary vector matters as much as
+the two positive ones: an **ordinary** header's name case is *preserved*, not folded, so `host:`
+and `Host:` parse to **different** `Request`s. A future "helpful" normalization of ordinary header
+names would break `request_roundtrip`, and that vector is what would catch it.
+
+**Non-vacuity floor (unchanged, and correct).** On its own §5.2 would be satisfiable by a parser
+that always returns `.error` — the hypothesis `parseRequest b = .ok r₁` would simply never fire.
+§5.1 independently forbids that parser, since it requires `writeRequest r` to parse successfully
+for every `r`. Both are stated and proved, never one without the other.
 
 ## 6. Spike4 Migration
 

@@ -138,38 +138,81 @@ decoder also applies to the transmitted lengths — encoder and decoder agree by
 - **CRC-32 Step Soundness**: CRC32 of known test vectors matches IEEE standard.
 
 ### 6.2 DEFLATE & ZLIB Roundtrip Soundness Theorems
-Every valid byte array roundtrips losslessly through compression and decompression:
+
+Until 2026-08-28 this section displayed three universally-quantified theorems
+(`deflate_roundtrip_soundness`, `zlib_roundtrip_soundness`, `gzip_roundtrip_soundness`) under the
+sentence "Every valid byte array roundtrips losslessly through compression and decompression".
+Those three names **have never existed anywhere in the tree**, and the displayed signatures were
+wrong in a second way as well: they returned `some data`, while no function in `Stdlib.Zlib`
+returns an `Option` — `decompress` returns `Except ZlibError ByteArray`.
+`docs/PA16_CODEC_SOUNDNESS.md` has told the accurate story since 2026-08-27; this document, which
+a reader reaches first, told the opposite one. What follows is what
+`Stdlib/Zlib/Equivalence.lean` actually contains.
+
+**Universal, kernel-checked, no `native_decide` — one theorem** (`Equivalence.lean:1875`, the
+PA16 L7 fixed-block instance). Unconditional: one binder, no hypotheses, axiom-clean (`propext`,
+`Classical.choice`, `Quot.sound` only).
 
 ```lean
-theorem deflate_roundtrip_soundness (data : ByteArray) :
-  Deflate.decompress (Deflate.compress data) = some data
-
-theorem zlib_roundtrip_soundness (data : ByteArray) :
-  Zlib.decompress (Zlib.compress data) = some data
-
-theorem gzip_roundtrip_soundness (data : ByteArray) :
-  Gzip.decompress (Gzip.compress data) = some data
+theorem emitFixedBlock_roundtrip_soundness (data : ByteArray) :
+    decompress (flushBitWriter (emitFixedBlock (tokenize data))) = .ok data
 ```
+
+Note what it quantifies over and what it does not: for **every** `ByteArray`, inflating the
+flushed *fixed-Huffman* block emitted for that input's greedy LZ77 tokenization returns the
+original bytes exactly. It says nothing about `compress`, which chooses between block types.
+
+**`compress` itself — conditional** (`Equivalence.lean:1884`). The hypothesis is load-bearing, so
+it is quoted here verbatim rather than paraphrased away:
+
+```lean
+theorem compress_roundtrip_of_fixed_choice (data : ByteArray)
+    (h : ¬ dynPlanBitCost (buildDynPlan (tokenize data)) (tokenize data) <
+        fixedBitCost (tokenize data)) :
+    decompress (compress data) = .ok data
+```
+
+`h` says the exact bit-cost comparison did **not** favour the dynamic-Huffman plan — i.e.
+`compress` took its fixed-Huffman branch. When `compress` takes the dynamic branch, this theorem
+says nothing at all.
+
+**How much of `compress`'s real input space that covers — measured, not assumed.** On the standard
+`lake exe gzip_fuzzer` run (100 randomized vectors plus 8 deterministic edge cases, seed
+13374242), `compress` chose the dynamic-Huffman block (BTYPE=10) on **55 of 108** vectors and the
+fixed-Huffman block (BTYPE=01) on **53 of 108**. So `compress_roundtrip_of_fixed_choice` covers
+roughly **half** of the inputs this codebase's own fuzzer generates — not a corner case the
+dynamic branch fills in around, but close to an even split. The dynamic half has no roundtrip
+theorem, universal or conditional.
+
+**The `_inst` declarations are not universal theorems.** `deflate_roundtrip_soundness_inst`,
+`zlib_roundtrip_soundness_inst`, `gzip_roundtrip_soundness_inst`, `deflate_roundtrip_empty_inst`
+and `deflate_roundtrip_repetitive_inst` (`Equivalence.lean:117-157`) each push **one hard-coded
+string literal or byte array** through `compress`-then-`decompress` and discharge it with
+`native_decide` — the compiler-trusted oracle, not the kernel (`docs/REVIEW.md` Law 10). They are
+single-point ground regression checks with theorem-shaped names; the `_soundness` in a name is not
+evidence about any other input. `docs/PA16_CODEC_SOUNDNESS.md` §1 enumerates all ten such entries
+and is the authority on their status.
 
 ### 6.3 Canonical 1.5-Roundtrip Soundness Theorems
-For any arbitrary binary stream, either decompression fails cleanly with an error, or the decompressed data can be re-compressed and re-decompressed to produce the exact same data:
 
-```lean
-theorem deflate_idempotent_canonical_roundtrip (bytes : ByteArray) :
-  match Deflate.decompress bytes with
-  | none => True
-  | some data => Deflate.decompress (Deflate.compress data) = some data
+The universal property this section targets — for any arbitrary binary stream, either
+decompression fails cleanly with an error, or the decompressed data re-compresses and
+re-decompresses to the exact same data — is a **free corollary** of §6.2's universal target once
+that is proven (`docs/PA16_CODEC_SOUNDNESS.md` §3, L12), which is why no separate universal
+theorem for it exists or needs to.
 
-theorem zlib_idempotent_canonical_roundtrip (bytes : ByteArray) :
-  match Zlib.decompress bytes with
-  | none => True
-  | some data => Zlib.decompress (Zlib.compress data) = some data
-
-theorem gzip_idempotent_canonical_roundtrip (bytes : ByteArray) :
-  match Gzip.decompress bytes with
-  | none => True
-  | some data => Gzip.decompress (Gzip.compress data) = some data
-```
+**Status**: the universal form does not yet exist for any of the three containers. Until
+2026-08-28 this section displayed three (`deflate_idempotent_canonical_roundtrip`,
+`zlib_idempotent_canonical_roundtrip`, `gzip_idempotent_canonical_roundtrip`) that were never in
+the tree. What is in the tree is three `native_decide` ground checks —
+`deflate_idempotent_canonical_roundtrip_inst`, `zlib_idempotent_canonical_roundtrip_inst`,
+`gzip_idempotent_canonical_roundtrip_inst` (`Equivalence.lean:172-209`) — each over a **single**
+already-known-good compressed literal (`compress "Canonical 1.5-roundtrip theorem test.".toUTF8`
+and its ZLIB/GZIP analogues). Their outer `Except.error _ => false` branch is deliberate: an
+earlier `=> true` there left them vacuously satisfiable by a `decompress` that always failed
+(found and fixed 2026-08-27, PA16 Phase 1). The universal statement legitimately keeps
+`error => True` in that position, since not every `ByteArray` is a valid compressed stream — but
+that universal statement is not proven. Tracked as PA16 (L12), pending §6.2's L7/L9.
 
 ### 6.4 LZ77 Token-Layer Roundtrip Soundness
 The LZ77 layer of the DEFLATE roundtrip — below Huffman coding and bitstream framing — is
@@ -186,6 +229,18 @@ theorem lz77_roundtrip_soundness (data : ByteArray) :
 
 This is the L3 (match certificate) + L4 (self-overlapping copy induction) + token-level L5
 content of the PA16 decomposition (`docs/PA16_CODEC_SOUNDNESS.md` §4), stated over total
-functions only; the remaining distance to the full `deflate_roundtrip_soundness` in §6.2 is
-the Huffman/bitstream layer, which is blocked on PA16 P0 (the decoder's `partial def`
-conversion).
+functions only.
+
+**The remaining frontier (updated 2026-08-28).** This paragraph previously said the Huffman/
+bitstream layer was "blocked on PA16 P0 (the decoder's `partial def` conversion)". **P0 has
+landed**: zero `partial def` remain anywhere in `Stdlib/Zlib/` (the branch-rooted `HuffmanTable`
+invariant made `decodeHuffmanStream`/`decompress` well-founded unconditionally), and on top of it
+the whole fixed-Huffman path closed kernel-checked — L1b, L2-fixed in full, the L6 code algebra,
+both halves of L5-fixed, and L7-fixed, which is §6.2's `emitFixedBlock_roundtrip_soundness`
+(`docs/PA16_CODEC_SOUNDNESS.md` §9). What now stands between here and a universal DEFLATE
+roundtrip theorem is the **dynamic-Huffman branch**, four obligations, none of them started:
+**L2v** (package-merge validity), **L2d** (canonical decode inversion for arbitrary transmitted
+code lengths), **L2h** (RFC 1951 §3.2.7 header RLE roundtrip), and then the **dynamic instance of
+the L5 induction** — the fixed instance's per-token decode lemmas plus its `tokensWF` positional
+invariant were built to be reusable for it. §6.2's measured 55/108-dynamic split is the reason
+this matters: it is about half of `compress`'s real inputs, not a residue.

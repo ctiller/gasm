@@ -38,7 +38,7 @@ wiring in a path that would 404 the first time the workflow runs.
 | 4b | Gate policy load-bearing check (Law 10) | `lake exe check_gates_axioms` (run from repo root — building it is not running it) | required | required |
 | 5 | Apache-2.0 header compliance | `python scripts/check_licenses.py` | required | required |
 | 6 | Decision-record integrity (D23/ADR-0035) | `python scripts/check_record.py` | required | required |
-| 7 | Doc-facade linter (TC21) | `python scripts/check_doc_facade.py` | required | required |
+| 7 | Doc-facade linter (TC21 + TC22) | `python scripts/check_doc_facade.py` | required | required |
 | — | Roundtrip properties | `lake exe test_roundtrip` | required | required |
 | — | Stdlib unit suites | `lake exe test_zlib`, `lake exe test_png`, `lake exe test_smolalloc` | required | required |
 | — | x86-64 semantics fuzzer | `lake exe x86_fuzzer` (hardware oracle — emits a native PE and executes it against real silicon) | required | **not run** (§4) |

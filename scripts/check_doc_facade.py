@@ -52,8 +52,8 @@ still-in-progress docs/TARGETS/*.md and docs/GRAPHICS_ARCHITECTURE.md design
 docs) specifically to confirm it does not fire on ordinary forward-looking
 design prose; see the two "WHY THIS SHAPE, NOT A BROADER ONE" notes below.
 
-WHAT THIS CHECKS (two defect shapes; a third candidate shape was evaluated and
-REJECTED -- see "REJECTED SHAPES" below):
+WHAT THIS CHECKS (three defect shapes; three further candidate shapes were evaluated
+and REJECTED -- see "REJECTED SHAPES" below):
 
 1. MECHANISM_ABSENT -- a backtick-quoted, Lean-identifier-shaped token appears
    within ~80 characters of an enforcement-claim phrase ("MUST"/"must",
@@ -107,6 +107,95 @@ REJECTED -- see "REJECTED SHAPES" below):
    which is not a defect; docs/REVIEW.md #4.1/#4.1.1 is the one place in the
    tree that specifically claims "X is a required, registered gate," so it is
    the one place where "claimed as a gate but not wired" is a real drift.
+
+3. THEOREM_FENCE_ABSENT (TC22) -- a ```lean-fenced block DISPLAYS a `theorem`/`lemma`
+   declaration header whose declared name is declared NOWHERE in the `.lean` tree, and
+   neither the enclosing document section nor the file's own preamble carries a
+   `**Status**:`-family disclosure. Checks 1 and 2 both operate on prose with fenced
+   blocks STRIPPED (`_strip_fenced_code_blocks`), so a fabricated theorem shown as code
+   was structurally invisible to them; this check is the complement. It is the
+   highest-value shape in this repository: a displayed theorem carries the visual
+   authority of checked code in a project whose whole premise is that displayed theorems
+   are real. Two confirmed instances had slipped through -- `docs/TARGETS/X86_64.md` §3's
+   `x86_mov_store_is_release` (fixed by hand, 2026-08-28, commit f597a53) and
+   `docs/STDLIB_ZLIB.md` §6.2/§6.3's six roundtrip-soundness theorems.
+
+   NAME RESOLUTION -- DECLARATION SITES, NOT TOKEN PRESENCE (the one design parameter
+   where this check deliberately diverges from `docs/tasks/TC22-doc-lean-fence-facade.md`'s
+   filed recommendation, on measurement): the declared name resolves if and only if it
+   appears at a DECLARATION SITE in some `.lean` file -- i.e. a line matching
+   `<modifiers> (theorem|lemma|def|structure|inductive|abbrev|instance|class|axiom|opaque)
+   <name>` -- matched either fully-qualified (namespace-prefixed) or on its final
+   dot-component. TC22 proposed reusing check 1's deliberately-lenient "token appears
+   anywhere in the `.lean` text" test. Measured against the tree at f597a53, that variant
+   finds 18 instances and MISSES `docs/STDLIB_ZLIB.md` §6.2's `deflate_roundtrip_soundness`
+   -- because that name appears in four DOC COMMENTS in `Stdlib/Zlib/Equivalence.lean`
+   (:220, :361, :1523, :1883) naming it as the open universal obligation, and nowhere as a
+   declaration. A name that the source tree itself describes as not-yet-proven is the
+   single worst false negative this check could have, so token presence is rejected here.
+   Declaration-site resolution finds 19: the same 18 plus that one. The cost of the
+   stricter test is one extra false-positive class -- a doc legitimately displaying a
+   Mathlib/core theorem this repository does not itself declare -- which measured zero
+   instances in the current corpus and is handled by the allowlist if one appears. (Checks
+   1 and 2 keep token presence: they scan PROSE, where a mention in a comment really does
+   mean the identifier is not fabricated.)
+
+   WHAT THIS CHECK CANNOT CATCH, deliberately and by construction:
+   - **A name that exists but with a DIFFERENT STATEMENT.** This is real and out of scope.
+     `docs/STDLIB_ZLIB.md` §6.2's fabricated block was wrong twice over: the names did not
+     exist, AND the displayed signatures returned `some data` where every real function in
+     `Stdlib/Zlib` returns `Except ZlibError`. A textual linter cannot compare a displayed
+     Lean type against an elaborated one; only querying the compiled environment could, and
+     that is rejected below. Reviewers, not this gate, own statement fidelity.
+   - **Hypotheses silently dropped or added.** Same reason: `compress_roundtrip_of_fixed_choice`
+     carries a bit-cost precondition that a doc could omit while keeping the name; this
+     check would stay green.
+   - **`def`/`structure`/`inductive`/`abbrev`/`class` headers.** Restricted to
+     `theorem`/`lemma` on measurement: the all-declaration-kinds variant fires 66 times
+     across the corpus, essentially all of them legitimate design sketches
+     (`docs/MEMORY_HOOK.md`'s `RegionSpec`/`MemCostModel`, `docs/TARGETS/ARM.md`,
+     `docs/SOFTWARE_MODELING_SDLC.md`'s worked examples). A gate at that noise level would
+     be turned off, and sketching a proposed data type is not the defect being prevented --
+     displaying a proof that does not exist is.
+
+   WHY NOT QUERY THE COMPILED ENVIRONMENT (the more precise alternative, rejected): a
+   `lake env lean` probe that `#check`s each displayed name would resolve names exactly,
+   see through `export`/`open`/aliases, and could in principle compare statements. It is
+   rejected because it couples a doc linter to a WORKING BUILD of a large Lean project:
+   this gate would then fail red whenever the tree does not compile -- precisely when
+   documentation drift is most likely and an always-runnable prose check is most useful --
+   and it would replace a pure text scan (one `git ls-files`, one pass over the `.lean`
+   text, no toolchain) with an elaboration of the whole environment. Grepping declaration
+   sites is cheap, deterministic, build-independent, and (measured above) catches both
+   known instances. The trade accepted is the statement-fidelity blind spot named above.
+
+   ESCAPES, in the order tried (`docs/tasks/TC22-doc-lean-fence-facade.md` §3, adopted
+   as filed):
+   (a) SECTION-SCOPED: a `**Status**:`-family marker (STATUS_MARKER_RE) anywhere in the
+       enclosing document section -- from the nearest preceding `#`-heading line through
+       the line before the next heading -- OR in any ANCESTOR section's intro prose (a
+       marker on `## 4` discloses for `### 4.1`..`### 4.3`; see
+       `_section_escape_windows`). Deliberately covers text BOTH before and after the
+       block, because that is the shape the project's own hand-fix used: commit f597a53
+       retired the `x86_mov_store_is_release` block and put its `**Status**:` disclosure
+       in the paragraph that followed where the block had been.
+   (b) FILE-LEVEL DESIGN DECLARATION: an explicit `**Status**:`-led LINE in the file's
+       PREAMBLE -- everything from the start of the file through the end of its first
+       `##`-level section. This escape exists because measurement showed the section-scoped
+       escape alone rescues almost none of the legitimate cases: design documents in this
+       repository disclose their nature ONCE, at file level (`docs/MEMORY_HOOK.md` §1
+       "Status and scope": "this is a design document, not a report of built machinery"),
+       not per section. Law 9's paragraph-scoped convention, which checks 1 and 2 rely on,
+       simply does not transfer to a document whose every fenced block is aspirational.
+       Note this escape uses FILE_STATUS_MARKER_RE, deliberately STRICTER than the
+       section escape's STATUS_MARKER_RE -- see that constant for the measured false
+       negative (`docs/EQUIVALENCE_PROOFS.md`) that forced the distinction.
+   (c) ALLOWLIST: `scripts/doc_facade_allowlist.txt`, check name `theorem-fence-absent`.
+       Used for the cases where neither marker would be HONEST -- a pedagogical worked
+       example (`docs/SOFTWARE_MODELING_SDLC.md`'s `get_after_put`) or a syntax
+       illustration over a placeholder name (`docs/READ_BINDER_CONTRACT.md`'s
+       `foo_correct`) is not a "design pending implementation", and stamping a design
+       Status on it would be a second, subtler doc-facade defect.
 
 IDENTIFIER PRESENCE (the absence test underlying check 1): an identifier
 "exists in the tree" if it appears as a token ANYWHERE in any `.lean` file's
@@ -254,7 +343,8 @@ RUN_GATES_PY = REPO_ROOT / "scripts" / "run_gates.py"
 LAKEFILE_TOML = REPO_ROOT / "lakefile.toml"
 ALLOWLIST_PATH = REPO_ROOT / "scripts" / "doc_facade_allowlist.txt"
 
-VALID_ALLOWLIST_CHECKS = {"mechanism-absent", "gate-script-missing", "gate-not-wired"}
+VALID_ALLOWLIST_CHECKS = {"mechanism-absent", "gate-script-missing", "gate-not-wired",
+                          "theorem-fence-absent"}
 
 # --- Identifier candidate filter -------------------------------------------------
 
@@ -556,6 +646,280 @@ def check_mechanism_absent(allowlist: Dict[Tuple[str, str], AllowlistEntry]) -> 
     return findings
 
 
+# --- CHECK 3: THEOREM_FENCE_ABSENT (TC22) --------------------------------------
+
+# Declaration-header shape, shared by BOTH sides of this check: the .lean-tree census that
+# builds the set of names that really are declared, and the doc-side scan that finds what a
+# fenced block claims. Using one regex for both is deliberate -- the two sides can never
+# drift into disagreeing about what "a declaration header" looks like.
+DECL_KEYWORDS = ("theorem", "lemma", "def", "structure", "inductive", "abbrev",
+                 "instance", "class", "axiom", "opaque")
+_DECL_MODIFIERS = (r"(?:@\[[^\]]*\]\s*)*"
+                   r"(?:(?:private|protected|noncomputable|partial|unsafe|scoped|local|nonrec)\s+)*")
+# Lean identifiers routinely carry Greek letters, subscripts and primes; `!`/`?` are legal
+# trailing characters (`get!`, `digitBytesToNat?`). Dots are allowed so a fully-qualified
+# header (`Stdlib.Http11.foo`) or a `where`-block child (`decodeDynamicTables.go`) parses.
+_IDENT_CHARS = r"[A-Za-z_Α-ωᵢ-ᵪ][A-Za-z0-9_'!?Α-ω₀-₉ᵢ-ᵪ.]*"
+DECL_HEADER_RE = re.compile(
+    r"^\s*" + _DECL_MODIFIERS + r"(" + "|".join(DECL_KEYWORDS) + r")\s+(" + _IDENT_CHARS + r")"
+)
+NAMESPACE_RE = re.compile(r"^\s*namespace\s+([A-Za-z_][\w'.]*)")
+END_RE = re.compile(r"^\s*end\b")
+
+# ```lean / ```lean4 opening fence (case-insensitive); the closing fence is any ``` line.
+LEAN_FENCE_OPEN_RE = re.compile(r"^\s*```+\s*(lean4?)\s*$", re.IGNORECASE)
+FENCE_ANY_RE = re.compile(r"^\s*```")
+HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s")
+H2_RE = re.compile(r"^\s{0,3}##\s")
+
+_LEAN_DECL_NAMES: Optional[Set[str]] = None
+
+
+def _lean_declared_names() -> Set[str]:
+    """Every name DECLARED in the tracked `.lean` tree, in both its bare form and (when
+    inside a `namespace`) its fully-qualified form. See the module docstring's "NAME
+    RESOLUTION -- DECLARATION SITES, NOT TOKEN PRESENCE" note for why check 3 uses this
+    and not `_lean_tokens()`: `deflate_roundtrip_soundness` is a token in four doc
+    comments in Stdlib/Zlib/Equivalence.lean and a declaration in none of them, and it is
+    exactly the fabricated theorem this check exists to catch.
+
+    The namespace tracker is a plain depth counter over `namespace`/`end`, which is what
+    this codebase's files actually use (one `namespace X ... end X` per file, occasionally
+    nested). It is deliberately approximate: an over- or under-qualified prefix only ever
+    costs a fully-qualified match, and the bare final component is always registered too,
+    so the resolution below never becomes stricter than "the name is declared somewhere."
+    Anonymous `instance : Foo Bar` headers are skipped (the regex requires a name, and a
+    `:`-led header simply does not match)."""
+    global _LEAN_DECL_NAMES
+    if _LEAN_DECL_NAMES is None:
+        names: Set[str] = set()
+        for rel in git_tracked_files():
+            if not rel.endswith(".lean"):
+                continue
+            p = REPO_ROOT / rel
+            parts = set(p.parts)
+            if ".git" in parts or ".lake" in parts:
+                continue
+            try:
+                text = p.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            ns: List[str] = []
+            for line in text.splitlines():
+                m_ns = NAMESPACE_RE.match(line)
+                if m_ns:
+                    ns.append(m_ns.group(1))
+                    continue
+                if END_RE.match(line) and ns:
+                    ns.pop()
+                    continue
+                m = DECL_HEADER_RE.match(line)
+                if not m:
+                    continue
+                name = m.group(2).rstrip(".")
+                if not name:
+                    continue
+                names.add(name)
+                names.add(name.split(".")[-1])
+                if ns:
+                    names.add(".".join(ns) + "." + name)
+        _LEAN_DECL_NAMES = names
+    return _LEAN_DECL_NAMES
+
+
+def _declared_in_lean_tree(name: str) -> bool:
+    declared = _lean_declared_names()
+    return name in declared or name.split(".")[-1] in declared
+
+
+def _lean_fence_blocks(lines: List[str]) -> List[Tuple[int, int]]:
+    """Every ```lean-fenced block's BODY bounds as (first_body_line, last_body_line),
+    1-based inclusive; an unterminated fence runs to end of file. Only fences whose info
+    string is exactly `lean`/`lean4` are returned -- a ```text or ```bash block showing
+    Lean-looking text is not a claim that the code elaborates."""
+    out: List[Tuple[int, int]] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        if LEAN_FENCE_OPEN_RE.match(lines[i]):
+            j = i + 1
+            while j < n and not FENCE_ANY_RE.match(lines[j]):
+                j += 1
+            if j > i + 1:
+                out.append((i + 2, j))
+            i = j + 1
+        else:
+            i += 1
+    return out
+
+
+def _heading_level(line: str) -> int:
+    stripped = line.lstrip()
+    n = 0
+    while n < len(stripped) and stripped[n] == "#":
+        n += 1
+    return n
+
+
+def _next_heading_after(lines: List[str], start: int) -> int:
+    """1-based index of the first heading line strictly after `start`, or len+1."""
+    for j in range(start + 1, len(lines) + 1):
+        if HEADING_RE.match(lines[j - 1]):
+            return j
+    return len(lines) + 1
+
+
+def _section_escape_windows(lines: List[str], line_no: int) -> List[Tuple[int, int]]:
+    """Every line range a section-scoped `**Status**:` marker may legitimately live in for
+    a block at `line_no`, as (start, end) 1-based inclusive:
+
+      * the ENCLOSING section -- nearest preceding heading through the line before the next
+        heading. Covers text both BEFORE and AFTER the block deliberately: commit f597a53,
+        the project's own hand-fix of the `x86_mov_store_is_release` case, put its
+        `**Status**:` disclosure in the paragraph that FOLLOWED where the block had been.
+      * each ANCESTOR section's INTRO -- for every heading above it of strictly smaller
+        level (`## 4` above `### 4.2`), the range from that heading to the next heading of
+        any level. Markdown sections nest and readers read them that way: a `**Status**:`
+        on `## 4. The Three Independent Split Theorems` really does disclose for `### 4.1`
+        through `### 4.3`, and requiring it to be restated in each subsection would push
+        authors toward three copies of one sentence. Only the ancestor's own INTRO prose is
+        included, never a sibling subsection's body, so §4.1's text can never suppress a
+        finding in §4.2."""
+    windows: List[Tuple[int, int]] = []
+    start = 1
+    level = 0
+    for j in range(line_no, 0, -1):
+        if HEADING_RE.match(lines[j - 1]):
+            start = j
+            level = _heading_level(lines[j - 1])
+            break
+    windows.append((start, _next_heading_after(lines, start) - 1))
+    if level:
+        cur = level
+        for j in range(start - 1, 0, -1):
+            if not HEADING_RE.match(lines[j - 1]):
+                continue
+            lv = _heading_level(lines[j - 1])
+            if lv < cur:
+                windows.append((j, _next_heading_after(lines, j) - 1))
+                cur = lv
+                if cur == 1:
+                    break
+    return windows
+
+
+# The file-level escape (b) requires a STRICTER marker than the section-level escape (a):
+# an explicit `**Status**:`-led LINE, not any member of STATUS_MARKER_RE's loose phrase
+# family. Measured reason: STATUS_MARKER_RE applied to a whole preamble mis-rescued
+# `docs/EQUIVALENCE_PROOFS.md`'s three `memcpy_*` theorem blocks, because that file's §1
+# contains the phrase "ratified design, implementation tracked as PA7" inside a bullet about
+# an entirely different mechanism (`VerifiedReactiveProgram`). A blanket that covers every
+# fenced block in a file must be a deliberate, file-scope declaration -- one line, at line
+# start, saying so -- not a phrase that happens to appear near the top.
+FILE_STATUS_MARKER_RE = re.compile(r"^\s*(?:[-*]\s+|>\s*)?\*\*Status\*\*:", re.MULTILINE)
+
+
+def _has_file_status_declaration(lines: List[str], start: int, end: int) -> bool:
+    return bool(FILE_STATUS_MARKER_RE.search("\n".join(lines[start - 1:end])))
+
+
+def _preamble_bounds(lines: List[str]) -> Tuple[int, int]:
+    """The file's PREAMBLE: line 1 through the end of its first `##`-level section (i.e.
+    the line before the SECOND `##` heading), or the whole file if it has fewer than two.
+    This is the window escape (b) -- the file-level design declaration -- searches."""
+    h2s = [j for j in range(1, len(lines) + 1) if H2_RE.match(lines[j - 1])]
+    if len(h2s) < 2:
+        return (1, len(lines))
+    return (1, h2s[1] - 1)
+
+
+def iter_theorem_fence_docs() -> List[Path]:
+    """Scope for check 3: the linter's existing normative doc set (docs/**/*.md minus
+    `adr/` and `tasks/` -- both are by construction proposal documents) PLUS every
+    root-level tracked `*.md` (README, CONTRIBUTING, MODEL_DEBT, TCB, PLAN, TASKS -- all
+    normative, and all reachable before docs/ by a new reader). Measured: adding the
+    root files and the excluded subtrees changes the finding count by zero today, so this
+    scope is the widest one available at no noise cost."""
+    out = list(iter_scanned_docs())
+    for rel in git_tracked_files():
+        if rel.endswith(".md") and "/" not in rel:
+            out.append(REPO_ROOT / rel)
+    return sorted(set(out))
+
+
+def _raw_theorem_fence_absent() -> Dict[str, str]:
+    """Maps allowlist key ('<file>:<line>:<name>') -> human detail for every currently
+    firing (non-escaped) THEOREM_FENCE_ABSENT instance. Shared by the live check and the
+    stale-allowlist sweep. Line numbers are raw (this check does NOT strip fences -- the
+    fences are its subject), so they point at the declaration header itself."""
+    out: Dict[str, str] = {}
+    for path in iter_theorem_fence_docs():
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        lines = raw.splitlines()
+        pre_lo, pre_hi = _preamble_bounds(lines)
+        file_escaped = _has_file_status_declaration(lines, pre_lo, pre_hi)
+        for (body_lo, body_hi) in _lean_fence_blocks(lines):
+            for i in range(body_lo, body_hi + 1):
+                m = DECL_HEADER_RE.match(lines[i - 1])
+                if not m:
+                    continue
+                kind, name = m.group(1), m.group(2).rstrip(".")
+                if kind not in ("theorem", "lemma") or not name:
+                    continue
+                if _declared_in_lean_tree(name):
+                    continue
+                if file_escaped:
+                    continue
+                windows = _section_escape_windows(lines, body_lo)
+                if any(_has_status_escape(lines, s, e) for (s, e) in windows):
+                    continue
+                key = f"{rel}:{i}:{name}"
+                shown = ", ".join(f"{s}-{e}" for (s, e) in windows)
+                out[key] = (
+                    f"{rel}:{i}: a ```lean block displays `{kind} {name}`, but no `.lean` "
+                    f"file declares that name (searched every declaration header in the "
+                    f"tracked tree, fully-qualified and bare). No `**Status**:`-family "
+                    f"marker in the enclosing section or any ancestor section's intro "
+                    f"(lines {shown}), and no `**Status**:`-led line in the file preamble "
+                    f"(lines {pre_lo}-{pre_hi}), discloses it as unbuilt."
+                )
+    return out
+
+
+def check_theorem_fence_absent(allowlist: Dict[Tuple[str, str], AllowlistEntry]) -> List[Finding]:
+    findings = []
+    for key, detail in sorted(_raw_theorem_fence_absent().items()):
+        if ("theorem-fence-absent", key) in allowlist:
+            entry = allowlist[("theorem-fence-absent", key)]
+            findings.append(Finding("THEOREM_FENCE_ABSENT",
+                                    f"{detail} Allowlisted: {entry.justification}", True))
+            continue
+        findings.append(Finding(
+            "THEOREM_FENCE_ABSENT",
+            f"{detail} Fix it one of four ways. (1) If the theorem exists under another "
+            f"name, correct the block to the real name and real statement. (2) If it does "
+            f"not exist and the block is a TARGET, mark it aspirational: put a line of the "
+            f"form `**Status**: not yet implemented; tracked as PA16.` (any of "
+            f"`**Status**:`, 'ratified design', 'not yet implemented', 'does not yet "
+            f"exist', 'design-only', 'pending implementation', 'tracked as `PA#`/`TC#`/"
+            f"`N#`/`F#`/`G#`/`B#`/`M#`/`OS#`') anywhere in the SAME `#`-heading section as "
+            f"the block -- before or after it, either works -- or in the intro of any "
+            f"ancestor section (a marker on `## 4` covers `### 4.1`..`### 4.3`). (3) If "
+            f"the WHOLE FILE is a "
+            f"design document, put that same marker in the file preamble (before the "
+            f"second `##` heading) once, the way docs/MEMORY_HOOK.md #1 does, and every "
+            f"block in the file is covered. (4) If neither marker would be honest -- a "
+            f"pedagogical example or a placeholder name is not a 'design pending "
+            f"implementation' -- add a scripts/doc_facade_allowlist.txt entry "
+            f"('theorem-fence-absent::{key}::<date>::<who>::<why>')."
+        ))
+    return findings
+
+
 # --- CHECK 2/3: GATE_SCRIPT_MISSING / GATE_NOT_WIRED (docs/REVIEW.md only) ------
 
 GATE_CLAIM_RE = re.compile(
@@ -669,8 +1033,9 @@ def check_gate_claims(allowlist: Dict[Tuple[str, str], AllowlistEntry]) -> List[
 # --- Runner -----------------------------------------------------------------------
 
 def run_all() -> Tuple[List[Finding], List[str]]:
-    global _LEAN_TOKENS, _RUN_GATES_TEXT, _LAKEFILE_TEXT
+    global _LEAN_TOKENS, _LEAN_DECL_NAMES, _RUN_GATES_TEXT, _LAKEFILE_TEXT
     _LEAN_TOKENS = None
+    _LEAN_DECL_NAMES = None
     _RUN_GATES_TEXT = None
     _LAKEFILE_TEXT = None
 
@@ -678,12 +1043,21 @@ def run_all() -> Tuple[List[Finding], List[str]]:
     findings: List[Finding] = []
     findings.extend(check_mechanism_absent(allowlist))
     findings.extend(check_gate_claims(allowlist))
+    findings.extend(check_theorem_fence_absent(allowlist))
 
     raw_mechanism = set(_raw_mechanism_absent().keys())
     raw_gate = _raw_gate_claims()
+    raw_fence = set(_raw_theorem_fence_absent().keys())
 
     for (check, key), entry in allowlist.items():
-        if check == "mechanism-absent" and key not in raw_mechanism:
+        if check == "theorem-fence-absent" and key not in raw_fence:
+            allowlist_errors.append(
+                f"doc_facade_allowlist.txt:{entry.line_num}: entry 'theorem-fence-absent::{key}' "
+                f"is stale -- that block no longer fires (the theorem now exists, the block was "
+                f"corrected or removed, a Status marker was added, or the line moved); remove or "
+                f"update the entry."
+            )
+        elif check == "mechanism-absent" and key not in raw_mechanism:
             allowlist_errors.append(
                 f"doc_facade_allowlist.txt:{entry.line_num}: entry 'mechanism-absent::{key}' "
                 f"is stale -- that claim no longer fires (fixed, or the identifier now "
@@ -734,7 +1108,8 @@ def main():
     print("=" * 70)
     print(" gasm Doc-Facade Linter (scripts/check_doc_facade.py, TC21)")
     print("=" * 70)
-    print("[*] Checks: MECHANISM_ABSENT, GATE_SCRIPT_MISSING, GATE_NOT_WIRED")
+    print("[*] Checks: MECHANISM_ABSENT, GATE_SCRIPT_MISSING, GATE_NOT_WIRED, "
+          "THEOREM_FENCE_ABSENT")
 
     if allowlist_errors:
         has_errors = True
@@ -846,6 +1221,64 @@ def _self_test_gate_not_wired() -> Dict:
             "turned_red": red, "green_after_revert": green_after}
 
 
+#  TC22 controls. The historical RED vector -- `docs/TARGETS/X86_64.md` §3's
+#  `x86_mov_store_is_release` block -- cannot be replanted in place: commit f597a53 deleted
+#  the block AND added `**Status**:` disclosures to that section, so escape (a) would now
+#  (correctly) swallow it and the "control" would prove nothing. Instead the exact
+#  historical block is replanted into a scratch document, three times over, in the three
+#  configurations that matter -- unmarked (must fire), section-marked (must not), and
+#  file-preamble-marked (must not). Asserting the delta is EXACTLY +1 is what makes this a
+#  control rather than a smoke test: it proves the check fires on the fabricated block and
+#  proves both escapes suppress the very same block, in one run.
+_TC22_FABRICATED_BLOCK = (
+    "```lean\n"
+    "theorem x86_mov_store_is_release (m : MachineState x86_64) (addr : Addr) (val : BitVec 64) :\n"
+    "  m.getMemoryType addr = .WriteBack →\n"
+    "  m.isNonTemporalInstr = false →\n"
+    "  PreservesStoreStoreOrder ∧ PreservesLoadStoreOrder\n"
+    "```\n"
+)
+
+_TC22_SCRATCH_UNMARKED = (
+    "# TC22 --self-test scratch (never committed)\n\n"
+    "## 1. Unmarked section -- MUST fire\n\n"
+    "The block below is the exact fabricated theorem commit f597a53 removed from\n"
+    "docs/TARGETS/X86_64.md #3. Nothing here discloses that it does not exist.\n\n"
+    + _TC22_FABRICATED_BLOCK +
+    "\n## 2. Section-marked -- MUST NOT fire (escape a)\n\n"
+    "**Status**: not yet implemented; the same fabricated block, disclosed section-locally.\n\n"
+    + _TC22_FABRICATED_BLOCK
+)
+
+_TC22_SCRATCH_FILE_MARKED = (
+    "# TC22 --self-test scratch, file-level marked (never committed)\n\n"
+    "## 1. Status and scope\n\n"
+    "**Status**: this is a design document, not a report of built machinery.\n\n"
+    "## 2. The block -- MUST NOT fire (escape b)\n\n"
+    + _TC22_FABRICATED_BLOCK
+)
+
+
+def _self_test_theorem_fence_absent() -> Dict:
+    unmarked = DOCS_DIR / "_tc22_selftest_scratch_unmarked.md"
+    file_marked = DOCS_DIR / "_tc22_selftest_scratch_file_marked.md"
+    baseline = _run_check_json()["by_check"].get("THEOREM_FENCE_ABSENT", 0)
+    try:
+        unmarked.write_text(_TC22_SCRATCH_UNMARKED, encoding="utf-8")
+        file_marked.write_text(_TC22_SCRATCH_FILE_MARKED, encoding="utf-8")
+        planted = _run_check_json()["by_check"].get("THEOREM_FENCE_ABSENT", 0)
+    finally:
+        unmarked.unlink(missing_ok=True)
+        file_marked.unlink(missing_ok=True)
+    reverted = _run_check_json()["by_check"].get("THEOREM_FENCE_ABSENT", 0)
+    # Exactly one of the three planted fabricated blocks may fire: the unmarked one.
+    red = planted == baseline + 1
+    return {"defect": "theorem_fence_absent", "check": "THEOREM_FENCE_ABSENT",
+            "turned_red": red, "green_after_revert": reverted == baseline,
+            "baseline": baseline, "with_three_planted_blocks": planted,
+            "after_revert": reverted}
+
+
 def run_self_test(json_mode: bool) -> int:
     if not json_mode:
         print("#" * 100)
@@ -857,6 +1290,7 @@ def run_self_test(json_mode: bool) -> int:
         ("mechanism_absent", _self_test_mechanism_absent),
         ("gate_script_missing", _self_test_gate_script_missing),
         ("gate_not_wired", _self_test_gate_not_wired),
+        ("theorem_fence_absent", _self_test_theorem_fence_absent),
     ]:
         if not json_mode:
             print(f"\n[SELF-TEST] {label} ...")

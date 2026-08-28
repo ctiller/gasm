@@ -2,6 +2,14 @@
 
 This document specifies the software engineering and verification methodology for modeling systems in `gasm`: proceeding from **Pure Typeclasses & Micro-Theorems**, through **Theorem Weaving & Macro System Proofs**, into **Architectural Decomposition (Seams & Components)**, and finally realizing the design as **Concrete `gasm` Proof-Carrying Assembly**.
 
+**Status**: this is a methodology document. Every Lean block below is a **worked illustration** of
+the stage it appears in — the `KeyValueStore`, the signed-message verifier, the transaction
+manager — chosen for pedagogy, not drawn from the tree. None of these typeclasses or theorems
+exists in `Gasm/`, `Stdlib/` or `Spikes/`, and none is a planned deliverable; they are the shape a
+real model takes, written out in full so the pipeline's four stages have something concrete to
+operate on. Read every declaration here as "this is what such a thing looks like", never as "this
+is proved".
+
 ---
 
 ## 1. The 4-Stage Verification & Engineering Pipeline
