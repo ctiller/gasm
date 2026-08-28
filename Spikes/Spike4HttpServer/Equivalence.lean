@@ -282,6 +282,19 @@ theorem spike4_wasm_trace_equivalence_for_request (req : String) (r : HttpRoute)
   exact spike4_wasm_route_equivalence r
 
 /- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Honest restatement of `spike4_linux_route_equivalence`'s three constituent facts; see
+    `spike4_windows_trace_equivalence_for_request` above for the rationale, which applies
+    identically here. Parity fix: the original PA17 pass added this wrapper for Windows and Wasm
+    but not Linux, even though `spike4_linux_route_equivalence` (above) has the identical
+    `HttpRoute`-proxy-domain shape and the identical "not the real per-request domain" caveat. -/
+theorem spike4_linux_trace_equivalence_for_request (req : String) (r : HttpRoute)
+    (h : req = routeRequestStr r) :
+    (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [req]) == routeModelTrace r) = true := by
+  subst h
+  exact spike4_linux_route_equivalence r
+
+/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
 /- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
 /-!
 **FIXED (N8).** This note used to document a confirmed route-prefix-confusion divergence between
