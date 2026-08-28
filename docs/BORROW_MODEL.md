@@ -1,4 +1,4 @@
-# BORROW_MODEL: Borrowing as Obligation Dispatch
+# BORROW_MODEL: Provenance, Borrowing, and Obligation Dispatch
 
 - REF: docs/REVIEW.md#law-11-memory-access-capability-mandate-fail-to-assemble
 - REF: docs/REVIEW.md#law-5-the-stop-and-design-invariant
@@ -8,35 +8,54 @@
 - REF: docs/PROOF_CARRYING_ASSEMBLY.md#11-capability-splitting-and-joining-laws
 - REF: docs/API_STATE_MODELS.md#2-the-indexed-typestate-monad-blockm
 - REF: docs/MEMORY_HOOK.md#4-layer-a-assemble-time-capability-enforcement
+- REF: docs/MEMORY_PROVENANCE.md#12-hierarchical-provenance--active-borrows
 - REF: docs/X86_MEMORY_MODEL.md#23-the-shape-mt1mt2-build-this-documents-structural-decisions
+- REF: docs/SPIKES/SPIKE8_MULTITHREADING.md
 - REF: docs/VISION.md#4-tractability-modular-contracts-composed-proofs
 - REF: docs/TARGETS/ARM64.md#7-what-is-settled-for-x86-only-versus-what-arm-must-decide
 
 ## 1. Status and scope
 
-**Status**: this is a design document, not a report of built machinery. **No borrow
-mechanism exists in the tree.** Everything described as existing was verified by reading
-the tree or running commands at commit `ef5407e` (2026-08-28); everything proposed carries
-its own `**Status**:` line. The one thing this document reports as *measured* rather than
-proposed is the Lean-4 feasibility spike of §5, which was compiled at this repository's
-pinned toolchain (`lean-toolchain`: `leanprover/lean4:v4.33.1`) in a scratch directory and
-is deliberately **not** in the tree; its source is reproduced inline so it can be re-run.
+**Status**: this is a design document, not a report of built machinery. **No borrow mechanism,
+pointer type, transmogrification operation, or lock invariant exists in the tree.** Everything
+described as existing was verified by reading the tree or running commands at commit `46b3a60`
+(2026-08-28); everything proposed carries its own `**Status**:` line. Two things are reported as
+*measured* — the indexed-monad authoring spike (§6) and the pointer-forgeability spike (§2.3).
+Both were compiled at this repository's pinned toolchain (`leanprover/lean4:v4.33.1`) in a
+scratch directory, are deliberately **not** in the tree, and have their sources reproduced inline.
 
-**The owner's directive**, verbatim, in four fragments:
+**§9's mutex is the sharpest place to state what is and is not built**: it depends on three
+mechanisms, and **all three are absent from the tree today**. Nothing here should be read as
+saying a lock has been verified.
 
-> *"do the memory hooks distinguish read and writeability? (and can we delegate readability
-> when we have writeability safely?) -- my target is to not need rust"*
+**The owner's directives**, verbatim:
 
-> *"i'm wondering about a borrow model being an obligation dispatch / the owner starts out
-> with capability write / if it lends a read, then it loses the write capability (but retains
-> read) / only when all reads are discharged does it regain write / and it can donate write"*
+> *"do the memory hooks distinguish read and writeability? (and can we delegate readability when
+> we have writeability safely?) -- my target is to not need rust"*
 
-> *"on lean not being linear: yes, and that's why the intent for obligations is to flow
-> through a monad"*
+> *"i'm wondering about a borrow model being an obligation dispatch / the owner starts out with
+> capability write / if it lends a read, then it loses the write capability (but retains read) /
+> only when all reads are discharged does it regain write / and it can donate write"*
+
+> *"on lean not being linear: yes, and that's why the intent for obligations is to flow through a
+> monad"*
 
 > *"can we make our own dsl shape for weaving these monads, since we know their shape?"*
 
-And the Law 5 demand trigger, verbatim:
+> *"regarding memory safety - my assumption is that we'd have a typed/provenanced pointer type
+> that's required to read to/from at all, correct?"*
+
+> *"transmogrification -- how can i turn provenance in one system to provenance in another (we
+> have this instance: smol allocates from virtual alloc blocks), and how can i declare a bundle of
+> bytes to now have a type -- the latter gets us to proof carrying memory addresses"*
+
+> *"i think the shape of it is a special kind of borrow with an obligation that discharges the
+> hold on the underlying memory (and maybe forces a destruction operation)"*
+
+> *"by proof carrying memory addresses i'm thinking of 'when this atomic word is 1 the thread that
+> set it has the mutex'"*
+
+And the Law 5 demand trigger:
 
 > *"isa scale up: we need multithreading and borrowing resolved"*
 
@@ -48,36 +67,196 @@ nothing delegates. Verified:
 | Fact | Evidence |
 | :-- | :-- |
 | The share vocabulary exists | `PermissionShare := ReadOnly \| Exclusive \| Locked` (`Gasm/Core/Permissions.lean:24-28`) |
-| Capability tokens exist | `MemoryPerm base len share`, carrying `validRange`/`nonEmpty` (`Gasm/Core/Permissions.lean:32-34`) |
-| Splitting is **spatial only** | `MemoryPerm.split` cuts `[base, base+len)` at `k` and carries *the same* `share` into both halves (`Gasm/Core/Permissions.lean:38-49`, return type at line 41). There is no `Exclusive → ReadOnly ⊗ ReadOnly` operation anywhere. **That is the missing primitive, and it is the whole of the owner's rules 2 and 3.** |
+| Capability tokens exist | `MemoryPerm base len share` (`Gasm/Core/Permissions.lean:32-34`) |
+| Splitting is **spatial only** | `MemoryPerm.split` cuts `[base, base+len)` at `k` and carries *the same* `share` into both halves (`Gasm/Core/Permissions.lean:38-49`, return type at line 41). There is no `Exclusive → ReadOnly ⊗ ReadOnly` operation anywhere. **That is the missing primitive, and it is the whole of the owner's rules 2 and 3** |
+| `split` does not *return* disjointness, though it is derivable | The result type records both ranges, so `DisjointRanges` follows by `omega` from the indices plus the existing `h_wrap` — but no disjointness proof is among the returned components. §7.3 needs one; adding it is small |
 | Disjointness is stated | `DisjointRanges` (`:53-54`), `DisjointTokens` (`:58-62`), the invariant field of `MemoryPermissions` (`:66-68`) |
-| The permission container has exactly one consumer | `ComposedState.perms : MemoryPermissions Arch` (`Gasm/Core/State.lean:31`). A tree-wide grep for `MemoryPerm`/`PermissionShare`/`MemoryPermissions` over `Gasm/`, `Stdlib/`, `Spikes/`, `Tools/` returns that line, plus one doc-comment mention in `Gasm/Targets/X86_64/MemoryCell.lean:175`. Nothing else. |
+| The permission container has exactly one consumer | `ComposedState.perms` (`Gasm/Core/State.lean:31`). A tree-wide grep over `Gasm/`, `Stdlib/`, `Spikes/`, `Tools/` returns that line and one doc comment |
 | No theorem connects a store to `Exclusive` | No occurrence of either name in any theorem statement in the tree |
-| An indexed typestate monad **already exists and is dormant** | `BlockM Arch S₁ S₂ α` with `pure`/`bind`/`get`/`set` (`Gasm/Core/BlockM.lean:25`, `:32`, `:37`, `:47`, `:52`). Its only tree-wide occurrence outside its own file is the `import` on `Gasm/Core/CFG.lean:20`. It is Atkey's parameterized monad, written in 2026, used by nothing. |
-| The access-descriptor layer *does* exist and is live | `MemAccessKind := load \| store` (`Gasm/Targets/X86_64/MemoryCell.lean:41-43`); `MemAccessSpec` (kind, width, ref) (`Gasm/Targets/X86_64/Memory.lean:81-84`); `memAccesses : ι → List MemAccessSpec`, defaultless, on the instruction class (`Gasm/Targets/X86_64/Instructions/Base.lean:66`); `storeFootprint`/`loadFootprint` (`Gasm/Targets/X86_64/Memory.lean:99-105`); `WritesWithin`/`ReadsWithin` frame obligations discharged for all 14 memory forms (`Gasm/Targets/X86_64/MemoryFrame/Common.lean:39-52` plus the six per-family shards) |
-| Machine memory is sealed | `X86_64Memory` with `private mk ::` / `private raw` (`Gasm/Targets/X86_64/MemoryCell.lean:54-56`); `X86_64Mem.read`/`write` (`:75`, `:100`) are the only functions in the tree that can touch bytes |
-| **A loan counter already exists, live and used** | `ArenaPageToken.activeBorrows : Nat` with `isSafeToRelease t := t.activeBorrows == 0` (`Gasm/Core/Obligations.lean:43-53`), designed in `docs/MEMORY_PROVENANCE.md` §1.2, and actually incremented and decremented by the allocator spec (`Stdlib/SmolAlloc/Spec.lean:46`, `:101`, `:126`, `:149`). It is a *different subject* from this design's loans and it is instructive — see §3.2 |
+| An indexed typestate monad **already exists and is dormant** | `BlockM Arch S₁ S₂ α` with `pure`/`bind`/`get`/`set` (`Gasm/Core/BlockM.lean:25,32,37,47,52`). Its only occurrence outside its own file is the `import` at `Gasm/Core/CFG.lean:20`. Atkey's parameterized monad, written in 2026, used by nothing |
+| The access-descriptor layer exists and is live | `MemAccessKind := load \| store` (`MemoryCell.lean:41-43`); `MemAccessSpec` (`Memory.lean:81-84`); `memAccesses`, defaultless (`Instructions/Base.lean:66`); `storeFootprint`/`loadFootprint` (`Memory.lean:99-105`) |
+| **Frame lemmas: 30 theorems, not 176** | `MemoryFrame/` holds 35 theorems, of which 5 are in `NegativeControl.lean`. The 30 are 28 covering the 14 memory forms (Mov 18, Call 4, Push 2, Pop 2, Ret 2) plus the 2 shared batch lemmas in `Common.lean`. **The 74 register-only forms declare `memAccesses _ := []` and are covered *in principle* by the batch lemmas, not individually instantiated** |
+| `ReadsWithin` pins the whole post-state, and all 14 forms close | It carries a second conjunct, `StoreAgreeOn` (`MemoryFrame/Common.lean:56-59`, used at `:73-78`): two pre-states agreeing outside memory and on the declared load footprint write *identical bytes into* the declared store footprint. With `WritesWithin` bounding *where* `step` writes, the pair pins the post-state completely — outside the store footprint nothing changes; inside it the bytes are a function of the pre-state's non-memory fields plus the declared load footprint. **§7's typed views depend on exactly this strength**: a typed view's invariant is stable only if the bytes under it are determined by declared inputs |
+| **`bv_decide` is at zero tree-wide** | All 20 remaining occurrences across four files are prose documenting its *absence*; no tactic invocation survives (`X86_64Mem.read64_write64_same` is now closed structurally), and `scripts/gate_allowlist.txt`'s `bv_decide` lines are comments, not live entries. Relevant here because §5's fast path is `decide` at Law 10 rung 2 — kernel-checked, no allowlist entry — and the tree's posture is that rung 4 has been paid down to nothing rather than accumulated |
+| **`MemRef` is not a typed pointer, not even in embryo** | A public record of `base : Option Reg64`, `index`, `disp`, with default field values and no proof component (`Memory.lean:49-52`). Anyone can build any `MemRef`. What carries a citation is MH3's constructor — §10 |
+| **The memory seal is tier 3, and the reason is measured** | `private mk ::` does not privatize auto-generated eliminators: `X86_64Memory.casesOn`/`.rec`/`.recOn` stay public and `m.casesOn (fun f => f)` yields the raw `Address → Byte` from any module. **But that leak is semantically empty**: `readByte` is public and total, so `fun a => X86_64Mem.readByte m a` is `rfl`-equal to the very same function — the bytes were never confidential, and hiding them was never the point. Tier 1 would have cost real axioms, since `opaque` has no definitional unfolding. What the seal buys is that every memory touch goes through a **named** function, making access sites enumerable — an auditable chokepoint, enforced by `Gasm/Targets/X86_64/MemoryFrameAudit.lean` (`MemoryCell.lean:52-71`). §2.3 holds the pointer type to that same standard |
+| **A discharge check already exists, live and used** | `ArenaPageToken.activeBorrows : Nat` with `isSafeToRelease t := t.activeBorrows == 0` (`Gasm/Core/Obligations.lean:43-53`), designed in `docs/MEMORY_PROVENANCE.md` §1.2, exercised at `Stdlib/SmolAlloc/Spec.lean:46,101,126,149`. §7.2 argues this **is** §7's discharge check, written before the pattern was named |
+| Zero atomics, zero memory model | `docs/X86_MEMORY_MODEL.md` §1.1: no `LOCK`, no `CMPXCHG`, no `XADD`, no fences; the only `XCHG` is register-register with `memAccesses _ := []`; **the document states plainly that nothing it specifies exists in Lean** |
 
-Two corrections to the framing this document was commissioned with, recorded because they
-matter downstream. `perms` sits on `ComposedState`, not on `MachineState`
-(`Gasm/Core/State.lean:31`) — the machine state proper has no permission field, so a
-borrow index cannot be threaded through the *machine* without either using `ComposedState`
-or keeping the index outside the state entirely (this design does the latter, §4).
-And `Gasm/Targets/X86_64/MemoryCell.lean` is no longer merely a "consumer of the permission
-model" — it is the landed MH1 hook, and it does not mention permissions at all except in a
-doc comment.
+Two corrections to earlier framing: `perms` sits on `ComposedState`, not `MachineState`; and
+`MemoryCell.lean` is the landed MH1 hook, not a permission consumer.
 
-**So the honest starting position is better than it looks.** The hard, boring half — one
-chokepoint for every byte access, a declarative per-instruction access descriptor with no
-default, and frame lemmas connecting descriptor to behaviour — landed with MH1 (ADR-0040).
-What is missing is the *authority* half: which accesses are permitted, and how permission
-moves. That is what this document designs.
+---
 
-## 2. The model
+## 2. The provenanced pointer — what is borrowed
 
-### 2.1 The four rules, stated as a capability state
+### 2.1 Why this layer, and a correction to this document's own earlier verdict
 
-**Status**: proposed; nothing below exists. The names in this section are design names.
+An earlier revision concluded that the aliasing half of memory safety was **"strictly not
+reachable, and that gap is fundamental"**, because assembly has no provenance: a register is a
+64-bit number, and `mov rbx, rax` silently creates a second anchor.
+
+**That argument was about the wrong layer and the conclusion was wrong.** It is true of *emitted
+assembly* and false of the *authoring surface*. Emitted bytes have no provenance; the Lean term
+that produced them can have as much as we give it. If a memory operand accepts only a `Ptr r`
+value — if there is no way to dereference a bare 64-bit quantity at all — provenance is carried
+in the Lean type and erased at emission, exactly as ghost tokens and the borrow index are. The
+`mov rbx, rax` objection dissolves for a reason worth stating plainly: **under this design the
+author never names a register as a pointer.** Register assignment is chosen at lowering, so no
+authoring-level operation copies a pointer into an untracked second name.
+
+What changes is *what the obligation is about*. Without typed pointers you must answer "do these
+two 64-bit numbers alias", undecidable in general. With them you answer "are these two declared
+regions disjoint", and regions are a closed, declared population — the condition `docs/VISION.md`
+§4 names for language-level theorems.
+
+### 2.2 The type
+
+**Status**: proposed; nothing in this section exists.
+
+```lean
+/-- Unforgeable region identity. Created only by frame entry, by `split`, and by §7. -/
+structure RegionId where
+  private mk ::
+  private ident : Nat        -- GENERATIVE, not address-derived: see §7.5
+  private len   : Nat
+
+def RegionId.length (r : RegionId) : Nat        -- lengths are public; creation is not
+
+/-- Offset term: a literal displacement, or a register holding a runtime value. -/
+inductive Ofs
+  | lit (n : Nat)
+  | dyn (reg : Reg64)
+
+/-- A provenanced pointer: a region tag and an offset term, and NO ADDRESS. -/
+structure Ptr (r : RegionId) where
+  private mk ::
+  ofs : Ofs
+```
+
+**The load-bearing decision is that `Ptr` carries no address at all.** It is not "an address plus
+a tag"; it is a provenance and a displacement, and the concrete address is `anchor(r) + offset`,
+computed at lowering from the frame's anchor register. Two consequences:
+
+- **There is no `ofNat : UInt64 → Ptr r` to remember to leave out, because there is no `UInt64` in
+  the type.** A design that stores an address and then declines to expose a constructor is one
+  careless helper away from reopening; a design with no field of that type is not. Scope this
+  precisely, though: it closes the *address-injection* hole by shape, and says nothing about
+  conjuring a **region**, which is a different hole closed a different way — §2.3.
+- **Lowering is a per-target detail rather than a commitment** (§13).
+
+| Operation | Signature (sketch) | Note |
+| :-- | :-- | :-- |
+| grant | `basePtr : (r : RegionId) → Ptr r` | from a frame entry or §7 |
+| offset | `Ptr.add : Ptr r → Nat → Ptr r` | **unchecked**, provenance-preserving |
+| dynamic offset | `Ptr.addReg : Ptr r → Reg64 → Ptr r` | **unchecked**, provenance-preserving |
+| dereference | `load/store : (p : Ptr r) → (w : MemWidth) → (h : inBounds r p w := by …) → …` | **checked here** |
+
+Offsetting being unchecked preserves a ruling already made: `docs/MEMORY_HOOK.md` §2 boundary
+decision 1 states address computation is free and the obligation attaches at dereference, because
+`LEA` forms addresses without accessing memory. Nothing here narrows that.
+
+### 2.3 What it must refuse — measured, and held to the chokepoint standard
+
+**Status**: measured. Two files across a real module boundary at v4.33.1; the sealed module built
+to `.olean`, the attacks compiled against it via `LEAN_PATH`.
+
+**The standard is not "unrepresentable".** The `X86_64Memory` seal settled that question on
+measured grounds (§1.1): its `casesOn` leak turned out to be *semantically empty*, because the
+blessed API is public and total and returns the same function by `rfl`; and tier 1 would have cost
+real axioms, because `opaque` has no definitional unfolding. What a seal in this codebase buys is
+that the thing **cannot be reached without going through a named, audited operation**. That is the
+bar applied below.
+
+Twelve attacks:
+
+| # | Attack | Result |
+| :-- | :-- | :-- |
+| A1 | `Ptr.mk (.lit 0)` from another module | **Rejected** — `Unknown constant PtrSpike.Ptr.mk` |
+| A2 | anonymous constructor `(⟨.lit 0⟩ : Ptr r)` | **Rejected** — `Constructor for Ptr is marked as private` |
+| A3 | `p.casesOn (fun o => o)` to **observe** the offset | **Compiles** — the same eliminator leak; harmless |
+| A4 | `Ptr.rec` to **construct** a `Ptr` | **Rejected** — the motive must supply a `Ptr`, needing the private constructor |
+| A5 | `(default : Ptr r)` | **Rejected** — `failed to synthesize Inhabited (Ptr r)` |
+| A6 | `Classical.ofNonempty`; `Nonempty (Ptr r)` by `infer_instance` | **Rejected** — Lean does **not** auto-generate one |
+| A7 | `RegionId.mk 0 999` — forging a region | **Rejected** — `Unknown constant PtrSpike.RegionId.mk` |
+| A8 | `(h : r₁ = r₂) → Ptr r₁ → Ptr r₂` via `h ▸ p` | **Compiles** — correct: it demands a proof the regions are equal |
+| A9 | the same structure `deriving Inhabited`, then `default` | **Compiles** — forges a pointer into *any* region |
+| A10 | `r.casesOn (fun _ l => l)` — observing a region's private length | **Compiles** — harmless; lengths are public |
+| A11 | `(basePtr r).add 9999` — forming an out-of-bounds pointer | **Compiles** — deliberate |
+| A12 | dereferencing that pointer | **Rejected** — `could not synthesize default value for parameter '_h'` + unsolved goal |
+
+**The decisive result is the A3/A4 pair.** `casesOn` is an *eliminator*: it observes. The memory
+seal's property was about observation, so the leak hit it squarely. A provenance tag's property is
+about **creation**, and no eliminator creates. The two seals face opposite directions, which is why
+the same attack lands on one and not the other. That is structural, not luck — but it was measured,
+because the memory seal's authors reasoned too.
+
+#### The self-check the memory seal's resolution demands — and it changes the claim
+
+The memory seal was not defeated by `casesOn` so much as revealed to have been protecting nothing,
+because a public total operation already yielded the same thing. **Applying that test here changes
+what this section can claim.**
+
+**`Ptr r`'s constructor seal is semantically empty in exactly the same sense.**
+`basePtr : (r : RegionId) → Ptr r` is public and total, so anyone holding `r` can already produce a
+`Ptr r`; A1/A2/A4's rejections block nothing that `basePtr` does not hand over. **And that is
+correct by design**: a pointer is not the capability, it is a cursor. Holding the *region identity*
+is what authorizes. Reading the attack table as though `Ptr`'s privacy were load-bearing would
+repeat the memory seal's original error one level up.
+
+**The load-bearing seal is on `RegionId`, and its property is reachability, not unforgeability.**
+The claim that survives is: *a `RegionId` cannot be obtained except through a named creation
+operation* — frame entry, `split`, `alloc` (§7.3), or the environment axiom (§7.6) — **and every one
+of those consumes a capability it already had.** Region identity is inhabited only relative to
+something already granted; the chain bottoms out at the environment, where it is stated once and
+audited. That is the same auditable-chokepoint property MH1 has, one level up: MH1's chokepoint
+enumerates every memory *touch*, this one enumerates every provenance *creation*.
+
+The audit predicate is correspondingly precise, and it is what the tier-3 lint checks: **no
+declaration whose result mentions `RegionId` or `Ptr` positively without a `RegionId` among its
+arguments.** That single predicate subsumes all three realistic regressions — a public constructor,
+a `UInt64 → Ptr r` helper, and A9's `deriving Inhabited` (which is exactly such a nullary producer,
+and the sharpest of the three, since this codebase derives `Inhabited` liberally: `MemWidth`,
+`MemAccessKind`, `MemRef`, `SmolBlockHeader`, `SmolAllocState`).
+
+**Tier 1 here would be worse than expensive; it would be self-defeating.** Making `RegionId`
+`opaque` to force absolute unforgeability would remove definitional unfolding — and §6.3's measured
+result that computed indices unify, and §5's whole `decide` fast path, *depend* on `r.length` and
+the index transitions reducing. Sealing them opaquely would turn every obligation into an author
+proof and destroy the fast path the design exists to provide. So tier 3 is not a grudging fallback
+here: it is the only tier compatible with the mechanism.
+
+**Retracting an earlier claim in this document**: a previous revision asserted "tier 1 against
+forging, plus a tier-3 audit". That was wrong on both halves — the `Ptr` seal it credited is empty,
+and the property that matters is a reachability property enforced by lint. **The correct claim is
+tier 3, on the same measured grounds as the memory seal**, with the audit predicate above as its
+content.
+
+### 2.4 The residue — where free ends and per-program begins
+
+- **Free by construction.** Distinct regions are disjoint: regions come only from frame entry
+  (declared disjoint once via `DisjointTokens`), from `split` (disjoint by index arithmetic), and
+  from §7. Every pointer operation preserves provenance.
+- **Free by `decide`/`omega`.** Literal-offset bounds — MH3's landed special case, generalized past
+  literal displacements by carrying the length in `RegionId`.
+- **Per-access `omega`, against a number in the type.** A `dyn` offset owes
+  `value(reg) + width ≤ r.length`, from the loop invariant. One local goal per dynamic access.
+- **Per-routine, at the boundary.** That the anchors a routine is *handed* are disjoint is
+  discharged by its caller; at the top, by the loader or allocator.
+- **Genuinely residual.** Provenance introduced from outside: bytes from the OS, a device, or a
+  parse — §7, where it can be named and gated rather than diffused.
+
+**Revised verdict on aliasing**: it does not vanish, and calling it fundamental was wrong. It
+collapses from an unbounded, undecidable, per-access question into a bounded per-routine boundary
+condition plus per-dynamic-access arithmetic.
+
+---
+
+## 3. The borrow model — authority over time
+
+### 3.1 The four rules
+
+**Status**: proposed; nothing below exists.
 
 Per region, one ghost capability state:
 
@@ -86,255 +265,158 @@ Cap  ::=  write            -- owner holds write and read
        |  read n           -- n read loans outstanding: read allowed, write refused
 ```
 
-The owner's four rules become four total functions on `Cap`:
-
 | Owner's rule | Operation | Effect |
 | :-- | :-- | :-- |
 | "the owner starts out with capability write" | initial state | `write` |
 | "if it lends a read, then it loses the write capability (but retains read)" | `lend` | `write ↦ read 1`; `read n ↦ read (n+1)` |
 | "only when all reads are discharged does it regain write" | `reclaim` | `read 1 ↦ write`; `read (n+1) ↦ read n` |
-| "and it can donate write" | `donate` | the region leaves this context entirely and appears in the donee's |
+| "and it can donate write" | `donate` | the region leaves this context and appears in the donee's |
 
-A borrow context is a list of such states, one per granted region: `Ctx := List Cap`,
-positionally indexed. Two decidable predicates over it are the entire authority check —
-`canStore Γ i` holds exactly when `Γ`'s `i`-th region is `write`; `canLoad Γ i` holds for
-`write` and for `read _` alike. Shared-XOR-mutable is that one line: no `Cap` admits a
-store while a loan is outstanding, and `lend` is the only way to create a second reader.
+A borrow context is a list of such states keyed by the `RegionId` identity of §2.2. Two decidable
+predicates are the entire authority check: a store is admitted exactly when the region is `write`;
+a load for `write` and `read _` alike. Shared-XOR-mutable is that one line.
 
-Note what `read n` is doing: it is a **ghost loan counter**, one of the three candidate
-mechanisms this document was asked to weigh. It is not the recommendation on its own —
-counters as free-standing data are re-derivable and forgeable — but as the *index* of a
-monad (§4) it is exactly the right representation, because the index is the one thing in
-Lean that cannot be duplicated by a proof. The counter is data; the discipline is typing.
+**§7.2 generalizes `read n` from a counter to a ledger of outstanding *views*, of which read loans
+are the degenerate case.** That generalization is forced by transmogrification and it is the same
+finding SmolAlloc's two ledgers produce independently; §3 is stated in the simple form first
+because the four rules are the specification and they read better without it.
 
-### 2.2 Does `Locked` fit the same lattice? — a different axis, and then a third point
+### 3.2 Does `Locked` fit the same lattice? — a different axis, and then a third point
 
-**Status**: this section is analysis of landed vocabulary plus proposed design; the
-`Locked` constructor exists (`Gasm/Core/Permissions.lean:27`), nothing consumes it.
+**Status**: analysis of landed vocabulary plus proposed design; the constructor exists
+(`Gasm/Core/Permissions.lean:27`), nothing consumes it.
 
-Two axes are being conflated in the current three-constructor enum.
+**Axis 1 — authority**: who may load, who may store. The axis borrowing moves along.
+**Axis 2 — atomicity and ordering**: `docs/X86_MEMORY_MODEL.md` §2.3 Decision 1 settled this on
+`MemAccessKind` as a third constructor `rmw`; its §8 rejected a parallel ordering field.
 
-**Axis 1 — authority**: who may load, who may store. `ReadOnly` admits loads only;
-`Exclusive` admits both. This is the axis borrowing moves along, and it is the axis this
-document is about.
+`Locked` as written sits on **axis 2 wearing axis 1's clothes**: on authority it admits exactly
+what `Exclusive` admits, so it is not a third point on that lattice.
 
-**Axis 2 — atomicity and ordering**: how an access is performed and how it is ordered
-against other accesses. `docs/X86_MEMORY_MODEL.md` §2.3 Decision 1 already settled where
-this axis lives: on `MemAccessKind`, as a third constructor `rmw` — one indivisible
-read-modify-write per descriptor entry — and §8 of that document explicitly rejected a
-parallel per-access ordering field as duplicating a distinction the kind already draws.
+**But there is a genuine third authority point, and `Locked` is the right name.** Not a level
+between `ReadOnly` and `Exclusive` — the top of a second branch: a share held by **many** holders
+**simultaneously**, all of which may store, whose race-freedom is discharged **dynamically by
+atomicity** rather than statically by exclusion. `Locked` is not reachable by lending; a region is
+`Locked` because it was created that way or handed over by a synchronization primitive; and every
+access to it owes an atomicity obligation.
 
-`Locked` as written sits on **axis 2 wearing axis 1's clothes**. On the authority axis it
-is indistinguishable from `Exclusive`: the in-flight MH3 surface spells this out, its
-`shareAllows` mapping `.Locked` to `true` for both `.load` and `.store`, identically to
-`.Exclusive`. A `PermissionShare` value that admits exactly what `Exclusive` admits is not
-a third point on the authority lattice; it is an annotation about *how* the access is
-performed, and that annotation now has a better home.
+**§9 is where this definition is tested, and it needs one extension.** A mutex word is `Locked`,
+but its *point* is a claim about a **different** region. Nothing in the definition above carries
+that link. §9.2 supplies it.
 
-**But there is a genuine third authority point, and `Locked` is the right name for it.**
-It is not a level between `ReadOnly` and `Exclusive`. It is the top of a second, parallel
-branch: a share held by **many** holders **simultaneously**, all of which may store, whose
-race-freedom is discharged **dynamically by atomicity** rather than statically by
-exclusion. That is `AtomicU64`, `Mutex`, and `RefCell` in Rust's terms — the escape hatch
-that exists precisely because the static discipline is not complete. Under the borrow
-model:
+### 3.3 What a loan is, and when it is discharged (the crux)
 
-- `Exclusive` and `ReadOnly` form the borrow lattice proper. Loans move between them.
-- `Locked` is **not reachable by lending**. A region is `Locked` because it was created
-  that way (shared state established at spawn, or handed over by a synchronization
-  primitive), and a `Locked` region admits stores from any number of holders.
-- Every access to a `Locked` region must be an `.rmw`-kind access or otherwise
-  synchronization-ordered. That is the *obligation* `Locked` carries, and it is what makes
-  it safe rather than merely permitted.
+Rust knows when a borrow ends from lexical scope, tightened by NLL liveness. Straight-line assembly
+has no scopes.
 
-The recommendation is therefore: **keep three constructors, but re-read the third.** `Locked`
-stops meaning "exclusive, but atomic" and starts meaning "shared-mutable, safety discharged
-by atomicity". It is a different axis *only* if you read it as an ordering annotation; read
-as an authority mode it is a real third point, and it is the point where the static
-discipline hands off to a dynamic protocol. **Status**: this re-reading is proposed, not
-ratified; it is Owner Question Q2 (§13). It has a concrete consequence for the in-flight
-MH3 surface (§6) and a concrete consequence for the no-data-race theorem (§8), and it is
-the single place where ARM's memory model bites (§9).
+**A loan is a ghost index transition. It emits no bytes.** Measured: a program containing a lend and
+a discharge emitted `[st 0, ld 0, st 0]` — the ghost operations contributed nothing.
 
-### 2.3 What a loan is, concretely — and when it is discharged (the crux)
+**Discharge is forced at four places, none a scope:**
 
-This is the question most likely to sink the design, and it was posed correctly: Rust knows
-when a borrow ends from lexical scope, tightened by NLL's liveness dataflow. Straight-line
-assembly has no scopes.
+1. **The routine's declared post-index.** A routine typed "I give back what I was given" cannot
+   elaborate with an outstanding loan — the shape the tree already states as
+   `ObligationLedger.isValidAtReturn` (`Gasm/Core/Obligations.lean:79`). **Measured** (§6.4, NEG-2),
+   with a poor message (§6.5). **§8 shows this is also what makes leaks compile errors.**
+2. **Branch joins.** Both arms must arrive at the same index: an equality obligation, decidable when
+   both are literal. The tree's control-flow vocabulary has this shape already
+   (`CpuTerminator.jcc`, `docs/API_STATE_MODELS.md` §4). Rust computes this join by dataflow; here it
+   is an obligation the fast path closes by `decide`. **That substitution is the design thesis in one
+   instance.**
+3. **Loops.** An earlier revision said loop bodies must be *index-preserving*. **That was too weak a
+   rule and §8.1 corrects it**: the general rule is index-*parametric* over the iteration count.
+4. **Call boundaries.** A callee's index contract is part of its type. **Status**: proposed; not
+   spiked.
 
-**A loan is a ghost index transition. It emits no bytes.** `lend`/`reclaim` are operations
-in the authoring monad whose *value* is `()` and whose *effect* is entirely on the type
-index. This was measured, not assumed: in the §5 spike, a program containing `lendRead 0`
-and `endRead 0` emitted the instruction list `[st 0, ld 0, st 0]` — the two ghost
-operations contributed nothing (`#eval` output, §5.3). A loan costs zero instructions and
-zero runtime state.
+---
 
-**Discharge is forced at four places, none of which is a scope:**
+## 4. Confronting linearity directly
 
-1. **The routine's declared post-index.** A routine whose type says `Asm Γ Γ α` — the
-   contract "I give back what I was given" — cannot elaborate with an undischarged loan,
-   because the computed final index is `read 1` where the declared one is `write`. This
-   is the primary forcing function and it is exactly the ABI-style contract the tree
-   already states elsewhere (`ObligationLedger.isValidAtReturn`,
-   `Gasm/Core/Obligations.lean:79`). **Measured**: the omission is an elaboration error
-   (§5.4, control NEG-2) — but with a poor message, which is a real finding, recorded in
-   §5.5.
-2. **Branch joins.** Both arms of a conditional must arrive at the same index. This is an
-   equality obligation `Γ_then = Γ_else`, decidable by `decide` when both are literal.
-   The tree's control-flow vocabulary already has this shape: `CpuTerminator.jcc` demands
-   `h_true : S = TrueIn` and `h_false : S = FalseIn` (`docs/API_STATE_MODELS.md` §4).
-   Rust computes this join by dataflow; here it is a proof obligation that the fast path
-   closes by `decide` and the slow path closes by a written proof. That substitution — a
-   dataflow *decision* becomes a dispatched *obligation* — is the whole design thesis in
-   one instance.
-3. **Loop bodies.** A loop body must be index-preserving (`Asm Γ Γ`): a loan opened in an
-   iteration must close in that iteration. This is a genuine restriction, and it is
-   honestly weaker than NLL, which can carry a borrow across a back edge when liveness
-   permits. Stated as a limit, not papered over (§11).
-4. **Call boundaries.** A callee's index contract is part of its type, so lending across a
-   call is representable (`donate` transfers, `lend` splits) and the caller's index reflects
-   it. **Status**: proposed; the call-boundary form has not been spiked.
+Lean is not linear. A `MemoryPerm` token is an ordinary value; `let p := tok; f p p` duplicates it
+and no typing rule objects.
 
-**So discharge is neither an instruction nor a block boundary nor a runtime check.** It is
-an explicitly-written ghost operation whose omission is caught by an index mismatch at a
-*declared contract*. The monad answers the crux for free, exactly as the coordinator
-suspected: the index knows when the last loan is gone, because `reclaim` on `read 1` is the
-only transition back to `write`.
-
-## 3. Confronting linearity directly
-
-Lean is not linear. A `MemoryPerm` token is an ordinary value; `let p := tok; f p p`
-duplicates it and no typing rule objects. Any design that says "lending consumes the write
-token" and means it literally is wrong in Lean.
-
-The resolution the owner named is right, and it is worth stating precisely *why* it works:
-**the resource that must not be duplicated is moved out of value position and into type
-position.** A Lean value can be used twice; a type index cannot be "used" at all — it is
-threaded by `bind`'s typing rule, which is the only way to sequence, and which mentions each
-intermediate index exactly once:
+The resolution the owner named is right, and *why* is worth stating: **the resource that must not be
+duplicated is moved out of value position into type position.** A value can be used twice; a type
+index cannot be "used" at all — it is threaded by `bind`'s typing rule, the only way to sequence,
+which mentions each intermediate exactly once:
 
 ```
 bind : Asm Γ₁ Γ₂ α → (α → Asm Γ₂ Γ₃ β) → Asm Γ₁ Γ₃ β
 ```
 
-Duplicating a value of type `Asm Γ₁ Γ₂ Unit` is harmless — running the same lend twice from
-`Γ₁` still starts at `Γ₁`, and sequencing the duplicate forces `Γ₂ = Γ₁`, which fails. The
-substructural content lives in the *shape of composition*, not in the *uniqueness of a
-value*. This is Atkey's parameterized monad and it is how Ynot and Idris's `ST` handle the
-identical problem; the coordinator's framing is correct.
+Duplicating a value of type `Asm Γ₁ Γ₂ Unit` is harmless — sequencing the duplicate forces
+`Γ₂ = Γ₁`, which fails. The substructural content lives in the *shape of composition*, not the
+*uniqueness of a value*. This is Atkey's parameterized monad, as Ynot and Idris's `ST` use it.
 
-**And the tree already contains it.** `BlockM Arch S₁ S₂ α` (`Gasm/Core/BlockM.lean:25`)
-is exactly this signature, with `bind` at `:37` composing `S₁ → S₂` with `S₂ → S₃`. It has
-been dormant since it was written, with no consumer. The borrow model is not a new
-structural commitment; it is the first consumer of a structure already ratified in
-`docs/API_STATE_MODELS.md` §2 and sitting unused — which materially changes the Law 8
-calculus (§10).
+**And the tree already contains it.** `BlockM` (`Gasm/Core/BlockM.lean:25`) is exactly this
+signature, dormant since written. The borrow model is not a new structural commitment; it is the
+first consumer of a structure already ratified in `docs/API_STATE_MODELS.md` §2 and sitting
+unused — which materially changes the Law 8 calculus (§14.3).
 
-### 3.1 The alternatives, weighed
+**This is also what makes §7's handles safe without linearity** (§7.5): a duplicated handle does not
+help, because authority is checked against the index, not the handle.
 
-**Typestate over an explicit map** — thread `ComposedState.perms` as ordinary data and make
-each declared access carry an obligation that the map grants the needed share at that
-footprint. Rejected as the recommendation, per the owner's ruling, and independently
-correct to reject: because the map is a value, nothing forces the *author* to thread the
-updated map rather than the original. Every `lend` produces a new map, and reusing the old
-one is a well-typed program that has forgotten the loan. It requires a discipline the type
-system does not check, which is the exact failure mode Law 13 tier 1 exists to eliminate.
-Its one real advantage — `do`-notation works — is answered by §5.
+### 4.1 The alternatives, weighed
 
-**Ghost loan counters as free-standing data**, with the reclaim rule proven as a theorem
-rather than enforced by typing. Rejected as a standalone mechanism for the same reason:
-the counter can be re-derived, ignored, or reset by a well-typed program. It survives *as
-the content of the index* (§2.1), where it is not forgeable, and the reclaim rule is then a
-lemma about the index rather than a hope about a value.
+**Typestate over an explicit map.** Rejected: because the map is a value, nothing forces the author
+to thread the *updated* map. Reusing the old one is a well-typed program that has forgotten the loan.
 
-**Indexed monad.** Recommended. Costs: `do` does not work (§5), and index unification has
-to reduce computed contexts during elaboration (measured to work, §5.3).
+**Ghost loan counters as free-standing data.** Rejected as standalone: the counter can be
+re-derived, ignored, or reset. It survives *as the content of the index*.
 
-### 3.2 Prior art in the tree: `activeBorrows`, and what it demonstrates
+**Indexed monad.** Recommended. Costs: `do` does not work (§6), and index unification must reduce
+computed contexts (measured at small scale, §6.3; unmeasured at realistic scale, §6.5).
 
-The tree already contains a loan counter, and it is not dormant. `docs/MEMORY_PROVENANCE.md`
-§1.2 specifies that a backing arena tracks `activeBorrows : Nat`, incremented by
-sub-allocation and decremented by free, with page release gated on the count reaching zero.
-That is realized as `ArenaPageToken.activeBorrows` / `isSafeToRelease`
-(`Gasm/Core/Obligations.lean:43-53`) and genuinely exercised by the allocator spec, which
-increments it at `Stdlib/SmolAlloc/Spec.lean:101` and `:126` and decrements at `:149`.
+### 4.2 Prior art in the tree: `activeBorrows`
 
-**It is the same shape on a different subject.** Both are "a resource whose reclamation is
-gated on outstanding loans reaching zero". But `activeBorrows` gates *lifetime* — do not
-release the page while children are alive — where this design gates *authority* — do not
-store while readers are alive. They answer different questions and neither subsumes the
-other, so they are not Law 12 twins of the same model-level fact. They are, however, two
-instances of one abstraction, and Law 12's stated preference order puts "a single source of
-truth from which other forms are derived" above two parallel encodings. Whether to factor a
-generic counted-loan abstraction with two instances, or to leave them separate on the
-grounds that lifetime and authority genuinely differ, is Owner Question Q4 (§13). It is not
-urgent and it should not be resolved by accident.
+`docs/MEMORY_PROVENANCE.md` §1.2 specifies an arena tracking `activeBorrows : Nat`, gated on zero
+for release; realized at `Gasm/Core/Obligations.lean:43-53` and exercised at
+`Stdlib/SmolAlloc/Spec.lean:101,126,149`.
 
-**What it demonstrates is the sharper point, and it is evidence rather than argument.**
-`activeBorrows` is a value-level counter threaded through an ordinary state record. Nothing
-in its type prevents a spec transition from constructing the successor state with the
-*old* count, or with no increment at all — the increments at `:101` and `:126` are correct
-because they were written correctly, not because anything checks them. That is precisely the
-objection §3.1 raises against value-level typestate and ghost counters, stated here against
-a real, working, in-tree instance rather than against a hypothetical. It is also the reason
-the borrow model's counter belongs in an index: the arena counter can afford this because a
-mis-threaded count causes a leak, while a mis-threaded borrow count causes a data race.
+**What it demonstrates is evidence rather than argument.** It is a value-level counter threaded
+through an ordinary state record. Nothing in its type prevents a transition from constructing the
+successor with the old count, or with no increment — the increments are correct because they were
+written correctly, not because anything checks them. That is §4.1's objection stated against a real,
+working, in-tree instance, and it is why the borrow model's counter belongs in an index: a
+mis-threaded arena count leaks; a mis-threaded borrow count races.
 
-## 4. What the index is, and what it is not
+§7.2 revisits it now that the allocator is a *consumer* rather than an analogue.
 
-**Status**: proposed; nothing in this section exists.
+---
 
-The index is a **static, syntactic** borrow context: a list of region states, where a region
-is identified by its position and described by a `RegionSpec`-shaped record (anchor register,
-length, share) — the shape MH3 is landing (§6). The index is **not** the machine state, and
-**not** `ComposedState.perms`. Three consequences, all load-bearing:
+## 5. What the index is, and what it is not
 
-- **It erases completely.** The index is a type argument; nothing about it survives to
-  `SymbolicInstr`, encoding, or bytes. This is the zero-cost-proof-erasure shape
-  `docs/API_STATE_MODELS.md` §1 already establishes, and it is why a loan costs zero
-  instructions (measured, §5.3).
-- **It is decidable.** Every index transition is a total function on a finite structure of
-  literals, so `canStore`/`canLoad`/index equality all close by `decide` — Law 10 rung 2,
-  kernel-checked, no allowlist entry. This is the "Rust's borrow checker as the fast path"
-  claim made concrete: the fast path is `decide` on the index.
-- **It says nothing about aliasing.** Two regions with distinct indices may denote the same
-  bytes at runtime. The index tracks *authority bookkeeping*; whether the bookkeeping
-  corresponds to reality is a separate obligation (`DisjointTokens`,
-  `Gasm/Core/Permissions.lean:58-62`) discharged semantically against the routine's
-  precondition. **This is the sharpest limit of the whole design and §11 states it in full.**
+**Status**: proposed.
 
-The connection between the index and the machine is therefore a theorem, not a definition:
-the index-tracked context must be shown to grant the footprints the descriptors declare.
-That theorem is MH3's `MemSafe` shape (`docs/MEMORY_HOOK.md` §4.4), unchanged.
+The index is a **static, syntactic** borrow context keyed by the `RegionId` identity §2.2 defines.
+It is **not** the machine state and **not** `ComposedState.perms`.
 
-## 5. The weaving DSL — measured, not asserted
+- **It erases completely** — the zero-cost-proof-erasure shape `docs/API_STATE_MODELS.md` §1
+  establishes, and why a loan costs zero instructions (measured, §6.3).
+- **It is decidable.** Every transition is a total function on a finite structure of literals, so
+  authority predicates and index equality close by `decide` — Law 10 rung 2, kernel-checked, no
+  allowlist entry. "Rust's borrow checker as the fast path" made concrete.
+- **It says nothing about aliasing on its own.** §2 is what makes region identities mean something.
 
-**Status**: measured feasibility spike, compiled at `leanprover/lean4:v4.33.1`; **not in
-the tree and not proposed for the tree in this form**. The code below is reproduced so the
-measurement can be re-run and audited. Real region identifiers, widths, `MemRef`s, and
-`MemoryPerm` backing are all abstracted away — this measures *syntax and elaboration
-behaviour*, nothing else.
+The connection to the machine is a theorem: the index-tracked context must grant the footprints the
+descriptors declare — MH3's `MemSafe` shape (`docs/MEMORY_HOOK.md` §4.4), unchanged.
 
-### 5.1 Does Lean's `do` work? No, and the failure is clean
+---
 
-Lean's `do` requires a `Monad m` instance with `m : Type u → Type v`. An indexed monad is
-`Ctx → Ctx → Type → Type` and cannot instantiate it. Measured error, on a `do` block over
-the indexed monad:
+## 6. The weaving DSL — measured, not asserted
 
-```
-error: failed to synthesize instance of type class
-  Pure (Asm [Cap.write] [Cap.write])
-```
+**Status**: measured spike; **not in the tree and not proposed for the tree in this form**. Real
+region identifiers, widths, `MemRef`s and `MemoryPerm` backing are abstracted away.
 
-Unambiguous and immediate — not a subtle mis-elaboration. Confirms the coordinator's
-flag.
+### 6.1 Does Lean's `do` work? No, and the failure is clean
 
-### 5.2 The DSL: Lean's own `do` *syntax*, elaborated to indexed binds
+`do` requires `Monad m` with `m : Type u → Type v`. An indexed monad is `Ctx → Ctx → Type → Type`.
+Measured: `failed to synthesize instance of type class Pure (Asm [Cap.write] [Cap.write])` —
+unambiguous and immediate, not a subtle mis-elaboration.
 
-The measured answer to "can we make our own DSL shape for weaving these monads" is **yes,
-and it is about thirty lines, because Lean's `doSeq` parser can be reused verbatim.** The
-DSL declares a term-level `asm` prefix over `Lean.Parser.Term.doSeq`, then walks the parsed
-sequence and folds it into `bind` applications:
+### 6.2 The DSL: Lean's own `do` *syntax*, elaborated to indexed binds
+
+**Yes, and it is about thirty lines, because Lean's `doSeq` parser can be reused verbatim.**
 
 ```lean
 syntax (name := asmStx) "asm " Lean.Parser.Term.doSeq : term
@@ -361,13 +443,12 @@ private partial def asmSeq (items : Array Syntax) (i : Nat) : MacroM (TSyntax `t
   return (← asmSeq (seqItems stx[1]) 0).raw
 ```
 
-That is the entire weaving mechanism. It supports statement sequencing and `let x ← e`
-binding; it reuses Lean's indentation-sensitive layout, so authoring looks like `do` and is
-formatted like `do` by every existing tool.
+It reuses Lean's indentation-sensitive layout, so authoring looks like `do` and is formatted like
+`do` by every existing tool.
 
-### 5.3 What authoring actually looks like
+### 6.3 What authoring actually looks like
 
-All five programs below compiled with exit code 0.
+All compiled with exit code 0.
 
 ```lean
 /-- Both indices INFERRED: the author writes no context annotation at all. -/
@@ -377,19 +458,6 @@ def ownerWritesThenLends := asm
   load 0
   endRead 0
   store 0
-
-/-- Contract stated explicitly (write in, write out) — the routine-signature shape. -/
-def roundTrip : Asm [Cap.write] [Cap.write] Unit := asm
-  lendRead 0
-  load 0
-  endRead 0
-  store 0
-
-/-- Donating the write away: the post-index records it. -/
-def donate : Asm [Cap.write] [Cap.read 1] Unit := asm
-  store 0
-  lendRead 0
-  load 0
 
 /-- Nested loans, partial discharge: write returns only after the LAST discharge. -/
 def twoLoans : Asm [Cap.write] [Cap.write] Unit := asm
@@ -410,199 +478,434 @@ def twoRegions : Asm [Cap.write, Cap.write] [Cap.write, Cap.write] Unit := asm
   store 0
 ```
 
-Three measured facts about this, each of which was a live risk:
+1. **Indices are inferred when not annotated** — `#check` reports
+   `Asm [Cap.write] (discharge (lend [Cap.write] 0) 0) Unit`, propagated through five binds.
+2. **Computed indices unify** — the obligation `canStore (lend [Cap.write] 0) 0 = true` reduces
+   without help. The risk most likely to make this miserable did not materialise *at this scale*.
+3. **Ghost operations emit nothing** — `[Instr.st 0, Instr.ld 0, Instr.st 0]`.
 
-1. **Indices are inferred when not annotated.** `#check` on the un-annotated program
-   reports `Asm [Cap.write] (discharge (lend [Cap.write] 0) 0) Unit` — Lean propagated the
-   index through five binds with no annotation from the author. Authors write the contract
-   at routine boundaries and nothing in between.
-2. **Computed indices unify.** The post-index of `lendRead` is the *application* `lend Γ i`,
-   and the next step's obligation is `canStore (lend [Cap.write] 0) 0 = true`. Elaboration
-   reduces these without help. This was the risk most likely to make the approach miserable
-   in practice and it did not materialise at this scale. It is *not* established at
-   realistic scale (§5.5).
-3. **Ghost operations emit nothing.** `#eval (ownerWritesThenLends []).2` printed
-   `[Instr.st 0, Instr.ld 0, Instr.st 0]` — the two lend/discharge steps contributed zero
-   instructions.
-
-### 5.4 Obligation dispatch at the bind — the centre of the design, measured
-
-Each access operation takes its authority obligation as an auto-param whose tactic is the
-dispatcher:
+### 6.4 Obligation dispatch at the bind — the centre of the design, measured
 
 ```lean
 macro "borrow_auto" : tactic => `(tactic| first | decide | omega | skip)
-
 def store (i : Nat) {Γ : Ctx} (_h : canStore Γ i = true := by borrow_auto) : Asm Γ Γ Unit
-def load  (i : Nat) {Γ : Ctx} (_h : canLoad  Γ i = true := by borrow_auto) : Asm Γ Γ Unit
 ```
 
-`first | decide | omega | skip` is the fast path followed by a deliberate fall-through: when
-neither tactic closes the goal, `skip` leaves it open, and Lean reports it. Four measured
-outcomes:
+`skip` is a deliberate fall-through: when neither tactic closes the goal, Lean reports it.
 
 | Control | Program | Measured result |
 | :-- | :-- | :-- |
-| NEG-1 | `lendRead 0` then `store 0` | `error: could not synthesize default value for parameter '_h' using tactics` + `error: unsolved goals ⊢ canStore (lend [Cap.write] 0) 0 = true` |
-| NEG-2 | `lendRead 0; load 0` against a declared `Asm [write] [write]` | error, but the goal reads `⊢ canLoad (?m.18 x✝) 0 = true` — a metavariable, not the real problem |
-| NEG-4 | `store 0` with `Γ` an opaque variable | `error: unsolved goals  G : Ctx ⊢ canStore G 0 = true` |
-| POS-5 | same, with the author passing a proof: `store 0 h` where `h : canStore G 0 = true` | compiles |
+| NEG-1 | lend then store | `unsolved goals ⊢ canStore (lend [Cap.write] 0) 0 = true` |
+| NEG-2 | lend, load, against a write-in/write-out contract | error, but the goal reads `⊢ canLoad (?m.18 x✝) 0 = true` — a metavariable |
+| NEG-4 | store with an opaque context | `unsolved goals  G : Ctx ⊢ canStore G 0 = true` |
+| POS-5 | the same, author passing `h : canStore G 0 = true` | compiles |
 
-NEG-1 and NEG-4 together are the design's thesis, demonstrated. **The same mechanism does
-both jobs**: where the borrow structure is statically known, `decide` closes it silently and
-the author sees nothing (this is Rust's borrow checker, as the fast path); where it is not,
-the author is handed the exact proposition at the exact source position and supplies a proof
-(POS-5). There is no third outcome, no `unsafe`, and no escape hatch — because the fallback
+NEG-1 and NEG-4 together are the thesis. **The same mechanism does both jobs**: where the structure
+is statically known, `decide` closes it silently; where it is not, the author gets the exact
+proposition at the exact position and supplies a proof. No third outcome, no `unsafe` — the fallback
 is not an escape, it is work.
 
-This is also the concrete answer to why an elaborator beats `do`: `do` has nowhere to put a
-failed side condition except a type error. A dispatching elaborator has somewhere to put it —
-a goal.
+This is why an elaborator beats `do`: `do` has nowhere to put a failed side condition except a type
+error. A dispatching elaborator has somewhere to put it — a goal.
 
-### 5.5 What the measurement did **not** establish
+### 6.5 What the measurement did **not** establish
 
-Stated plainly, because a spike that only reports its successes is worthless:
+- **Scale.** Seven steps, two regions, literal indices. Cost over a realistic routine
+  (`Stdlib/Zlib/X86_64.lean` is 2,245 lines) is unmeasured. If index normalization is superlinear
+  the approach fails on exactly the modules that need it. **First thing an implementing task must
+  measure.**
+- **Error quality on index mismatch is poor** (NEG-2) — the *most common* author mistake.
+- **No real instruction, address, or `MemoryPerm`.** Connecting §2 to §6 is unmeasured.
+- **No control flow.** Straight-line only.
 
-- **Scale.** The largest program measured is seven steps over two regions with literal
-  indices. Elaboration cost of index reduction over a realistic routine — `Stdlib/Zlib/X86_64.lean`
-  is 2,245 lines — is unmeasured. If index normalization is quadratic in program length, the
-  approach fails on exactly the modules that need it most. **This is the first thing an
-  implementing task must measure, before anything else is built.**
-- **Error quality on index mismatch is poor.** NEG-2 — the *most common* author mistake,
-  forgetting to discharge — produced a goal mentioning a metavariable rather than "region 0
-  still has 1 outstanding loan". Usable errors here need either a custom elaborator that
-  checks the index before elaborating the obligations, or a post-hoc index-diff reporter.
-  Unbudgeted and non-trivial.
-- **No real instruction, no real address, no `MemoryPerm`.** The spike's `store`/`load` take
-  a region *number*. Real accesses take a `MemRef`, evaluate to an address, and must be tied
-  to a `MemoryPerm` at that address. That connection is MH3's `AccessOK`, and it is where the
-  actual difficulty lives — the spike measured the weaving, not the checking.
-- **No control flow.** Straight-line only. §2.3's joins and loops are unmeasured.
+---
 
-## 6. Relationship to MH3 — this subsumes it, and that is a finding, not a collision
+## 7. Transmogrification — one mechanism
 
-**Status**: MH3 (`docs/tasks/MH3-capability-authoring-surface.md`) is `ready` and **in
-flight in an agent worktree at the time of writing**, uncommitted: `Gasm/Targets/X86_64/CheckedAsm.lean`
-(497 lines), `Stdlib/SmolAlloc/MemSafety.lean`, `Tools/CheckMemBypass.lean`, and
-`scripts/mem_bypass_allowlist.txt`. None of it is on `main` (verified: no occurrence of
-`CheckedAsm`, `RegionSpec`, `AccessOK`, or `MemSafe` in any `.lean` file in the main tree).
-Line references below are to that uncommitted file and will move.
+**Status**: proposed; nothing in this section exists.
 
-Read directly, MH3's shape is:
+### 7.1 The shape: a borrow with a transformation, discharged by an inverse
+
+The owner's shape — *"a special kind of borrow with an obligation that discharges the hold on the
+underlying memory (and maybe forces a destruction operation)"* — unifies what were two operations:
+
+| | Sub-allocation | Byte typing |
+| :-- | :-- | :-- |
+| What is transformed | the **region** (narrowed) | the **type** (refined) |
+| Loan | `Exclusive S` for `S ⊂ R` | `Typed T R` |
+| Parent's hold while outstanding | suspended over `S`'s extent | suspended over the typed extent |
+| Discharge | `free` | `destruct` |
+
+**`malloc`/`free` and construct/destruct are the same operation at different granularity.** One
+mechanism:
+
+```lean
+inductive View | sub (extent : Extent) | typed (T : Type) (extent : Extent)
+
+/-- Suspend the parent's hold over `view`'s extent, yielding a handle. -/
+def lendAs (parent : RegionId) (v : View) : Asm Γ (suspend Γ parent v) (Handle v)
+
+/-- The inverse. Restores the parent's hold; for a typed view this is the destructor. -/
+def discharge (parent : RegionId) (v : View) : Asm Γ (restore Γ parent v) Unit
+```
+
+This is a strictly better design than two parallel mechanisms, and it collapses two would-be Law 12
+twins before they are written.
+
+### 7.2 The view ledger — and why two independent routes reach it
+
+The unified operation forces a generalization of §3.1: a region's capability state is not a scalar
+but a **ledger of outstanding views**.
 
 ```
-CheckedInstr   (Γ : Frame) (Inv : X86_64MachineState → Prop)   -- one instruction, fixed Γ
-CheckedProgram (Γ : Frame) (Inv : ...) := List (CheckedInstr Γ Inv)
+Cap ::= owned (outstanding : List View)
 ```
 
-with `RegionSpec` (anchor, len, share), `Frame := List RegionSpec`, `shareAllows`,
-`AccessOK`, a decidable `literalAccessOK` with an `AccessOK.ofLiteral` soundness theorem, a
-`mem_bounds`-style auto-param, `erase`, `grantedFootprint`, and `MemSafeStatement`.
+- `write` is `owned []`
+- `read n` is `owned` with `n` whole-region read views
+- sub-allocation is `owned` with the carved extents outstanding
+- a typed view is `owned` with a `typed` entry
 
-**The verdict: the borrow monad is MH3's `CheckedProgram` with `Γ` promoted from a parameter
-to an index. They are the same artifact.** `List (CheckedInstr Γ Inv)` is precisely the
-index-preserving special case `Asm Γ Γ`, which is what a *non*-flow-sensitive frame means.
-Concretely, of MH3's surface:
+`canStore` becomes "no outstanding view covers this extent"; reclaim is "the ledger is empty".
 
-- `RegionSpec`, `Frame`, `AccessOK`, `literalAccessOK`, `AccessOK.ofLiteral`, the auto-param,
-  `erase`, `grantedFootprint`, `MemSafeStatement`, the bypass ledger and its gate: **all
-  carry over unchanged.** The borrow model adds nothing to and removes nothing from any of
-  them.
-- `CheckedProgram Γ Inv := List (CheckedInstr Γ Inv)` becomes `Asm Γ₁ Γ₂ α`, with the old
-  type recovered at `Γ₁ = Γ₂`.
-- `shareAllows` needs one change under §2.2's re-reading: `.Locked` currently maps to `true`
-  for both kinds, which is right for authority and silent about the atomicity obligation. It
-  would additionally demand that the access kind be `.rmw`.
+**The same generalization is forced independently by SmolAlloc, and that convergence is the
+finding.** The allocator keeps *two* ledgers:
 
-This is **not** a Law 12 unlinked twin, and it must not be allowed to become one. The
-correct sequencing, recommended: **let MH3 land as designed and approved.** It is the
-approved v1 line (ADR-0040 Q1), it is being built now, and every piece of it except the
-`CheckedProgram` type constructor survives the upgrade verbatim. The borrow model is then a
-follow-on that replaces one type and keeps the rest — the "nothing in v1's shape is discarded
-by the upgrade" contract `docs/MEMORY_HOOK.md` §4.3 already committed to, honoured. Stopping
-MH3 to rebuild it as an indexed monad would discard four working pieces to change one.
+- `activeBorrows : Nat` (`Spec.lean:46`) is a **count**. It answers "is the arena safe to release"
+  (`isSafeToRelease`) correctly, and can answer nothing about disjointness, because a count has no
+  identity.
+- `obligations : List ObligationToken` with `mkFreeObligation payloadAddr` (`Spec.lean:56-58`, pushed
+  at `:100`, `:125`) is a **named multiset**. It carries identity.
 
-The one coordination item that cannot wait: **MH3's `shareAllows` treatment of `.Locked`, and
-whether MH3's `CheckedProgram` is named in a way that survives becoming an index.** Both are
-one-line concerns and both should be raised with the MH3 agent rather than resolved by a
-later rewrite.
+**The named list is the view ledger; the counter is its cardinality.** And `isSafeToRelease`
+(`activeBorrows == 0`) **is** §7.1's discharge check — written before anyone named the pattern.
+Treating SmolAlloc as the existing worked instance rather than an analogy is correct.
 
-## 7. Does the DSL make ill-formed programs *unwritable*?
+**Two observations about the current implementation** that the indexed form makes unrepresentable.
+Stated as observations against the spec as written, not proven defects, and worth confirming with
+whoever owns SmolAlloc:
 
-The claim to test: if the DSL is the sole authoring surface, a malformed chain is not merely
-unprovable but unwritable, because generated syntax cannot be mis-indexed the way a
-hand-written `bind` chain can.
+1. `free` decrements saturatingly — `if s.activeBorrows > 0 then s.activeBorrows - 1 else 0`
+   (`Spec.lean:149`). An unbalanced free is absorbed rather than rejected.
+2. `free` discharges by `s.obligations.filter (fun o => o != targetObligation)` (`Spec.lean:145-146`),
+   removing *all* matching entries, and `mkFreeObligation` is keyed on the **address alone**. Two
+   obligations for the same address are indistinguishable. `eraseAllChecked`
+   (`Gasm/Core/Obligations.lean:62`), which returns `Option` and would catch discharging something
+   not present, exists and is unused here.
 
-**Partly. The strong reading does not hold; a weaker and still valuable one does.**
+Observation 2 is the same defect §7.5 identifies from the pointer side.
 
-What the DSL genuinely prevents is *mis-weaving*: an author cannot write `Asm.bind` with
-mismatched intermediate indices, because they never write `Asm.bind` at all — the macro
-generates every one, and each is generated from adjacent steps, so the intermediate index is
-by construction the previous step's post-index. Mis-sequencing is unrepresentable in the
-surface syntax. That is real.
+### 7.3 Sub-allocation, concretely
 
-What it does not prevent is **writing a step whose obligation is false**, because the
-obligation is not a syntax error — it is a goal. NEG-1 is not "unwritable"; it is written,
-and then rejected at elaboration. The distinction matters because it is the distinction
-between a *parser* and a *checker*, and the whole design's value is that it is a checker
-with a proof-shaped fallback. A surface in which the bad program could not be typed at all
-would also be a surface in which the *hard* program could not be typed at all — and the hard
-program is the one we need (POS-5).
+`MemoryPerm.split` is the primitive step; an allocator is its closure over a free list.
 
-So: Law 11's "fails to assemble" is satisfied at elaboration, not at parse. That is the same
-bar `docs/MEMORY_HOOK.md` §4.2 already sets and ADR-0040 accepted. It is not weaker for being
-at elaboration: no bytes are emitted, the artifact is unbuildable, and the build is red.
+```lean
+structure AllocState (R : RegionId) where
+  outstanding : List RegionId
+  freeList    : List RegionId
+  partition   : Partitions R (outstanding ++ freeList)   -- pairwise disjoint, covering R
 
-**Cost of making the DSL the only surface.** The mechanism already exists in MH3's design and
-is being built: the ratcheted bypass ledger (`scripts/mem_bypass_allowlist.txt`) plus a gate
-that fails CI when a memory-operand smart constructor is used outside the ledger. Sole-surface
-status is then "ledger empty", which is monotone, measured, and defined — `docs/MEMORY_HOOK.md`
-§4.5. The cost is not the mechanism; it is the migration, and PA4 already owns it with a
-ratified ordering (new/small modules first, `Stdlib/Zlib/X86_64.lean` last). Nothing in the
-borrow model changes that cost. **Status**: ledger and gate are MH3 deliverables, unbuilt on
-`main`.
+def alloc (s : AllocState R) (n : Nat) : Option (Σ S : RegionId, Ptr S × AllocState R)
+def free  (s : AllocState R) (S : RegionId) (p : Ptr S) : Option (AllocState R)
+```
 
-### 7.1 Emit directly, or produce a term? — produce a term
+The invariant carries disjointness: every region handed out is disjoint from every other outstanding
+one *because the partition says so*, not because each call site proves it. That is what makes §2.4's
+"free by construction" true across an allocator, not only across a static frame. `free` returns
+`Option` deliberately — returning a region that is not outstanding is a failure, not a no-op.
 
-Recommended: the DSL produces a value in the indexed monad, which carries the emission; it
-does not emit bytes at elaboration.
+**Needs**: the disjointness component `split` does not currently return (§1.1). Small, self-contained.
 
-The dichotomy as posed is false, and that is the reason: **the obligations are elaborated at
-term-construction time either way.** Every auto-param in §5.4 runs when the term elaborates,
-whether or not that term's *value* is a byte string. Emitting directly buys no additional
-checking and costs composition — a routine that cannot be named as a value cannot be called,
-inlined, or given a contract, and `erase : CheckedProgram → List SymbolicInstr`
-(`docs/MEMORY_HOOK.md` §4.5) is precisely the seam that keeps the assembler, linker, decoder,
-and fuzzers untouched. The spike's `Asm` is a writer monad over an instruction list for
-exactly this reason, and it cost nothing.
+### 7.4 Byte typing, and the roundtrip convergence — checked
 
-### 7.2 What a failed obligation looks like to the author
+Two regimes, kept apart because only one is free.
 
-An **error**, carrying the goal, at the failing step's source position (measured, §5.4). Not
-a `sorry`, not a marker, not a warning. This is the right answer on gate grounds as well as
-ergonomic ones: a marker would need a new gate to catch it, whereas an error is caught by
-`lake build`, which every gate already depends on. The `sorry` route is worse still — it
-would be caught by the axiom gate, but only after producing a *buildable* artifact, which is
-precisely what Law 11 forbids.
+**Checked.** Parse and obtain `Except err T`. Safe; costs a parse. In tree: `Stdlib/Http11/Parser.lean`,
+`Stdlib/Png/Spec.lean`.
 
-The one refinement worth designing in: the DSL should accept an explicit per-step proof
-escape (`store 0 h`, measured working in POS-5) so that the fallback is always "supply the
-proof here", never "restructure the block to make `decide` work".
+**Asserted.** Claim the bytes satisfy `T`'s invariant because of *how they got there*:
 
-## 8. Shared-XOR-mutable and data races
+```lean
+structure Typed (T : Type) (r : RegionId) where
+  private mk ::
+  ptr : Ptr r
+  inv : Invariant T r          -- a Prop; erased
 
-**Status**: proposed theorem shape; no multi-thread machine exists. `docs/X86_MEMORY_MODEL.md`
-§2.3 Decision 3's store-buffer machine is MT2's deliverable and is unbuilt, as is every
-`MT` task.
+def typeAfterWrite (t : T) (p : Ptr r) (h : fits T r) : Typed T r
+```
 
-Does shared-XOR-mutable make a data race unrepresentable? **For non-`Locked` regions, yes,
-and the theorem has a clean shape.** For `Locked` regions, deliberately no — and that is the
-correct outcome, not a gap.
+**The roundtrip theorem *is* the introduction rule for the asserted regime.** If a `T` was just
+written, `parse (write t) = .ok t` is exactly the obligation `typeAfterWrite` needs, and nothing else
+will do. That reframes a set of parser efforts that look independent as instances of one mechanism,
+and gives them a shared reason to be ∀-quantified — Law 9 pressure they would otherwise each take
+individually.
 
-Define a conflict in the standard way: two accesses from *different* threads whose footprints
-overlap, at least one a store, not ordered by happens-before. The needed global invariant is
-a partition of authority across threads, which is `DisjointTokens`
-(`Gasm/Core/Permissions.lean:58-62`) lifted from one context to a family of them:
+**The evidence is thinner than it appears, in three specific ways:**
+
+- **Http11 — holds, strongest case.** `request_roundtrip (r : Request) : parseRequest (writeRequest r) = .ok r`
+  (`Stdlib/Http11/Roundtrip.lean:304`) and `response_roundtrip` (`:444`) are ∀-quantified and landed.
+- **Zlib — holds, fixed branch.** `lz77_roundtrip_soundness (data : ByteArray)`
+  (`Stdlib/Zlib/Equivalence.lean:363`), `emitFixedBlock_roundtrip_soundness` (`:1875`),
+  `compress_roundtrip_of_fixed_choice` (`:1884`) — ∀-quantified over `ByteArray`, landed.
+- **PNG — does not hold yet.** `png_roundtrip_soundness_inst` and
+  `png_idempotent_canonical_roundtrip_inst` (`Stdlib/Png/Equivalence.lean:367,380`) carry `_inst`,
+  which under Law 8 and Law 10 marks them ground-instance regression tests explicitly *not* presented
+  as general theorems. A candidate for the mechanism, not an instance; making it one is PA8 work this
+  design gives a second motive for.
+- **ELF — not on `main`.** `Gasm/Targets/ELF/` holds `Format.lean` and `Notes.lean` and no parser. A
+  checked parser exists in an agent worktree, uncommitted, carrying no roundtrip theorem.
+
+Two landed instances, one candidate, one in flight: enough to make the convergence real, not enough
+to call it a settled pattern.
+
+### 7.5 Why destruction is load-bearing, and why region identity must be generative
+
+**Destruction is not optional.** If bytes typed as `T` could silently revert to raw while a
+`Typed T r` might still exist, the invariant is stale and the type is a lie. The destructor is the
+proof that no typed view survives. **A transmogrify dischargeable without it is unsound.**
+
+**But Lean is not linear, so the handle cannot be what enforces this** — a `Handle` value can be
+duplicated. It does not need to be: **authority is checked against the index, not the handle**
+(§4). After `discharge`, the view is gone from the index, so a dereference through a duplicated
+handle fails the authority check. Use-after-free is caught the same way stale borrows are.
+
+**This forces one design constraint that is easy to miss.** If `RegionId` were address-derived, a
+block freed and reallocated at the same address would produce a region *equal* to the stale one, and
+a duplicated stale `Ptr` would type-check against the new grant. **`RegionId.ident` must therefore be
+generative** — a fresh identity per allocation, monotone in the index — not the address. This is the
+same defect as §7.2 observation 2 (`mkFreeObligation` keyed on address alone), seen from the pointer
+side, and it is the strongest argument that the two ledgers should be unified.
+
+### 7.6 The danger: unchecked transmogrify
+
+An unchecked transmogrify — asserting `T` of arbitrary bytes with no proof — is the single hole
+through which all memory safety leaks.
+
+**Recommendation: demand a proof; it must not be ledgerable.** `docs/MEMORY_HOOK.md` §4.5's bypass
+ledger exists for *authoring paths not yet migrated* — a migration state with a defined end ("ledger
+empty"), monotone and measured. An unchecked transmogrify is not a migration state; it is a permanent
+semantic assertion. Ledgering it would make the ledger un-emptiable by construction and park a
+soundness hole behind a counter — precisely the confidence-manufacturing shape Law 8 and the TC21
+linter exist to catch.
+
+**There is one legitimate case, and it is not this operation.** The initial frame's regions come from
+outside the model: the OS mapped an image, `VirtualAlloc` returned a block. That is an **axiom of the
+environment**, belonging where other environment axioms live — stated once at the boundary in the
+target's OS model, not as a general operation available to any author. Naming it separately keeps the
+general operation honest.
+
+**If ruled the other way**, the ledger entry must record the module; the exact region and byte range;
+the type asserted; the invariant *not* proven, written as a proposition rather than a description;
+why a parse is not viable; and a review sign-off — and it must introduce an axiom so
+`lake exe check_gates_axioms` sees it. A bypass the axiom gate cannot see is worse than one it can.
+
+### 7.7 The typing rule under the `casesOn` attack
+
+`Typed T r` has `Ptr r`'s shape: private constructor, one data field, one `Prop` field. Applying
+§2.3's measured result: `casesOn` **observes** (harmless — the pointer is already held, the proof is
+of a true proposition) and **cannot construct** (the motive must supply a `Typed`, needing the private
+constructor). The same three regressions apply, and the §2.3 audit must cover `Typed` and `Handle` as
+well as `Ptr` and `RegionId`.
+
+**Honest labelling**: this is *inference* from the measured `Ptr` result on an identically-shaped
+type, not a separate measurement. It must be re-measured when `Typed` is written — that is exactly the
+assumption that failed for `X86_64Memory`.
+
+---
+
+## 8. Leak-freedom — verified, with three conditions
+
+The claim: a forgotten `free` is a loan never discharged, so the post-index does not match the
+declared contract and the program does not compile. **Memory leaks become compile errors, by the same
+mechanism that makes use-after-free unrepresentable.**
+
+**The reasoning holds, and it is strictly stronger than Rust**, where leaking is *safe*:
+`mem::forget` is a safe function, `Rc` cycles leak by design, and the language explicitly declines to
+guarantee leak-freedom because ownership cannot force a destructor to run. An obligation that must be
+discharged before a routine typechecks does have that power. **Status**: unbuilt; this is a property
+of the proposed design, not a measured one — §6 measured discharge-forcing on read loans (NEG-2), not
+on allocations.
+
+Three conditions, two named by the coordinator and one found here.
+
+### 8.1 Loops — the index-preserving rule was too weak; index-parametric is correct
+
+§3.3's earlier "loop bodies must be index-preserving" would force every allocation to be freed within
+its own iteration, blocking legitimate patterns like building a list. **The correct rule is
+index-parametric**: a body of type `∀ i, Asm (Γ i) (Γ (i+1))` composes to `Asm (Γ 0) (Γ n)`, which is
+an ordinary dependent fold. Allocation across iterations is then expressible, at the cost of an
+author-stated invariant `Γ`.
+
+**One honest degradation.** When the iteration count is a runtime value, the index cannot be a
+statically-known list — it becomes a symbolic count, and the exit obligation becomes the arithmetic
+goal "outstanding = 0" rather than a structural index match. **Leak-freedom survives** — an
+undischarged obligation is still a compile error — but for runtime-bounded allocation it is an
+arithmetic obligation the author discharges, not a free structural one.
+
+### 8.2 Escaping allocations — transfer is the owner's fourth rule
+
+A routine that allocates and returns the pointer has not leaked; it transferred. The post-index must
+distinguish this, and it does: **transfer is `donate`**. The routine's type *exports* the region —
+`Asm Γ (Γ ++ [S]) (Ptr S)` — and the caller's index gains it. Discharge *removes* a view and restores
+the parent; transfer *moves* it to the caller. Both are index operations, neither is a leak, and the
+fourth rule is what makes the distinction expressible. No narrowing of the claim is needed here.
+
+### 8.3 Pointers stored in memory — the real limit, and it is the strongest one
+
+A routine that allocates and stores the pointer *into a data structure in memory* — a linked-list
+node's `next` field — has moved the region's ownership into the heap. **The index tracks capabilities
+held at a program point, not capabilities held by data.** A static index cannot follow ownership that
+lives in bytes.
+
+This is where separation logic reaches for recursive predicates and Rust reaches for ownership-in-fields
+(`Box<T>`). Under this design the mechanism is available in principle — a `typed` view whose invariant
+*is* "this field owns region S" makes the container's destructor obligated to discharge the contained
+pointer, and §7.1's unification is exactly what makes that compose recursively. But it is unbuilt and
+not cheap.
+
+**So v1 should forbid pointer-valued fields**, and the leak-freedom claim should be stated as holding
+for programs whose ownership graph is a tree the index can see. That is a real restriction — it
+excludes linked lists, trees with parent pointers, and most interesting heap structures — and it is
+the largest gap between this claim and a general leak-freedom guarantee.
+
+**Net verdict**: leak-freedom is real, is stronger than Rust, and holds *for straight-line and looping
+code whose allocations are either discharged or donated, with no pointers stored in memory*. Stated
+without those conditions it would be an overclaim.
+
+---
+
+## 9. Proof-carrying addresses: lock invariants
+
+**Status**: proposed. **All three mechanisms this depends on are absent from the tree**; see §9.3.
+Nothing here should be read as saying a lock has been verified.
+
+### 9.1 The shape
+
+*"when this atomic word is 1 the thread that set it has the mutex"* is **not a claim about the word's
+own bytes**. The lock word holds no data; its *value* licenses a claim about memory **elsewhere**.
+
+```lean
+/-- The word at `lockRegion` guards `protected`. Ghost state attached to a physical location. -/
+structure LockInv (lockRegion protected : RegionId) where
+  private mk ::
+  inv : LockInvariant lockRegion protected
+
+/-- A successful acquire MOVES the protected region's capability into this context. -/
+def acquire (l : LockInv w p) : Asm Γ (Γ ++ [p ↦ owned []]) Bool
+def release (l : LockInv w p) : Asm (Γ ++ [p ↦ owned []]) Γ Unit
+```
+
+The physical value and the logical permission move together, **and indivisibly** — which is exactly
+why only an atomic RMW can move them. If the read of the lock word and the acquisition of the
+permission could be separated, two threads could both observe 0 and both acquire.
+
+### 9.2 `Locked` earns its place — and needs one extension
+
+§3.2 defined `Locked` as shared-mutable with safety discharged by atomicity, and called it "the point
+where static discipline hands off to a dynamic protocol". A mutex is that handoff made concrete: **the
+word is `Locked`; the protected region transitions from unowned to `Exclusive`-held-by-the-acquirer.**
+
+**§3.2's definition supports the first half and not the second.** It describes the word correctly and
+says nothing about a *linked* region. The extension: `Locked` carries an associated ghost claim naming
+the region it guards, and the atomicity obligation on its accesses is strengthened to "this access
+transfers the named capability". That is genuinely new vocabulary, not a re-reading of what §3.2
+already said, and it is the concrete payoff for keeping `Locked` as a third authority mode rather than
+folding it into `Exclusive`.
+
+### 9.3 The three-way dependency — none of which exists
+
+Spike 8's verified computation is an XCHG test-and-set spinlock whose **unlock is a plain `MOV`**
+(`docs/SPIKES/SPIKE8_MULTITHREADING.md` §3, and §2.1's "the critical section is a deliberate
+load/add/store"). A plain-store unlock is correct **only under TSO**, relying on store-store and
+load-store preservation. So:
+
+| Layer | Supplies | State in tree |
+| :-- | :-- | :-- |
+| Borrow model (this document) | *what moves* — the protected region's capability | Unbuilt |
+| Atomics (MT1) | *indivisibility* — the transfer cannot be torn | Unbuilt; zero atomic forms exist |
+| Memory model (XM1/MT2) | *visibility* — prior writes are seen by the next acquirer | Unbuilt; `docs/X86_MEMORY_MODEL.md` states it has zero Lean |
+
+**If any of the three is missing, the mutex is unsound.** And under one thread any ordering theorem is
+vacuous — `docs/X86_MEMORY_MODEL.md` §8 explicitly rejects stating one now for that reason. This
+document therefore claims a *shape* and a *dependency*, and claims nothing about a verified lock.
+
+### 9.4 Is byte typing a special case? — one mechanism, one real difference
+
+Both attach a logical claim to a physical location. Byte typing's claim is about *the same bytes*
+("these bytes satisfy `T`"); the lock invariant's claim is about *other* bytes ("the value here
+licenses ownership of that region").
+
+**One mechanism — a ghost claim indexed by a physical location — with byte typing the reflexive case
+and lock invariants the cross-region case.** The cross-region indirection is the real difference, and
+it has one consequence that byte typing does not carry: the claim must be **transferable between
+threads**, which is why it needs atomicity and the memory model and byte typing does not. So they are
+the same mechanism with genuinely different obligations attached, and giving the mechanism once while
+stating the two obligation sets separately is the right factoring.
+
+---
+
+## 10. Relationship to MH3 — this subsumes it, and that is a finding
+
+**Status**: MH3 is `ready` and **in flight in an agent worktree**, uncommitted
+(`Gasm/Targets/X86_64/CheckedAsm.lean`, `Stdlib/SmolAlloc/MemSafety.lean`, `Tools/CheckMemBypass.lean`,
+`scripts/mem_bypass_allowlist.txt`). None is on `main`.
+
+MH3's shape is a list of checked instructions under a frame fixed for the whole routine, with a region
+record, a per-access obligation, a decidable literal case with a soundness theorem, an auto-param,
+erasure, and a `MemSafe` shape.
+
+**The borrow monad is MH3's checked program with the frame promoted from a parameter to an index. They
+are the same artifact** — a list of instructions sharing one frame is precisely the index-preserving
+special case. Everything except the program type constructor carries over unchanged.
+
+**MH3 is also where the typed pointer is closest to existing.** `MemRef` is *not* a typed pointer in
+embryo: it is a public record with default field values and no proof component (`Memory.lean:49-52`);
+anyone can build any `MemRef` naming any register. What carries a citation is MH3's memory-instruction
+constructor. §2 generalizes that in two directions: past literal displacements, and from "this access
+is authorized" to "this *value* is authorized to be dereferenced".
+
+**Recommended: let MH3 land as designed and approved.** It is the ADR-0040 Q1 line, being built now,
+and the upgrade discards nothing — honouring `docs/MEMORY_HOOK.md` §4.3's "nothing in v1's shape is
+discarded". Two coordination items for the MH3 agent: its `Locked` admission row (§3.2, §9.2), and
+whether its program type is named in a way that survives becoming an index.
+
+---
+
+## 11. Does the DSL make ill-formed programs *unwritable*?
+
+**Partly.** The DSL prevents *mis-weaving*: authors never write binds, so each intermediate index is
+by construction the previous step's post-index. It does not prevent **writing a step whose obligation
+is false**, because that is a goal, not a syntax error. The distinction is between a *parser* and a
+*checker*, and the value is that it is a checker with a proof-shaped fallback: a surface in which the
+bad program could not be typed would also be one in which the *hard* program could not be typed
+(POS-5).
+
+Law 11's "fails to assemble" is satisfied at elaboration, not at parse — the bar
+`docs/MEMORY_HOOK.md` §4.2 sets and ADR-0040 accepted. No bytes are emitted; the build is red.
+
+**Sole-surface cost** is not the mechanism — the ratcheted bypass ledger and gate are MH3
+deliverables — it is the migration, which PA4 owns. §14.5 records the one way the pointer type
+*reduces* it.
+
+### 11.1 Emit directly, or produce a term? — produce a term
+
+The dichotomy is false: **obligations are elaborated at term-construction time either way.** Emitting
+directly buys no additional checking and costs composition — a routine that cannot be named as a value
+cannot be called, inlined, or given a contract, and erasure to `SymbolicInstr` is the seam that keeps
+the assembler, linker, decoder and fuzzers untouched.
+
+### 11.2 What a failed obligation looks like
+
+An **error** carrying the goal, at the failing step's position (measured). Not a `sorry`, not a marker
+— an error is caught by `lake build`, which every gate depends on, whereas a `sorry` would produce a
+*buildable* artifact, which Law 11 forbids. The DSL should accept an explicit per-step proof escape
+(measured, POS-5).
+
+---
+
+## 12. Shared-XOR-mutable and data races
+
+**Status**: proposed theorem shape; no multi-thread machine exists.
 
 ```
 GlobalWF Θ  :=  for every address a,
@@ -610,9 +913,7 @@ GlobalWF Θ  :=  for every address a,
                   if any thread's context grants `write` over a, no other grants any share over a
 ```
 
-The theorem shape:
-
-```
+```lean
 theorem no_unsynchronized_race
     (Θ : ThreadId → Ctx) (h : GlobalWF Θ)
     (t₁ t₂ : ThreadId) (ht : t₁ ≠ t₂)
@@ -624,264 +925,250 @@ theorem no_unsynchronized_race
     False
 ```
 
-The proof is short and structural: a store is authorized only from `write`; `GlobalWF` says
-no other thread holds any share over the same address; so `a₂` is unauthorized, contradicting
-`h₂`. It needs no ordering reasoning whatsoever — **which is the point**. The races are
-excluded by authority, before the memory model is consulted.
+The proof is short and structural: a store is authorized only from `write`; `GlobalWF` says no other
+thread holds any share over that address; so `a₂` is unauthorized. It needs no ordering reasoning —
+**races are excluded by authority, before the memory model is consulted.**
 
-`IsSynchronized` is where `Locked` lives and where the theorem deliberately stops. A `Locked`
-region admits concurrent stores from multiple threads; those accesses *are* conflicting in
-the footprint sense, and they are safe because they are `.rmw`-kind — indivisible by
-construction, per `docs/X86_MEMORY_MODEL.md` §2.3 Decision 1. So `Locked` accesses are
-excluded from the conflict relation by hypothesis, and their safety is discharged by
-atomicity rather than by this theorem. A borrow model that claimed to exclude *all* races
-would have to exclude spinlocks, and Spike 8's whole verified computation is a spinlock
-(`docs/SPIKES/SPIKE8_MULTITHREADING.md` §3).
+`IsSynchronized` is where `Locked` lives and where the theorem stops. A `Locked` region admits
+concurrent stores; those accesses *are* conflicting in the footprint sense and are safe because they
+are indivisible. A model that excluded all races would exclude spinlocks, and Spike 8's verified
+computation is a spinlock.
 
-**If this lands, the borrow model and the memory model discharge one obligation together**,
-and the division is exact: the borrow model establishes that authored programs are
-data-race-free on plain accesses; the memory model then only has to state *ordering* for the
-synchronized ones. That is the difference between TSO mattering for safety and TSO mattering
-only for ordering — the coordinator's read is correct. Two honest caveats. First, it requires
-cross-thread capability transfer to be modelled at all (spawn hands regions to a child; join
-returns them; a lock acquire dynamically grants), and none of that exists — it is MT2-shaped
-work with no task. Second, `GlobalWF` is an invariant over *concrete addresses*, so it
-inherits §11's aliasing gap in full: if two threads' region specs alias without the model
-knowing, `GlobalWF` is false and the theorem says nothing.
+**If this lands, the borrow model and the memory model discharge one obligation together**: the borrow
+model establishes data-race-freedom on plain accesses; the memory model then only states *ordering*
+for the synchronized ones — which is precisely §9's mutex. Caveats: cross-thread transfer does not
+exist and has no task; and `GlobalWF` rests on §2's provenance discipline, since with typed pointers
+the premise is establishable at spawn from §7.3's partition and without them it is not.
 
-## 9. Architecture neutrality — the ARM question
+---
 
-**Status**: analysis; `docs/TARGETS/ARM64.md` is reconnaissance, and no ARM target exists.
+## 13. Architecture neutrality
 
-The vocabulary is neutral: `MemoryPermissions Arch` is already arch-parameterized
-(`Gasm/Core/Permissions.lean:66`), and `MemoryPerm`/`DisjointRanges`/`DisjointTokens` mention
-no architecture. The *authority* semantics of §2.1 are neutral too — "who may store" is not a
-memory-model question, and the four rules contain no ordering claim. §8's race theorem is
-likewise ordering-free by construction, which is the strongest neutrality result here: it
-holds on any architecture, because it never mentions one.
+**Status**: analysis; no ARM target exists.
 
-**Two places where an x86 assumption would enter if this design were written carelessly, both
-on the `Locked` axis:**
+Authority semantics are neutral — "who may store" is not a memory-model question — and §12's theorem
+is ordering-free by construction, so it holds on any architecture because it never mentions one.
 
-1. **"Atomic = one indivisible access" is a TSO-shaped assumption.**
-   `docs/X86_MEMORY_MODEL.md` §2.3 Decision 1 makes a locked RMW exactly one
-   `MemAccessSpec` with `kind := .rmw`, so that interleaving between its read and write
-   halves is unrepresentable. That is right for x86, where `LOCK`-prefixed RMW and memory-operand
-   `XCHG` are single indivisible actions. It is **wrong for AArch64**, whose exclusive
-   monitor is `LDXR`/`STXR` — a *pair* of instructions that can fail and must be retried.
-   An ARM atomic increment is not one access; it is a loop. If `Locked`'s meaning is defined
-   as "declares one `.rmw` entry", ARM cannot express its own atomics.
-   The fix is available and cheap if taken now: define `Locked` by its **obligation** — "every
-   access to this region is synchronization-ordered" — and let each target discharge that
-   obligation its own way (x86: one `.rmw` entry; ARM: an exclusive-monitor pair with a
-   retry-loop contract). §2.2's re-reading is written this way deliberately.
-2. **Per-access ordering annotations.** `docs/X86_MEMORY_MODEL.md` §8 rejected a `MemOrder`
-   field alongside the kind, correctly, because x86-TSO has no third value to express — and
-   said explicitly that it "might" be needed for ARM. AArch64's `LDAR`/`STLR` carry
-   acquire/release *per access*, which is exactly that third value. This is not a borrow-model
-   decision, but the borrow model is the first design that would consume it (via
-   `IsSynchronized`), so it is worth recording here that the rejection is x86-scoped and that
-   `docs/TARGETS/ARM64.md` §7 independently reached the same conclusion from the other
-   direction.
+**The pointer type is *more* portable than what exists.** `MemRef` is explicitly x86-shaped
+(`base + index*scale + disp` derives from the SIB byte), and `docs/TARGETS/ARM64.md` §7 flags it will
+not fit AArch64 without modification. §2.2's `Ptr` carries **no addressing mode at all**: a provenance
+and a displacement, lowered per target — x86 to `MemRef`, AArch64 to `[Xn, #imm]`, `[Xn, Xm, LSL #k]`,
+or a literal-pool form. `Ofs.lit`/`Ofs.dyn` covers AArch64's immediate and register-offset shapes
+unchanged.
 
-**Verdict: the borrow model is architecture-neutral, and the one place an x86 assumption
-could enter — the definition of `Locked` — is defined obligationally in §2.2 precisely to
-keep it out.** That framing was chosen with ARM in view and is worth stating explicitly so an
-ARM implementor is not left inheriting an unstated assumption, which is the specific harm
-`docs/TARGETS/ARM64.md` §7 warns about.
+**Three concrete ARM findings, cheap now and expensive to discover late:**
 
-## 10. Demand, staging, and honest cost
+1. **Writeback mutates the pointer.** AArch64 pre/post-indexed forms (`STR X0, [X1], #16`) update the
+   base register *as part of the access*. That single instruction is a store **and** a pointer update:
+   the descriptor must declare both, and the borrow index must account for the offset changing at that
+   step. x86-64 has no such form, so neither this design nor MH1's descriptor anticipates it. An ARM
+   team should decide early whether writeback forms are modelled as one descriptor with a declared
+   register effect, or excluded from the first cut.
+2. **"Atomic = one indivisible access" is TSO-shaped.** `docs/X86_MEMORY_MODEL.md` §2.3 Decision 1
+   makes a locked RMW one descriptor entry — right for x86, **wrong for AArch64**, whose exclusive
+   monitor is `LDXR`/`STXR`: a *pair* that can fail and must be retried. An ARM atomic increment is a
+   loop. §3.2 therefore defines `Locked` by its **obligation**, leaving each target to discharge it.
+3. **§9's mutex is the hardest test of neutrality, and it passes — obligationally.** x86's release is a
+   plain `MOV`, correct under TSO. AArch64's is not: it needs `STLR` or an explicit barrier. **The
+   permission transfer §9.1 describes is identical across targets; only the discharge instruction
+   differs.** The obligation — "the release must make prior writes visible before the lock word's
+   release is observable" — stays constant, and each target's memory model discharges it its own way.
+   That is the strongest available form of the neutrality claim, and it survives precisely because §3.2
+   and §9.2 are framed as obligations rather than as instruction choices. Had `Locked` been defined as
+   "one `.rmw` entry, released by a plain store", ARM could not have satisfied it.
 
-### 10.1 The trigger
+Related: `docs/X86_MEMORY_MODEL.md` §8 rejected a per-access ordering field because x86-TSO has no
+third value, and said it might be needed for ARM. AArch64's `LDAR`/`STLR` carry acquire/release per
+access, which is that third value; §9 is its first consumer.
 
-Named by the owner: *"isa scale up: we need multithreading and borrowing resolved."* This is
-Law 5 demand, stated, not inferred. It extends the prerequisite set ADR-0039 ratified (P2
-memory hook — landed as MH1; P3 decoder modularization; P4/P5 the unified
-validation-and-calibration gate) with a fourth and fifth item, and it sits consistently with
-ADR-0040's deferral: ADR-0040 accepted a bounded v1 line *with flow-sensitive typestate
-deferred to PA2/PA3*, and this document is that deferred item arriving under its own demand.
+---
 
-**So the answer to "does the borrow model subsume ADR-0040's deferral or sit beside it" is:
-it is the deferral, arriving.** It subsumes it (§6): MH3's v1 is the index-preserving special
-case, and the upgrade discards nothing.
+## 14. Demand, staging, and honest cost
 
-### 10.2 What actually blocks what
+### 14.1 The trigger
 
-The demand is real, but it is not uniform across the expansion, and conflating the stages
-would overstate the gate:
+*"isa scale up: we need multithreading and borrowing resolved"*, and for §7, `smol_malloc` carving
+from `VirtualAlloc` blocks — **in-tree code, not a projection** (`Stdlib/SmolAlloc/Spec.lean`). Law 5
+demand, stated. This document is ADR-0040's deferred flow-sensitive typestate arriving under its own
+demand, and it **subsumes** that deferral (§10) rather than sitting beside it.
 
-| Expansion stage | What it needs | State |
+### 14.2 What actually blocks what
+
+| Expansion stage | Needs | State |
 | :-- | :-- | :-- |
-| Wave A — GPR-only ALU forms, no memory operands | Nothing from this document. `memAccesses _ := []` is their honest descriptor. | Unblocked today |
-| Wave B — memory-operand forms | MH1 (landed) + MH3's checked authoring surface. Straight-line borrow index is a strict improvement but not a hard gate. | MH3 in flight |
-| Memory forms authored inside loops over buffers | The straight-line borrow index, plus §2.3 item 3's loop rule | Unbuilt |
-| Atomics, fences, anything multi-threaded | MT1 + MT2 + §8's cross-thread transfer | MT1/MT2 blocked; §8's transfer has no task |
-| Branch-heavy authored routines | §2.3 item 2's join obligations — this is PA2/PA3 | Unstarted |
+| Wave A — GPR-only ALU forms | Nothing here | Unblocked today |
+| Wave B — memory-operand forms | MH1 (landed) + MH3 | MH3 in flight |
+| Memory forms in loops over buffers | Straight-line borrow index + §2's pointer | Unbuilt |
+| Allocator-backed routines | §7.3 | Unbuilt; consumer exists today |
+| Atomics, threads, any lock | §9's three layers | All unbuilt |
+| Branch-heavy routines | §3.3 item 2 — PA2/PA3 | Unstarted |
 
-### 10.3 Cost, stated as a large honest number rather than a small optimistic one
+### 14.3 Law 8, confronted rather than managed
 
-Estimates are in agent-days of focused work, and they are estimates, not measurements. The
-uncertainty is dominated by two unmeasured things (§5.5's scale question and the error-message
-work), and both could double their line items.
+- The demand is named by the owner, and §7's is in-tree code.
+- **Decisive: the structural commitment was already made and is dormant.** `BlockM` is the indexed
+  monad, ratified in `docs/API_STATE_MODELS.md` §2, with zero consumers — under Law 8 *already* a dead
+  abstraction. This design does not add speculative structure; it is the first thing that would make
+  existing speculative structure real, or prove it should be deleted.
 
-| Piece | Estimate | Confidence |
+The charge that **does** stick, answered by sequencing: the DSL must not be built before §6.5's scale
+question is measured. An elaborator that cannot elaborate `Stdlib/Zlib/X86_64.lean` in reasonable time
+is a facade regardless of soundness.
+
+### 14.4 The VISION §4 DSL claim, checked
+
+The operation population is closed and small — lend, reclaim, donate, `lendAs`, discharge, load,
+store, synchronized access — and closure is *forced*, because `MemAccessKind` is `load | store` plus
+the proposed `.rmw` and `memAccesses` is defaultless, so no instruction can introduce an eighth access
+shape without a compile error.
+
+**The qualification**: the cheap theorems are about *authority bookkeeping*, the decidable part. What
+remains per-program is dynamic bounds and §7's introduction rules. The leverage is real but partial —
+and §2's pointer type is what makes it *large* rather than marginal, because without it the residue
+was unbounded aliasing and with it the residue is arithmetic.
+
+### 14.5 Cost, rechecked
+
+Agent-days of focused work; uncertainty dominated by §6.5 and the error-message work.
+
+| Piece | Estimate | Change |
 | :-- | :-- | :-- |
-| Borrow context type, four operations, decidable predicates, index lemmas | 3–5 days | Reasonable — the spike is most of the shape |
-| The weaving DSL macro, hardened (positions, escapes, error messages) | 4–8 days | Low. The spike's 30 lines took under an hour; usable *errors* (§5.5) are the real cost and are unmeasured |
-| Elaboration-cost measurement at realistic scale, and remediation if it is bad | 2 days to measure, unbounded to fix | **Lowest confidence item in the table.** If index normalization is superlinear this is a redesign, not a fix |
-| Promoting MH3's `CheckedProgram` to the index; everything else of MH3 unchanged | 3–5 days, *after* MH3 lands | Reasonable — one type constructor |
-| `MemSafe` re-proof over the indexed form for the pathfinder routine | 5–10 days | Moderate |
-| Joins and loops (§2.3 items 2–3) | This is PA2/PA3's scope, not a line item here | — |
-| Cross-thread transfer + §8's theorem | Blocked on MT2, which is blocked on XM1 | — |
+| Elaboration-cost measurement, remediation if bad | 2 days to measure, unbounded to fix | Unchanged. **Lowest confidence, and it dominates** |
+| Borrow context, four operations, decidable predicates | 3–5 days | Unchanged |
+| Weaving DSL, hardened | 4–8 days | Unchanged |
+| §2 pointer type, region identity, tier-3 audit | **+4–7 days** | New |
+| Promoting MH3's program type to the index | 3–5 days, after MH3 | Unchanged |
+| `MemSafe` re-proof for the pathfinder | 3–7 days | **Reduced** from 5–10: disjointness stops being a per-routine discharge over concrete addresses |
+| §7 unified transmogrify + `split` disjointness + SmolAlloc as first instance | **+6–10 days** | New; **cheaper than the two-mechanism version** it replaces, and it has an existing consumer |
+| §7.4 asserted typing glue | **+2–3 days** | New; checked regime is free, roundtrip theorems land anyway |
+| §8.3 recursive typed views (pointers in memory) | **not estimated** | Deliberately out of v1 |
+| §9 lock invariants | **not estimated** | Blocked on all three layers of §9.3 |
 
-**The honest headline: straight-line borrow-checked authoring is weeks, not months — call it
-three to five weeks of agent-time on top of MH3, with one item (elaboration scale) capable of
-turning that into a redesign. The complete borrow model, including control flow and threads,
-is months, and most of that time is PA2/PA3 and MT2 — work that is already queued for other
-reasons and is not made longer by this design.** Gating *all* ISA expansion on the complete
-model would be a mistake; gating Wave B on MH3, and loop/branch-heavy memory authoring on the
-straight-line index, matches the actual dependencies.
+**The headline changes in a way that matters to the ISA decision.** The up-front bill grows to roughly
+**five to eight weeks on top of MH3** (from three to five before the pointer type and transmogrification).
+But it *shrinks* the marginal cost of every migrated routine, removing an unbounded per-routine aliasing
+obligation from PA4's long tail and replacing it with a boundary condition plus arithmetic. **Since
+PA4's tail is the large number and the up-front work is the small one, this makes the whole programme
+cheaper — it moves cost earlier and makes it visible.** The owner's unification of §7 is itself a cost
+reduction against the two-mechanism design it replaces.
 
-### 10.4 Law 8, confronted rather than managed
+Unchanged: the complete model including control flow and threads is months, most of it PA2/PA3 and MT2
+— work already queued for other reasons.
 
-The risk is building an elaborator ahead of a program that needs it. Three facts bear on it,
-and the third is the one that actually settles it:
+---
 
-- The demand is named by the owner (§10.1). That removes the "speculative" charge but not the
-  "premature" one.
-- Instructions are already authored in Lean, so this replaces an authoring surface rather than
-  inventing one. **This mitigation is weaker than it sounds and should not be leaned on**: what
-  exists today is `Stdlib/Zlib/X86_64.lean`-style raw `SymbolicInstr` lists, and the surface
-  being replaced is *MH3's*, which does not exist on `main` yet either. Replacing an
-  unbuilt surface with a different unbuilt surface is not the same as replacing a used one.
-- **The decisive fact is different: the structural commitment was already made and is
-  dormant.** `BlockM` (`Gasm/Core/BlockM.lean:25`) is the indexed monad, ratified in
-  `docs/API_STATE_MODELS.md` §2, with zero consumers since it was written. Under Law 8 that
-  is *already* a dead abstraction — an inert typeclass-shaped commitment with no operational
-  path. The borrow model does not add speculative structure; it is the first thing that would
-  make an existing piece of speculative structure real, or prove it should be deleted. That
-  is the opposite of the wsc failure mode: wsc built ISA breadth on an unvalidated model,
-  whereas this validates a model already in the tree before breadth is built on it.
+## 15. What this cannot catch
 
-Against that, the Law 8 charge that *does* stick and should be answered by sequencing rather
-than argument: **the DSL should not be built before §5.5's scale question is measured.** A
-weaving elaborator that cannot elaborate `Stdlib/Zlib/X86_64.lean` in reasonable time is a
-facade regardless of how sound it is.
+1. **Dynamic bounds.** One local `omega`-shaped goal per dynamic access, against a length in the type.
+2. **Entry disjointness.** One obligation per routine boundary, discharged by the caller.
+3. **Pointers stored in memory** (§8.3). The largest limit: v1 forbids pointer-valued fields, which
+   excludes linked lists and most heap structures. Recursive typed views are the route, unbuilt.
+4. **Runtime-bounded allocation counts** (§8.1): leak-freedom becomes an arithmetic obligation rather
+   than a structural one. Still a compile error; not free.
+5. **Loans across loop back-edges** without a stated invariant. Weaker than NLL.
+6. **`Locked` regions' actual safety.** §12 excludes them by hypothesis; safety rests on §9's three
+   layers, none of which exists.
+7. **Whatever the environment asserts** (§7.6): that the OS really mapped the bytes it says it did.
+   Irreducible, and correctly located at one boundary.
+8. **Provenance creation is audited, not unrepresentable** (§2.3). Region identity is reachable only
+   through named operations, and that property is enforced by a tier-3 lint — the same tier and the
+   same measured reasoning as the memory seal, and deliberately so, because tier-1 opacity would
+   destroy the `decide` fast path. A lapsed audit reopens it; the predicate to enforce is "no
+   declaration produces a `RegionId` or `Ptr` without one among its arguments".
 
-### 10.5 The VISION §4 DSL claim, checked rather than inherited
+**No longer listed, because §2 removes them**: aliasing as an unbounded per-access problem, and
+`mov rbx, rax` creating an untracked anchor.
 
-`docs/VISION.md` §4 states the rule: *"anywhere there is a population of artifacts — even a
-closed population, even a population of one — reach for a DSL"*, with a closed population
-earning exhaustive language-level theorems and the instruction registry's roundtrip gate named
-as the exemplar.
+---
 
-Checked, and it holds — with one qualification that matters. The operation population *is*
-closed and small: lend, reclaim, donate, split, load, store, and (for `Locked`) a synchronized
-access. Seven constructors, and the closure argument is not merely an assertion — it is forced,
-because `MemAccessKind` is `load | store` (`Gasm/Targets/X86_64/MemoryCell.lean:41-43`) plus
-`docs/X86_MEMORY_MODEL.md` §2.3's proposed `.rmw`, and `memAccesses` is defaultless, so no
-instruction can introduce an eighth access shape without a compile error. The index shape is
-likewise known and finite. So language-level theorems — "every well-typed `Asm` program's
-dynamic footprint lies inside its entry frame", "no two authorized concurrent plain accesses
-conflict" — are proven once about the language and apply to every program written in it. That
-is the sublinear-cost mechanism applied to the safety layer, and it is the strongest form of
-the VISION §4 argument.
+## 16. Rejected alternatives
 
-**The qualification**: the theorems that are cheap this way are the ones about *authority
-bookkeeping*, which is the decidable part. The obligations that remain per-program are the
-aliasing and dynamic-bounds ones (§11), and those do not become language-level theorems — they
-become per-routine proof obligations, one per non-literal access. So the leverage is real but
-partial: the DSL makes the *borrow* reasoning free and leaves the *pointer* reasoning
-per-program. Claiming otherwise would be the overclaim this project's Law 8 exists to catch.
+- **Two parallel transmogrification mechanisms** (sub-allocation and byte typing designed separately).
+  Rejected on the owner's unification: they are one borrow-with-transformation at different
+  granularity, and separating them would have produced a Law 12 twin plus a duplicated discharge rule.
+- **A decidable borrow-check pass over an ordinary-monad program.** Nearly made it: zero ergonomic
+  cost. Rejected because the check is whole-program and posterior — failures report at the end of a
+  routine, the fast/slow-path split disappears, and it cannot express a routine whose *contract* is
+  index-changing, which is what donation and transfer are. Remains the fallback if §6.5 kills the
+  indexed approach.
+- **A pointer type storing an address behind a private constructor.** Weaker than address-free: it has
+  a field of the dangerous type, so safety depends on never adding a helper that fills it.
+- **Handles enforcing discharge by linearity.** Impossible in Lean, and unnecessary: the index does it
+  (§7.5).
+- **A capability value with a phantom region tag (`runST`-style).** Keeps `do` working; rejected on
+  §4's argument — the capability is still a value, so it can be reused.
+- **Ledgering unchecked transmogrify** (§7.6). Makes the ledger un-emptiable and parks a soundness hole
+  behind a counter.
+- **Making `Locked` a level between `ReadOnly` and `Exclusive`.** It admits stores and multiple
+  holders; a total order loses the property that distinguishes it — and §9 is what that property buys.
+- **Building this instead of, or beside, MH3** (§10).
+- **Stating a lock invariant now as though it were sound** (§9.3). All three supporting layers are
+  absent; claiming otherwise is the facade shape this codebase keeps catching.
 
-## 11. What this cannot catch
+---
 
-Stated in full, because the recommendation is worthless without it.
+## 17. Questions for the owner
 
-1. **Aliasing between regions — the fundamental gap.** The index tracks region *identifiers*.
-   Two regions may denote the same bytes at runtime, and no amount of index discipline detects
-   it. Rust does not have this problem because ownership provenance is carried by the type
-   system from allocation onward; assembly has no such provenance — a register is a 64-bit
-   number. The obligation is `DisjointTokens` over concrete addresses, discharged against a
-   routine's precondition, per program. **This is the one place where "not needing Rust" is
-   strictly false: Rust gets disjointness free from provenance, and this design must prove it.**
-2. **Register-to-register copies create untracked anchors.** `mov rbx, rax` makes `rbx` a second
-   name for a region anchored at `rax`. Region identity must therefore *not* be the anchor
-   register; the anchor belongs in the routine's invariant `Inv`, related to region identity by
-   an author-stated fact — which is MH3's existing entry-anchored design and inherits its
-   limitation exactly (`docs/MEMORY_HOOK.md` §4.3).
-3. **Dynamic bounds.** Whether a loop index is within a region is not decidable and never was;
-   it is discharged by the loop invariant. Unchanged from ADR-0040's accepted line.
-4. **Loans across loop back-edges** (§2.3 item 3). Strictly weaker than NLL.
-5. **Anything about `Locked` regions' actual safety.** §8's theorem excludes them by
-   hypothesis; their safety rests on atomicity, which is the memory model's obligation, not
-   this one's.
-6. **Self-modifying code, and the loader.** `X86_64Mem.initRegion`
-   (`Gasm/Targets/X86_64/MemoryCell.lean:132`) installs an image wholesale, outside any
-   borrow context. Legitimate, and outside the model.
+1. **Q1 — sequencing against MH3.** Recommended: MH3 lands as approved; the borrow model is a follow-on
+   promoting its frame to an index (§10).
+2. **Q2 — the `Locked` re-reading and its §9.2 extension.** Recommended: `Locked` means
+   "shared-mutable, safety discharged by atomicity", defined by obligation so AArch64's `LDXR`/`STXR`
+   can satisfy it (§13), **and** carries an associated ghost claim naming the region it guards. The
+   second half is new vocabulary, not a re-reading.
+3. **Q3 — the measurement gate.** Recommended: no DSL before elaboration cost is measured at realistic
+   length, with an explicit kill criterion (§6.5, §14.3).
+4. **Q4 — one counted-loan abstraction, or two (§4.2, §7.2).** §7.2 now answers most of this: the
+   allocator's **named** obligation list *is* the view ledger and `isSafeToRelease` *is* the discharge
+   check, so unification is recommended rather than merely possible. What remains for a ruling is
+   whether `docs/MEMORY_PROVENANCE.md`'s allocation model is refactored onto it now or later.
+5. **Q5 — unchecked transmogrify (§7.6).** Recommended: demand a proof; make it un-ledgerable; locate
+   the environment's assertions at one named boundary.
+6. **Q6 — v1's ownership-graph restriction (§8.3).** Recommended: v1 forbids pointer-valued fields,
+   making leak-freedom hold for tree-shaped ownership only. This excludes linked lists. Confirm that is
+   an acceptable v1 line, or fund recursive typed views up front.
 
-## 12. Rejected alternatives
+---
 
-- **A decidable borrow-check pass over an ordinary-monad program** — author in `StateM Ctx`
-  where `do` works, emit a program, then gate on `borrowCheck prog = .ok` by `decide`. This is
-  genuinely attractive and nearly made it to the recommendation: it costs zero ergonomics, and
-  "obligation dispatch" is arguably more literal in it. Rejected because the check is
-  *whole-program and posterior*: a failure reports at the end of a routine rather than at the
-  offending step, the fast/slow-path split disappears (a `decide` over the whole program either
-  closes or does not, with nothing to hand the author), and it cannot express a routine whose
-  *contract* is index-changing — which is what donation and cross-call lending are. It remains
-  the right fallback if §5.5's scale measurement kills the indexed approach, and is recorded
-  here for that reason.
-- **A capability value with a phantom region tag, rank-2-quantified (`runST`-style)** — keeps
-  an ordinary `Monad`, so `do` works. Rejected on the linearity argument of §3: the capability
-  is still a value, so `let c := cap; use c; use c` duplicates it, and phantom tags prevent
-  region confusion without preventing reuse. It solves a different problem.
-- **Enforcing linearity via a linear-types elaborator extension.** Out of scope by an order of
-  magnitude, and unnecessary once the index carries the discipline.
-- **Making `Locked` a level between `ReadOnly` and `Exclusive`.** It admits stores, so it is not
-  below `Exclusive`; it admits multiple holders, so it is not above `ReadOnly` in the lattice's
-  own order. Forcing it into a total order loses exactly the property that distinguishes it
-  (§2.2).
-- **Building this instead of MH3, or beside MH3.** §6. Beside is a Law 12 twin; instead
-  discards four working pieces to change one.
-- **Waiting for PA2/PA3 before any of it.** Same argument ADR-0040 already accepted and for the
-  same reason: it sequences all enforcement behind unstarted work.
+## 18. Document boundaries — a Law 12 note, and a split I am not proposing
 
-## 13. Questions for the owner
+This document now covers what a pointer is (§2), who may use it over time (§3–§6), how values enter and
+leave (§7–§8), and how a claim at one address licenses ownership of another (§9).
 
-1. **Q1 — sequencing against MH3.** Recommended: MH3 lands as approved; the borrow model is a
-   follow-on that promotes `CheckedProgram`'s `Γ` to an index and keeps everything else (§6).
-   The alternative — redirect the in-flight MH3 agent now — discards working parts. Confirm the
-   follow-on sequencing, or rule the other way before MH3 completes.
-2. **Q2 — the `Locked` re-reading (§2.2).** Recommended: `Locked` stops meaning "exclusive but
-   atomic" and starts meaning "shared-mutable, safety discharged by atomicity", defined by its
-   obligation rather than by x86's one-`.rmw`-entry mechanism so AArch64's `LDXR`/`STXR` pair
-   can satisfy it (§9). This is a semantic change to a landed constructor and needs a ruling.
-3. **Q3 — the measurement gate.** Recommended: no DSL is built until elaboration cost at
-   realistic program length is measured (§5.5, §10.4). This makes the first task a measurement
-   task with an explicit kill criterion, and delays usable output by a few days. Confirm that
-   trade.
-4. **Q4 — one counted-loan abstraction, or two (§3.2).** The tree's `activeBorrows`
-   (`Gasm/Core/Obligations.lean:43-53`) gates arena *lifetime* on outstanding sub-allocations;
-   this design gates *authority* on outstanding readers. Same shape, different subject.
-   Factoring them into one abstraction with two instances is Law 12's stated preference; leaving
-   them separate is defensible because lifetime and authority genuinely differ. No recommendation
-   is offered — this is a judgement call about how much generality is worth its cost, and it is
-   not on any critical path. Worth a ruling only so that it is decided rather than drifted into.
+**Recommended: do not split it, and the reason is a finding rather than a preference.** The first
+revision treated authority and provenance as separate concerns, and that separation is exactly what
+produced its wrong verdict — it reasoned about borrowing without reasoning about what was borrowed. A
+reader given §3 without §2 will make the same mistake, and a reader given §7 without §3 will not see
+that transmogrification *is* a borrow. The owner's two unifications both cut against splitting.
 
-## 14. Tracking
+**There is a real Law 12 overlap that does need resolving.** `docs/MEMORY_PROVENANCE.md` already owns
+provenance identity — `ProvenanceId`, `ProvenanceBlock`, `ArenaPageToken`, §1.2's active-borrow
+discipline — and §7 here designs the same allocator from the authority side. Proposed division, for a
+ruling rather than unilateral edit:
 
-**Status**: the tasks below are filed with this design and are unstarted.
+- `docs/MEMORY_PROVENANCE.md` keeps the **allocator and lifetime** model: allocation identity, arena
+  retention, Spike 3's lifecycle.
+- This document keeps **authority, the authoring type, and the transformation rules**.
+- §7.2 is the explicit bridge; `Ptr`/`RegionId`/`View` are named in one place only.
+
+Left unresolved, the two will drift into describing the same allocator twice — the unlinked-twin shape
+Law 12 prohibits, at document level.
+
+---
+
+## 19. Tracking
+
+**Status**: unstarted.
 
 | Task | Track | Content | After |
 | :-- | :-- | :-- | :-- |
-| `docs/tasks/BR1-borrow-index-feasibility.md` | proof-arch | §5.5's kill-criterion measurement, then the borrow context, four operations, and the weaving DSL | MH1 |
-| `docs/tasks/BR2-borrow-authoring-upgrade.md` | proof-arch | §6's promotion of MH3's `CheckedProgram` to an index; `MemSafe` re-proof on the pathfinder | BR1, MH3 |
-| `docs/tasks/BR3-cross-thread-capability-partition.md` | concurrency | §8's `GlobalWF` and the no-unsynchronized-race theorem shape | BR1, MT2 |
+| `docs/tasks/BR1-borrow-index-feasibility.md` | proof-arch | §6.5's kill-criterion measurement, then the borrow context, four operations, and the weaving DSL | MH1 |
+| `docs/tasks/BR2-borrow-authoring-upgrade.md` | proof-arch | §10's promotion of MH3's program type to an index; `MemSafe` re-proof | BR1, MH3 |
+| `docs/tasks/BR3-cross-thread-capability-partition.md` | concurrency | §12's `GlobalWF` and the no-unsynchronized-race theorem | BR1, MT2 |
+| `docs/tasks/BR4-provenanced-pointer.md` | proof-arch | §2's address-free pointer type, generative region identity, and the tier-3 provenance-creation audit | MH1 |
+| `docs/tasks/BR5-transmogrification.md` | proof-arch | §7's single mechanism, the view ledger, `split`'s disjointness component, SmolAlloc as first instance, §8's leak-freedom statement | BR4 |
+| `docs/tasks/BR6-lock-invariants.md` | concurrency | §9's cross-region capability transfer | BR5, MT1, MT2 |
 
-PA2 (`docs/tasks/PA2-step-lemma-composition-design.md`) owns §2.3's joins and loops and should
-treat the index-equality-at-join obligation as a candidate building block. PA4
-(`docs/tasks/PA4-capability-adoption.md`) remains the migration epic and is unaffected in
-ordering. MT1/MT2 (`docs/tasks/MT1-atomic-primitives.md`,
-`docs/tasks/MT2-multithreaded-machine-state.md`) own the atomicity axis; §2.2's re-reading of
-`Locked` is a coordination item with them, not a competing design.
+PA2 owns §3.3's joins and loops, and §8.1's index-parametric loop rule is an input to it. PA4 remains
+the migration epic; §14.5 records that the pointer type reduces its per-routine cost. PA8 gains a
+second motive for PNG's roundtrip (§7.4). MT1/MT2 own the atomicity and visibility layers §9.3 depends
+on.
