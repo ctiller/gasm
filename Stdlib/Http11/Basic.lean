@@ -52,6 +52,7 @@ inductive Error
   | invalidHeaderName
   | invalidHeaderValue
   | missingContentLength
+  | duplicateContentLength
   | malformedContentLength
   | bodyLengthMismatch
   | invalidStatusCode
@@ -334,5 +335,140 @@ def splitHeaderLine : List UInt8 → Option (List UInt8 × List UInt8)
         match splitHeaderLine rest with
         | some (name, value) => some (b :: name, value)
         | none => none
+
+/- REF: docs/STDLIB_HTTP11.md#23-header-fields -/
+/-- `takeLine` recovers exactly a byte string freshly terminated with `CR LF`, provided the
+    string itself contains neither byte -- the structural fact the writer/parser round-trip
+    proof reduces every line-level recovery obligation to. -/
+theorem takeLine_append_crlf (rest : List UInt8) :
+    ∀ content : List UInt8, (∀ b ∈ content, b ≠ CR ∧ b ≠ LF) →
+      takeLine (content ++ CR :: LF :: rest) = some (content, rest) := by
+  intro content
+  induction content with
+  | nil => intro _; rfl
+  | cons b t ih =>
+    intro hall
+    have ht : ∀ x ∈ t, x ≠ CR ∧ x ≠ LF := fun x hx => hall x (List.mem_cons_of_mem b hx)
+    rcases t with _ | ⟨b1, t1⟩
+    · have hb : b ≠ CR ∧ b ≠ LF := hall b (List.mem_cons_self)
+      show takeLine (b :: CR :: LF :: rest) = some ([b], rest)
+      simp only [takeLine]
+      have hcond : (b == CR && CR == LF) = false := by
+        simp [beq_iff_eq, hb.1]
+      simp only [hcond, Bool.false_eq_true, if_false]
+      rfl
+    · have hb1 : b1 ≠ LF := (ht b1 (List.mem_cons_self)).2
+      show takeLine (b :: b1 :: (t1 ++ CR :: LF :: rest)) = some (b :: b1 :: t1, rest)
+      simp only [takeLine]
+      have hcond : (b == CR && b1 == LF) = false := by
+        simp [beq_iff_eq, hb1]
+      simp only [hcond, Bool.false_eq_true, if_false]
+      have hrec := ih ht
+      simp only [List.cons_append] at hrec
+      rw [hrec]
+
+
+
+/- REF: docs/STDLIB_HTTP11.md#23-header-fields -/
+/-- One controlled unfolding step of `peelLines`, restated without the internal dependent
+    `match h : takeLine bs with ...` binder so ordinary `rw`/`simp` can use it -- `peelLines`
+    is well-founded recursive, so including it directly in a `simp` set loops (`simp` cannot
+    tell when to stop re-unfolding the recursive call in its own else-branch). -/
+theorem peelLines_eq_of_takeLine {bs line remainder : List UInt8}
+    (h : takeLine bs = some (line, remainder)) :
+    peelLines bs = if line = [] then some ([], remainder) else
+      match peelLines remainder with
+      | none => none
+      | some (lines, body) => some (line :: lines, body) := by
+  rw [peelLines.eq_1]
+  split
+  · rename_i heq
+    rw [h] at heq
+    exact absurd heq (by simp)
+  · rename_i line' remainder' heq
+    rw [h] at heq
+    simp only [Option.some.injEq, Prod.mk.injEq] at heq
+    obtain ⟨rfl, rfl⟩ := heq
+    rfl
+
+/- REF: docs/STDLIB_HTTP11.md#23-header-fields -/
+/-- `peelLines` recovers exactly a written list of non-empty lines, each individually
+    `CR LF`-terminated, immediately followed by the blank-line terminator and a body --
+    the structural fact `writeRequest`/`writeResponse`'s parse-back proof reduces its
+    "recover every header line" obligation to. -/
+theorem peelLines_append (body : List UInt8) :
+    ∀ lines : List (List UInt8),
+      (∀ l ∈ lines, l ≠ []) → (∀ l ∈ lines, ∀ b ∈ l, b ≠ CR ∧ b ≠ LF) →
+      peelLines ((lines.map (· ++ [CR, LF])).flatten ++ CR :: LF :: body)
+        = some (lines, body) := by
+  intro lines
+  induction lines with
+  | nil =>
+    intro _ _
+    show peelLines (CR :: LF :: body) = some ([], body)
+    have hstep : takeLine (CR :: LF :: body) = some ([], body) := by
+      have := takeLine_append_crlf body [] (by simp)
+      simpa using this
+    rw [peelLines_eq_of_takeLine hstep]
+    simp
+  | cons l ls ih =>
+    intro hne hcc
+    have hlne : l ≠ [] := hne l List.mem_cons_self
+    have hl : ∀ b ∈ l, b ≠ CR ∧ b ≠ LF := hcc l List.mem_cons_self
+    have hlsne : ∀ l' ∈ ls, l' ≠ [] := fun l' hl' => hne l' (List.mem_cons_of_mem l hl')
+    have hlscc : ∀ l' ∈ ls, ∀ b ∈ l', b ≠ CR ∧ b ≠ LF :=
+      fun l' hl' b hb => hcc l' (List.mem_cons_of_mem l hl') b hb
+    show peelLines ((l ++ [CR, LF]) ++ (ls.map (· ++ [CR, LF])).flatten ++ CR :: LF :: body)
+        = some (l :: ls, body)
+    have hassoc : (l ++ [CR, LF]) ++ (ls.map (· ++ [CR, LF])).flatten ++ CR :: LF :: body
+        = l ++ CR :: LF :: ((ls.map (· ++ [CR, LF])).flatten ++ CR :: LF :: body) := by
+      simp [List.append_assoc]
+    rw [hassoc]
+    have hstep := takeLine_append_crlf
+      ((ls.map (· ++ [CR, LF])).flatten ++ CR :: LF :: body) l hl
+    have hrec := ih hlsne hlscc
+    rw [peelLines_eq_of_takeLine hstep]
+    simp only [hlne, if_false, hrec]
+
+
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- `splitFirstSpace` recovers exactly the byte string preceding a freshly-inserted SP,
+    provided that string contains no SP itself -- the structural fact request-line/status-line
+    field recovery reduces to. -/
+theorem splitFirstSpace_append (rest : List UInt8) :
+    ∀ before : List UInt8, (∀ b ∈ before, b ≠ SP) →
+      splitFirstSpace (before ++ SP :: rest) = some (before, rest) := by
+  intro before
+  induction before with
+  | nil => intro _; rfl
+  | cons b t ih =>
+    intro hall
+    have hb : b ≠ SP := hall b List.mem_cons_self
+    have ht : ∀ x ∈ t, x ≠ SP := fun x hx => hall x (List.mem_cons_of_mem b hx)
+    show splitFirstSpace (b :: (t ++ SP :: rest)) = some (b :: t, rest)
+    simp only [splitFirstSpace]
+    have hcond : (b == SP) = false := by simp [hb]
+    simp only [hcond, Bool.false_eq_true, if_false]
+    rw [ih ht]
+
+/- REF: docs/STDLIB_HTTP11.md#23-header-fields -/
+/-- `splitHeaderLine` recovers exactly the field-name preceding a freshly-inserted `": "`,
+    provided that name contains no colon itself (guaranteed by the `tchar` token grammar) --
+    the structural fact header-line field recovery reduces to. -/
+theorem splitHeaderLine_append (value : List UInt8) :
+    ∀ name : List UInt8, (∀ b ∈ name, b ≠ COLON) →
+      splitHeaderLine (name ++ COLON :: SP :: value) = some (name, value) := by
+  intro name
+  induction name with
+  | nil => intro _; rfl
+  | cons b t ih =>
+    intro hall
+    have hb : b ≠ COLON := hall b List.mem_cons_self
+    have ht : ∀ x ∈ t, x ≠ COLON := fun x hx => hall x (List.mem_cons_of_mem b hx)
+    show splitHeaderLine (b :: (t ++ COLON :: SP :: value)) = some (b :: t, value)
+    simp only [splitHeaderLine]
+    have hcond : (b == COLON) = false := by simp [hb]
+    simp only [hcond, Bool.false_eq_true, if_false]
+    rw [ih ht]
 
 end Stdlib.Http11
