@@ -83,23 +83,23 @@ structure MemAccessSpec where
   width : MemWidth
   ref   : MemRef
 
-/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor--the-one-source-four-consumers-read -/
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- The concrete byte addresses one access spec touches, evaluated against state `s`. -/
 def MemAccessSpec.addresses (spec : MemAccessSpec) (s : X86_64MachineState) : List Address :=
   let base := spec.ref.effectiveAddress s
   (List.range spec.width.bytes).map (fun k => base + k.toUInt64)
 
-/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor--the-one-source-four-consumers-read -/
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- Every byte address a list of access specs of a given kind touches, evaluated against `s`. -/
 def footprintFor (kind : MemAccessKind) (specs : List MemAccessSpec) (s : X86_64MachineState) : List Address :=
   (specs.filter (fun spec => spec.kind == kind)).flatMap (fun spec => spec.addresses s)
 
-/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor--the-one-source-four-consumers-read -/
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- The declared write footprint: every address `step` is permitted to change. -/
 def storeFootprint (specs : List MemAccessSpec) (s : X86_64MachineState) : List Address :=
   footprintFor .store specs s
 
-/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor--the-one-source-four-consumers-read -/
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- The declared read footprint: every address `step`'s result may depend on. -/
 def loadFootprint (specs : List MemAccessSpec) (s : X86_64MachineState) : List Address :=
   footprintFor .load specs s
@@ -110,7 +110,7 @@ def loadFootprint (specs : List MemAccessSpec) (s : X86_64MachineState) : List A
 def agreeOn (addrs : List Address) (m1 m2 : X86_64Memory) : Prop :=
   ∀ a ∈ addrs, X86_64Mem.read .w8 a m1 = X86_64Mem.read .w8 a m2
 
-/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor--the-one-source-four-consumers-read -/
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- Every field of `X86_64MachineState` except `memory` agrees between two states -- the "same
     everything but memory contents" half of a `readsWithin` hypothesis. -/
 def agreeOutsideMemory (s1 s2 : X86_64MachineState) : Prop :=

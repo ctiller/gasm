@@ -33,7 +33,7 @@ open Gasm.Core
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 
-/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor--the-one-source-four-consumers-read -/
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- Per-family connection obligation (Law 12): `step` never writes outside its declared store
     footprint. -/
 def WritesWithin {ι : Type} [X86_64Instruction ι] (i : ι) : Prop :=
@@ -41,7 +41,7 @@ def WritesWithin {ι : Type} [X86_64Instruction ι] (i : ι) : Prop :=
     a ∉ storeFootprint (X86_64Instruction.memAccesses i) s →
     X86_64Mem.read .w8 a (X86_64Instruction.step i s).memory = X86_64Mem.read .w8 a s.memory
 
-/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor--the-one-source-four-consumers-read -/
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- Per-family connection obligation (Law 12): `step`'s result depends on memory only through its
     declared load footprint -- two pre-states agreeing everywhere but memory, and agreeing on the
     declared load footprint's bytes, step to states agreeing everywhere but memory. -/
@@ -51,7 +51,7 @@ def ReadsWithin {ι : Type} [X86_64Instruction ι] (i : ι) : Prop :=
     agreeOn (loadFootprint (X86_64Instruction.memAccesses i) s1) s1.memory s2.memory →
     agreeOutsideMemory (X86_64Instruction.step i s1) (X86_64Instruction.step i s2)
 
-/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor--the-one-source-four-consumers-read -/
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- The shared batch lemma covering every `memAccesses _ := []` (register-only) form
     (`docs/tasks/MH1-semantic-memory-hook.md`'s "one shared batch lemma covering the `[]` forms"):
     if `step` never changes the memory field at all, `WritesWithin` holds vacuously against the
@@ -65,7 +65,7 @@ theorem registerOnly_writesWithin {ι : Type} [X86_64Instruction ι] (i : ι)
   intro s a _
   rw [hNoMem]
 
-/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor--the-one-source-four-consumers-read -/
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- The `ReadsWithin` half of the register-only batch lemma: if `step` commutes with
     `agreeOutsideMemory` unconditionally (true for every register-only form, since their `step`
     bodies read only `gprs`/`rip`/`flags`, never `.memory`), the empty load footprint's hypothesis
