@@ -596,10 +596,10 @@ def cfStoreLoadRoundTrip32 : WasmDiffCase :=
       let mut states : List WasmMachineState := []
       let mut curRng := rng
       for v in curated32BitValues do
-        states := states ++ [{ locals := [WasmVal.i32 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 v], memory := WasmMem.ofBytes mem }]
       for _ in [0:randCount] do
         let (v, r) := curRng.nextUInt32
-        states := states ++ [{ locals := [WasmVal.i32 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 v], memory := WasmMem.ofBytes mem }]
         curRng := r
       (states, curRng) }
 
@@ -614,10 +614,10 @@ def cfStoreLoadRoundTrip64 : WasmDiffCase :=
       let mut states : List WasmMachineState := []
       let mut curRng := rng
       for v in curated64BitValues do
-        states := states ++ [{ locals := [WasmVal.i64 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i64 v], memory := WasmMem.ofBytes mem }]
       for _ in [0:randCount] do
         let (v, r) := curRng.next
-        states := states ++ [{ locals := [WasmVal.i64 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i64 v], memory := WasmMem.ofBytes mem }]
         curRng := r
       (states, curRng) }
 
@@ -634,10 +634,10 @@ def cfStore8LoadRoundTrip : WasmDiffCase :=
       let mut states : List WasmMachineState := []
       let mut curRng := rng
       for v in curated32BitValues do
-        states := states ++ [{ locals := [WasmVal.i32 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 v], memory := WasmMem.ofBytes mem }]
       for _ in [0:randCount] do
         let (v, r) := curRng.nextUInt32
-        states := states ++ [{ locals := [WasmVal.i32 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 v], memory := WasmMem.ofBytes mem }]
         curRng := r
       (states, curRng) }
 
@@ -661,10 +661,10 @@ def cfStoreI32ThenLoadByte0Endianness : WasmDiffCase :=
       let mut states : List WasmMachineState := []
       let mut curRng := rng
       for v in curated32BitValues do
-        states := states ++ [{ locals := [WasmVal.i32 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 v], memory := WasmMem.ofBytes mem }]
       for _ in [0:randCount] do
         let (v, r) := curRng.nextUInt32
-        states := states ++ [{ locals := [WasmVal.i32 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 v], memory := WasmMem.ofBytes mem }]
         curRng := r
       (states, curRng) }
 
@@ -698,7 +698,7 @@ def oobLoad8AtBoundary : WasmDiffCase :=
       let mut curRng := rng
       let addrs : List UInt32 := [0, 1, 65534, 65535, 65536, 65537, 65538, 100000, 0xFFFFFFFF]
       for a in addrs do
-        states := states ++ [{ locals := [WasmVal.i32 a], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 a], memory := WasmMem.ofBytes mem }]
       for _ in [0:randCount] do
         let (bucket, r1) := curRng.nextNat 3
         let (raw, r2) := r1.nextUInt32
@@ -706,7 +706,7 @@ def oobLoad8AtBoundary : WasmDiffCase :=
           if bucket == 0 then UInt32.ofNat (65536 + (raw.toNat % 8))
           else if bucket == 1 then UInt32.ofNat (65528 + (raw.toNat % 16))
           else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
-        states := states ++ [{ locals := [WasmVal.i32 addr], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 addr], memory := WasmMem.ofBytes mem }]
         curRng := r2
       (states, curRng) }
 
@@ -730,7 +730,7 @@ def oobStore8LoadRoundTripBoundary : WasmDiffCase :=
       let addrs : List UInt32 := [0, 1, 65534, 65535, 65536, 65537, 65538, 100000, 0xFFFFFFFF]
       for a in addrs do
         for v in [(0x00 : UInt32), 0xAB, 0xFF] do
-          states := states ++ [{ locals := [WasmVal.i32 a, WasmVal.i32 v], memory := mem }]
+          states := states ++ [{ locals := [WasmVal.i32 a, WasmVal.i32 v], memory := WasmMem.ofBytes mem }]
       for _ in [0:randCount] do
         let (bucket, r1) := curRng.nextNat 3
         let (raw, r2) := r1.nextUInt32
@@ -739,7 +739,7 @@ def oobStore8LoadRoundTripBoundary : WasmDiffCase :=
           else if bucket == 1 then UInt32.ofNat (65528 + (raw.toNat % 16))
           else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
         let (v, r3) := r2.nextUInt32
-        states := states ++ [{ locals := [WasmVal.i32 addr, WasmVal.i32 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 addr, WasmVal.i32 v], memory := WasmMem.ofBytes mem }]
         curRng := r3
       (states, curRng) }
 
@@ -762,7 +762,7 @@ def oobLoad32StraddleBoundary : WasmDiffCase :=
       let mut curRng := rng
       let addrs : List UInt32 := [65530, 65531, 65532, 65533, 65534, 65535, 65536, 100000, 0xFFFFFFFC, 0xFFFFFFFF]
       for a in addrs do
-        states := states ++ [{ locals := [WasmVal.i32 a], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 a], memory := WasmMem.ofBytes mem }]
       for _ in [0:randCount] do
         let (bucket, r1) := curRng.nextNat 3
         let (raw, r2) := r1.nextUInt32
@@ -770,7 +770,7 @@ def oobLoad32StraddleBoundary : WasmDiffCase :=
           if bucket == 0 then UInt32.ofNat (65524 + (raw.toNat % 20))
           else if bucket == 1 then UInt32.ofNat (65536 + (raw.toNat % 16))
           else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
-        states := states ++ [{ locals := [WasmVal.i32 addr], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 addr], memory := WasmMem.ofBytes mem }]
         curRng := r2
       (states, curRng) }
 
@@ -791,7 +791,7 @@ def oobStore32LoadRoundTripBoundary : WasmDiffCase :=
       let addrs : List UInt32 := [65530, 65531, 65532, 65533, 65534, 65535, 65536, 100000, 0xFFFFFFFC, 0xFFFFFFFF]
       for a in addrs do
         for v in curated32BitValues.take 3 do
-          states := states ++ [{ locals := [WasmVal.i32 a, WasmVal.i32 v], memory := mem }]
+          states := states ++ [{ locals := [WasmVal.i32 a, WasmVal.i32 v], memory := WasmMem.ofBytes mem }]
       for _ in [0:randCount] do
         let (bucket, r1) := curRng.nextNat 3
         let (raw, r2) := r1.nextUInt32
@@ -800,7 +800,7 @@ def oobStore32LoadRoundTripBoundary : WasmDiffCase :=
           else if bucket == 1 then UInt32.ofNat (65536 + (raw.toNat % 16))
           else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
         let (v, r3) := r2.nextUInt32
-        states := states ++ [{ locals := [WasmVal.i32 addr, WasmVal.i32 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 addr, WasmVal.i32 v], memory := WasmMem.ofBytes mem }]
         curRng := r3
       (states, curRng) }
 
@@ -820,7 +820,7 @@ def oobLoad64StraddleBoundary : WasmDiffCase :=
       let mut curRng := rng
       let addrs : List UInt32 := [65526, 65527, 65528, 65529, 65530, 65531, 65535, 65536, 100000, 0xFFFFFFF8, 0xFFFFFFFF]
       for a in addrs do
-        states := states ++ [{ locals := [WasmVal.i32 a], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 a], memory := WasmMem.ofBytes mem }]
       for _ in [0:randCount] do
         let (bucket, r1) := curRng.nextNat 3
         let (raw, r2) := r1.nextUInt32
@@ -828,7 +828,7 @@ def oobLoad64StraddleBoundary : WasmDiffCase :=
           if bucket == 0 then UInt32.ofNat (65520 + (raw.toNat % 24))
           else if bucket == 1 then UInt32.ofNat (65536 + (raw.toNat % 16))
           else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
-        states := states ++ [{ locals := [WasmVal.i32 addr], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 addr], memory := WasmMem.ofBytes mem }]
         curRng := r2
       (states, curRng) }
 
@@ -847,7 +847,7 @@ def oobStore64LoadRoundTripBoundary : WasmDiffCase :=
       let addrs : List UInt32 := [65526, 65527, 65528, 65529, 65530, 65531, 65535, 65536, 100000, 0xFFFFFFF8, 0xFFFFFFFF]
       for a in addrs do
         for v in curated64BitValues.take 3 do
-          states := states ++ [{ locals := [WasmVal.i32 a, WasmVal.i64 v], memory := mem }]
+          states := states ++ [{ locals := [WasmVal.i32 a, WasmVal.i64 v], memory := WasmMem.ofBytes mem }]
       for _ in [0:randCount] do
         let (bucket, r1) := curRng.nextNat 3
         let (raw, r2) := r1.nextUInt32
@@ -856,7 +856,7 @@ def oobStore64LoadRoundTripBoundary : WasmDiffCase :=
           else if bucket == 1 then UInt32.ofNat (65536 + (raw.toNat % 16))
           else (0xFFFFFFFF : UInt32) - UInt32.ofNat (raw.toNat % 8)
         let (v, r3) := r2.next
-        states := states ++ [{ locals := [WasmVal.i32 addr, WasmVal.i64 v], memory := mem }]
+        states := states ++ [{ locals := [WasmVal.i32 addr, WasmVal.i64 v], memory := WasmMem.ofBytes mem }]
         curRng := r3
       (states, curRng) }
 
@@ -876,7 +876,7 @@ def memoryGrowWithinDeclaredMax : WasmDiffCase :=
       let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
       let mut states : List WasmMachineState := []
       for delta in [(0 : UInt32), 1, 2, 3] do
-        states := states ++ [{ locals := [WasmVal.i32 delta], memory := mem, memMax := some 4 }]
+        states := states ++ [{ locals := [WasmVal.i32 delta], memory := WasmMem.ofBytes mem, memMax := some 4 }]
       (states, rng) }
 
 /- REF: wasm-exec-instructions#memory-instructions -/
@@ -895,7 +895,7 @@ def memoryGrowExceedsDeclaredMax : WasmDiffCase :=
       let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
       let mut states : List WasmMachineState := []
       for delta in [(4 : UInt32), 5, 10, 1000] do
-        states := states ++ [{ locals := [WasmVal.i32 delta], memory := mem, memMax := some 4 }]
+        states := states ++ [{ locals := [WasmVal.i32 delta], memory := WasmMem.ofBytes mem, memMax := some 4 }]
       (states, rng) }
 
 /- REF: wasm-exec-instructions#memory-instructions -/
@@ -916,9 +916,9 @@ def memoryGrowExceedsHardCeilingNoDeclaredMax : WasmDiffCase :=
     genStates := fun rng _randCount => Id.run do
       let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
       let states : List WasmMachineState :=
-        [ { locals := [WasmVal.i32 (4000000000 : UInt32)], memory := mem }
-        , { locals := [WasmVal.i32 (0xFFFFFFFF : UInt32)], memory := mem }
-        , { locals := [WasmVal.i32 (70000 : UInt32)], memory := mem } ]
+        [ { locals := [WasmVal.i32 (4000000000 : UInt32)], memory := WasmMem.ofBytes mem }
+        , { locals := [WasmVal.i32 (0xFFFFFFFF : UInt32)], memory := WasmMem.ofBytes mem }
+        , { locals := [WasmVal.i32 (70000 : UInt32)], memory := WasmMem.ofBytes mem } ]
       (states, rng) }
 
 /- REF: docs/TARGETS/WASM_ORACLE_HARNESS.md#9-out-of-bounds-and-memory-limit-fuzz-coverage -/
@@ -1074,7 +1074,7 @@ def verifyWasmDiffCase (tc : WasmDiffCase) (rng : FuzzerRng) (maxStates : Nat :=
 
     if !skipHost then
       let preInstrs := tc.preInstrsFor initS
-      let m := buildTestWasmModuleForResults tc.instr resultTypes initS.locals (some initS.memory) preInstrs tc.memoryMaxPages
+      let m := buildTestWasmModuleForResults tc.instr resultTypes initS.locals (some (WasmMem.toBytes initS.memory)) preInstrs tc.memoryMaxPages
       let hostOutcome ← runWasmHostExecution m
 
       match hostOutcome with

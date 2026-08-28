@@ -1,4 +1,4 @@
-# MEMORY_HOOK: The Memory Access Contract (x86-64)
+# MEMORY_HOOK: The Memory Access Contract (x86-64, and the Wasm cross-target note)
 
 - REF: docs/REVIEW.md#law-11-memory-access-capability-mandate-fail-to-assemble
 - REF: docs/REVIEW.md#law-14-calibration-data-governance-the-third-reference-class
@@ -702,3 +702,264 @@ design should treat §3.3's frame lemmas and §4.4's `MemSafe` shape as candidat
 building blocks, per the same relationship `docs/READ_BINDER_CONTRACT.md` §9 item 4
 establishes. TC18 coordinates on the fault/stop-reason outcome type (§6). F1/F2
 calibrate §5's table when they land.
+
+## 12. Cross-target note: Wasm
+
+The owner asked directly whether anything here needs to generalize to the Wasm target.
+**Status**: §12.3's seal is implemented and verified in the tree (below); §12.1, §12.2,
+§12.4, and §12.5 are analysis, not new machinery — each says explicitly which of its
+claims were checked by reading code/running gates versus recommended for later. Verified
+against `main` at `27ab4ed` (this section's own change stacks on top of it) by reading
+`Gasm/Targets/X86_64/MemoryCell.lean`, `Gasm/Targets/X86_64/Memory.lean`,
+`Gasm/Core/Permissions.lean`, `Gasm/Core/State.lean`, `Gasm/Targets/Wasm/Semantics.lean`,
+and `Gasm/Targets/WASI/ABI.lean`, and by `grep`-confirming call-site counts asserted below.
+
+### 12.1 The asymmetry, verified
+
+§9's rejected-idea list already asserts the shape of the argument ("Wasm's memory already
+has its own bounds-checked, trapping access path"); this subsection checks it against the
+tree rather than repeating it.
+
+- **x86-64 has no runtime bounds check anywhere in the model.** `X86_64Mem.read`/`write`
+  (`MemoryCell.lean`) are total over all of `Address`; nothing in the machine state or the
+  interpreter can refuse an access. The *only* place an out-of-range access can be refused
+  is before the fact, at authoring/assembly time — which is exactly Law 11's mandate and
+  exactly why it is phrased as fail-to-assemble: there is no other stage at which "this
+  access is illegal" can be observed at all, runtime included.
+- **Wasm's specification mandates a runtime bounds check on every memory access**, and the
+  model now honors it: `wasm-exec-instructions#memory-instructions`'s reduction rule for
+  `t.load`/`t.store` ("If `i + ao.offset + N/8 > |mems[x].bytes|`, then: Trap.") is
+  implemented in `evalLeafInstr`'s six memory-instruction cases
+  (`Gasm/Targets/Wasm/Semantics.lean`), landed by B7
+  (`docs/tasks/B7-wasm-oob-trap-and-limits.md`) and confirmed by the differential fuzzer's
+  nine out-of-bounds/memory-limit cases against a real host engine (Node/V8) — not merely
+  asserted by the Lean model in isolation. A Wasm program is therefore memory-safe at
+  *runtime*, by the interpreter's own construction, independent of anything the program's
+  author did or didn't prove.
+- **The asymmetry holds, and it is not a matter of degree.** x86-64 needs a carried
+  capability proof because nothing else will ever refuse a bad access; Wasm needs no such
+  proof for memory-safety-in-the-narrow-sense (no OOB read/write can occur, full stop —
+  every access either lands in bounds or the whole instruction traps) because the
+  interpreter itself refuses it, every time, mechanically, before the access happens.
+
+**What this means for Law 11's scope.** Law 11's text ("every instruction that reads or
+writes memory MUST carry proof of a valid, in-scope capability... Program construction
+MUST fail... when that proof is absent") is written in x86-64's vocabulary
+(`MemoryPerm`, fail-to-*assemble*) and does not transfer to Wasm by substituting a
+different capability type — there is nothing for a Wasm capability to *buy* that the
+interpreter does not already guarantee unconditionally. The obligation that *does*
+transfer is the goal one level up: "establish that a memory access is legal before it
+executes." For x86-64 that goal is discharged at assembly time (no other option exists).
+For Wasm it is discharged at run time by the interpreter, per access, automatically — so
+the Wasm-shaped version of Law 11's goal is not "prove you may access this address," it
+is **"prove this program does not trap"** (a liveness/functional-correctness property of
+the *program*, not a memory-safety property of the *access*) — and that property is
+already exactly what `VerifiedWasmProgram.traceEquivalence`
+(`Gasm/Targets/WASI/ABI.lean`) plus each spike's own `#guard
+!(runWasiTraceState ...).isError` check are in the business of proving: a spike's
+`traceEquivalence` theorem is false if the modeled run ever traps somewhere the spec
+doesn't say it should, because a trapped run's event trace stops short of the
+spec's. **Recommendation, not a ruling**: Law 11 should not be reworded to cover Wasm; a
+future Wasm-specific law/clause (if one is ever warranted) would read "every
+`VerifiedWasmProgram` MUST prove its execution trace never traps outside the cases its
+`spec` models," which is a restatement of the existing equivalence-proof obligation, not
+a new mechanism. No such clause is proposed here — Law 5: nothing currently demands it,
+`traceEquivalence` already carries the weight, and writing a law around one restated
+sentence is exactly the kind of premature structure Law 8 warns against.
+
+### 12.2 What generalizes and what is target-specific
+
+Assessed against the "what else plausibly generalizes" list, each checked rather than
+assumed:
+
+- **`MemWidth`/`MemAccessKind` (the atomic enums, `X86_64/MemoryCell.lean`) carry zero
+  x86-specific content** — `w8`/`w16`/`w32`/`w64` and `load`/`store` are meaningful for any
+  byte-addressed target, Wasm included. They are the one piece of this design that
+  genuinely could move to `Gasm/Core` today without misrepresenting either target.
+  **Recommendation: do not move them yet.** Two independent reasons, not one: (1) no Wasm
+  consumer needs them — this change's sealed `WasmMem` accessors are written as separate,
+  concretely-typed functions (`read8`/`read32`/`read64`/`write8`/`write32`/`write64`; only
+  three of the four widths exist in Wasm's current instruction set, and none of the
+  differential fuzzer's, spikes', or WASI's code dispatches on a shared width tag), so
+  there is no live duplication to unify yet — moving the enums now would be relocating
+  code to satisfy a future consumer that does not exist, which is the Law 5 mistake in
+  miniature; (2) MH2 and MH3 are concurrently editing the exact x86-64 files that define
+  and consume these enums (`MemoryCell.lean`'s `MemAccessSpec`, the forthcoming
+  `MemCostModel`/`memUops`) — relocating their definitions out from under that work risks
+  a collision for zero present benefit. Revisit when a second consumer exists (a Wasm perf
+  model wanting shared width vocabulary, or MH2/MH3 landing and freeing the file up).
+- **`MemAccessSpec`/`MemRef` (the x86-64 *descriptor*) do NOT generalize as currently
+  shaped, and the claim that they do is optimistic.** `MemRef` is register-relative
+  addressing evaluated against `X86_64MachineState.gprs` — a *symbolic* address
+  expression, evaluated against the pre-step state, that is what makes Layer A's
+  assemble-time capability discharge possible at all (`decide`/`omega` over a literal
+  displacement against a named register). Wasm has no analogue: by the time
+  `evalLeafInstr` reaches a `.i32_load`/`.i32_store` case, the base address has already
+  been popped off the operand stack as a *concrete* `UInt32` — there is no register-named,
+  symbolic operand for a descriptor to point at. A Wasm access descriptor, if one is ever
+  built, would need `MemAccessSpec`'s §3.3 "Known limit" `.dynamic` extension slot
+  (state-dependent address, not a static `MemRef`) for *every* Wasm memory instruction,
+  not as an edge case — which inverts the design's premise that static descriptors are the
+  common case and dynamic ones are rare. Forcing Wasm through the existing `MemAccessSpec`
+  shape would therefore misrepresent Wasm's addressing model exactly as this task's brief
+  warned against; a Wasm descriptor, if the measurement consumer (below) ever demands one,
+  is a new, small, address-already-concrete shape (`kind`, `width`, `addr : Nat`), not a
+  reuse of `MemRef`.
+- **The measurement/perf consumer (§3.3 item 3–4) is the one place a shared descriptor
+  shape has real pull**: memory latency is target-independent, and a future Wasm cost
+  model would want the same `(kind, width, address)` triple a cache/locality model
+  consumes for x86. **Status**: no Wasm perf/cost model exists or is proposed by this
+  change — MH2 is x86-only and out of this change's scope by the owner's own instruction.
+  Recorded here so the eventual Wasm cost-model task starts from "reuse the atomic enums,
+  build a Wasm-shaped concrete-address descriptor" rather than re-deriving the question.
+- **The capability-authoring surface (Layer A: `RegionSpec`, `Frame`, `CheckedAsm`,
+  the bypass ledger) is irreducibly x86-64.** §12.1 already establishes there is nothing
+  for a Wasm capability to buy; building `WasmCheckedAsm` would be capability machinery
+  with no obligation for it to discharge, i.e. exactly the "false unification" this task's
+  brief warned against forcing.
+
+### 12.3 The concrete gap: sealing Wasm's memory (closed)
+
+**Status**: implemented and verified in this change (not proposed — built).
+
+`Gasm/Targets/WASI/ABI.lean`'s `wasiHostCall` called the pre-seal `readMem32`/`writeMem32`
+helpers directly, and two of its cases (`fd_read`, `sock_recv`) called `ByteArray.set!` on
+`s.memory` in a raw per-byte loop — bypassing `evalInstr`'s B7 trap check entirely, since
+host calls are never dispatched through `.i32_load`/`.i32_store`
+(`docs/tasks/B7-wasm-oob-trap-and-limits.md`'s closing note: "flagged as a pre-existing,
+separate gap for whenever WASI gets its own execution harness"). This is the same defect
+class MH1's x86-64 seal makes unrepresentable (§3.2): a memory-touching function existing
+outside the chokepoint that a caller can reach without going through the checked path.
+
+The fix mirrors MH1's mechanism, adapted to Wasm's asymmetry (§12.1: a per-access
+Option/trap outcome, not a capability proof):
+
+- `Gasm/Targets/Wasm/MemoryCell.lean` (new) defines `WasmMemory`, a sealed wrapper
+  (`private mk`, `private raw : ByteArray`) exactly like `X86_64Memory` — module-scoped
+  `private` in Lean 4, so no term outside this file can construct one from an arbitrary
+  `ByteArray` or project one back out. `WasmMachineState.memory`
+  (`Gasm/Targets/Wasm/Semantics.lean`) is now typed `WasmMemory`, not `ByteArray`.
+- The module exposes exactly: bulk construction/observation (`ofBytes`, `zero`, `empty`,
+  `toBytes`, `grow` — the legitimate loader/test-harness/serialization operations, mirroring
+  `X86_64Mem.initRegion`/`zero`), and checked, `Option`-returning, width-indexed
+  read/write (`read8`/`read32`/`read64`/`write8`/`write32`/`write64`) plus bulk
+  `readBytes`/`writeBytes` for the WASI iovec-buffer case. `none` means out of bounds; the
+  caller decides what that means (every current caller traps), but the *decision* to
+  observe the failure is now structurally forced — a caller cannot silently drop it the
+  way a total, silently-permissive helper function let it before.
+- `evalLeafInstr`'s six memory-instruction cases (`Semantics.lean`) now call these checked
+  accessors instead of re-deriving the bounds inequality inline; `wasiHostCall`'s
+  `fd_read`/`fd_write`/`sock_recv`/`sock_send` cases (`ABI.lean`) do the same, and now set
+  `trapped := true` (leaving the pre-call state otherwise unmutated) on any out-of-bounds
+  access instead of the previous silent clip/no-op/panic-risking raw access. This is a new
+  behavior on a path the B7 task note confirms is currently unreachable (no WASI execution
+  harness exists yet) — there is no regression to preserve, and choosing "trap" keeps the
+  interpreter's one safety story (every OOB access anywhere traps) uniform rather than
+  inventing a second, WASI-specific outcome (e.g. a host errno) with no present consumer
+  to justify it (Law 5).
+- Every free-standing raw-`ByteArray` construction of a `WasmMachineState.memory` field
+  across the tree (`Gasm/Targets/Wasm/SemanticsFuzzer.lean`,
+  `Gasm/Targets/Wasm/Fuzzable.lean`'s differential-fuzzer test fixtures) now goes through
+  `WasmMem.ofBytes`, so the field's sealed type is enforced everywhere it is constructed,
+  not just at the two call sites the bug report named.
+
+**Verification**: `lake build` of `Gasm.Targets.Wasm.MemoryCell`,
+`Gasm.Targets.Wasm.Semantics`, `Gasm.Targets.WASI.ABI`, `Gasm.Targets.Wasm.Fuzzable`,
+`Gasm.Targets.Wasm.SemanticsFuzzer`, `Gasm.Targets.Wasm.HostOracle`, `wasm_fuzzer`,
+`validate_spike_wasm`, and `test_spike1_wasm` all succeed (0 errors); every Wasm spike's
+`Equivalence.lean` (Spike1/2/3/4/5) rebuilds unchanged, since none constructs a
+`WasmMachineState` directly (spikes emit real `.wasm` binaries and run them through
+`runWasiTraceState`/a real host engine). Before/after behavior of `lake exe wasm_fuzzer`
+and `lake exe validate_spike_wasm` is recorded in this task's closing report, not
+duplicated here.
+
+### 12.4 The capability-vocabulary question (`MemoryPermissions Arch`)
+
+`Gasm/Core/State.lean`'s `ComposedState Arch ApiStateType` carries `perms :
+MemoryPermissions Arch` (`Gasm/Core/Permissions.lean`), and that container is generic over
+`Arch` — so in the abstract, instantiating `ComposedState WasmArch _` would give Wasm a
+`perms` field for free. Checked, not assumed, before concluding anything from this:
+
+- **Nothing wires `WasmArch` into `ComposedState` anywhere in the tree**
+  (`grep -rn "ComposedState" | grep -i wasm` — zero hits). Wasm's `TargetArch WasmArch`
+  instance (`Semantics.lean`) is consumed directly by `stepWasm`/`runWasiTraceState`;
+  `ComposedState`/`BlockM`/`CFG`/`Callable`/`ABI.lean` (Core) are x86-64-only in practice
+  today, not merely in this design's aspiration.
+- **The `perms` field itself is inert for every target that does use `ComposedState`,
+  x86-64 included**: `grep -rn "\.perms\b"` across all `.lean` sources returns zero hits;
+  `grep -rln "MemoryPerm\b"` across `.lean` sources returns only `Permissions.lean`'s own
+  definition and `MemoryCell.lean`'s citation comment. This matches §1.1's own "Zero
+  capability call sites" finding for x86-64 — the slot is unpopulated architecture-wide,
+  not specifically un-adopted by Wasm.
+- **`Address` (`Gasm/Core/Types.lean`) is hardcoded `UInt64`**, and `MemoryPerm`'s
+  `validRange` bound is hardcoded against `2^64`. Wasm32 addresses a 4 GiB (`2^32`) space;
+  a `UInt64`-typed capability is a permissive superset (not unsound) but is not the tight
+  bound Wasm's own address space has, another small tell that this vocabulary was shaped
+  for x86-64 and not yet exercised against a second target.
+
+**Conclusion: there is no populated slot to reuse, for any target — "Wasm already has a
+permissions slot it isn't using" overstates what exists; the accurate statement is "Core
+has a generic container that nothing populates yet, and Wasm additionally does not
+participate in the wrapper that holds it."** Populating it for Wasm now would mean
+inventing real capability tokens and a granting/checking discipline for a target whose own
+memory-safety story (§12.1) does not need one — capability machinery with no obligation to
+discharge, same objection as Layer A above. **Recommendation**: leave `MemoryPermissions`
+unpopulated for Wasm; if a future Wasm need for capability-shaped reasoning emerges (e.g.
+reasoning about which WASI-granted file/socket handles a routine may touch — a genuinely
+different resource class than linear memory), design it against that concrete need rather
+than pre-filling this slot speculatively.
+
+### 12.5 Fault/trap distinguishability, x86 vs Wasm
+
+Checked for the specific failure Law 13's TCB.md T12 finding names: a stop reason must
+never be conflatable with another (x86-64's `runProgramTraceWithLoops` returns `[]` for
+fuel-out, no-instruction-at-rip, *and* a clean fault alike — TCB.md T12).
+
+- **x86-64, today**: `faulted : Bool` (one bit, `#DE` only); the richer `X86_64Fault`
+  inductive (`divideError | memFault ...`) that would make fault *kind* distinguishable is
+  **Status: unbuilt**, per §6 above — MH1 shipped the field-rename plumbing, not the
+  richer payload. TC18's stop-reason `Except` shape is likewise **Status: unbuilt**. So
+  x86-64's fault-vs-fuel-out-vs-no-instruction conflation (TCB.md T12(i)) is, as of this
+  change, still open — this section does not close it; it is out of this change's scope
+  (MH1/TC18's, not Wasm's).
+- **Wasm is already better-separated on the fuel-exhaustion axis, independent of this
+  change**: `WasmRunResult := Except WasmMachineState (WasmMachineState × ControlSignal)`
+  (`Semantics.lean`) makes fuel exhaustion a structurally distinct outcome (`.error`) from
+  every genuine stopping point (`.ok`) — the fuel-conversion work that predates this task
+  already closed Wasm's version of TCB.md T12(i); `runWasiTraceState`
+  (`Gasm/Targets/WASI/ABI.lean`) is the whole-program entry point that returns this
+  un-collapsed, and every load-bearing spike equivalence theorem is paired with a
+  `#guard !(... ).isError` check proving it never hits `.error`.
+- **Wasm's `trapped : Bool` is one bit, same shape as x86-64's pre-payload `faulted`
+  field** — it distinguishes "trapped" from "not trapped" but not *why* (OOB
+  load/store/`unreachable`/integer-divide-by-zero/`i32.div_u` etc. all set the same bit).
+  This is consistent in spirit with x86-64's *current* state (both are one
+  undifferentiated bit) and behind x86-64's *design intent* (§6's `X86_64Fault` payload).
+  **Recommendation, not built here**: if a future consumer needs to distinguish trap
+  *reasons* (e.g. a differential harness wanting to assert "trapped, and specifically on
+  the OOB path, not `unreachable`"), the natural shape is a Wasm-side enum
+  paralleling `X86_64Fault`'s — `WasmTrap.oob (kind : MemAccessKind) (width) (addr) |
+  .unreachable | .divByZero | ...` — replacing the bare `Bool` the way `X86_64Fault` is
+  designed to replace `faulted`. No such consumer exists today (every current check is
+  "trapped or not"), so this is named as a parallel future step, not built now (Law 5).
+
+### 12.6 What this section rejects, and why
+
+- **An arch-generic Core hook typeclass** — already rejected in §9 for Wasm-as-second-
+  target under Law 5/Law 8; §12.1–§12.4 add the concrete evidence (the asymmetry is real
+  and load-bearing, not cosmetic; the shared vocabulary that exists carries no present
+  consumer; the one arch-generic container already in Core is unpopulated for every
+  target) rather than repeating the assertion.
+- **Reusing `MemAccessSpec`/`MemRef` for Wasm** — §12.2: Wasm's addresses are concrete by
+  the time any access executes, not symbolic; forcing them through a register-relative
+  descriptor shape would misdescribe the target, not generalize over it.
+- **A `WasmCheckedAsm` capability-authoring surface** — §12.1/§12.2: there is no
+  assemble-time obligation for it to carry: the interpreter already guarantees every
+  memory access is in-bounds or the program traps, unconditionally, in every build.
+- **Populating `MemoryPermissions` for Wasm now** — §12.4: the slot is unpopulated
+  architecture-wide, not Wasm-specifically neglected; inventing tokens for it ahead of any
+  concrete need is speculative structure, same objection as the two items above.
+- **Moving `MemWidth`/`MemAccessKind` to `Gasm/Core` in this change** — §12.2: the move
+  would be correct in principle (the types carry no x86-specific content) but has no
+  present consumer on the Wasm side and collides with MH2/MH3's concurrent edits to the
+  x86-64 files that define and will consume them; revisit when either condition changes.

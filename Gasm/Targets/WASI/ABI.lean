@@ -79,13 +79,19 @@ def buildWasiModule (startFn : WasmFunction) (extraFuncs : List WasmFunction := 
   { imports := imports, functions := functions, memoryPages := some 1, dataSegments := dataSegments, exports := exports }
 
 /- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
-/-- Initializes linear memory with all active data segments. -/
-def initWasmMemory (segments : List WasmDataSegment) : ByteArray := Id.run do
+/-- Initializes linear memory with all active data segments, returning the sealed `WasmMemory`
+    cell (`MemoryCell.lean`). The data-segment install loop below builds an ordinary, freely
+    mutable local `ByteArray` and wraps it via `WasmMem.ofBytes` only once at the end -- exactly
+    the pattern `docs/MEMORY_HOOK.md`'s x86-64 seal establishes for loaders (`X86_64Mem.initRegion`):
+    computing a fresh image with unrestricted operations is legitimate bulk construction, and the
+    seal's job is to prevent touching an *already-installed* cell's bytes from outside this module,
+    not to restrict how a brand-new one gets built. -/
+def initWasmMemory (segments : List WasmDataSegment) : WasmMemory := Id.run do
   let mut mem := ByteArray.mk (Array.mk (List.replicate 65536 (0 : UInt8)))
   for seg in segments do
     for i in [0:seg.data.size] do
       mem := mem.set! (seg.offset.toNat + i) (seg.data.get! i)
-  return mem
+  return WasmMem.ofBytes mem
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Pure operational host call dispatcher for WASI syscalls. -/
@@ -94,6 +100,10 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
   match fnName with
   | some "fd_read" =>
     -- WASI fd_read(fd, iovs_ptr, iovs_len, nread_ptr)
+    -- REF: docs/MEMORY_HOOK.md#12-cross-target-note-wasm -- every memory touch below now goes
+    -- through the sealed `WasmMem` accessors (`MemoryCell.lean`); an out-of-bounds iovec entry or
+    -- destination buffer traps the call (leaving `s4`, the pre-call state, unmutated) instead of
+    -- the previous raw `ByteArray.set!`/unchecked `readMem32` bypass of `evalInstr`'s trap check.
     let (nread_ptr, s1) := popI32 s
     let (iovs_len, s2) := popI32 s1
     let (iovs_ptr, s3) := popI32 s2
@@ -101,40 +111,62 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
     let mut totalRead : UInt32 := 0
     let mut curMem := s4.memory
     let mut curPos := s4.stdinPos
+    let mut trapped := false
     for i in [0:iovs_len.toNat] do
-      let entryAddr := iovs_ptr.toNat + i * 8
-      let bufPtr := readMem32 curMem entryAddr
-      let bufLen := readMem32 curMem (entryAddr + 4)
-      let available := if curPos < s4.stdin.size then s4.stdin.size - curPos else 0
-      let toRead := min bufLen.toNat available
-      for bIdx in [0:toRead] do
-        let byteVal := s4.stdin.get! (curPos + bIdx)
-        curMem := curMem.set! (bufPtr.toNat + bIdx) byteVal
-      curPos := curPos + toRead
-      totalRead := totalRead + toRead.toUInt32
-    let newMem := writeMem32 curMem nread_ptr.toNat totalRead
-    return (pushVal (.i32 0) { s4 with memory := newMem, stdinPos := curPos }, .next)
+      if trapped then
+        pure ()
+      else
+        let entryAddr := iovs_ptr.toNat + i * 8
+        match WasmMem.read32 curMem entryAddr, WasmMem.read32 curMem (entryAddr + 4) with
+        | some bufPtr, some bufLen =>
+          let available := if curPos < s4.stdin.size then s4.stdin.size - curPos else 0
+          let toRead := min bufLen.toNat available
+          let delivered := s4.stdin.extract curPos (curPos + toRead)
+          match WasmMem.writeBytes curMem bufPtr.toNat delivered with
+          | some m' =>
+            curMem := m'
+            curPos := curPos + toRead
+            totalRead := totalRead + toRead.toUInt32
+          | none => trapped := true
+        | _, _ => trapped := true
+    if trapped then
+      return ({ s4 with trapped := true }, .next)
+    match WasmMem.write32 curMem nread_ptr.toNat totalRead with
+    | some newMem => return (pushVal (.i32 0) { s4 with memory := newMem, stdinPos := curPos }, .next)
+    | none => return ({ s4 with trapped := true }, .next)
 
   | some "fd_write" =>
     -- WASI fd_write(fd, iovs_ptr, iovs_len, nwritten_ptr)
+    -- REF: docs/MEMORY_HOOK.md#12-cross-target-note-wasm -- see `fd_read`'s note above; the same
+    -- checked-accessor discipline applies to the source-buffer reads here.
     let (nwritten_ptr, s1) := popI32 s
     let (iovs_len, s2) := popI32 s1
     let (iovs_ptr, s3) := popI32 s2
     let (_fd, s4) := popI32 s3
     let mut totalWritten : UInt32 := 0
     let mut newEvents := s4.events
+    let mut trapped := false
     for i in [0:iovs_len.toNat] do
-      let entryAddr := iovs_ptr.toNat + i * 8
-      let bufPtr := readMem32 s4.memory entryAddr
-      let bufLen := readMem32 s4.memory (entryAddr + 4)
-      let bytes := s4.memory.extract bufPtr.toNat (bufPtr.toNat + bufLen.toNat)
-      let str := match String.fromUTF8? bytes with
-        | some s => s
-        | none => String.ofList (bytes.toList.map (fun b => Char.ofNat b.toNat))
-      newEvents := newEvents ++ [Inject.inject (ConsoleEvent.out str)]
-      totalWritten := totalWritten + bufLen
-    let newMem := writeMem32 s4.memory nwritten_ptr.toNat totalWritten
-    return (pushVal (.i32 0) { s4 with memory := newMem, events := newEvents }, .next)
+      if trapped then
+        pure ()
+      else
+        let entryAddr := iovs_ptr.toNat + i * 8
+        match WasmMem.read32 s4.memory entryAddr, WasmMem.read32 s4.memory (entryAddr + 4) with
+        | some bufPtr, some bufLen =>
+          match WasmMem.readBytes s4.memory bufPtr.toNat bufLen.toNat with
+          | some bytes =>
+            let str := match String.fromUTF8? bytes with
+              | some s => s
+              | none => String.ofList (bytes.toList.map (fun b => Char.ofNat b.toNat))
+            newEvents := newEvents ++ [Inject.inject (ConsoleEvent.out str)]
+            totalWritten := totalWritten + bufLen
+          | none => trapped := true
+        | _, _ => trapped := true
+    if trapped then
+      return ({ s4 with trapped := true }, .next)
+    match WasmMem.write32 s4.memory nwritten_ptr.toNat totalWritten with
+    | some newMem => return (pushVal (.i32 0) { s4 with memory := newMem, events := newEvents }, .next)
+    | none => return ({ s4 with trapped := true }, .next)
 
   | some "proc_exit" =>
     -- WASI proc_exit(rval)
@@ -162,6 +194,9 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
     -- queuing it for a following call -- a genuine short read requires the remainder to
     -- survive, not vanish. Rebuilt on `Gasm.Effects.splitBytes` for parity with the
     -- Windows/Linux recv hooks (`Win32API.lean`'s `recvHook`, `Syscall.lean`'s `sysReadHook`).
+    -- REF: docs/MEMORY_HOOK.md#12-cross-target-note-wasm -- the destination write is now one
+    -- atomic `WasmMem.writeBytes` call instead of a raw per-byte `ByteArray.set!` loop; an
+    -- out-of-bounds `buf_ptr` traps rather than writing past the end of linear memory unchecked.
     let (max_len, s1) := popI32 s
     let (buf_ptr, s2) := popI32 s1
     let (_sock, s3) := popI32 s2
@@ -172,25 +207,30 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
       let (delivered, remaining) := splitBytes req.toUTF8.toList max_len.toNat
       let count := delivered.length
       let deliveredArr := ByteArray.mk delivered.toArray
-      let mut curMem := s3.memory
-      for i in [0:count] do
-        curMem := curMem.set! (buf_ptr.toNat + i) (deliveredArr.get! i)
-      let incomingRequests' :=
-        match String.fromUTF8? (ByteArray.mk remaining.toArray) with
-        | some r => if remaining.isEmpty then rest else r :: rest
-        | none => rest
-      let deliveredStr := (String.fromUTF8? deliveredArr).getD req
-      let newEvents := s3.events ++ [Inject.inject (NetEvent.recv deliveredStr)]
-      return (pushVal (.i32 count.toUInt32) { s3 with memory := curMem, incomingRequests := incomingRequests', events := newEvents }, .next)
+      match WasmMem.writeBytes s3.memory buf_ptr.toNat deliveredArr with
+      | none => return ({ s3 with trapped := true }, .next)
+      | some curMem =>
+        let incomingRequests' :=
+          match String.fromUTF8? (ByteArray.mk remaining.toArray) with
+          | some r => if remaining.isEmpty then rest else r :: rest
+          | none => rest
+        let deliveredStr := (String.fromUTF8? deliveredArr).getD req
+        let newEvents := s3.events ++ [Inject.inject (NetEvent.recv deliveredStr)]
+        return (pushVal (.i32 count.toUInt32) { s3 with memory := curMem, incomingRequests := incomingRequests', events := newEvents }, .next)
 
   | some "sock_send" =>
+    -- REF: docs/MEMORY_HOOK.md#12-cross-target-note-wasm -- checked read instead of a raw
+    -- `ByteArray.extract` on `s3.memory` (which silently clips rather than trapping an
+    -- out-of-declared-range request).
     let (len, s1) := popI32 s
     let (buf_ptr, s2) := popI32 s1
     let (_sock, s3) := popI32 s2
-    let bytes := s3.memory.extract buf_ptr.toNat (buf_ptr.toNat + len.toNat)
-    let str := String.fromUTF8! bytes
-    let newEvents := s3.events ++ [Inject.inject (NetEvent.send str)]
-    return (pushVal (.i32 len) { s3 with events := newEvents }, .next)
+    match WasmMem.readBytes s3.memory buf_ptr.toNat len.toNat with
+    | none => return ({ s3 with trapped := true }, .next)
+    | some bytes =>
+      let str := String.fromUTF8! bytes
+      let newEvents := s3.events ++ [Inject.inject (NetEvent.send str)]
+      return (pushVal (.i32 len) { s3 with events := newEvents }, .next)
 
   | some "sock_close" =>
     let (sock, s1) := popI32 s

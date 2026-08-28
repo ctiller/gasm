@@ -20,6 +20,7 @@ import Gasm.Core.Types
 import Gasm.Effects.Trace
 import Gasm.Targets.Wasm.Types
 import Gasm.Targets.Wasm.AST
+import Gasm.Targets.Wasm.MemoryCell
 
 namespace Gasm.Targets.Wasm
 
@@ -38,7 +39,14 @@ inductive WasmVal where
 structure WasmMachineState where
   stack            : List WasmVal := []
   locals           : List WasmVal := []
-  memory           : ByteArray    := ByteArray.empty
+  -- REF: docs/MEMORY_HOOK.md#12-cross-target-note-wasm -- `WasmMemory` (MemoryCell.lean) is the
+  -- sealed cell; this field can only be read/written through `WasmMem`'s checked, trap-signaling
+  -- API (`WasmMem.read8/32/64`, `write8/32/64`, `readBytes`/`writeBytes`, and the bulk
+  -- `ofBytes`/`zero`/`grow`/`toBytes` construction/observation entry points) -- no other function
+  -- in the tree can touch these bytes, closing the raw-`ByteArray.set!`/unchecked-`readMem32`
+  -- bypass `wasiHostCall` used before this change (`docs/tasks/B7-wasm-oob-trap-and-limits.md`'s
+  -- closing note).
+  memory           : WasmMemory   := WasmMem.empty
   -- REF: wasm-exec-runtime#memory-instances -- "It is an invariant of the semantics that the
   -- length of the byte sequence, divided by page size, never exceeds the maximum size of
   -- memtype." `memMax` (in 64 KiB pages, matching the Wasm `mem.grow`/`Limits.max` unit) is that
@@ -100,90 +108,14 @@ def popI64 (s : WasmMachineState) : UInt64 × WasmMachineState :=
 def pushVal (val : WasmVal) (s : WasmMachineState) : WasmMachineState :=
   { s with stack := val :: s.stack }
 
-/- REF: wasm-exec-instructions#memory-instructions -/
-/-- Reads an 8-bit byte from linear memory, IF `addr` is in bounds. Per the WebAssembly
-    specification's reduction rule for `t.load` (`wasm-exec-instructions#memory-instructions`:
-    "If `i + ao.offset + |nt|/8 > |mems[x].bytes|`, then: Trap."), an out-of-bounds read must trap
-    the instruction, not silently return a default value. That bounds check belongs to `evalInstr`
-    (its `.i32_load`/`.i32_load8_u`/`.i64_load` cases set `trapped := true` and never call this
-    function when the access is out of bounds), so this helper only ever runs on an address
-    already known in-bounds; it stays total (returns `0` for `addr >= mem.size`) purely as
-    defense-in-depth for any future caller that forgets that precondition, not as a substitute for
-    the trap. -/
-def readMem8 (mem : ByteArray) (addr : Nat) : UInt8 :=
-  if addr < mem.size then mem.get! addr else 0
-
-/- REF: wasm-exec-runtime#memory-instances -/
-/-- Reads a 32-bit little-endian integer from linear memory. -/
-def readMem32 (mem : ByteArray) (addr : Nat) : UInt32 :=
-  if addr + 4 <= mem.size then
-    let b0 := (readMem8 mem addr).toUInt32
-    let b1 := (readMem8 mem (addr + 1)).toUInt32
-    let b2 := (readMem8 mem (addr + 2)).toUInt32
-    let b3 := (readMem8 mem (addr + 3)).toUInt32
-    b0 ||| (b1 <<< 8) ||| (b2 <<< 16) ||| (b3 <<< 24)
-  else 0
-
-/- REF: wasm-exec-runtime#memory-instances -/
-/-- Reads an 8-byte 64-bit integer from linear memory. -/
-def readMem64 (mem : ByteArray) (addr : Nat) : UInt64 :=
-  let b0 : UInt64 := (readMem8 mem addr).toUInt64
-  let b1 : UInt64 := (readMem8 mem (addr + 1)).toUInt64
-  let b2 : UInt64 := (readMem8 mem (addr + 2)).toUInt64
-  let b3 : UInt64 := (readMem8 mem (addr + 3)).toUInt64
-  let b4 : UInt64 := (readMem8 mem (addr + 4)).toUInt64
-  let b5 : UInt64 := (readMem8 mem (addr + 5)).toUInt64
-  let b6 : UInt64 := (readMem8 mem (addr + 6)).toUInt64
-  let b7 : UInt64 := (readMem8 mem (addr + 7)).toUInt64
-  b0 ||| (b1 <<< 8) ||| (b2 <<< 16) ||| (b3 <<< 24) ||| (b4 <<< 32) ||| (b5 <<< 40) ||| (b6 <<< 48) ||| (b7 <<< 56)
-
-/- REF: wasm-exec-instructions#memory-instructions -/
-/-- Writes an 8-bit byte into linear memory, IF `addr` is in bounds. Per the WebAssembly
-    specification's reduction rule for `t.store` (`wasm-exec-instructions#memory-instructions`:
-    "If `i + ao.offset + |nt|/8 > |mems[x].bytes|`, then: Trap."), any out-of-bounds memory access
-    must trap the whole instruction rather than mutate memory at all -- it must NOT silently grow
-    the store to accommodate the address. That bounds check is `evalInstr`'s responsibility (its
-    `.i32_store`/`.i32_store8`/`.i64_store` cases set `trapped := true` and never call this
-    function at all when the access is out of bounds), so this helper only ever runs on an
-    address already known in-bounds. It stays a total no-op (returns `mem` unchanged) for `addr >=
-    mem.size` purely as defense-in-depth against a future caller that forgets that precondition --
-    NOT as an alternate, silent way to "handle" an out-of-bounds write. This replaces the previous
-    (B7) behaviour of zero-padding and growing `mem` to fit `addr`, which let an out-of-bounds
-    write silently succeed and corrupt `memory_size`'s subsequent answers instead of trapping. -/
-def writeMem8 (mem : ByteArray) (addr : Nat) (val : UInt8) : ByteArray :=
-  if addr < mem.size then mem.set! addr val else mem
-
-/- REF: wasm-exec-runtime#memory-instances -/
-/-- Writes a 32-bit little-endian integer into linear memory. -/
-def writeMem32 (mem : ByteArray) (addr : Nat) (val : UInt32) : ByteArray :=
-  let b0 := (val &&& 0xFF).toUInt8
-  let b1 := ((val >>> 8) &&& 0xFF).toUInt8
-  let b2 := ((val >>> 16) &&& 0xFF).toUInt8
-  let b3 := ((val >>> 24) &&& 0xFF).toUInt8
-  let m0 := writeMem8 mem addr b0
-  let m1 := writeMem8 m0 (addr + 1) b1
-  let m2 := writeMem8 m1 (addr + 2) b2
-  writeMem8 m2 (addr + 3) b3
-
-/- REF: wasm-exec-runtime#memory-instances -/
-/-- Writes an 8-byte 64-bit integer into linear memory. -/
-def writeMem64 (mem : ByteArray) (addr : Nat) (val : UInt64) : ByteArray :=
-  let b0 := (val &&& 0xFF).toUInt8
-  let b1 := ((val >>> 8) &&& 0xFF).toUInt8
-  let b2 := ((val >>> 16) &&& 0xFF).toUInt8
-  let b3 := ((val >>> 24) &&& 0xFF).toUInt8
-  let b4 := ((val >>> 32) &&& 0xFF).toUInt8
-  let b5 := ((val >>> 40) &&& 0xFF).toUInt8
-  let b6 := ((val >>> 48) &&& 0xFF).toUInt8
-  let b7 := ((val >>> 56) &&& 0xFF).toUInt8
-  let m0 := writeMem8 mem addr b0
-  let m1 := writeMem8 m0 (addr + 1) b1
-  let m2 := writeMem8 m1 (addr + 2) b2
-  let m3 := writeMem8 m2 (addr + 3) b3
-  let m4 := writeMem8 m3 (addr + 4) b4
-  let m5 := writeMem8 m4 (addr + 5) b5
-  let m6 := writeMem8 m5 (addr + 6) b6
-  writeMem8 m6 (addr + 7) b7
+-- REF: docs/MEMORY_HOOK.md#12-cross-target-note-wasm -- the raw `readMem8`/`readMem32`/
+-- `readMem64`/`writeMem8`/`writeMem32`/`writeMem64` helpers that used to live here (operating on
+-- a bare `ByteArray`, total/silently-permissive on out-of-bounds addresses) are retired: they were
+-- exactly the shape `Gasm/Targets/WASI/ABI.lean`'s `wasiHostCall` could call directly to bypass
+-- `evalInstr`'s trap check (`docs/tasks/B7-wasm-oob-trap-and-limits.md`'s closing note). Their
+-- replacements, `WasmMem.read8/32/64`/`write8/32/64` (`MemoryCell.lean`), are `Option`-returning
+-- (never silently permissive) and operate on the sealed `WasmMemory` cell, so the only way to
+-- touch linear-memory bytes anywhere in the tree is through them.
 
 /- REF: wasm-exec-runtime#administrative-instructions -/
 /-- **Fuel bound for the structurally-recursive Wasm interpreter core (`evalInstrMatch`/
@@ -451,37 +383,43 @@ def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
         let (val, s1) := popI32 s
         let (addr, s2) := popI32 s1
         let a := addr.toNat + offset
-        if a + 4 > s2.memory.size then ({ s2 with trapped := true }, .next)
-        else ({ s2 with memory := writeMem32 s2.memory a val }, .next)
+        match WasmMem.write32 s2.memory a val with
+        | some m' => ({ s2 with memory := m' }, .next)
+        | none => ({ s2 with trapped := true }, .next)
       | .i32_store8 _ offset =>
         let (val, s1) := popI32 s
         let (addr, s2) := popI32 s1
         let a := addr.toNat + offset
-        if a + 1 > s2.memory.size then ({ s2 with trapped := true }, .next)
-        else ({ s2 with memory := writeMem8 s2.memory a (val.toUInt8) }, .next)
+        match WasmMem.write8 s2.memory a val.toUInt8 with
+        | some m' => ({ s2 with memory := m' }, .next)
+        | none => ({ s2 with trapped := true }, .next)
       | .i32_load _ offset =>
         let (addr, s1) := popI32 s
         let a := addr.toNat + offset
-        if a + 4 > s1.memory.size then ({ s1 with trapped := true }, .next)
-        else (pushVal (.i32 (readMem32 s1.memory a)) s1, .next)
+        match WasmMem.read32 s1.memory a with
+        | some v => (pushVal (.i32 v) s1, .next)
+        | none => ({ s1 with trapped := true }, .next)
       | .i32_load8_u _ offset =>
         let (addr, s1) := popI32 s
         let a := addr.toNat + offset
-        if a + 1 > s1.memory.size then ({ s1 with trapped := true }, .next)
-        else (pushVal (.i32 (readMem8 s1.memory a).toUInt32) s1, .next)
+        match WasmMem.read8 s1.memory a with
+        | some v => (pushVal (.i32 v.toUInt32) s1, .next)
+        | none => ({ s1 with trapped := true }, .next)
       | .i64_store _ offset =>
         let (val, s1) := popI64 s
         let (addr, s2) := popI32 s1
         let a := addr.toNat + offset
-        if a + 8 > s2.memory.size then ({ s2 with trapped := true }, .next)
-        else ({ s2 with memory := writeMem64 s2.memory a val }, .next)
+        match WasmMem.write64 s2.memory a val with
+        | some m' => ({ s2 with memory := m' }, .next)
+        | none => ({ s2 with trapped := true }, .next)
       | .i64_load _ offset =>
         let (addr, s1) := popI32 s
         let a := addr.toNat + offset
-        if a + 8 > s1.memory.size then ({ s1 with trapped := true }, .next)
-        else (pushVal (.i64 (readMem64 s1.memory a)) s1, .next)
+        match WasmMem.read64 s1.memory a with
+        | some v => (pushVal (.i64 v) s1, .next)
+        | none => ({ s1 with trapped := true }, .next)
       | .memory_size =>
-        let pages := (s.memory.size + 65535) / 65536
+        let pages := (WasmMem.size s.memory + 65535) / 65536
         (pushVal (.i32 pages.toUInt32) s, .next)
       | .memory_grow =>
         -- REF: wasm-exec-instructions#memory-instructions -- "The memory.grow instruction is
@@ -497,7 +435,7 @@ def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
         -- fires, growth fails WITHOUT mutating `memory` at all -- unlike the pre-fix (B8) behaviour,
         -- which always grew unconditionally and never returned the `-1` sentinel.
         let (delta, s1) := popI32 s
-        let oldPages := (s1.memory.size + 65535) / 65536
+        let oldPages := (WasmMem.size s1.memory + 65535) / 65536
         let requestedPages := oldPages + delta.toNat
         let hardCeilingPages : Nat := 65536
         let exceedsDeclaredMax := match s1.memMax with
@@ -507,7 +445,7 @@ def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
           (pushVal (.i32 (0xFFFFFFFF : UInt32)) s1, .next)
         else
           let padding := ByteArray.mk (Array.mk (List.replicate (delta.toNat * 65536) (0 : UInt8)))
-          (pushVal (.i32 oldPages.toUInt32) { s1 with memory := s1.memory ++ padding }, .next)
+          (pushVal (.i32 oldPages.toUInt32) { s1 with memory := WasmMem.grow s1.memory padding }, .next)
 
       -- Conversions
       | .i32_wrap_i64 =>
