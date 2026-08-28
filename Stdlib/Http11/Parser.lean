@@ -63,22 +63,28 @@ def parseRequestLine (line : List UInt8) : Except Error (Method × List UInt8) :
 /- REF: docs/STDLIB_HTTP11.md#22-status-line -/
 /-- Parses one status line: `"HTTP/1.1" SP status-code SP reason-phrase`. `status-code` must
     be exactly three decimal digits decoding (via `digitBytesToNat?`) to a value in
-    `100..599`. -/
+    `100..599`. Unlike the request line's `method`/`target`/`version`, `reason-phrase` is
+    itself permitted to contain internal `SP` bytes (`"500 Internal Server Error"`), so this
+    splits only the first *two* spaces -- `splitThreeFields`'s "reject a fourth field" check
+    would otherwise wrongly reject any multi-word reason phrase. -/
 def parseStatusLine (line : List UInt8) : Except Error (Nat × List UInt8) :=
-  match splitThreeFields line with
+  match splitFirstSpace line with
   | none => .error .malformedStatusLine
-  | some (version, codeBytes, reason) =>
-      if version = httpVersionBytes then
-        if codeBytes.length = 3 then
-          match digitBytesToNat? codeBytes with
-          | none => .error .invalidStatusCode
-          | some n =>
-              if 100 ≤ n ∧ n ≤ 599 then
-                if validFieldValue reason && noOwsEdges reason then .ok (n, reason)
-                else .error .invalidReasonPhrase
-              else .error .invalidStatusCode
-        else .error .invalidStatusCode
-      else .error .unsupportedVersion
+  | some (version, rest1) =>
+      match splitFirstSpace rest1 with
+      | none => .error .malformedStatusLine
+      | some (codeBytes, reason) =>
+          if version = httpVersionBytes then
+            if codeBytes.length = 3 then
+              match digitBytesToNat? codeBytes with
+              | none => .error .invalidStatusCode
+              | some n =>
+                  if 100 ≤ n ∧ n ≤ 599 then
+                    if validFieldValue reason && noOwsEdges reason then .ok (n, reason)
+                    else .error .invalidReasonPhrase
+                  else .error .invalidStatusCode
+            else .error .invalidStatusCode
+          else .error .unsupportedVersion
 
 /- REF: docs/STDLIB_HTTP11.md#23-header-fields -/
 /-- Parses one header line: `field-name ":" SP field-value`, `field-value` free of leading/
