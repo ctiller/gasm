@@ -8,10 +8,63 @@
 > `Quot.sound`). Produced 2026-08-27, tree at `46d56ce`+. Feeds `docs/tasks/` (PA10–PA18, plus
 > frontmatter edits to PA1/PA5–PA9/N2/TC5/TC9/TC12/TC16/TC17/TC21/B7).
 
-**Status**: this document is an audit and a plan, not a completed migration. Every task it names as
-"closing" an allowlist entry is planned work tracked under the cited `PA#`/`TC#` id; none of PA10–PA18
-has landed as of this writing. `scripts/gate_allowlist.txt` itself has not been edited by this audit —
-no `.lean` file was touched, per this task's own scope (audit and re-plan, not implementation).
+**Status** (revised 2026-08-28): this document is an audit and a plan. Its **shape analysis is
+still current and is what the file is for** — Part 1's Shape A/B/C taxonomy, Part 4's account of
+what does not confidently reach zero, and Part 5's propagation verification all still describe the
+ledger correctly. Its **counts and per-row statuses are a dated snapshot and are superseded**;
+treat every number below as illustrative of the shape, not as a live measurement, and read
+`scripts/gate_allowlist.txt` for the current state.
+
+What changed since the 2026-08-27 audit, verified against the tree on 2026-08-28:
+
+| | At audit (`46d56ce`+) | Today | Note |
+|---|---:|---:|---|
+| Total entries | 80 | **78** | across 31 distinct `.lean` files |
+| `grandfathered` | 37 | **34** | |
+| `finite-forall` | 10 | **0** | **the whole class is closed** — see the Part 2 table below, every row marked CLOSED |
+| `axiom-only` | 33 | **44** | grew: the class is a *consequence* of other entries, so closures elsewhere and new `axiom-only` naming files both move it up |
+
+The `finite-forall` class reaching zero is the headline change and it invalidates this document's
+sharpest pessimistic claim. Part 4 named `G8bf_table` (row 8) "the one genuinely hard case", with a
+stated abandonment criterion, and Part 2's `axiom-only` note explained that `G8_eq_Gbf8` and
+`crc32ByteStep_eq_G8` could not clear without it. **PA13 and PA14 both landed (commit `3ca668d`) and
+`G8bf_table` was proved structurally.** `bv_decide` is now at **zero occurrences tree-wide** as a
+tactic, `scripts/gate_allowlist.txt` has **zero live entries naming
+`Stdlib/Zlib/CRC32Equivalence.lean`**, and the whole chain — `and_one_cases`, `G_eq_Gbf`,
+`xor_byte_shr8`, `Gbf_additive`, `G8bf_table`, `G8_eq_Gbf8`, `mkCrcTableEntry_eq_G8`,
+`crc32ByteStep_eq_G8` — reports only standard axioms, several not even requiring
+`Classical.choice`. The hard case was not abandoned; it was closed.
+
+Original status, retained for the record: none of PA10–PA18 had landed when this audit was
+written, and the audit edited no `.lean` file and no allowlist entry, per its own scope.
+
+**Two factual premises in ADR-0037 are now false, and the ADR is deliberately not edited.**
+`docs/adr/0037-ratify-bv-decide-trust-tier.md` (Accepted 2026-08-27, PLAN.md D28) states at its
+line 102 that "`bv_decide` remains the only route to several already-landed PA1 theorems
+(`crc32ByteStep_eq_G8` foremost)", and at line 126 that "`crc32ByteStep_eq_G8` transitively
+depends on five `bv_decide`-family axioms". **Both were overtaken by PA13/PA14 in `3ca668d`**:
+`crc32ByteStep_eq_G8` is axiom-clean, and `bv_decide` has zero occurrences tree-wide, so it is
+now the route to nothing. **ADR-0037's ruling is unaffected** — it ratified where `bv_decide`
+sits in Law 10's trust ordering, and that ordering stands on its merits whether or not the tree
+currently uses the tactic; if anything, having a ratified tier for it is what makes returning to
+it a decision rather than a drift.
+
+The record is left exactly as ratified because `docs/adr/README.md`'s immutability rule permits
+only two things to an accepted ADR: typo/formatting fixes that touch no normative content, and a
+`Superseded-by: NNNN` line added to `## Status`. There is no sanctioned form for "a premise was
+overtaken but the ruling stands", and inventing one — even as an appended dated note — is a
+change to how the decision record works, which is the owner's call and not a documentation fix.
+The drift is therefore recorded here, in the ledger whose subject it is, rather than in the ADR.
+**This is an item for the owner**: either ratify an amendment form for the directory, or accept
+that an ADR's Context may hold facts later work falsifies, which the immutability rule arguably
+already implies ("including when the decision later turns out to be wrong, incomplete, or is
+reversed").
+
+**A caution for anyone acting on stale-entry reports.** `check_gates_axioms` has been observed
+reporting allowlist entries as stale when run against a working tree carrying other agents'
+in-flight edits; the same check on a clean isolated checkout reported zero. Verify any stale
+report against a clean checkout before deleting an entry — an `axiom-only` entry naming a file
+outside the tool's scanned closure is legitimate and will look stale to a narrowed scan.
 
 ---
 
@@ -145,20 +198,29 @@ which 25 (PA8's 8 + PA10's 5 + PA11's 2 + PA12's 2 + PA17's 8, i.e. everything b
 concretely tractable with no identified research risk; PA16's 12 are honestly flagged long-horizon
 (Part 4).
 
-### Finite-forall (10)
+### Finite-forall (10) — **all ten closed as of 2026-08-28; zero remain**
 
-| # | Entry | Oracle today | Structural closure assessed | New task |
-|---|---|---|---|---|
-| 1 | `Stdlib/Zlib/Equivalence.lean::reverse_bits_8_involutive_inst` | `native_decide`, 256-elt domain | Likely: plain `decide` may just work | **PA18** |
-| 2 | `Spikes/Spike5Gzip/Equivalence.lean::bit_reversal_8_involution_inst` (exact duplicate of #1) | `native_decide` | Same | **PA18** |
-| 3 | `Stdlib/Zlib/Equivalence.lean::encode_length_bounds_inst` | `native_decide`, 256-elt domain | Likely: plain `decide` | **PA18** |
-| 4 | `Stdlib/Zlib/Equivalence.lean::encode_distance_bounds_inst` | `native_decide`, 32768-elt domain | Plausible via `decide` or a ~30-band structural case-split if `decide` is too slow | **PA18** |
-| 5 | `Stdlib/Zlib/CRC32Equivalence.lean::and_one_cases` | `bv_decide` | Likely: small `BitVec`/`omega` proof | **PA13** |
-| 6 | `Stdlib/Zlib/CRC32Equivalence.lean::G_eq_Gbf` | `bv_decide` | Plausible: reduces to `and_zero`/`and_allOnes`-class lemmas after case split | **PA13** |
-| 7 | `Stdlib/Zlib/CRC32Equivalence.lean::xor_byte_shr8` | `bv_decide` | Plausible: bit-extensionality argument | **PA13** |
-| 8 | `Stdlib/Zlib/CRC32Equivalence.lean::G8bf_table` | `bv_decide` | **Hard** — see Part 4 | **PA14** |
-| 9 | `Spikes/Spike2Fibonacci/Windows/Equivalence.lean::fib_iter_asm_soundness` | `native_decide`, 91-case enumeration of a real loop | Tractable via loop-invariant induction (PA1's technique) | **PA15** |
-| 10 | `Spikes/Spike2Fibonacci/Wasm/Equivalence.lean::fib_iter_wasm_soundness` | `native_decide`, same shape | Same | **PA15** |
+**Status**: this table is the audit's 2026-08-27 snapshot and every row in it is now closed.
+`scripts/gate_allowlist.txt` contains **zero `finite-forall` entries**, and none of the ten names
+below appears in it in any category. Rows 1–4 closed with PA18, rows 5–7 with PA13, row 8
+(`G8bf_table`, which Part 4 called "the one genuinely hard case") with PA14 — both PA13 and PA14
+landing in commit `3ca668d` — and rows 9–10 with PA15. The "Oracle today" column below is
+therefore historical: `bv_decide` has **zero occurrences tree-wide** as a tactic, and the entire
+CRC32 chain reports only standard axioms. Read the table for the *shapes* it classifies, which is
+what it is still useful for, not for current status.
+
+| # | Entry | Oracle at audit (2026-08-27) | Structural closure assessed | Task | Now |
+|---|---|---|---|---|---|
+| 1 | `Stdlib/Zlib/Equivalence.lean::reverse_bits_8_involutive_inst` | `native_decide`, 256-elt domain | Likely: plain `decide` may just work | **PA18** | **CLOSED** |
+| 2 | `Spikes/Spike5Gzip/Equivalence.lean::bit_reversal_8_involution_inst` (exact duplicate of #1) | `native_decide` | Same | **PA18** | **CLOSED** |
+| 3 | `Stdlib/Zlib/Equivalence.lean::encode_length_bounds_inst` | `native_decide`, 256-elt domain | Likely: plain `decide` | **PA18** | **CLOSED** |
+| 4 | `Stdlib/Zlib/Equivalence.lean::encode_distance_bounds_inst` | `native_decide`, 32768-elt domain | Plausible via `decide` or a ~30-band structural case-split if `decide` is too slow | **PA18** | **CLOSED** |
+| 5 | `Stdlib/Zlib/CRC32Equivalence.lean::and_one_cases` | `bv_decide` | Likely: small `BitVec`/`omega` proof | **PA13** | **CLOSED** |
+| 6 | `Stdlib/Zlib/CRC32Equivalence.lean::G_eq_Gbf` | `bv_decide` | Plausible: reduces to `and_zero`/`and_allOnes`-class lemmas after case split | **PA13** | **CLOSED** |
+| 7 | `Stdlib/Zlib/CRC32Equivalence.lean::xor_byte_shr8` | `bv_decide` | Plausible: bit-extensionality argument | **PA13** | **CLOSED** |
+| 8 | `Stdlib/Zlib/CRC32Equivalence.lean::G8bf_table` | `bv_decide` | **Hard** — see Part 4 | **PA14** | **CLOSED** |
+| 9 | `Spikes/Spike2Fibonacci/Windows/Equivalence.lean::fib_iter_asm_soundness` | `native_decide`, 91-case enumeration of a real loop | Tractable via loop-invariant induction (PA1's technique) | **PA15** | **CLOSED** |
+| 10 | `Spikes/Spike2Fibonacci/Wasm/Equivalence.lean::fib_iter_wasm_soundness` | `native_decide`, same shape | Same | **PA15** | **CLOSED** |
 
 **Pre-audit existing-task coverage: 0/10.** No task in `docs/tasks/` touched the question of whether
 these ten need an oracle at all — they were treated as permanently settled once allowlisted. Post-audit:
@@ -175,6 +237,16 @@ the allowlist's own comment ("`crc32ByteStep_eq_G8` transitively depends on FIVE
 each from `G8bf_table`, `xor_byte_shr8`, `and_one_cases`, and two from `G_eq_Gbf`'s two case-split
 calls"). These two do **not** automatically clear from the grandfathered-37 work alone; they need
 PA13 (3 of the 5) and PA14 (the fourth, hardest one) both to land.
+
+**Update 2026-08-28: both landed, and these two entries are gone.** PA13 and PA14 closed in
+commit `3ca668d`. `scripts/gate_allowlist.txt` now names `Stdlib/Zlib/CRC32Equivalence.lean` in
+**zero live entries** — the only remaining occurrence of that filename in the allowlist is inside
+a comment recording the closure. `crc32ByteStep_eq_G8` no longer carries the five `bv_decide`
+axioms quoted above; it and `G8_eq_Gbf8` report standard axioms only. The paragraph above is
+retained because its *propagation reasoning* is the useful part and is still correct as a method:
+an `axiom-only` entry clears exactly when every root it transitively cites clears, which is why
+this pair could not be closed by the grandfathered work alone. Only its conclusion is out of
+date.
 
 ---
 

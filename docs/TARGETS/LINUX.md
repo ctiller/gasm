@@ -106,10 +106,29 @@ The Linux target implementation is organized under `Gasm/Targets/Linux/`:
 - `Linker.lean`: Static freestanding ELF64 linker and memory layout engine (`LinuxExecutable`, `linkLinuxProgramStatic`).
 
 ### Spikes & Verification
-All 5 Linux Spikes are fully implemented, verified via constructive `native_decide` proofs, emitted as standalone ELF64 executables, and tested natively:
-- **Spike 1 (Hello World)** (`Spikes/Spike1Hello/Linux/`): Verified against `helloWorldSpec` via `native_decide`; emits `hello_linux`.
-- **Spike 2 (Fibonacci)** (`Spikes/Spike2Fibonacci/Linux/`): Verified against `fibonacciSpec` (Fib(1)..Fib(10)) via `native_decide`; emits `fib_linux`.
-- **Spike 3 (Sort Lines)** (`Spikes/Spike3SortLines/Linux/`): Verified against `sortLinesSpec` via `native_decide`; emits `sort_lines_linux`.
-- **Spike 4 (HTTP Server)** (`Spikes/Spike4HttpServer/Linux/`): Verified against `httpServerSpec` across `/`, `/status`, and 404 routes via `native_decide`; emits `spike4_http_linux`.
-- **Spike 5 (Gzip & Gunzip)** (`Spikes/Spike5Gzip/Linux/`, `Stdlib/Zlib/Linux.lean`): Verified against `gzipSpec` (deflate and inflate) via `native_decide`; emits `spike5_gzip_linux` and `spike5_gunzip_linux`; interoperability verified against host system `gzip`.
+**Status** (corrected 2026-08-28): this section previously read "All 5 Linux Spikes are fully
+implemented, verified via **constructive** `native_decide` proofs", attributing `native_decide`
+to all five uniformly. Two things were wrong. **`native_decide` is not constructive** — it is an
+oracle, evaluated by the compiler and not re-checked by the kernel, which is why Law 10 governs
+it, `TCB.md` T14 records it as trusted-but-unprovable, and every use needs a
+`scripts/gate_allowlist.txt` entry. Calling it constructive is the facade Law 8 exists to catch.
+The uniform attribution was also **wrong in the direction that undersells the best result here**:
+Spike 1's Linux proof is `decide`, fully kernel-checked, needing no oracle and no allowlist entry
+at all. Per spike, verified against the tree on 2026-08-28:
+
+| Spike | Equivalence theorem lives in | Proved by | Trust |
+| :-- | :-- | :-- | :-- |
+| 1 — Hello World | `Spikes/Spike1Hello/Linux/Equivalence.lean:39` | **`decide`** | kernel-checked; no oracle, no allowlist entry |
+| 2 — Fibonacci | `Spikes/Spike2Fibonacci/Linux/Equivalence.lean:44` | `native_decide` | oracle; allowlisted |
+| 3 — Sort Lines | `Spikes/Spike3SortLines/Linux/Equivalence.lean:63`, `:69` | `native_decide` ×2 | oracle; allowlisted. Both are `_inst`-suffixed — single-vector ground checks, not universal claims |
+| 4 — HTTP Server | `Spikes/Spike4HttpServer/Equivalence.lean:156`, `:163`, `:170` | `native_decide` ×3 | oracle; allowlisted. **Not** under `Linux/`, which holds only `Emit.lean`/`Program.lean` |
+| 5 — Gzip & Gunzip | `Spikes/Spike5Gzip/Equivalence.lean:77`, `:141` | `native_decide` ×2 | oracle; allowlisted. **Not** under `Linux/`, same as Spike 4 |
+
+All five are implemented, emitted as standalone ELF64 executables (`hello_linux`, `fib_linux`,
+`sort_lines_linux`, `spike4_http_linux`, `spike5_gzip_linux`/`spike5_gunzip_linux`) and tested
+natively; Spike 5's interoperability against the host system `gzip` is real. What the theorems
+establish is trace equivalence between each lowering and its specification **at the concrete
+inputs each proof evaluates**, not over an input domain — see
+`docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract` for
+the worked statement of that limit, which applies to all five.
 

@@ -44,31 +44,34 @@ graph TD
 
 ## 2. Monadic Specification & CLI State Machine
 
-```lean
-inductive GzipMode where
-  | Compress
-  | Decompress
-  deriving DecidableEq, Repr, Inhabited
+**Status** (corrected 2026-08-28): this section used to transcribe `GzipMode`, `GzipConfig` and
+the three signatures below verbatim from the tree. That is Law 12's unlinked twin — a second
+encoding of one fact, adding no information because it *was* the code — and it had already
+drifted: the transcribed `gzipPipelineMonadic` carried a `[MonadFileSystem m]` constraint the
+real definition has never had, and the prose described it as "parameterized over file system and
+console effects". It is console effects only. The declarations are cited rather than copied now,
+so that drift cannot recur.
 
-structure GzipConfig where
-  mode       : GzipMode := .Compress
-  keepSource : Bool     := true
-  level      : Nat      := 6
-  deriving DecidableEq, Repr, Inhabited
-```
+The CLI's operating mode and configuration are `GzipMode` and `GzipConfig`
+(`Spikes/Spike5Gzip/Spec.lean:34` and `:41`). `GzipMode` is a two-constructor enum,
+`Compress`/`Decompress`, selected from CLI flags by `parseGzipFlags` (`:48`), which recognizes
+`-d`, `--decompress`, `-dc` and `-cd`. `GzipConfig` carries the mode plus a `keepSource` flag and
+a compression `level`. Both derive `DecidableEq`/`Repr`/`Inhabited` — that is what lets the
+spike's equivalence theorems decide trace equality.
 
 ### 2.1 Pure Transformation Functions
-```lean
-def gzipCompress (input : ByteArray) : ByteArray
-def gzipDecompress (input : ByteArray) : Except String ByteArray
-```
+The pure layer is `Stdlib.Zlib`'s, not the spike's: `gzipCompress : ByteArray → ByteArray`
+(`Stdlib/Zlib/Gzip.lean:25`) and `gzipDecompress : ByteArray → Except String ByteArray` (`:102`).
+Compression is total; decompression is fallible, and that `Except` is the whole error surface §3
+disciplines. `gzipCompressStored` (`:61`) is a third entry point emitting stored (uncompressed)
+DEFLATE blocks; it currently has no call site.
 
 ### 2.2 End-to-End Monadic Pipeline
-Parameterized over file system and console effects (`MonadFileSystem`, `MonadConsole`):
-```lean
-def gzipPipelineMonadic (m : Type → Type) [Monad m] [MonadFileSystem m] [MonadConsole m]
-    (mode : GzipMode) (input : ByteArray) : m (Except String ByteArray)
-```
+`gzipPipelineMonadic` (`Spikes/Spike5Gzip/Spec.lean:67`) is parameterized over **console effects
+only** — its constraints are `[Monad m] [MonadConsole m]`. It takes a `GzipMode` and an input
+`ByteArray`, returns `m (Except String ByteArray)`, and emits a progress line through
+`MonadConsole` on each branch. File I/O is not part of this pipeline: the targets feed it bytes
+their own entry points have already read.
 
 ---
 
