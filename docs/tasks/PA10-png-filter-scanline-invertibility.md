@@ -1,7 +1,7 @@
 ---
 id: PA10
 title: PNG filter scanline invertibility — lift proven per-byte algebra to universal roundtrip
-status: ready
+status: done
 blocked_on: ""
 after: []
 related: [PA1]
@@ -78,3 +78,20 @@ induction's workhorse.
 - 2026-08-27: priority 9.7 — cheapest, lowest-risk closure in the oracle-debt plan: the general
   per-byte algebra is already proven and unused four lines above the pointwise checks it should
   replace. No prerequisites; start immediately.
+- 2026-08-27: **done.** The task's framing held up exactly: the per-byte lemmas composed by
+  straightforward induction along scanline position, with no extra case analysis needed for Paeth
+  (its predictor is applied to the identical `(a, b, c)` triple on both the filter and unfilter
+  side once the induction hypothesis supplies `a`'s agreement; `b`/`c` never depend on the growing
+  output at all). The one real precondition the universal statement needs beyond the doc's naive
+  signature is `bpp ≥ 1` — at `bpp = 0` the induction's "already-reconstructed prefix" invariant
+  collapses into self-reference (byte `i` would read `out.get! i` before that byte is pushed).
+  Added `Stdlib.Png.filter_unfilter_soundness` (and its supporting `filterFold`/`unfilterFold`
+  fold-normalization lemmas, mirroring `Stdlib/Zlib/CRC32Equivalence.lean`'s existing technique)
+  to `Stdlib/Png/Equivalence.lean`; deleted the five `_inst` theorems and their
+  `scripts/gate_allowlist.txt` entries (80 → 75 total; the PNG file's grandfathered count drops
+  from 7 to 2, both PA16-scoped). Zero `sorry`, zero new axioms
+  (`lake exe check_gates_axioms` clean). Four small generic `ByteArray.get!`/`.push` bridging
+  lemmas were added alongside (Lean core only proves the analogous facts for the `[i]!` notation,
+  not `.get!` itself) — these are not PNG-specific and are exactly the plumbing
+  `Stdlib/Zlib`'s own `Id.run`/`for`/`push` DEFLATE/INFLATE loops will need for the same
+  lift-from-pointwise-to-inductive shape.
