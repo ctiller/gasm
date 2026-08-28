@@ -166,7 +166,7 @@ def initMachineState (entryRip : Address) (args : List UInt64 := []) (stackTop :
     rip := entryRip,
     gprs := fun r => if r == .rsp then stackTop else 0,
     flags := 0,
-    memory := fun _ => 0
+    memory := X86_64Mem.zero
   }
   setArgs argGprs args s0
 

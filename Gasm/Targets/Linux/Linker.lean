@@ -51,15 +51,14 @@ def load (exe : LinuxExecutable) : X86_64MachineState :=
   { rip              := layout.textVma,
     gprs             := fun r => if r == .rsp then 0x7FFFFFFF0000 else 0,
     flags            := 0x202,
-    memory           := fun a =>
+    memory           := X86_64Mem.initRegion (fun a =>
       if a >= layout.textVma && a < layout.textVma + exe.textBytes.size.toUInt64 then
         exe.textBytes.get! (a - layout.textVma).toNat
       else if a >= layout.rodataVma && a < layout.rodataVma + exe.rodataBytes.size.toUInt64 then
         exe.rodataBytes.get! (a - layout.rodataVma).toNat
-      else 0,
+      else 0),
     stdinBuffer      := ByteArray.empty,
-    incomingRequests := [],
-    faulted          := false }
+    incomingRequests := [] }
 
 /- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
 /-- Loads the Linux executable into initial machine state with pre-seeded standard input. -/

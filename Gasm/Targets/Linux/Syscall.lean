@@ -105,7 +105,7 @@ def sysWriteHook {Event : Type} [Inject ConsoleEvent Event] [Inject NetEvent Eve
 /-- Linux sys_exit hook: extracts exit code from RDI, halts machine state, and emits ProcessEvent. -/
 def sysExitHook {Event : Type} [Inject ProcessEvent Event] (s : X86_64MachineState) : X86_64MachineState × Option Event :=
   let exitCode := (s.gprs .rdi).toUInt32
-  let s' := { s with rip := 0, faulted := true }
+  let s' := { s with rip := 0, fault := some .halted }
   (s', some (Inject.inject (ProcessEvent.exit exitCode)))
 
 /- REF: docs/TARGETS/LINUX.md#23-semantic-syscall-interception -/
@@ -123,10 +123,7 @@ def sysReadHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) 
     let s' := { (s.setGpr64 .rax count.toUInt64) with
       rip := nextRip,
       stdinBuffer := remaining,
-      memory := fun a =>
-        if a >= bufAddr && a < bufAddr + count.toUInt64 then
-          readBytes.get! (a - bufAddr).toNat
-        else s.memory a
+      memory := X86_64Mem.writeBytes bufAddr readBytes.toList s.memory
     }
     (s', none)
   else if fd >= 100 then
@@ -152,10 +149,7 @@ def sysReadHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) 
       let s' := { (s.setGpr64 .rax count.toUInt64) with
         rip := nextRip,
         incomingRequests := incomingRequests',
-        memory := fun a =>
-          if a >= bufAddr && a < bufAddr + count.toUInt64 then
-            deliveredArr.get! (a - bufAddr).toNat
-          else s.memory a
+        memory := X86_64Mem.writeBytes bufAddr delivered s.memory
       }
       (s', some (Inject.inject (NetEvent.recv deliveredStr)))
   else
