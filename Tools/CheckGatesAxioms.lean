@@ -437,6 +437,67 @@ def collectAxiomsFor (env : Environment) (ctx : Core.Context) (name : Name) :
 -- `--scan-module <name>` CLI argument back into a `Name`) also now lives in
 -- Tools/GateSubprocess.lean.
 
+/-- Best-effort human-readable name for a binder's domain: `ByteArray`,
+`HttpRoute`, `Bool`. Head-constant only -- enough to tell a reader what the
+statement quantifies over without dragging `MetaM` and a pretty-printer into
+a gate that must stay cheap. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+def domainName (d : Expr) : String :=
+  match d.getAppFn with
+  | .const n _ => toString n
+  | .sort _    => "Sort"
+  | _          => "?"
+
+/-- The domains of a statement's leading `∀` binders, outermost first. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+partial def binderDomains : Expr → List String
+  | .forallE _ d b _ => domainName d :: binderDomains b
+  | _                => []
+
+/-- STATEMENT SHAPE of a declaration a stale-entry report is about.
+
+WHY THIS EXISTS, and it is not decoration. The allowlist COUNT is a proxy,
+and the proxy is gameable in a specific way: rewriting a pointwise
+`native_decide` as a pointwise `decide` retires the entry (Law 10 rung 2 is
+kernel-checked and needs no allowlist entry) while the statement, its domain,
+and the underlying Law 9 single-vector weakness are all completely unchanged.
+The score moves; nothing is fixed. A detector that reports only "this entry
+is now unnecessary" cannot tell that apart from a real closure, and would
+reproduce the very defect it was built to catch.
+
+So the report says what the RETIRED DECLARATION'S STATEMENT still looks like:
+
+* `POINTWISE` -- no `∀` binder at all: the statement is one ground instance.
+  Retiring the entry did NOT generalize anything. This is the shape that is
+  either (a) an oracle swap -- scoring without fixing -- or (b) a genuine
+  free corollary of a universal theorem proved elsewhere. See the honesty
+  note below: this classifier does NOT distinguish (a) from (b).
+* `QUANTIFIED over [...]` -- the statement binds data. Whether that domain is
+  exhaustively finite (Law 10 rung 1, legitimate) or unbounded is a judgement
+  the reader makes from the printed domain names.
+
+HONESTY BOUND, stated because the alternative is a number that conflates two
+opposite things: statement shape ALONE cannot separate an oracle swap from a
+genuine corollary-of-a-universal-theorem, because both leave a POINTWISE
+statement standing. Deciding that requires reading whether the declaration's
+PROOF now routes through a universal theorem -- a proof-provenance question,
+not a type-shape one. This gate deliberately does not guess at it. What the
+`POINTWISE` label does guarantee is the thing a reviewer must not miss: the
+claim is still about one input, so the entry's disappearance is NOT by itself
+evidence that anything was generalized, and the diff must be read. -/
+/- REF: docs/REVIEW.md#law-9-no-single-vector-verification-the-domain-coverage-law -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+def statementShape (env : Environment) (fqn : String) : String :=
+  match env.find? (nameOfDotted fqn) with
+  | none =>
+    -- The declaration lives in a module scanned standalone (its own
+    -- subprocess), so the parent's baseline environment never held it.
+    "shape not classifiable (declaration is outside the baseline import closure)"
+  | some info =>
+    match binderDomains info.type with
+    | [] => "POINTWISE -- statement has no forall binder; it is a single ground instance"
+    | ds => s!"QUANTIFIED over [{String.intercalate ", " ds}]"
+
 /-- What a `--scan-module` worker process reported, once its one
 `GASM_SCAN_RESULT` JSON line has been parsed. `loadFailed` mirrors the old
 in-process `catch` arm (the module's own `importModules` failed); the parent
@@ -548,6 +609,20 @@ def runGate : IO UInt32 := do
 
   IO.println s!"[*] Loaded {allowlist.length} valid allowlist entr(y/ies) from {allowlistPath}."
 
+  -- Flush BEFORE the two long, memory-hungry phases (the whole-project import
+  -- and the scan). `withDiagnosedFailure` can only report a catchable
+  -- `IO.Error`; it cannot catch the OS killing this process outright, and on
+  -- Windows that is a real mode -- a stack overflow in Lean elaboration exits
+  -- 0xC00000FD (3221226505) with no Lean-level error at all, and was
+  -- reproduced on this tree building Spikes.Spike5Gzip.Equivalence under
+  -- concurrent memory pressure (it then succeeded unchanged on retry). When
+  -- stdout is a PIPE it is block-buffered, so such a kill discards every line
+  -- written so far -- which is exactly the reported "exit 1, zero bytes on
+  -- both streams" signature. Flushing here bounds the loss: the banner, the
+  -- allowlist count and the entry total survive, so a hard kill is
+  -- distinguishable from a gate that never started.
+  (← IO.getStdout).flush
+
   let env ←
     try
       importModules #[{module := `Gasm}, {module := `Stdlib}, {module := `Spikes}]
@@ -642,12 +717,27 @@ def runGate : IO UInt32 := do
           | none =>
             offenders := offenders.push { declModule := target, declName := declS, axioms := axPairs }
 
-  -- `axiom-only` entries exist purely for this tool (no source-text
-  -- occurrence will ever back them); one that matched NOTHING in this scan
-  -- is a stale pre-authorization of a name that turned out not to need it
-  -- (or never did) -- a hard failure, not a silent no-op.
-  let staleAxiomOnly := allowlist.filter (fun e =>
-    e.category == "axiom-only" &&
+  -- An allowlist entry that matched NOTHING in this scan no longer covers a
+  -- non-standard axiom: it authorizes nothing. That is a hard failure, not a
+  -- silent no-op -- but it is a REQUEST FOR ADJUDICATION, not a licence to
+  -- delete the line. See the report block below for why the two causes
+  -- (real closure vs. the statement merely becoming kernel-reducible while
+  -- staying pointwise) must not be conflated.
+  --
+  -- This deliberately covers EVERY category, not just `axiom-only`. The
+  -- ledger is sound only if it verifies in BOTH directions: no declaration
+  -- needing an entry without one (the `offenders` check above), and no entry
+  -- without a declaration needing it (this check). Filtering to `axiom-only`
+  -- left exactly one hole, and it was the load-bearing one: a
+  -- `grandfathered` entry whose declaration still contains `native_decide`
+  -- TEXT but which no longer depends on a non-standard axiom passed both
+  -- this gate and scripts/check_gates.py silently -- the text pre-check only
+  -- sees the spelling, and this tool only checked the other category. That
+  -- is precisely the residue a retired oracle leaves behind: a universal
+  -- theorem lands, an `_inst` check is rewritten as its corollary, and the
+  -- entry is left in the ledger inflating the debt. Widening this makes the
+  -- ledger self-pruning -- the gate names the entry to delete.
+  let staleEntries := allowlist.filter (fun e =>
     !matchedKeys.contains (matchKey (moduleNameOfPath (System.FilePath.mk e.file)) e.fqn))
 
   let elapsedMs := (← IO.monoMsNow) - startTime
@@ -725,22 +815,105 @@ def runGate : IO UInt32 := do
       let axiomStrs := o.axioms.toList.map (fun (a, lbl) => s!"{a} [{lbl}]")
       IO.println s!"    - {o.declModule}::{o.declName} -- axiom(s): {String.intercalate ", " axiomStrs}"
 
-  if !staleAxiomOnly.isEmpty then
+  -- ORDERING (load-bearing, and the reason this is not just a filter change):
+  -- staleness is only MEANINGFUL when the scan actually saw the whole tree.
+  -- If a lakefile root is broken or a module failed to load, `matchedKeys` is
+  -- missing every declaration those modules would have contributed, so every
+  -- entry pointing into them looks stale. Reporting that list would bury the
+  -- real cause (a broken build) under a phantom one, and now that the check
+  -- covers all categories the phantom list is the size of the whole ledger.
+  -- So: the two build-integrity failures above are already recorded in
+  -- `failed`; when either fired, say why staleness was not evaluated and
+  -- stop, rather than emitting a list this scan cannot justify.
+  if !enumeration.errors.isEmpty || !unloadable.isEmpty then
+    IO.println ""
+    IO.println "[*] Allowlist staleness NOT evaluated: the scan above did not cover the whole"
+    IO.println "    tree, so every entry pointing into an unscanned module would look stale."
+    IO.println "    Fix the build failure(s) above and re-run; this gate reports the build."
+  else if !staleEntries.isEmpty then
     failed := true
     IO.println ""
-    IO.println s!"[!] FAILED: {staleAxiomOnly.length} `axiom-only` allowlist entr(y/ies) matched no"
-    IO.println "    gated declaration in this scan (stale pre-authorization; prune or fix the fqn):"
-    for e in staleAxiomOnly do
-      IO.println s!"    - gate_allowlist.txt:{e.lineNum} {e.file}::{e.declName}::{e.fqn}"
+    IO.println s!"[!] FAILED: {staleEntries.length} allowlist entr(y/ies) NO LONGER COVER a"
+    IO.println "    non-standard axiom -- ADJUDICATION REQUIRED. Each named declaration is now"
+    IO.println "    kernel-clean, so the entry authorizes nothing. Confirm with"
+    IO.println "    `#print axioms <fqn>` before touching anything."
+    IO.println ""
+    IO.println "    THIS IS NOT AUTOMATICALLY A \"DELETE THE LINE\" INSTRUCTION, and the count is"
+    IO.println "    NOT automatically progress. Two opposite things produce this flag:"
+    IO.println "      (a) REAL CLOSURE -- the claim was generalized, or is now a corollary of a"
+    IO.println "          universal theorem. The debt genuinely shrank; delete the entry."
+    IO.println "      (b) SHAPE CHANGE ONLY -- the declaration merely became kernel-reducible"
+    IO.println "          (a `native_decide`->`decide` swap, or a `partial def` made structural)"
+    IO.println "          while the statement stayed pointwise. The Law 9 single-vector weakness"
+    IO.println "          is UNCHANGED. Deleting the entry lowers the score and fixes nothing;"
+    IO.println "          the debt moved rather than shrank, and must be recorded somewhere it"
+    IO.println "          is still counted."
+    IO.println "    The `shape:` line below is the evidence for that call. A POINTWISE statement"
+    IO.println "    means the claim is still about ONE input, so the flag CANNOT be case (a) on"
+    IO.println "    its own -- read the diff. This gate deliberately does not guess: separating"
+    IO.println "    (a) from (b) needs the declaration's PROOF PROVENANCE (does it now route"
+    IO.println "    through a universal theorem?), which is not a statement-type question and is"
+    IO.println "    not mechanized here."
+    for e in staleEntries do
+      IO.println s!"    - gate_allowlist.txt:{e.lineNum} [{e.category}] {e.file}::{e.declName}::{e.fqn}"
+      IO.println s!"        shape: {statementShape env e.fqn}"
 
   if !failed then
     IO.println "[+] Every non-standard-axiom-dependent declaration in scope is allowlisted,"
-    IO.println "    and every `axiom-only` entry matched a real finding."
+    IO.println "    and every allowlist entry matched a real finding."
 
   IO.println ""
   IO.println s!"[*] Wall time: {elapsedMs}ms (includes importing Gasm/Stdlib/Spikes)."
   IO.println sepLine
   return if failed then 1 else 0
+
+/-- Runs `act`, guaranteeing that an exit 1 is never SILENT.
+
+This gate was twice observed exiting 1 immediately with zero bytes on BOTH
+streams -- not reproducible on demand, and a load-bearing gate that can fail
+without saying anything is worse than one that fails loudly: "red" becomes
+uninformative and the next person re-runs it instead of reading it. Two
+mechanisms produce that shape, and this closes both:
+
+1. An uncaught `IO.Error` escaping to the runtime. `runGate` spawns one
+   subprocess per standalone-scanned module, and `IO.Process.output`/
+   `git ls-files` genuinely do fail under host resource exhaustion (Windows
+   "Insufficient system resources exist to complete the requested service"
+   was reproduced on this tree while other agents were building). Caught
+   here and described instead of vanishing.
+2. Buffered stdout discarded on an abnormal exit. `IO.println` writes to a
+   buffered handle; anything not flushed when the process dies is simply
+   lost, which is exactly "exit 1, zero output". Both streams are flushed on
+   every path out, including the failure path.
+
+This deliberately does NOT swallow the failure -- it still exits 1. It only
+guarantees the 1 is accompanied by a reason.
+
+Safe for the `--scan-module` worker path too: `spawnAndGetResultPayload`
+selects the LAST `GASM_SCAN_RESULT`-prefixed stdout line and explicitly
+tolerates other stdout noise, so these unmarked diagnostic lines cannot
+corrupt the worker protocol. A worker that dies this way now yields the
+parent's "exited N without a result line (stderr: ...)" WITH a populated
+stderr instead of an empty one. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+def withDiagnosedFailure (act : IO UInt32) : IO UInt32 := do
+  try
+    let code ← act
+    (← IO.getStdout).flush
+    (← IO.getStderr).flush
+    return code
+  catch e =>
+    -- Print to BOTH streams: stderr is where a harness looks, stdout is
+    -- where this gate's own transcript lives.
+    let msg := s!"[!] FAILED: check_gates_axioms aborted with an unhandled error before it \
+could report a result.\n    {e.toString}\n    This is an infrastructure failure of the gate \
+itself, NOT a verdict on the tree -- the allowlist was neither confirmed nor refuted. Re-run; \
+if it persists, the gate is broken and must be fixed before it is trusted."
+    (← IO.getStdout).putStrLn msg
+    (← IO.getStderr).putStrLn msg
+    (← IO.getStdout).flush
+    (← IO.getStderr).flush
+    return 1
 
 /-- CLI entry point. `--scan-module <dotted name>` is an internal, undocumented
 mode: it is how `runGate` re-invokes THIS SAME executable as a standalone-scan
@@ -749,6 +922,7 @@ never meant to be typed by a human. Any other argument list (including none)
 runs the gate itself, exactly as before this fix. -/
 /- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
 def main (args : List String) : IO UInt32 :=
-  match args with
-  | ["--scan-module", modStr] => runScanWorker (nameOfDotted modStr)
-  | _ => runGate
+  withDiagnosedFailure <|
+    match args with
+    | ["--scan-module", modStr] => runScanWorker (nameOfDotted modStr)
+    | _ => runGate
