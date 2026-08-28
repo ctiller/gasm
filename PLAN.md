@@ -388,6 +388,22 @@ Vision anchor: `docs/VISION.md`. Governance: `docs/REVIEW.md` Laws 1–14.
     framing, and which parts are the owner's own words versus the coordinator's, is
     in the ADR's Consequences and Provenance sections.
 
+- **D29 — Standards are earned before they are imposed (Craig, 2026-08-28)**: "we get to
+  hold standards of others when we can hold them of ourselves." The coordinator proposed a
+  ratchet gate (fail any change that raises the oracle-dependent declaration count) after
+  the Linux/bare-metal team's merge took it 80 -> 84. Our own count was 80 at the time.
+  - **Not built.** Reduce our own number first; propose the gate for enforcement once we
+    demonstrably meet it. See docs/adr/0038-standards-are-earned-before-imposed.md.
+  - Their four entries were not a lapse — they followed this codebase's established
+    convention faithfully. The convention (pointwise native_decide equivalence proofs) is
+    the defect, and it is ours. Gating them on a standard we do not meet would export our
+    debt as their obstacle.
+  - **A gate IS a message**, and with the repository as the only channel between teams it
+    is the one message that arrives without being read and cannot be replied to. That
+    asymmetry is why the bar for introducing one is demonstrated practice, not intention.
+  - The target is unchanged: zero, with the count as the score. Only the order changes —
+    reduce, demonstrate, then ratchet.
+
 ## Phase 0 — Governance docs ✅ (committed: 03eeece)
 
 - [x] `docs/VISION.md` (new): insights 0–2, gate-is-the-product, two trust obligations,
