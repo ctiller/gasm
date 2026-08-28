@@ -43,6 +43,7 @@ def adler32 (buf : ByteArray) : UInt32 :=
 /- REF: docs/STDLIB_ZLIB.md#61-checksum-invariance-theorems -/
 /-- Universal Theorem: Computing Adler-32 on an empty ByteArray yields 1. -/
 theorem adler32_empty : adler32 ByteArray.empty = 1 := by
-  native_decide
+  simp [adler32, updateAdler32, Id.run]
+  decide
 
 end Stdlib.Zlib

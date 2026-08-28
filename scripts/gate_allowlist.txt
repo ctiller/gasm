@@ -41,9 +41,6 @@
 # added after Tools/CheckGatesAxioms.lean's bare-name keying was found
 # exploitable via cross-namespace collision.
 
-Stdlib/Zlib/Equivalence.lean::reverse_bits_8_involutive_inst::Stdlib.Zlib.reverse_bits_8_involutive_inst::finite-forall::exhaustively quantified over all 256 possible 8-bit values via `for b in [0:256]`
-Stdlib/Zlib/Equivalence.lean::encode_length_bounds_inst::Stdlib.Zlib.encode_length_bounds_inst::finite-forall::exhaustively quantified over all 256 valid DEFLATE length codes (3..258) via `for len in [3:259]`
-Stdlib/Zlib/Equivalence.lean::encode_distance_bounds_inst::Stdlib.Zlib.encode_distance_bounds_inst::finite-forall::exhaustively quantified over all 32768 valid DEFLATE distance codes (1..32768) via `for dist in [1:32769]`
 Stdlib/Zlib/Equivalence.lean::deflate_roundtrip_empty_inst::Stdlib.Zlib.deflate_roundtrip_empty_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Zlib/Equivalence.lean::deflate_roundtrip_soundness_inst::Stdlib.Zlib.deflate_roundtrip_soundness_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Zlib/Equivalence.lean::deflate_roundtrip_repetitive_inst::Stdlib.Zlib.deflate_roundtrip_repetitive_inst::grandfathered::single-vector check predating Law 10; migration backlog
@@ -52,8 +49,6 @@ Stdlib/Zlib/Equivalence.lean::gzip_roundtrip_soundness_inst::Stdlib.Zlib.gzip_ro
 Stdlib/Zlib/Equivalence.lean::deflate_idempotent_canonical_roundtrip_inst::Stdlib.Zlib.deflate_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Zlib/Equivalence.lean::zlib_idempotent_canonical_roundtrip_inst::Stdlib.Zlib.zlib_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Zlib/Equivalence.lean::gzip_idempotent_canonical_roundtrip_inst::Stdlib.Zlib.gzip_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
-Stdlib/Zlib/CRC32.lean::crc32_empty::Stdlib.Zlib.crc32_empty::grandfathered::single-vector check predating Law 10; migration backlog
-Stdlib/Zlib/Adler32.lean::adler32_empty::Stdlib.Zlib.adler32_empty::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Png/Equivalence.lean::filter_none_invertible_inst::Stdlib.Png.filter_none_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Png/Equivalence.lean::filter_sub_invertible_inst::Stdlib.Png.filter_sub_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Stdlib/Png/Equivalence.lean::filter_up_invertible_inst::Stdlib.Png.filter_up_invertible_inst::grandfathered::single-vector check predating Law 10; migration backlog
@@ -65,7 +60,6 @@ Spikes/Spike5Gzip/Equivalence.lean::spike5_windows_gzip_trace_equivalence::Spike
 Spikes/Spike5Gzip/Equivalence.lean::spike5_wasm_gzip_trace_equivalence::Spikes.Spike5Gzip.spike5_wasm_gzip_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
 Spikes/Spike5Gzip/Equivalence.lean::gzip_roundtrip_soundness_inst::Spikes.Spike5Gzip.gzip_roundtrip_soundness_inst::grandfathered::single-vector check predating Law 10; migration backlog
 Spikes/Spike5Gzip/Equivalence.lean::gzip_idempotent_canonical_roundtrip_inst::Spikes.Spike5Gzip.gzip_idempotent_canonical_roundtrip_inst::grandfathered::single-vector check predating Law 10; migration backlog
-Spikes/Spike5Gzip/Equivalence.lean::bit_reversal_8_involution_inst::Spikes.Spike5Gzip.bit_reversal_8_involution_inst::finite-forall::exhaustively quantified over all 256 possible 8-bit values via `for b in [0:256]`
 Spikes/Spike5Gzip/Equivalence.lean::spike5_windows_gunzip_trace_equivalence::Spikes.Spike5Gzip.spike5_windows_gunzip_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
 Spikes/Spike4HttpServer/Equivalence.lean::spike4_windows_root_trace_equivalence::Spikes.Spike4HttpServer.spike4_windows_root_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog
 Spikes/Spike4HttpServer/Equivalence.lean::spike4_windows_status_trace_equivalence::Spikes.Spike4HttpServer.spike4_windows_status_trace_equivalence::grandfathered::single-vector check predating Law 10; migration backlog

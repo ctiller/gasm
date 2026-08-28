@@ -64,6 +64,7 @@ def crc32 (buf : ByteArray) : UInt32 :=
 /- REF: docs/STDLIB_ZLIB.md#61-checksum-invariance-theorems -/
 /-- Universal Theorem: Computing CRC-32 on an empty ByteArray yields 0. -/
 theorem crc32_empty : crc32 ByteArray.empty = 0 := by
-  native_decide
+  simp [crc32, updateCrc32, Id.run]
+  decide
 
 end Stdlib.Zlib

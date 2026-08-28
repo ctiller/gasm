@@ -91,15 +91,22 @@ theorem gzip_idempotent_canonical_roundtrip_inst :
        | Except.error _ => false) = true := by
   native_decide
 
+set_option maxRecDepth 4000 in
 /- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
-/-- Exact bit-reversal involution theorem verified across all 256 possible 8-bit quantities. -/
+/-- Exact bit-reversal involution theorem verified across all 256 possible 8-bit quantities.
+    Proven by plain kernel `decide` after the `Id.run`/`for` loop (over both the outer 256-value
+    sweep and `reverseBits`'s own inner 8-iteration loop) is unfolded via `simp` -- see
+    `Stdlib.Zlib.reverse_bits_8_involutive_inst` (`Stdlib/Zlib/Equivalence.lean`) for the
+    identical proof of this exact duplicate fact; this is the second, previously-unlinked copy
+    Law 12 flags. -/
 theorem bit_reversal_8_involution_inst :
     (Id.run do
       let mut ok := true
       for b in [0:256] do
         if reverseBits (reverseBits b 8) 8 != b then ok := false
       ok) = true := by
-  native_decide
+  simp [Id.run, reverseBits]
+  decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Formally verified theorem: Windows x86_64 machine execution trace for GUNZIP matches specification trace. -/
