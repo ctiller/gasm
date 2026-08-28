@@ -68,4 +68,11 @@ import Gasm.Targets.Wasm.Fuzzable
 import Gasm.Targets.Wasm.HostOracle
 import Gasm.Targets.Wasm.SemanticsFuzzer
 
+import Gasm.Targets.BareMetal.ELFFormat
+import Gasm.Targets.BareMetal.UART
+import Gasm.Targets.BareMetal.Device
+import Gasm.Targets.BareMetal.Emitter
+import Gasm.Targets.BareMetal.Executable
+import Gasm.Targets.BareMetal.Linker
+
 import Gasm.Targets.WASI.ABI

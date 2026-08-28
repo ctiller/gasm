@@ -46,7 +46,7 @@ def allEncodableInstructions : List AnyX86_64Instruction :=
   jccFamilyCases ++ pushFamilyCases ++ popFamilyCases ++ divFamilyCases ++ imulFamilyCases ++
   andFamilyCases ++ orFamilyCases ++ xorFamilyCases ++ notFamilyCases ++ negFamilyCases ++
   shiftFamilyCases ++ testFamilyCases ++ xchgFamilyCases ++ cmovFamilyCases ++ callFamilyCases ++
-  retFamilyCases
+  retFamilyCases ++ inFamilyCases ++ outFamilyCases ++ hltFamilyCases
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Hand-maintained manifest of every concrete type this file's `run_cmd` audit below expects to
@@ -90,7 +90,11 @@ def expectedInstructionTypes : List Name := [
   ``CmoveR64R64, ``CmovneR64R64, ``CmovlR64R64, ``CmovleR64R64, ``CmovgR64R64, ``CmovgeR64R64,
   ``CmovbR64R64, ``CmovaeR64R64,
   -- Call / Ret
-  ``CallRipRel, ``CallRel32, ``RetOp
+  ``CallRipRel, ``CallRel32, ``RetOp,
+  -- In / Out / Hlt
+  ``InAlImm8, ``InAlDx, ``InEaxImm8, ``InEaxDx,
+  ``OutImm8Al, ``OutDxAl, ``OutImm8Eax, ``OutDxEax,
+  ``HltOp
 ]
 
 -- Elaboration-time environment audit (docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate).
@@ -145,7 +149,8 @@ run_cmd do
     ("xor", xorFamilyCases.length), ("not", notFamilyCases.length), ("neg", negFamilyCases.length),
     ("shift", shiftFamilyCases.length), ("test", testFamilyCases.length),
     ("xchg", xchgFamilyCases.length), ("cmov", cmovFamilyCases.length),
-    ("call", callFamilyCases.length), ("ret", retFamilyCases.length)
+    ("call", callFamilyCases.length), ("ret", retFamilyCases.length),
+    ("in", inFamilyCases.length), ("out", outFamilyCases.length), ("hlt", hltFamilyCases.length)
   ]
   let empties := familyCounts.filter (fun p => p.2 == 0)
   if !empties.isEmpty then

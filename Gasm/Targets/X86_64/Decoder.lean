@@ -41,6 +41,9 @@ import Gasm.Targets.X86_64.Instructions.Xchg
 import Gasm.Targets.X86_64.Instructions.Cmov
 import Gasm.Targets.X86_64.Instructions.Call
 import Gasm.Targets.X86_64.Instructions.Ret
+import Gasm.Targets.X86_64.Instructions.In
+import Gasm.Targets.X86_64.Instructions.Out
+import Gasm.Targets.X86_64.Instructions.Hlt
 
 namespace Gasm.Targets.X86_64
 
@@ -693,6 +696,50 @@ def decodeX86_64Instr (bytes : ByteArray) (offset : Nat) : Except String (X86_64
             | .ok disp32 => .ok (call_rip disp32, (curOffset - offset) + 6)
           else
             .error "Unsupported modrm for 0xFF CALL"
+
+      -- 28. IN AL, imm8 (0xE4)
+      else if opcode == 0xE4 then
+        match readUInt8 bytes (curOffset + 1) with
+        | .error e => .error e
+        | .ok port => .ok (in_al_imm8 port, (curOffset - offset) + 2)
+
+      -- 29. IN EAX, imm8 (0xE5)
+      else if opcode == 0xE5 then
+        match readUInt8 bytes (curOffset + 1) with
+        | .error e => .error e
+        | .ok port => .ok (in_eax_imm8 port, (curOffset - offset) + 2)
+
+      -- 30. OUT imm8, AL (0xE6)
+      else if opcode == 0xE6 then
+        match readUInt8 bytes (curOffset + 1) with
+        | .error e => .error e
+        | .ok port => .ok (out_imm8_al port, (curOffset - offset) + 2)
+
+      -- 31. OUT imm8, EAX (0xE7)
+      else if opcode == 0xE7 then
+        match readUInt8 bytes (curOffset + 1) with
+        | .error e => .error e
+        | .ok port => .ok (out_imm8_eax port, (curOffset - offset) + 2)
+
+      -- 32. IN AL, DX (0xEC)
+      else if opcode == 0xEC then
+        .ok (in_al_dx, (curOffset - offset) + 1)
+
+      -- 33. IN EAX, DX (0xED)
+      else if opcode == 0xED then
+        .ok (in_eax_dx, (curOffset - offset) + 1)
+
+      -- 34. OUT DX, AL (0xEE)
+      else if opcode == 0xEE then
+        .ok (out_dx_al, (curOffset - offset) + 1)
+
+      -- 35. OUT DX, EAX (0xEF)
+      else if opcode == 0xEF then
+        .ok (out_dx_eax, (curOffset - offset) + 1)
+
+      -- 36. HLT (0xF4)
+      else if opcode == 0xF4 then
+        .ok (hlt_op, (curOffset - offset) + 1)
 
       else
         .error s!"Unsupported x86-64 opcode byte 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} at offset {curOffset}"
