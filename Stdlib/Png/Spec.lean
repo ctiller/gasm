@@ -170,7 +170,17 @@ def parseChunk (bytes : ByteArray) (pos : Nat) : Except PngError (PngChunk × Na
   let t2 := bytes.get! (pos + 6)
   let t3 := bytes.get! (pos + 7)
   let typeBytes := ByteArray.mk #[t0, t1, t2, t3]
-  let chunkType := String.fromUTF8! typeBytes
+  -- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks
+  -- Found by the parser-stability fuzzer (Stdlib/Png/StabilityFuzzer.lean): `String.fromUTF8!`
+  -- panics (a soft Lean runtime panic -- logged, not a proper `Except` rejection) on a chunk
+  -- whose 4-byte type field is not valid UTF-8, and it was reached *before* the CRC check
+  -- below that would otherwise reject a corrupted chunk -- so a single flipped bit in any
+  -- chunk's type field, from arbitrary/attacker-controlled bytes, hit it. `String.fromUTF8?`
+  -- makes this a properly-typed rejection instead; behavior on every valid PNG (whose type
+  -- bytes are always ASCII chunk names) is unchanged.
+  let chunkType ← match String.fromUTF8? typeBytes with
+    | some s => pure s
+    | none => throw .corruptedChunkHeader
 
   let dataStart := pos + 8
   let dataEnd := dataStart + length
