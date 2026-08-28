@@ -767,3 +767,41 @@ still runs through P0, which this pass deliberately did not duplicate (it was as
 elsewhere). What this pass changed is what the theorem will *mean* (it now covers dynamic
 table construction) and how much of its substance is already kernel-checked (the LZ77 layer in
 full; the writer half of the bitstream layer).
+
+## 9. Post-landing update (2026-08-28, fixed-path closure pass)
+
+P0 landed in full (every `partial def` in `Stdlib/Zlib/Deflate.lean` is gone; the
+branch-rooted `HuffmanTable` invariant made `decodeHuffmanStream`/`decompress` well-founded
+unconditionally). On top of it this pass closed, kernel-checked, standard three axioms only
+(`propext`, `Classical.choice`, `Quot.sound` — no `native_decide`, no `sorry`):
+
+- **L1b + reader half of L1c**: `readBits_spec`, `readerBits_mkBitReader`,
+  `readerBits_of_flushed`.
+- **L2-fixed in full**: `treeWalk` path semantics; the general decode law
+  `decodeHuffmanSymbol_spec` (any table); `fixedLit_check`/`fixedDist_check` closed 288+32
+  symbol checks (`decide` after `Std.Legacy.Range` loop-normalization);
+  `decodeHuffmanSymbol_fixedLit`/`_fixedDist`.
+- **L6-adjacent code algebra**: `encodeLength_spec` (256-case `decide`),
+  `encodeDistance_spec` (structural band-peeling; `decide` at 32768 exceeds the kernel
+  budget) — encoder/decoder agreement on symbol ranges, extra-bit widths, exact base+extra
+  reconstruction.
+- **L5 (fixed path), both halves**: writer (`writerBits_emitFixedBlock` — the emitted block
+  is exactly header + per-token codes/extras + EOB) and reader
+  (`decodeHuffmanStream_go_fixed` — the stream loop expands exactly the emitted tokens,
+  guards discharged via the positional invariant `tokensWF`, decoder copy loop bridged to
+  `lzCopy` so L4 applies).
+- **L7, fixed block**: `emitFixedBlock_roundtrip_soundness :
+  ∀ data, decompress (flushBitWriter (emitFixedBlock (tokenize data))) = .ok data` —
+  universal over the input, fixed-Huffman encoder only, and deliberately NOT named as
+  DEFLATE-general (§0.2's discipline). `compress_roundtrip_of_fixed_choice` covers
+  `compress` itself under the explicit precondition that the exact bit-cost comparison
+  selects the fixed block.
+
+### 9.1 Status of the 10 entries after this pass
+
+Still unchanged — none retired. `deflate_roundtrip_soundness` (the L7 target the entries
+hang off) needs the dynamic branch: L2v (package-merge validity), L2d (canonical decode
+inversion for arbitrary transmitted lengths), L2h (§3.2.7 header RLE roundtrip), then the
+dynamic instance of the L5 induction (the fixed instance's structure — per-token decode
+lemmas plus `tokensWF` — is built to be reusable for it). Those are the sole remaining
+obligations between here and retiring all 9 Zlib entries plus (after L10/L11) the PNG one.
