@@ -288,9 +288,22 @@ def encodeImageRGBA8 (img : ImageRGBA8) (ft : Option FilterType := none) : ByteA
     | .error _ => ByteArray.empty
 
 /- REF: docs/STDLIB_PNG.md#32-color-types-bit-depth-matrix -/
-/-- Unpacks raw scanlines from 1, 2, 4, 8, or 16-bit PNG color formats into standard 32-bit RGBA8 pixels with tRNS transparency. -/
-def unpackScanlinesToRGBA8 (header : PngHeader) (rawScanlines : ByteArray) (palette : Array (UInt8 × UInt8 × UInt8)) (transparency : Option ByteArray := none) : ByteArray :=
-  Id.run do
+/-- Unpacks raw scanlines from 1, 2, 4, 8, or 16-bit PNG color formats into standard 32-bit RGBA8
+    pixels with tRNS transparency. Total by construction: `parseIhdr` (`Stdlib/Png/Spec.lean`)
+    already rejects any `bitDepth`/`colorType` pair not in RFC 2083 §4.1.1's legal set before a
+    header can reach here, but this function does not rely on that upstream guarantee -- every
+    depth/colorType combination its `if`/`match` dispatch does not otherwise handle (an illegal
+    `bitDepth`, or the `bitDepth = 16` + `colorType = .indexed` combination RFC 2083 also
+    forbids) falls through to an explicit `.unsupportedBitDepth` error instead of silently
+    producing a truncated or empty pixel buffer -- the defect the parser-stability fuzzer
+    (`Stdlib/Png/StabilityFuzzer.lean`) found. An unhandled combination is a real possibility a
+    caller must plan for (any future direct caller of this function, not routed through
+    `parseIhdr`, could still pass one), not a can't-happen case, so this is `Except PngError
+    ByteArray` rather than a refinement-typed `PngHeader` that made illegal pairs unrepresentable
+    -- the latter would also have broken `StabilityFuzzer.genCustomHeaderBytes`, which
+    deliberately constructs spec-illegal headers via the same `PngHeader` type to drive this
+    exact gap. -/
+def unpackScanlinesToRGBA8 (header : PngHeader) (rawScanlines : ByteArray) (palette : Array (UInt8 × UInt8 × UInt8)) (transparency : Option ByteArray := none) : Except PngError ByteArray := do
     let mut out := ByteArray.empty
     let depth := header.bitDepth
     let w := header.width
@@ -382,7 +395,13 @@ def unpackScanlinesToRGBA8 (header : PngHeader) (rawScanlines : ByteArray) (pale
             let a := scanline.get! (i * 4 + 2)
             out := out.push yVal; out := out.push yVal; out := out.push yVal; out := out.push a
         | .indexed =>
-          ()
+          -- RFC 2083 §4.1.1 does not list bitDepth=16 as legal for colorType=indexed (only
+          -- 1/2/4/8 are); `parseIhdr` now rejects this combination before it can reach here
+          -- (REF: png-rfc2083#section-4.1.1), but this dispatch stays total on its own: a
+          -- silent no-op here would drop this row's pixel data instead of surfacing an error,
+          -- which is exactly the class of defect the parser-stability fuzzer found for the
+          -- unhandled-depth case below.
+          throw (.unsupportedBitDepth depth)
 
       else if depth == 1 then
         for i in [0:w] do
@@ -453,7 +472,16 @@ def unpackScanlinesToRGBA8 (header : PngHeader) (rawScanlines : ByteArray) (pale
               | none => 255
             out := out.push lum; out := out.push lum; out := out.push lum; out := out.push a
 
-    out
+      else
+        -- No arm above handles this bitDepth: it is outside PNG's standard 5-value set
+        -- {1, 2, 4, 8, 16} (RFC 2083 §4.1.1). `parseIhdr` now rejects such a header before it
+        -- can reach here, but this dispatch does not rely on that upstream guarantee -- an
+        -- unhandled depth is an explicit error, not a silently-empty row, so this function
+        -- cannot again produce a truncated/empty pixel buffer the way it did for the class of
+        -- input the parser-stability fuzzer (Stdlib/Png/StabilityFuzzer.lean) found.
+        throw (.unsupportedBitDepth depth)
+
+    return out
 
 /- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
 /-- Decodes a PNG byte stream into an in-memory ImageRGBA8 structure across all bit depths and color formats. -/
@@ -465,7 +493,7 @@ def decodeImageRGBA8 (bytes : ByteArray) : Except PngError ImageRGBA8 := do
     | some h => pure h
     | none => throw .missingIhdr
 
-  let rgbaPixels := unpackScanlinesToRGBA8 header finalSink.pixels finalSink.palette finalSink.transparency
+  let rgbaPixels ← unpackScanlinesToRGBA8 header finalSink.pixels finalSink.palette finalSink.transparency
   .ok {
     width  := header.width
     height := header.height

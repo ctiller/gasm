@@ -101,20 +101,33 @@ def genValidImageBytes (rng : PngFuzzRng) (iter : Nat) : ByteArray × PngFuzzRng
 
 /- REF: docs/STDLIB_PNG.md#32-color-types-bit-depth-matrix -/
 /-- Bit depths outside PNG's 5 legal values (1, 2, 4, 8, 16). `parseIhdr` (`Stdlib/Png/Spec.lean`)
-    validates `colorType`, `compressionMethod`, `filterMethod`, and `interlaceMethod` against
-    their legal domains but does not cross-validate `bitDepth` against `colorType`, nor reject
-    a `bitDepth` outside the 5 standard values -- so a CRC-valid IHDR carrying one of these can
-    reach `unpackScanlinesToRGBA8`, whose depth dispatch (`Stdlib/Png/Streaming.lean`) only has
-    arms for 1, 2, 4, 8, and 16. This generator exists specifically to drive that gap: it builds
-    a syntactically valid (correct CRC, via `mkChunk` through `endPng`) PNG whose IHDR declares
-    one of these depths, so the stability fuzzer's mutated-but-structurally-valid corpus actually
-    reaches the unhandled dispatch arm instead of merely reaching CRC rejection. -/
+    rejects both this class (a `bitDepth` not in the standard 5-value set, for any `colorType`)
+    and the narrower class of a `bitDepth` that is individually legal but not for the paired
+    `colorType` (e.g. `bitDepth = 16` with `colorType = indexed`) -- see `allProbedBitDepths`,
+    which covers the latter. Before that validation existed, a CRC-valid IHDR carrying one of
+    these reached `unpackScanlinesToRGBA8`'s depth dispatch (`Stdlib/Png/Streaming.lean`), whose
+    arms only covered 1, 2, 4, 8, and 16, silently dropping all pixel data instead of being
+    rejected -- this list exists to keep driving that class of input at the (now-fixed) boundary. -/
 def weirdBitDepths : List Nat := [0, 3, 5, 6, 7, 9, 12, 15, 17, 32, 200, 255]
 
 /- REF: docs/STDLIB_PNG.md#32-color-types-bit-depth-matrix -/
 /-- The 5 legal PNG color-type codes (RFC 2083 §4.3), used to build a custom IHDR whose
-    `bitDepth` is independently varied via `weirdBitDepths`. -/
+    `bitDepth` is independently varied via `weirdBitDepths` / `allProbedBitDepths`. -/
 def standardColorCodes : List Nat := [0, 2, 3, 4, 6]
+
+/- REF: png-rfc2083#section-4.1.1 -/
+/-- The 5 standard PNG bit depths, one of which (paired with the wrong `colorType`) can be
+    individually legal yet still illegal for that pairing per RFC 2083 §4.1.1's IHDR table --
+    e.g. `bitDepth = 16` is legal for `truecolorRgba` but illegal for `indexed`. `weirdBitDepths`
+    alone (all illegal for every `colorType`) never reaches that narrower case; combining the two
+    (`allProbedBitDepths`) lets the deterministic sweep in `runPngStabilityFuzzer` hit every cell
+    of the legality table, not just the row/column that is illegal everywhere. -/
+def standardBitDepths : List Nat := [1, 2, 4, 8, 16]
+
+/- REF: png-rfc2083#section-4.1.1 -/
+/-- Every bit depth this fuzzer probes per-colorType: the 5 legal values (some of which are
+    illegal for a *particular* colorType) plus `weirdBitDepths` (illegal for every colorType). -/
+def allProbedBitDepths : List Nat := standardBitDepths ++ weirdBitDepths
 
 /- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
 /-- Assembles a CRC-valid PNG stream from an arbitrary (including spec-illegal) `PngHeader` by
@@ -124,21 +137,32 @@ def standardColorCodes : List Nat := [0, 2, 3, 4, 6]
     exercised. Row bytes are random and sized to `scanlineByteLength header`, which is
     arithmetically well-defined for any `bitDepth`/`colorType` pair even when PNG itself
     forbids the combination -- exactly the "attacker-chosen bytes explore paths this codebase's
-    own constructors never do" scenario this fuzzer exists to cover. -/
+    own constructors never do" scenario this fuzzer exists to cover. Splits roughly evenly between
+    a `bitDepth` drawn from `colorType.legalBitDepths` (expected to parse and round-trip
+    successfully -- this is what keeps this category clear of the per-category vacuity floor now
+    that `parseIhdr` rejects every `weirdBitDepths` value) and one drawn from `weirdBitDepths`
+    (expected to be rejected, continuing to exercise that boundary). -/
 def genCustomHeaderBytes (rng : PngFuzzRng) : ByteArray × PngFuzzRng × String := Id.run do
   let (wRaw, r1) := rng.nextNat 8
   let (hRaw, r2) := r1.nextNat 8
   let w := wRaw + 1
   let h := hRaw + 1
-  let (bdIdx, r3) := r2.nextNat weirdBitDepths.length
-  let (ctIdx, r4) := r3.nextNat standardColorCodes.length
-  let bitDepth := weirdBitDepths.getD bdIdx 8
+  let (ctIdx, r3) := r2.nextNat standardColorCodes.length
   let colorCode := standardColorCodes.getD ctIdx 2
   let colorType := (PngColorType.fromNat? colorCode).getD .truecolorRgba
+  let (useLegal, r4) := r3.nextNat 2
+  let (bitDepth, r5) :=
+    if useLegal == 0 then
+      let legal := colorType.legalBitDepths
+      let (idx, r5') := r4.nextNat legal.length
+      (legal.getD idx 8, r5')
+    else
+      let (idx, r5') := r4.nextNat weirdBitDepths.length
+      (weirdBitDepths.getD idx 8, r5')
   let header : PngHeader := { width := w, height := h, bitDepth := bitDepth, colorType := colorType }
   let scanlineLen := scanlineByteLength header
   let mut writer := beginPng header
-  let mut curRng := r4
+  let mut curRng := r5
   for _ in [0:h] do
     let (rowBytes, nxt) := genRandomBytes curRng scanlineLen
     curRng := nxt
@@ -148,7 +172,7 @@ def genCustomHeaderBytes (rng : PngFuzzRng) : ByteArray × PngFuzzRng × String 
   let bytes := match endPng writer with
     | .ok b => b
     | .error _ => ByteArray.empty
-  (bytes, curRng, s!"custom-header {w}x{h} bitDepth={bitDepth} colorType={colorCode}")
+  (bytes, curRng, s!"custom-header {w}x{h} bitDepth={bitDepth} colorType={colorCode} legal={useLegal == 0}")
 
 /- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
 /-- Re-scans a PNG byte stream into its `(chunkType, data)` chunk list using `parseChunk`,
@@ -406,7 +430,19 @@ def runPngStabilityFuzzer (iterations : Nat) (seed : UInt64) : IO Unit := do
     -- either -- a byte flip anywhere in a chunk's type field can hit it.
     ("IHDR type field with invalid UTF-8 first byte (0xC9)",
       pngSignature ++ ByteArray.mk #[0,0,0,0x0d, 0xC9,0x48,0x44,0x52,
-        0,0,0,1, 0,0,0,1, 8,6,0,0,0, 0x1f,0x15,0xc4,0x89])
+        0,0,0,1, 0,0,0,1, 8,6,0,0,0, 0x1f,0x15,0xc4,0x89]),
+    -- REGRESSION CASE: the exact 1x1 bitDepth=0/colorType=0 byte stream this fuzzer's own
+    -- report cites as the reproducing input for the bitDepth/colorType validation gap fixed in
+    -- `parseIhdr` (`Stdlib/Png/Spec.lean`). Kept verbatim (rather than only re-derived via the
+    -- `allProbedBitDepths` sweep below) so this exact reported byte sequence stays pinned as a
+    -- regression case independent of any future change to how that sweep constructs its inputs.
+    ("Literal reported bitDepth=0/colorType=0 case",
+      ByteArray.mk #[
+        0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a, 0x00,0x00,0x00,0x0d, 0x49,0x48,0x44,0x52,
+        0x00,0x00,0x00,0x01, 0x00,0x00,0x00,0x01,
+        0x00,0x00,0x00,0x00,0x00, 0x0a,0x0e,0xd0,0x94, 0x00,0x00,0x00,0x09, 0x49,0x44,0x41,0x54,
+        0x78,0x01,0x63,0x00,0x00,0x00,0x01,0x00,0x01, 0xea,0x7a,0xdc,0xd9,
+        0x00,0x00,0x00,0x00, 0x49,0x45,0x4e,0x44, 0xae,0x42,0x60,0x82])
   ]
   let mut edgeAttempts := 0
   let mut edgeSuccesses := 0
@@ -417,9 +453,11 @@ def runPngStabilityFuzzer (iterations : Nat) (seed : UInt64) : IO Unit := do
     | .error msg => violations := violations.push msg
     | .ok true => edgeSuccesses := edgeSuccesses + 1
     | .ok false => pure ()
-  -- 1x1 image through every filter, plus every weird-bitDepth x standard-colorType combination
-  -- at 1x1: deterministic, reproducible coverage of the `unpackScanlinesToRGBA8` dispatch gap
-  -- `genCustomHeaderBytes` targets, independent of RNG luck.
+  -- 1x1 image through every filter, plus every probed-bitDepth x standard-colorType combination
+  -- at 1x1 (`allProbedBitDepths` = the 5 legal depths, some illegal for a given colorType, plus
+  -- `weirdBitDepths`, illegal for every colorType): deterministic, reproducible coverage of every
+  -- cell of RFC 2083 §4.1.1's legality table, including bitDepth=16 x colorType=indexed --
+  -- independent of RNG luck, and of `genCustomHeaderBytes`'s randomized draw.
   for ft in filterCycle do
     edgeAttempts := edgeAttempts + 1
     let img : ImageRGBA8 := { width := 1, height := 1, pixels := ByteArray.mk #[10, 20, 30, 255] }
@@ -428,7 +466,7 @@ def runPngStabilityFuzzer (iterations : Nat) (seed : UInt64) : IO Unit := do
     | .error msg => violations := violations.push msg
     | .ok true => edgeSuccesses := edgeSuccesses + 1
     | .ok false => pure ()
-  for bitDepth in weirdBitDepths do
+  for bitDepth in allProbedBitDepths do
     for colorCode in standardColorCodes do
       edgeAttempts := edgeAttempts + 1
       let colorType := (PngColorType.fromNat? colorCode).getD .truecolorRgba

@@ -62,6 +62,25 @@ structure PngHeader where
   interlaceMethod   : Nat := 0
   deriving DecidableEq, Repr, Inhabited
 
+/- REF: png-rfc2083#section-4.1.1 -/
+/-- The legal PNG bit depths for a given color type, per RFC 2083 §4.1.1's IHDR table: grayscale
+    (0) allows 1/2/4/8/16; truecolour (2), grayscale-with-alpha (4), and truecolour-with-alpha (6)
+    allow only 8/16; indexed-colour (3) allows only 1/2/4/8. -/
+def PngColorType.legalBitDepths : PngColorType → List Nat
+  | .grayscale      => [1, 2, 4, 8, 16]
+  | .truecolorRgb   => [8, 16]
+  | .indexed        => [1, 2, 4, 8]
+  | .grayscaleAlpha => [8, 16]
+  | .truecolorRgba  => [8, 16]
+
+/- REF: png-rfc2083#section-4.1.1 -/
+/-- Whether `depth` is a legal bit depth for `colorType`, per RFC 2083 §4.1.1's IHDR table.
+    Rejects both bit depths outside the standard 5-value set `{1, 2, 4, 8, 16}` and depths that
+    are individually legal but not for this particular color type (e.g. `bitDepth = 16` with
+    `colorType = .indexed`). -/
+def PngColorType.validBitDepth (colorType : PngColorType) (depth : Nat) : Bool :=
+  colorType.legalBitDepths.contains depth
+
 /- REF: docs/STDLIB_PNG.md#32-color-types-bit-depth-matrix -/
 /-- Returns the number of channels for a given color type. -/
 def PngColorType.channels : PngColorType → Nat
@@ -229,6 +248,14 @@ def parseIhdr (data : ByteArray) : Except PngError PngHeader := do
   let colorType ← match PngColorType.fromNat? colorCode with
     | some ct => pure ct
     | none => throw (.unsupportedColorType colorCode)
+
+  -- REF: png-rfc2083#section-4.1.1 -- reject any bitDepth outside the standard 5-value set
+  -- {1, 2, 4, 8, 16} and any (bitDepth, colorType) pair the RFC 2083 §4.1.1 IHDR table does not
+  -- list as legal (e.g. bitDepth=16 with colorType=indexed). Found by the parser-stability
+  -- fuzzer (Stdlib/Png/StabilityFuzzer.lean): without this check, a CRC-valid IHDR carrying an
+  -- illegal bitDepth reaches unpackScanlinesToRGBA8's depth dispatch (Stdlib/Png/Streaming.lean),
+  -- which has no arm for it and silently produces a 0-byte image instead of rejecting the input.
+  if !(colorType.validBitDepth bitDepth) then throw (.unsupportedBitDepth bitDepth)
 
   if compMethod != 0 then throw (.unsupportedCompressionMethod compMethod)
   if filterMethod != 0 then throw (.unsupportedFilterMethod filterMethod)
