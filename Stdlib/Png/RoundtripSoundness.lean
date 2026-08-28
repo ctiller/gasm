@@ -286,4 +286,199 @@ theorem mkChunk_spec (t : String) (d : ByteArray) (ht4 : t.toUTF8.size = 4) :
       ByteArray.get!_push_eq _ _ _ (by simp only [ByteArray.size_push]; rw [hbody]; omega)]
   · rw [ByteArray.get!_push_eq _ _ _ (by simp only [ByteArray.size_push]; rw [hbody]; omega)]
 
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- The `Except`-monad byte-copy loop mirrors the pure one. -/
+theorem byteArray_forIn_loop_except {ε : Type} (src : ByteArray)
+    : ∀ (i : Nat) (h : i ≤ src.size) (acc : ByteArray),
+    ByteArray.forIn.loop (m := Except ε) src
+        (fun x o => Except.ok (ForInStep.yield (o.push x))) i h acc =
+      .ok (ByteArray.forIn.loop (m := Id) src
+        (fun x o => pure (ForInStep.yield (o.push x))) i h acc) := by
+  intro i
+  induction i with
+  | zero =>
+    intro h acc
+    rw [ByteArray.forIn.loop.eq_def, ByteArray.forIn.loop.eq_def]
+    rfl
+  | succ i ih =>
+    intro h acc
+    have hstepE : ByteArray.forIn.loop (m := Except ε) src
+        (fun x o => Except.ok (ForInStep.yield (o.push x))) (i + 1) h acc =
+      ByteArray.forIn.loop (m := Except ε) src
+        (fun x o => Except.ok (ForInStep.yield (o.push x))) i (by omega)
+        (acc.push src[src.size - 1 - i]) := by
+      rw [ByteArray.forIn.loop.eq_def]
+      rfl
+    have hstepI : ByteArray.forIn.loop (m := Id) src
+        (fun x o => pure (ForInStep.yield (o.push x))) (i + 1) h acc =
+      ByteArray.forIn.loop (m := Id) src
+        (fun x o => pure (ForInStep.yield (o.push x))) i (by omega)
+        (acc.push src[src.size - 1 - i]) := by
+      rw [ByteArray.forIn.loop.eq_def]
+      rfl
+    rw [hstepE, hstepI]
+    exact ih (by omega) (acc.push src[src.size - 1 - i])
+
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- The `Except`-monad byte-copy loop is an append. -/
+theorem byteArray_forIn_push_except {ε : Type} (src acc : ByteArray) :
+    (forIn (m := Except ε) src acc (fun x o => Except.ok (ForInStep.yield (o.push x))))
+      = .ok (acc ++ src) := by
+  show ByteArray.forIn.loop (m := Except ε) src _ src.size _ acc = _
+  rw [byteArray_forIn_loop_except src src.size (Nat.le_refl _) acc]
+  congr 1
+  exact byteArray_forIn_push_eq src acc
+
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- A four-literal `ByteArray` built from a 4-byte string's code units is that string's
+    UTF-8 image. -/
+theorem mk4_eq_toUTF8 (t : String) (ht4 : t.toUTF8.size = 4) :
+    ByteArray.mk #[t.toUTF8.get! 0, t.toUTF8.get! 1, t.toUTF8.get! 2, t.toUTF8.get! 3]
+      = t.toUTF8 := by
+  apply _root_.ByteArray.ext_get!
+  · rw [ht4]
+    rfl
+  · intro i hi
+    have hi4 : i < 4 := by
+      have h4 : (ByteArray.mk #[t.toUTF8.get! 0, t.toUTF8.get! 1, t.toUTF8.get! 2,
+        t.toUTF8.get! 3]).size = 4 := rfl
+      omega
+    rcases (show i = 0 ∨ i = 1 ∨ i = 2 ∨ i = 3 from by omega) with h | h | h | h <;>
+      subst h <;> rfl
+
+open Stdlib.Zlib in
+set_option maxHeartbeats 1000000 in
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- **Chunk inversion**: parsing at the position of an embedded `mkChunk` image recovers
+    exactly the chunk's type and payload, with the CRC verified, advancing past it. -/
+theorem parseChunk_inv (bytes : ByteArray) (pos : Nat) (t : String) (d : ByteArray)
+    (ht4 : t.toUTF8.size = 4)
+    (htp : String.fromUTF8? t.toUTF8 = some t)
+    (hd32 : d.size < 2 ^ 32)
+    (hsz : pos + (d.size + 12) ≤ bytes.size)
+    (hbytes : ∀ j, j < d.size + 12 → bytes.get! (pos + j) = (mkChunk t d).get! j) :
+    parseChunk bytes pos = .ok (PngChunk.mk t d (Stdlib.Zlib.crc32 (t.toUTF8 ++ d)),
+      pos + (d.size + 12)) := by
+  obtain ⟨hcsz, ⟨hl0, hl1, hl2, hl3⟩, htyp, hdata, ⟨hc0, hc1, hc2, hc3⟩⟩ := mkChunk_spec t d ht4
+  -- the four length bytes
+  have hB0 : bytes.get! pos = ((d.size.toUInt32 >>> 24) &&& 0xFF).toUInt8 := by
+    have h := hbytes 0 (by omega)
+    rw [hl0] at h
+    exact h
+  have hB1 : bytes.get! (pos + 1) = ((d.size.toUInt32 >>> 16) &&& 0xFF).toUInt8 := by
+    have h := hbytes 1 (by omega)
+    rw [hl1] at h
+    exact h
+  have hB2 : bytes.get! (pos + 2) = ((d.size.toUInt32 >>> 8) &&& 0xFF).toUInt8 := by
+    have h := hbytes 2 (by omega)
+    rw [hl2] at h
+    exact h
+  have hB3 : bytes.get! (pos + 3) = (d.size.toUInt32 &&& 0xFF).toUInt8 := by
+    have h := hbytes 3 (by omega)
+    rw [hl3] at h
+    exact h
+  -- the four type bytes
+  have hT0 : bytes.get! (pos + 4) = t.toUTF8.get! 0 := by
+    have h := hbytes 4 (by omega)
+    rw [show (mkChunk t d).get! 4 = (mkChunk t d).get! (4 + 0) from rfl,
+      htyp 0 (by omega)] at h
+    exact h
+  have hT1 : bytes.get! (pos + 5) = t.toUTF8.get! 1 := by
+    have h := hbytes 5 (by omega)
+    rw [show (mkChunk t d).get! 5 = (mkChunk t d).get! (4 + 1) from rfl,
+      htyp 1 (by omega)] at h
+    exact h
+  have hT2 : bytes.get! (pos + 6) = t.toUTF8.get! 2 := by
+    have h := hbytes 6 (by omega)
+    rw [show (mkChunk t d).get! 6 = (mkChunk t d).get! (4 + 2) from rfl,
+      htyp 2 (by omega)] at h
+    exact h
+  have hT3 : bytes.get! (pos + 7) = t.toUTF8.get! 3 := by
+    have h := hbytes 7 (by omega)
+    rw [show (mkChunk t d).get! 7 = (mkChunk t d).get! (4 + 3) from rfl,
+      htyp 3 (by omega)] at h
+    exact h
+  -- the four CRC bytes
+  have hC0 : bytes.get! (pos + 8 + d.size) =
+      ((Stdlib.Zlib.crc32 (t.toUTF8 ++ d) >>> 24) &&& 0xFF).toUInt8 := by
+    rw [show pos + 8 + d.size = pos + (8 + d.size) from by omega,
+      hbytes (8 + d.size) (by omega), hc0]
+  have hC1 : bytes.get! (pos + 8 + d.size + 1) =
+      ((Stdlib.Zlib.crc32 (t.toUTF8 ++ d) >>> 16) &&& 0xFF).toUInt8 := by
+    rw [show pos + 8 + d.size + 1 = pos + (9 + d.size) from by omega,
+      hbytes (9 + d.size) (by omega), hc1]
+  have hC2 : bytes.get! (pos + 8 + d.size + 2) =
+      ((Stdlib.Zlib.crc32 (t.toUTF8 ++ d) >>> 8) &&& 0xFF).toUInt8 := by
+    rw [show pos + 8 + d.size + 2 = pos + (10 + d.size) from by omega,
+      hbytes (10 + d.size) (by omega), hc2]
+  have hC3 : bytes.get! (pos + 8 + d.size + 3) =
+      (Stdlib.Zlib.crc32 (t.toUTF8 ++ d) &&& 0xFF).toUInt8 := by
+    rw [show pos + 8 + d.size + 3 = pos + (11 + d.size) from by omega,
+      hbytes (11 + d.size) (by omega), hc3]
+  -- the data slice
+  have hextract : bytes.extract (pos + 8) (pos + 8 + d.size) = d := by
+    have hesz : (bytes.extract (pos + 8) (pos + 8 + d.size)).size = d.size := by
+      rw [ByteArray.size_extract]
+      omega
+    apply _root_.ByteArray.ext_get!
+    · exact hesz
+    · intro i hi
+      rw [hesz] at hi
+      rw [_root_.ByteArray.get!_eq_getElem _ i (by rw [hesz]; exact hi),
+        ByteArray.getElem_extract,
+        ← _root_.ByteArray.get!_eq_getElem _ _ (by omega),
+        show pos + 8 + i = pos + (8 + i) from by omega,
+        hbytes (8 + i) (by omega), hdata i hi]
+  -- choreograph the parse
+  unfold parseChunk
+  simp only [Bind.bind, Except.bind, pure, Except.pure]
+  rw [if_neg (show ¬ pos + 12 > bytes.size from by omega)]
+  rw [hT0, hT1, hT2, hT3, mk4_eq_toUTF8 t ht4, htp]
+  split
+  case h_2 hs =>
+    exact absurd hs (by simp)
+  case h_1 s hs =>
+    have hts : s = t := by
+      have h := hs
+      simp at h
+      exact h.symm
+    rw [hts]
+    rw [hB0, hB1, hB2, hB3]
+    rw [show ((((d.size.toUInt32 >>> 24) &&& 0xFF).toUInt8).toNat <<< 24 |||
+        (((d.size.toUInt32 >>> 16) &&& 0xFF).toUInt8).toNat <<< 16 |||
+        (((d.size.toUInt32 >>> 8) &&& 0xFF).toUInt8).toNat <<< 8 |||
+        ((d.size.toUInt32 &&& 0xFF).toUInt8).toNat) = d.size from
+      nat_be_roundtrip d.size hd32]
+    rw [if_neg (show ¬ pos + 8 + d.size + 4 > bytes.size from by omega)]
+    rw [hextract]
+    rw [byteArray_forIn_push_except t.toUTF8 ByteArray.empty]
+    split
+    case h_1 err heq =>
+      exact absurd heq (by simp)
+    case h_2 v heq =>
+    have hv : v = ByteArray.empty ++ t.toUTF8 := by
+      simp at heq
+      exact heq.symm
+    rw [hv, ByteArray.empty_append, byteArray_forIn_push_except d t.toUTF8]
+    split
+    case h_1 err2 heq2 =>
+      exact absurd heq2 (by simp)
+    case h_2 v2 heq2 =>
+    have hv2 : v2 = t.toUTF8 ++ d := by
+      simp at heq2
+      exact heq2.symm
+    rw [hv2]
+    rw [hC0, hC1, hC2, hC3]
+    rw [show ((((Stdlib.Zlib.crc32 (t.toUTF8 ++ d) >>> 24) &&& 0xFF).toUInt8.toUInt32 <<< 24) |||
+        (((Stdlib.Zlib.crc32 (t.toUTF8 ++ d) >>> 16) &&& 0xFF).toUInt8.toUInt32 <<< 16) |||
+        (((Stdlib.Zlib.crc32 (t.toUTF8 ++ d) >>> 8) &&& 0xFF).toUInt8.toUInt32 <<< 8) |||
+        ((Stdlib.Zlib.crc32 (t.toUTF8 ++ d)) &&& 0xFF).toUInt8.toUInt32)
+        = Stdlib.Zlib.crc32 (t.toUTF8 ++ d) from
+      Stdlib.Zlib.uint32_be_reassemble (Stdlib.Zlib.crc32 (t.toUTF8 ++ d))]
+    rw [bne_self_eq_false]
+    rw [if_neg (by simp)]
+    show (Except.ok (PngChunk.mk t d (Stdlib.Zlib.crc32 (t.toUTF8 ++ d)),
+        pos + 8 + d.size + 4) : Except PngError (PngChunk × Nat)) = _
+    rw [show pos + 8 + d.size + 4 = pos + (d.size + 12) from by omega]
+
 end Stdlib.Png
