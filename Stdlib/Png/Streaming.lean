@@ -52,43 +52,82 @@ instance : PngScanlineSink (Except PngError) MemoryImageSink where
     .ok (.ok { s with pixels := newPixels })
   onEnd s := .ok (.ok s)
 
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- A successful `parseChunk` always advances past the 12-byte length/type/CRC framing
+    plus the chunk's declared data length, so `nextPos` is always strictly greater than
+    `pos`. This is the progress fact that justifies well-founded recursion over the
+    chunk-scanning loop below (mirrors `readBits_remainingBits`'s role for the
+    bitstream loops in `Stdlib.Zlib.Deflate`). -/
+theorem parseChunk_progress (bytes : ByteArray) (pos : Nat) (chunk : PngChunk) (nextPos : Nat)
+    (hok : parseChunk bytes pos = .ok (chunk, nextPos)) : pos + 12 ≤ nextPos := by
+  unfold parseChunk at hok
+  simp only [bind, Except.bind] at hok
+  repeat' (split at hok)
+  all_goals simp_all
+  all_goals omega
+
+/- REF: docs/STDLIB_PNG.md#21-pngscanlinesink-typeclass -/
+/-- Pure chunk-scanning pass over a PNG stream, accumulating the IHDR header, palette,
+    transparency chunk, and concatenated IDAT payload, stopping at IEND or end-of-stream.
+    Extracted from `readPngStream`'s original `while` loop, which is otherwise identical
+    but threads no monadic effects during the scan itself (all sink callbacks happen only
+    after this pass completes), so this helper stays in the pure `Except PngError` monad
+    and can be given an explicit termination measure independent of `readPngStream`'s
+    generic sink monad `m`. -/
+def parsePngChunks (stream : ByteArray) (pos : Nat) (headerOpt : Option PngHeader)
+    (palette : Array (UInt8 × UInt8 × UInt8)) (transparencyOpt : Option ByteArray)
+    (idatAcc : ByteArray) (seenIend : Bool) :
+    Except PngError (Option PngHeader × Array (UInt8 × UInt8 × UInt8) × Option ByteArray × ByteArray) :=
+  if pos < stream.size && !seenIend then
+    match hParse : parseChunk stream pos with
+    | .error err => .error err
+    | .ok (chunk, nextPos) =>
+      if chunk.chunkType == "IHDR" then
+        match parseIhdr chunk.data with
+        | .error err => .error err
+        | .ok hdr => parsePngChunks stream nextPos (some hdr) palette transparencyOpt idatAcc seenIend
+      else if chunk.chunkType == "PLTE" then
+        let numEntries := chunk.data.size / 3
+        let pal := Id.run do
+          let mut p := #[]
+          for i in [0:numEntries] do
+            let r := chunk.data.get! (i * 3)
+            let g := chunk.data.get! (i * 3 + 1)
+            let b := chunk.data.get! (i * 3 + 2)
+            p := p.push (r, g, b)
+          pure p
+        parsePngChunks stream nextPos headerOpt pal transparencyOpt idatAcc seenIend
+      else if chunk.chunkType == "tRNS" then
+        parsePngChunks stream nextPos headerOpt palette (some chunk.data) idatAcc seenIend
+      else if chunk.chunkType == "IDAT" then
+        let newIdat := Id.run do
+          let mut acc := idatAcc
+          for b in chunk.data do acc := acc.push b
+          pure acc
+        parsePngChunks stream nextPos headerOpt palette transparencyOpt newIdat seenIend
+      else if chunk.chunkType == "IEND" then
+        parsePngChunks stream nextPos headerOpt palette transparencyOpt idatAcc true
+      else
+        parsePngChunks stream nextPos headerOpt palette transparencyOpt idatAcc seenIend
+  else
+    .ok (headerOpt, palette, transparencyOpt, idatAcc)
+termination_by stream.size - pos
+decreasing_by
+  all_goals (
+    have hprog := parseChunk_progress stream pos chunk nextPos hParse
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at *
+    omega)
+
 /- REF: docs/STDLIB_PNG.md#21-pngscanlinesink-typeclass -/
 /-- Streaming PNG reader feeding decompressed and defiltered scanlines into a PngScanlineSink. -/
-partial def readPngStream {m : Type → Type} {SinkState : Type} [Monad m] [PngScanlineSink m SinkState]
+def readPngStream {m : Type → Type} {SinkState : Type} [Monad m] [PngScanlineSink m SinkState]
     (stream : ByteArray) (initialSink : SinkState) : m (Except PngError SinkState) := do
   if !checkSignature stream then return .error .invalidSignature
 
-  let mut pos := 8
-  let mut headerOpt : Option PngHeader := none
-  let mut palette : Array (UInt8 × UInt8 × UInt8) := #[]
-  let mut transparencyOpt : Option ByteArray := none
-  let mut idatAcc := ByteArray.empty
-  let mut seenIend := false
-
-  while pos < stream.size && !seenIend do
-    match parseChunk stream pos with
+  let (headerOpt, palette, transparencyOpt, idatAcc) ←
+    match parsePngChunks stream 8 none #[] none ByteArray.empty false with
     | .error err => return .error err
-    | .ok (chunk, nextPos) =>
-      pos := nextPos
-      if chunk.chunkType == "IHDR" then
-        match parseIhdr chunk.data with
-        | .error err => return .error err
-        | .ok h => headerOpt := some h
-      else if chunk.chunkType == "PLTE" then
-        let numEntries := chunk.data.size / 3
-        let mut pal := #[]
-        for i in [0:numEntries] do
-          let r := chunk.data.get! (i * 3)
-          let g := chunk.data.get! (i * 3 + 1)
-          let b := chunk.data.get! (i * 3 + 2)
-          pal := pal.push (r, g, b)
-        palette := pal
-      else if chunk.chunkType == "tRNS" then
-        transparencyOpt := some chunk.data
-      else if chunk.chunkType == "IDAT" then
-        for b in chunk.data do idatAcc := idatAcc.push b
-      else if chunk.chunkType == "IEND" then
-        seenIend := true
+    | .ok st => pure st
 
   let header ← match headerOpt with
     | some h => pure h
