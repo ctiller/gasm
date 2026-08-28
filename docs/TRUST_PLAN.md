@@ -10,14 +10,21 @@ list, refilled whenever it drops below 15 open steps.
 
 78 entries: 34 `grandfathered`, 44 `axiom-only`, 0 `finite-forall`.
 
-| file | grandfathered | axiom-only |
-|---|---|---|
-| `Spikes/Spike4HttpServer/` | 9 | 12 |
-| `Spikes/Spike5Gzip/` | 7 | 11 |
-| `Stdlib/Zlib/Equivalence.lean` | 8 | 0 |
-| `Spikes/Spike3SortLines/` | 5 | 11 |
-| `Spikes/Spike2Fibonacci/` | 3 | 3 |
-| `Stdlib/Png/Equivalence.lean` | 2 | 0 |
+**Corrected 2026-08-28 after independent review** — the first version of this table undercounted
+Spike 3 by 2 and Spike 2 by 5, and its `axiom-only` column summed to 37 rather than 44. These
+counts are re-measured directly from `scripts/gate_allowlist.txt` and sum correctly.
+
+| area | grandfathered | axiom-only | total |
+|---|---|---|---|
+| `Spikes/Spike4HttpServer/` | 9 | 12 | 21 |
+| `Spikes/Spike3SortLines/` | 5 | 13 | 18 |
+| `Spikes/Spike5Gzip/` | 7 | 11 | 18 |
+| `Spikes/Spike2Fibonacci/` | 3 | 8 | 11 |
+| `Stdlib/Zlib/Equivalence.lean` | 8 | 0 | 8 |
+| `Stdlib/Png/Equivalence.lean` | 2 | 0 | 2 |
+| **total** | **34** | **44** | **78** |
+
+The three largest spikes hold **57 of 78**, not the 68 first claimed.
 
 **The structural fact that shapes the plan**: `axiom-only` entries are *propagation*. They
 exist because a `native_decide` in an `Equivalence.lean` propagates into that spike's
@@ -49,13 +56,25 @@ Spike 3's 5 gate ~16.** Those three spikes are 68 of 78.
     the conversion did not cover, so `compressFixed` and `gzipCompress` remain stuck.
   - Spike 5 **Wall 2**: `decompress` / `decodeHuffmanStream` are well-founded recursions;
     `Acc.rec` does not reduce, even on the empty token stream.
-- **`Spikes/Spike3SortLines/TraceStepLemmas.lean` is built, oracle-free, and has zero
-  consumers.** No spike has built an induction on it. It is the intended mechanism for
-  exactly this class of proof.
-- **Spike 2's verified routine is off the emitted program's execution path.**
+- **Three purpose-built, oracle-free modules exist on `main` with zero consumers**:
+  `Spikes/Spike3SortLines/{TraceStepLemmas,InstructionStepLemmas,InterceptLemmas}.lean`. No
+  spike has built an induction on any of them. They are the intended mechanism for this class
+  of proof and their fitness is unproven — **C1 is now the step that establishes it**, since
+  the correction to Track B removed the step that was going to.
+- **`Spikes/Spike3SortLines/Windows/IATLemmas.lean` has NOT landed.** An earlier version of
+  this plan said it had. It is stranded on unmerged branch `spike3-empty-trace-equivalence`
+  (`8044ffb`), so **C1 has a hard dependency on F3**.
+- **No `runWasiTrace` peeling lemmas exist.** C3 and two of Spike 2's three entries need a
+  WASI trace-step lemma family that nothing in this plan currently provides. See G1.
+- **Spike 2's Wasm program — and only the Wasm one — emits precomputed data.**
   `spike2WasmInstructions` (`_start`) calls only `fd_write` and `proc_exit`, never the
-  verified `fibIter`; output comes from `spike2DataSegments` computed at compile time. The
-  x86 side is the same shape. This is a Law 8 question, not a proof problem.
+  verified `fibIter`; its output comes from `spike2DataSegments` computed at compile time.
+  **The x86 claim was false and is retracted**: `spike2SymbolicProgram` computes Fibonacci at
+  runtime in registers (recurrence at `Spikes/Spike2Fibonacci/Windows/Program.lean:176-179`,
+  a real `div_r64` digit loop, empty `dataItems` in both linkers). So Track D's Law 8 premise
+  applies to **1 of 3** entries, not 3 — the Windows and Linux entries are ordinary proof
+  obligations. This error came from generalizing a Wasm measurement to all three targets
+  without checking.
 - **`gzipCompress` calls `compressFixed`, not `compress`.** Every zlib theorem landed so far
   is about `compress`/`emitFixedBlock`. `compressFixed` has exactly two occurrences tree-wide
   — its definition and that one call site — with nothing connecting them. A Law 12 unlinked
@@ -70,11 +89,14 @@ Every step's output is reviewed by an independent agent before it counts as done
 
 - **A1** — Convert `findLongestMatch` to fuel-based structural recursion. Kills Wall 1.
   Precedented twice: `tokenizeAux`'s own comment states the rationale, and `ccba443` did it
-  for the Wasm interpreter. Behaviour bit-identical, measured by `gzip_fuzzer` 108/108 with
-  the 55/53 split preserved. **DISPATCHED.**
+  for the Wasm interpreter. **DONE — `cdc98bf`. Retirement: 0.** Allowlist was 78 before and
+  78 after. Recorded as zero rather than as progress: this is the shape the owner named as
+  hedging, and A1 is only justified retrospectively by A3 consuming it.
 - **A2** — Convert `decodeHuffmanStream` / `decompress` off well-founded recursion to fuel.
-  Kills Wall 2. Larger than A1 and touches the dynamic path; sequence after the in-flight
-  L2v work lands to avoid collision.
+  **GATED — do not dispatch without a named consumer and an owner ruling.** It would
+  re-convert functions that were *deliberately* made well-founded at `4ae2ab8`/`542041f`, and
+  its own retirement target is zero. Same shape as A1. If Wall 2 must fall, the case has to be
+  made on a specific theorem that needs it, not on tractability in the abstract.
 - **A3** — Prove `compressFixed data = flushBitWriter (emitFixedBlock (tokenize data))`.
   This is a **Law 12 connection theorem**, not an incidental lemma: without it, no zlib
   theorem reaches Spike 5. Depends on A1.
@@ -82,11 +104,13 @@ Every step's output is reviewed by an independent agent before it counts as done
   within bounds). Load-bearing because `compressFixed` accepts any `matchLen ≥ 3` while
   `tokenizeAux` also requires `matchValid` — without L3 the roundtrip is genuinely false,
   not merely unproven. Half-proved already in scratch (`extend_loop_eq`, `extendRef_spec`).
-- **A5** — `∀ data, gzipDecompress (gzipCompress data) = .ok data`. Retires
-  `gzip_roundtrip_soundness_inst` and `gzip_idempotent_canonical_roundtrip_inst`
-  (the latter free by PA16 §3/L12). **Retires 2.** Depends on A1–A4.
-- **A6** — The 5 Spike 5 trace equivalences by structural trace proof. Depends on A2 + the
-  Track B technique. **Retires 5 + ~11 propagated.**
+- **A5** — `∀ data, gzipDecompress (gzipCompress data) = .ok data`. **Retires 4**, not the 2
+  first claimed: the `Stdlib.Zlib` pair is the same proposition as the Spike 5 pair. E4's
+  target drops to 6 correspondingly. Depends on A1, A3, A4.
+- **A6** — The 5 Spike 5 trace equivalences by structural trace proof. **Depends on C1**, not
+  on the old Track B step — the Track B correction removed the technique pathfinder, and C1 is
+  now the step that establishes whether the trace-step lemma modules work. **Retires 5 + ~11
+  propagated.**
 
 ### Track B — Spike 4 (gates ~21)
 
@@ -126,14 +150,18 @@ Every step's output is reviewed by an independent agent before it counts as done
 
 ### Track D — Spike 2 (gates ~6) — a Law 8 question first
 
-- **D1** — Establish whether the emitted Spike 2 programs *should* call their verified
-  routines. Today they do not: output is precomputed data. Retiring these three entries by
-  proof would verify a routine the program never runs. **This step is a design ruling, not
-  a proof**, and it needs the owner. Two honest outcomes: change the programs to call the
-  verified routine, or document that Spike 2 verifies a library routine and its trace
-  equivalence is about data emission.
-- **D2** — Execute D1's outcome. **Retires 3 + 3 propagated** only if D1 chooses to connect
-  them; otherwise these entries are re-categorized, not retired, and the count does not move.
+**Split after review — the Law 8 premise applies to Wasm only.**
+
+- **D1 (Wasm only)** — Establish whether the emitted Spike 2 **Wasm** program should call its
+  verified routine. It does not: `_start` calls `fd_write`/`proc_exit` and output comes from
+  `spike2DataSegments` computed at compile time, so retiring that entry by proof would verify
+  a routine the program never runs. **This is a design ruling, not a proof**, and it needs the
+  owner. Two honest outcomes: change the program to call the verified routine, or document
+  that Spike 2's Wasm trace equivalence is about data emission.
+- **D2 (Windows + Linux)** — Ordinary proof obligations, **not** blocked on D1. Both programs
+  compute Fibonacci at runtime in registers. **Retires 2 + propagated.** These were wrongly
+  deferred behind an owner question in the first version of this plan.
+- **D3** — Execute D1's outcome for Wasm. **Retires 1 + propagated** only if D1 connects them.
 
 ### Track E — Stdlib codecs (10)
 
@@ -144,6 +172,16 @@ Every step's output is reviewed by an independent agent before it counts as done
   E1–E3 plus L2d (landed).
 - **E5** — The 2 `Stdlib/Png/Equivalence.lean` entries. Status unestablished — first action
   is to determine whether they are blocked like Spikes 4/5 or simply unattempted.
+
+### Track G — gaps found by review, previously uncovered
+
+- **G1** — A **WASI trace-step lemma family**. No `runWasiTrace` peeling lemmas exist
+  anywhere. C3 needs them, and so do two of Spike 2's three entries. Nothing else in this
+  plan provides them, so without G1 those steps are unschedulable.
+- **G2** — **Seven entries have no step covering them.** They are exactly the ones the
+  original per-file table lost by undercounting Spike 3 (by 2) and Spike 2 (by 5). Identify
+  them precisely against `scripts/gate_allowlist.txt` and assign each to a track. Until this
+  is done, the plan's retirement targets do not sum to 78.
 
 ### Track F — measurement and hygiene
 
