@@ -46,15 +46,52 @@ could hide from a regex.
 ARCHITECTURE (mirrors Tools/CheckGatesAxioms.lean's Law 10 tool almost
 exactly -- see that file's header for the fuller rationale of each piece
 reused here): `discoverProjectModules` walks `Gasm/`, `Stdlib/`, `Spikes/`
-ON DISK (not via any import closure) to find every project module; `main`
+ON DISK (not via any import closure) to find every project module; `runGate`
 does the baseline `importModules #[Gasm, Stdlib, Spikes]` scan, then
-per-module standalone imports for whatever the baseline's closure did not
+per-module standalone scans for whatever the baseline's closure did not
 reach, exactly as CheckGatesAxioms.lean does for Law 10 (same TC15 module-
 coverage gap, same fix). `Tools/` itself is excluded from scope, matching
 `isProjectModule`'s existing Gasm/Stdlib/Spikes-only namespace scope and
 TCB.md's "170 [modules] excluding Tools/" headline -- this file's own
 declarations are therefore not gated by itself, though they still carry
 `REF:` citations as a matter of ordinary code quality.
+
+SUBPROCESS ISOLATION (identical fix to Tools/CheckGatesAxioms.lean's, see
+that file's header for the fuller rationale of why a fresh OS PROCESS per
+module -- not just a fresh `Environment` value in this same long-lived
+process -- is required): this tool originally scanned each of the ~33
+disk-discovered-but-not-baseline modules with a per-module standalone
+`importModules` call INSIDE ITS OWN LOOP, all in this one process. That is
+exactly the pattern that drove Tools/CheckGatesAxioms.lean's memory to
+~49GB and broke CI on both platforms before ITS fix; a contamination-checked
+measurement of this tool's own pre-fix binary (`Get-CimInstance` filtered to
+this process's own tree) confirmed the identical failure mode here too: a
+single process climbing to ~41GB working set over the run. The fix is the
+same shape: `runGate` now re-invokes this same executable as
+`--scan-module <dotted module name> <file path>` (`runScanWorker` below),
+one module at a time, sequentially, in its own fresh process -- never
+batched (batching would reintroduce the bare-`main` collision the isolation
+exists to dodge in the first place, per CheckGatesAxioms.lean's header). The
+spawn-and-capture-one-`GASM_SCAN_RESULT`-line plumbing itself
+(`spawnAndGetResultPayload`, `resultMarker`, `setupSearchPath`,
+`nameOfDotted`) is shared verbatim with Tools/CheckGatesAxioms.lean via
+Tools/GateSubprocess.lean -- it was byte-for-byte duplicated code before
+that file existed, exactly the kind of defect this project's Law 12 is
+about. The worker's JSON PAYLOAD SHAPE is NOT shared, though: Law 10's
+worker reports axiom-gating info per offending declaration, this tool's
+worker instead reports the full `DeclCandidate` shape (fqn, anchor line,
+range) each in-scope declaration needs for the containment filter and
+`REF:` text-scan that happen back in the parent -- a different question
+with a different payload, so sharing the schema would only force one tool's
+shape onto the other. `runScanWorker` always exits 0 and reports success or
+failure of ITS import via the `GASM_SCAN_RESULT <json>` line (`{"ok":true,
+"candidates":[...]}` or `{"ok":false,"error":"..."}`), letting the parent
+tell "this module's `.olean` genuinely failed to import" (a real,
+reportable finding, folded into `unloadable`) apart from "this OS process
+itself crashed, was killed, or emitted nothing parseable" (also folded into
+`unloadable`, since both are exactly the blind spot this gate refuses to
+hide). The worker carries no allowlist knowledge; the parent alone does
+`byKey` matching against whatever candidates come back, exactly as before.
 
 THE HARD PART: BRIDGING NAME TO SOURCE POSITION. The environment gives
 declaration NAMES, not source positions; a `REF:` comment is a source-level
@@ -131,9 +168,11 @@ guess:
   so a genuine tie can never cause BOTH members to vanish.
 -/
 import Lean
+import Lean.Data.Json
 import Gasm
 import Stdlib
 import Spikes
+import Tools.GateSubprocess
 
 open Lean
 
@@ -240,10 +279,18 @@ def sepLine : String :=
   "======================================================================"
 
 /-- One candidate declaration collected from an environment, carrying
-everything the containment filter and the text-scanning phase need. -/
+everything the containment filter and the text-scanning phase need. `fqn` is
+a plain `String` (`toString` of the real `Name`, taken once at collection
+time), not a `Name` -- a standalone-module candidate crosses a worker
+subprocess boundary as JSON (see SUBPROCESS ISOLATION in this file's header)
+and only ever HAS a string on the far side; every existing use of `fqn`
+below (key-matching, tie-breaking, reporting) already went through
+`toString` anyway, so this is a representation change with no behavioral
+difference for baseline-collected candidates. Mirrors
+Tools/CheckGatesAxioms.lean's `Offender.declName`, same rationale. -/
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
 structure DeclCandidate where
-  fqn         : Name
+  fqn         : String
   module      : Name
   file        : System.FilePath
   /-- `selectionRange.pos.line`, 1-indexed -- always the declaration
@@ -268,7 +315,7 @@ def containedIn (d other : DeclCandidate) : Bool :=
   d.fqn != other.fqn &&
     posLE other.rangeStart d.rangeStart && posLE d.rangeEnd other.rangeEnd &&
     (other.rangeStart != d.rangeStart || other.rangeEnd != d.rangeEnd ||
-      toString other.fqn < toString d.fqn)
+      other.fqn < d.fqn)
 
 /-- Drops every candidate that is contained in some other candidate FROM THE
 SAME MODULE (containment across different files is never meaningful).
@@ -303,7 +350,7 @@ def collectCandidates (env : Environment) (ctx : Core.Context)
         | none => pure ()  -- discovered no on-disk file for this module; cannot text-scan it
         | some file =>
           out := out.push {
-            fqn := name, module := mod, file := file,
+            fqn := toString name, module := mod, file := file,
             anchorLine := r.selectionRange.pos.line,
             rangeStart := r.range.pos, rangeEnd := r.range.endPos
           }
@@ -432,15 +479,87 @@ def parseRefAllowlist (contents : String) : List RefAllowlistEntry × List Strin
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
 def matchKey (moduleName : Name) (fqn : String) : String := s!"{moduleName}::{fqn}"
 
+/-- What a `--scan-module` worker process reported, once its one
+`GASM_SCAN_RESULT` JSON line has been parsed. `loadFailed` mirrors the old
+in-process `catch` arm (the module's own `importModules` failed); the parent
+folds it into `unloadable` exactly as before. `scanned` carries every
+candidate the worker collected for its one target module -- `fqn`,
+`anchorLine`, and both range endpoints, everything `dropContained` and the
+text-scan phase need; `module` and `file` are NOT part of the payload since
+the parent already knows both (it is the parent that chose which module to
+scan and looked up its file via `discoverProjectModules`). -/
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
-def main (_args : List String) : IO UInt32 := do
+inductive RefsWorkerResult where
+  | loadFailed (msg : String)
+  | scanned (candidates : Array (String × Nat × Position × Position))
+
+/-- Parses one worker's `GASM_SCAN_RESULT` JSON payload (everything after the
+marker). See `runScanWorker` for the shape this is the inverse of. `Position`
+already derives `FromJson`/`ToJson` (Lean.Data.Position), so each range
+endpoint round-trips through the standard `{"line":_,"column":_}` shape
+without any hand-rolled (de)serialization. -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def parseRefsWorkerResult (payload : String) : Except String RefsWorkerResult := do
+  let j ← Json.parse payload
+  let okJ ← j.getObjVal? "ok"
+  let ok ← okJ.getBool?
+  if !ok then
+    let errJ ← j.getObjVal? "error"
+    let errS ← errJ.getStr?
+    return .loadFailed errS
+  else
+    let candsJ ← j.getObjVal? "candidates"
+    let candsArr ← candsJ.getArr?
+    let cands ← candsArr.mapM fun item => do
+      let fqnJ ← item.getObjVal? "fqn"
+      let fqnS ← fqnJ.getStr?
+      let lineJ ← item.getObjVal? "anchorLine"
+      let lineN ← lineJ.getNat?
+      let rangeStartJ ← item.getObjVal? "rangeStart"
+      let rangeStart ← FromJson.fromJson? (α := Position) rangeStartJ
+      let rangeEndJ ← item.getObjVal? "rangeEnd"
+      let rangeEnd ← FromJson.fromJson? (α := Position) rangeEndJ
+      pure (fqnS, lineN, rangeStart, rangeEnd)
+    return .scanned cands
+
+/-- The `--scan-module <dotted name> <file path>` worker entry point:
+standalone-imports EXACTLY ONE module into a fresh `Environment` -- in this
+fresh OS PROCESS, never the parent's -- collects the same `DeclCandidate`
+info the baseline scan collects (mirroring the old in-process standalone
+loop this replaces), and prints exactly one `GASM_SCAN_RESULT <json>` line
+to stdout. `file` is passed in by the parent (it already resolved `target`'s
+on-disk path via `discoverProjectModules`) rather than rediscovered here, so
+the worker never needs its own disk walk. Always exits `0`: whether the
+IMPORT itself succeeded or failed is reported IN the JSON (`ok` field), not
+via process exit code -- see this file's header (SUBPROCESS ISOLATION) for
+why that split matters. Carries no allowlist knowledge; the parent alone
+does `byKey` matching. -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def runScanWorker (target : Name) (file : System.FilePath) : IO UInt32 := do
+  setupSearchPath
+  let ctx : Core.Context := { fileName := "CheckRefsCoverage", fileMap := default }
+  let result ←
+    try
+      let env2 ← importModules #[{module := target}] {} (trustLevel := 0) (loadExts := false)
+      let cands ← collectCandidates env2 ctx
+        (fun n i => isCoverageCandidateForModule env2 n i target) (fun _ => some file)
+      let candsJson := cands.map (fun d => Json.mkObj [
+        ("fqn", (d.fqn : Json)),
+        ("anchorLine", (d.anchorLine : Json)),
+        ("rangeStart", Lean.toJson d.rangeStart),
+        ("rangeEnd", Lean.toJson d.rangeEnd)
+      ])
+      pure (Json.mkObj [("ok", (true : Json)), ("candidates", Json.arr candsJson)])
+    catch e =>
+      pure (Json.mkObj [("ok", (false : Json)), ("error", (e.toString : Json))])
+  IO.println s!"{resultMarker}{result.compress}"
+  return 0
+
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def runGate : IO UInt32 := do
   let startTime ← IO.monoMsNow
 
-  initSearchPath (← findSysroot)
-  let projectLibDir : System.FilePath := "." / ".lake" / "build" / "lib" / "lean"
-  if ← projectLibDir.pathExists then
-    let sp ← searchPathRef.get
-    searchPathRef.set (sp ++ [projectLibDir])
+  setupSearchPath
 
   let allowlistPath : System.FilePath := "scripts" / "ref_allowlist.txt"
   if !(← allowlistPath.pathExists) then
@@ -493,15 +612,34 @@ def main (_args : List String) : IO UInt32 := do
     baselineModules := baselineModules.insert m
   let missing := discovered.filter (fun (m, _) => !baselineModules.contains m)
 
+  -- SUBPROCESS ISOLATION (see this file's header): each `missing` module is
+  -- scanned by re-invoking THIS SAME executable as a `--scan-module` worker
+  -- in its own fresh OS process, one module at a time, sequentially -- never
+  -- batched, never in parallel. Same rationale as
+  -- Tools/CheckGatesAxioms.lean: batching would reintroduce the bare-`main`
+  -- collision this whole scheme exists to avoid, and running them in-process
+  -- (even one `Environment` value at a time, which is what this loop did
+  -- before this fix) is exactly what drove this tool's own peak working set
+  -- to ~41GB on a clean, contamination-checked measurement.
   let mut unloadable : Array (Name × String) := #[]
-  for (target, _) in missing do
-    try
-      let env2 ← importModules #[{module := target}] {} (trustLevel := 0) (loadExts := false)
-      let more ← collectCandidates env2 ctx
-        (fun n i => isCoverageCandidateForModule env2 n i target) (fileOfModule[·]?)
-      candidates := candidates ++ more
-    catch e =>
-      unloadable := unloadable.push (target, e.toString)
+  let selfExe ← IO.appPath
+  let cwd ← IO.currentDir
+  for (target, targetFile) in missing do
+    match ← spawnAndGetResultPayload selfExe cwd #["--scan-module", toString target, targetFile.toString] with
+    | .error spawnErr =>
+      unloadable := unloadable.push (target, spawnErr)
+    | .ok payload =>
+      match parseRefsWorkerResult payload with
+      | .error parseErr =>
+        unloadable := unloadable.push (target, s!"malformed scan subprocess result: {parseErr}")
+      | .ok (.loadFailed loadErr) =>
+        unloadable := unloadable.push (target, loadErr)
+      | .ok (.scanned cands) =>
+        for (fqnS, anchorLine, rangeStart, rangeEnd) in cands do
+          candidates := candidates.push {
+            fqn := fqnS, module := target, file := targetFile,
+            anchorLine := anchorLine, rangeStart := rangeStart, rangeEnd := rangeEnd
+          }
 
   let elapsedImportMs := (← IO.monoMsNow) - startTime
 
@@ -532,7 +670,7 @@ def main (_args : List String) : IO UInt32 := do
     for d in decls do
       scanned := scanned + 1
       if !cited.contains d.anchorLine then
-        let key := matchKey d.module (toString d.fqn)
+        let key := matchKey d.module d.fqn
         match byKey[key]? with
         | some _ => allowlisted := allowlisted + 1; matchedKeys := matchedKeys.insert key
         | none => uncited := uncited.push d
@@ -595,3 +733,15 @@ def main (_args : List String) : IO UInt32 := do
   IO.println s!"[*] Wall time: {elapsedMs}ms."
   IO.println sepLine
   return if failed then 1 else 0
+
+/-- CLI entry point. `--scan-module <dotted name> <file path>` is an
+internal, undocumented mode: it is how `runGate` re-invokes THIS SAME
+executable as a standalone-scan worker subprocess (see this file's header's
+SUBPROCESS ISOLATION section) and is never meant to be typed by a human.
+Any other argument list (including none) runs the gate itself, exactly as
+before this fix. -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def main (args : List String) : IO UInt32 :=
+  match args with
+  | ["--scan-module", modStr, fileStr] => runScanWorker (nameOfDotted modStr) (System.FilePath.mk fileStr)
+  | _ => runGate
