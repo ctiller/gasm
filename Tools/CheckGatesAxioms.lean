@@ -597,8 +597,13 @@ def runGate : IO UInt32 := do
   -- exactly what exhausted memory on CI's hosted runners.
   let selfExe ← IO.appPath
   let cwd ← IO.currentDir
-  for target in missing do
-    match ← spawnAndGetResultPayload selfExe cwd #["--scan-module", toString target] with
+  let concurrency ← defaultScanConcurrency
+  let workerResults ← runWorkerPool missing concurrency fun target => do
+    let payloadRes ← spawnAndGetResultPayload selfExe cwd #["--scan-module", toString target]
+    pure (target, payloadRes)
+
+  for (target, payloadRes) in workerResults do
+    match payloadRes with
     | .error spawnErr =>
       unloadable := unloadable.push (target, spawnErr)
     | .ok payload =>
