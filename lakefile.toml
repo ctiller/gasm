@@ -43,7 +43,7 @@ defaultTargets = [
   "spike5_gzip_linux", "spike5_gunzip_linux",
   "spike5_gzip_wasm", "test_spike5",
   "x86_fuzzer", "wasm_fuzzer", "validate_spike_wasm",
-  "png_stability_fuzzer", "x86_stability_fuzzer"
+  "png_stability_fuzzer", "x86_stability_fuzzer", "elf_stability_fuzzer"
 ]
 
 [[lean_lib]]
@@ -236,6 +236,10 @@ root = "Stdlib.Png.StabilityFuzzer"
 [[lean_exe]]
 name = "x86_stability_fuzzer"
 root = "Gasm.Targets.X86_64.StabilityFuzzer"
+
+[[lean_exe]]
+name = "elf_stability_fuzzer"
+root = "Spikes.Common.ElfStabilityFuzzer"
 
 [[lean_exe]]
 name = "spike5_gzip_windows"
