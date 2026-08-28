@@ -20,12 +20,33 @@ import Gasm.Targets.X86_64.MemoryFrame.Push
 import Gasm.Targets.X86_64.MemoryFrame.Pop
 import Gasm.Targets.X86_64.MemoryFrame.Call
 import Gasm.Targets.X86_64.MemoryFrame.Ret
+import Gasm.Targets.X86_64.MemoryFrame.Add
+import Gasm.Targets.X86_64.MemoryFrame.Sub
+import Gasm.Targets.X86_64.MemoryFrame.And
+import Gasm.Targets.X86_64.MemoryFrame.Or
+import Gasm.Targets.X86_64.MemoryFrame.Xor
+import Gasm.Targets.X86_64.MemoryFrame.Not
+import Gasm.Targets.X86_64.MemoryFrame.Neg
+import Gasm.Targets.X86_64.MemoryFrame.Shift
+import Gasm.Targets.X86_64.MemoryFrame.Test
+import Gasm.Targets.X86_64.MemoryFrame.Xchg
+import Gasm.Targets.X86_64.MemoryFrame.Cmp
+import Gasm.Targets.X86_64.MemoryFrame.Cmov
+import Gasm.Targets.X86_64.MemoryFrame.Jcc
+import Gasm.Targets.X86_64.MemoryFrame.Div
+import Gasm.Targets.X86_64.MemoryFrame.Imul
+import Gasm.Targets.X86_64.MemoryFrame.Lea
+import Gasm.Targets.X86_64.MemoryFrame.In
+import Gasm.Targets.X86_64.MemoryFrame.Out
+import Gasm.Targets.X86_64.MemoryFrame.Hlt
+import Gasm.Targets.X86_64.MemoryFrame.Syscall
 import Gasm.Targets.X86_64.MemoryFrame.NegativeControl
 
 -- Thin aggregator, mirroring RoundtripGate.lean's own header comment: importing every
--- per-family MemoryFrame/*.lean shard forces all 14 memory forms' writesWithin/readsWithin
--- connection theorems (docs/MEMORY_HOOK.md §3.3, Law 12) to elaborate whenever this module
--- (transitively, Gasm) is built. There is no declaration here beyond the imports.
+-- per-family MemoryFrame/*.lean shard forces all 88 registered instruction forms' (14
+-- memory-touching + 74 register-only) writesWithin/readsWithin connection theorems
+-- (docs/MEMORY_HOOK.md §3.3, Law 12) to elaborate whenever this module (transitively, Gasm) is
+-- built. There is no declaration here beyond the imports.
 --
 -- `NegativeControl` is imported for the same reason but proves the opposite direction: two
 -- deliberately mis-declared fixture forms whose frame obligations are REFUTABLE. The shards
