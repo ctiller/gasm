@@ -18,6 +18,7 @@ import Lean
 import Gasm.Core.Types
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Instructions.Base
+import Gasm.Targets.X86_64.MemCostModel
 
 namespace Gasm.Targets.X86_64.Instructions
 
@@ -29,6 +30,13 @@ open Gasm.Targets.X86_64
 structure PopR64 where
   reg : Reg64
   deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- `PopR64`'s declared memory access, hoisted to a top-level `def` and shared by both
+    `memAccesses` and `toUops` below (via `memUops`) -- see `Mov.lean`'s
+    `movRspDispByteAccesses` doc comment for why. -/
+@[simp] def popR64Accesses (_ : PopR64) : List MemAccessSpec :=
+  [⟨.load, .w64, ⟨some .rsp, none, 0⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=POP;part=operation -/
 instance : X86_64Instruction PopR64 where
@@ -47,9 +55,7 @@ instance : X86_64Instruction PopR64 where
     let s'' := s'.setGpr64 i.reg val
     { s'' with rip := s.rip + len }
 
-  toUops _ := [
-    { mnemonic := "POP.load", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 4, reciprocalThroughput := 0.5 }
-  ]
+  toUops i := derivedMemUops (popR64Accesses i) defaultMemCostModel
   toNASM i := s!"pop {i.reg}"
   toLean i := s!"pop_r64 .{i.reg}"
   canFuzzHardware _ := false
@@ -57,7 +63,7 @@ instance : X86_64Instruction PopR64 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := allReg64List.map PopR64.mk
-  memAccesses _ := [⟨.load, .w64, ⟨some .rsp, none, 0⟩⟩]
+  memAccesses := popR64Accesses
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- POP r64 helper. -/

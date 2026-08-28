@@ -90,6 +90,7 @@ real-tree-mutation rebuild cost for a check that requires no Lean elaboration to
 import Lean
 import Gasm.Targets.X86_64.Registry
 import Gasm.Targets.X86_64.Instructions.Obligations
+import Gasm.Targets.X86_64.MemCostModel
 
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
@@ -132,6 +133,26 @@ structure InstrCheckData where
   canFuzzHW      : Bool
   fuzzStateCount : Nat
   provenance     : CoefficientProvenance
+  -- MH2 (docs/tasks/MH2-memory-uop-centralization.md, docs/MEMORY_HOOK.md §5.2 item 3): the
+  -- derivation-invariant inputs. `memoryUops` is the instance's ACTUAL memory-class (`.load`/
+  -- `.storeAddr`/`.storeData`) uop subset; `derivedMemoryUops` is what `memAccesses` mapped
+  -- through `memUops` at the shared `defaultMemCostModel` says it SHOULD be -- checked only when
+  -- `hasMemAccesses` (see that field's own comment for why).
+  memoryUops        : List X86_64Uop
+  derivedMemoryUops : List X86_64Uop
+  -- Whether this instance declares any memory access (`memAccesses ≠ []`) -- the derivation
+  -- check below fires only when true. IN/OUT (port I/O) legitimately use `.load`/`.storeAddr`/
+  -- `.storeData` `UopClass` tags for their own port-bandwidth modeling while correctly declaring
+  -- `memAccesses := []` (port I/O is not `X86_64Memory`-space; `MemAccessSpec`'s `Address` type
+  -- does not cover it) -- `UopClass` is a generic hardware-port classification shared by both
+  -- domains, not itself proof of `X86_64Memory` residency, so gating on the declared descriptor
+  -- (not on `uopClass` alone) is what keeps this check scoped to MH2's actual 14-form population
+  -- instead of retroactively annexing IN/OUT's pre-existing, unrelated modeling into the hook's
+  -- domain. A form that falsely declares `memAccesses := []` while its `step` genuinely touches
+  -- `X86_64Memory` is caught at the semantic level instead, by MH1's mandatory `WritesWithin`/
+  -- `ReadsWithin` frame-lemma obligation (`MemoryFrame/*.lean`) -- a kernel-checked theorem, not
+  -- a build-time linter, and the stronger of the two mechanisms for that specific claim.
+  hasMemAccesses    : Bool
 deriving Inhabited
 
 /- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p4-blocking-make-per-instruction-validation-obligations-mandatory-and-visible -/
@@ -144,7 +165,10 @@ def toCheckData (rng : Gasm.Core.FuzzerRng) (instr : AnyX86_64Instruction) : Ins
     oracle         := X86_64Instruction.validationOracle instr
     canFuzzHW      := X86_64Instruction.canFuzzHardware instr
     fuzzStateCount := (X86_64Instruction.generateFuzzStates instr rng).1.length
-    provenance     := X86_64Instruction.costProvenance instr }
+    provenance     := X86_64Instruction.costProvenance instr
+    memoryUops        := (X86_64Instruction.toUops instr).filter isMemoryClassUop
+    derivedMemoryUops := derivedMemUops (X86_64Instruction.memAccesses instr) defaultMemCostModel
+    hasMemAccesses    := !(X86_64Instruction.memAccesses instr).isEmpty }
 
 /- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p4-blocking-make-per-instruction-validation-obligations-mandatory-and-visible -/
 /-- The obligation gate's actual checking logic (see this file's header, items 1-4; item 5 -- the
@@ -158,6 +182,19 @@ def checkInstrData (d : InstrCheckData) : List String := Id.run do
   if d.uopsEmpty then
     violations := violations ++ [s!"{d.label}: toUops is empty (P4's mutation-probe defect: an \
       instruction with no micro-ops at all)"]
+  -- MH2's derivation invariant (docs/MEMORY_HOOK.md §5.1/§5.2 item 3): for every instance that
+  -- DECLARES a memory access, the memory-class subset of `toUops` must equal `memAccesses`
+  -- mapped through `memUops` at `defaultMemCostModel` -- this is what closes off memory-class
+  -- uop construction outside the hook mechanically (see MemCostModel.lean's header comment for
+  -- why a structural private-constructor seal was not pursued instead). Gated on
+  -- `hasMemAccesses` (see that field's own comment): IN/OUT's pre-existing, unrelated
+  -- `.load`/`.storeAddr`/`.storeData`-tagged port-I/O uops are correctly out of scope.
+  if d.hasMemAccesses && !memUopListEq d.memoryUops d.derivedMemoryUops then
+    violations := violations ++ [s!"{d.label}: memory-class toUops ({d.memoryUops.length} uop(s)) \
+      does not equal memAccesses mapped through memUops ({d.derivedMemoryUops.length} uop(s)) -- \
+      a memory-class uop has diverged from the MH2 cost table (docs/MEMORY_HOOK.md §5.1's \
+      derivation invariant, §5.2 item 3); construct memory uops only via `memUops`/`derivedMemUops` \
+      in Gasm/Targets/X86_64/MemCostModel.lean"]
   match d.oracle with
   | .silicon =>
     if !d.canFuzzHW then
@@ -344,6 +381,20 @@ def runGate : IO UInt32 := do
       a coefficient SOURCE -- this is the honest, expected state, not a gate failure. See this \
       file's own header comment."
 
+  -- MH2 (docs/tasks/MH2-memory-uop-centralization.md, docs/MEMORY_HOOK.md §5.3(b)): the memory
+  -- cost TABLE's own coefficient provenance, distinct from the per-INSTANCE costProvenance
+  -- breakdown above -- 6 named coefficients shared by all 1611 registered instances rather than
+  -- one mark per instance. Printed every run, per Law 14's honesty-in-output clause.
+  let memTotal := defaultMemCostModel.provenances.length
+  let memCalibrated := defaultMemCostModel.calibratedCount
+  IO.println "\n--- MH2: MEMORY COST TABLE PROVENANCE (Law 14, docs/MEMORY_HOOK.md §5) ---"
+  IO.println s!"    {memCalibrated} of {memTotal} memory coefficients calibrated / \
+    {memTotal - memCalibrated} model-internal"
+  if memCalibrated == 0 then
+    IO.println "    [i] 0 calibrated: same F1/Law-14-#9 reason as the per-instance breakdown \
+      above -- every memory coefficient is honestly modelInternalUnvalidated today \
+      (Gasm/Targets/X86_64/MemCostModel.lean)."
+
   let mut failed := false
 
   if !violations.isEmpty then
@@ -380,9 +431,51 @@ def runGate : IO UInt32 := do
 -- ---------------------------------------------------------------------------------------------
 
 /- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p4-blocking-make-per-instruction-validation-obligations-mandatory-and-visible -/
+/-- A register-only-shaped good fixture: no memory uops on either side of the MH2 derivation
+    check, which must pass vacuously (matching 74 of the 88 real registered forms). -/
 def goodFixture : InstrCheckData :=
   { label := "self_test_good", uopsEmpty := false, oracle := .silicon, canFuzzHW := true,
-    fuzzStateCount := 24, provenance := .modelInternalUnvalidated "no calibration source exists yet" }
+    fuzzStateCount := 24, provenance := .modelInternalUnvalidated "no calibration source exists yet",
+    memoryUops := [], derivedMemoryUops := [], hasMemAccesses := false }
+
+/- REF: docs/MEMORY_HOOK.md#52-why-this-is-falsifiable-where-todays-numbers-are-not -/
+/-- A memory-shaped good fixture: `toUops`'s memory-class subset genuinely equals what
+    `memAccesses` derives via `memUops` -- the real post-migration shape of all 14 memory forms
+    (e.g. `PopR64`: one `.load` uop matching `popR64Accesses`'s single load access). -/
+def memDerivationMatchFixture : InstrCheckData :=
+  { goodFixture with
+    label := "self_test_mem_match"
+    memoryUops := memUops ⟨.load, .w64, ⟨some .rsp, none, 0⟩⟩ defaultMemCostModel
+    derivedMemoryUops := memUops ⟨.load, .w64, ⟨some .rsp, none, 0⟩⟩ defaultMemCostModel
+    hasMemAccesses := true }
+
+/- REF: docs/MEMORY_HOOK.md#52-why-this-is-falsifiable-where-todays-numbers-are-not -/
+/-- The Law-13 negative control for MH2's derivation invariant, restated as data (mirroring the
+    prerequisites document's own mutation-probe fixture below): an instance whose actual
+    memory-class `toUops` (a hand-written `latencyCycles := 999` load, the shape a form that
+    bypassed `memUops` and invented its own literal would take) disagrees with what its declared
+    `memAccesses` derives. `checkInstrData` must flag this. -/
+def memDerivationMismatchFixture : InstrCheckData :=
+  { goodFixture with
+    label := "self_test_mem_mismatch"
+    memoryUops :=
+      [{ mnemonic := "MEM.load", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 999 }]
+    derivedMemoryUops := memUops ⟨.load, .w64, ⟨some .rsp, none, 0⟩⟩ defaultMemCostModel
+    hasMemAccesses := true }
+
+/- REF: docs/MEMORY_HOOK.md#52-why-this-is-falsifiable-where-todays-numbers-are-not -/
+/-- IN/OUT's shape restated as data: `.load`-tagged port-I/O uops with NO declared memory
+    access -- must pass clean, confirming `hasMemAccesses := false` correctly takes this out of
+    the derivation check's scope (found live against the real registry: without this gating, 16
+    real IN/OUT witnesses failed the gate for pre-existing, unrelated port-I/O modeling that
+    predates and is out of scope for MH2's 14-form migration). -/
+def portIOUnaffectedFixture : InstrCheckData :=
+  { goodFixture with
+    label := "self_test_port_io"
+    memoryUops :=
+      [{ mnemonic := "IN.load", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 4 }]
+    derivedMemoryUops := []
+    hasMemAccesses := false }
 
 /- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p4-blocking-make-per-instruction-validation-obligations-mandatory-and-visible -/
 /-- The prerequisites document's own mutation probe, restated as data: identity semantics
@@ -414,7 +507,10 @@ def runSelfTest : IO UInt32 := do
     ("empty_uops_and_zero_fuzz_flagged", emptyUopsAndZeroFuzzFixture, false),
     ("silicon_canfuzz_mismatch_flagged", siliconCanFuzzMismatchFixture, false),
     ("vacuous_nasm_reason_flagged", vacuousNasmReasonFixture, false),
-    ("vacuous_cost_reason_flagged", vacuousCostReasonFixture, false)
+    ("vacuous_cost_reason_flagged", vacuousCostReasonFixture, false),
+    ("mem_derivation_match_passes_clean", memDerivationMatchFixture, true),
+    ("mem_derivation_mismatch_flagged", memDerivationMismatchFixture, false),
+    ("port_io_unaffected_passes_clean", portIOUnaffectedFixture, true)
   ]
 
   let mut allOk := true

@@ -18,6 +18,7 @@ import Lean
 import Gasm.Core.Types
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Instructions.Base
+import Gasm.Targets.X86_64.MemCostModel
 
 namespace Gasm.Targets.X86_64.Instructions
 
@@ -30,6 +31,16 @@ structure CallRipRel where
   disp : Int32
   deriving DecidableEq, Repr, Inhabited
 
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- `CallRipRel`'s declared memory accesses (TWO: the indirect target load, then the return-
+    address push), hoisted to a top-level `def` and shared by both `memAccesses` and `toUops`
+    below (via `memUops`) -- see `Mov.lean`'s `movRspDispByteAccesses` doc comment for why.
+    `targetIat` is RIP-relative (base := none): `disp` folds in the instruction's own fixed
+    6-byte encoded length so evaluating against the pre-step state (which still has the
+    *current*, not next, rip) yields the same address `step` computes. -/
+@[simp] def callRipRelAccesses (i : CallRipRel) : List MemAccessSpec :=
+  [⟨.load, .w64, ⟨none, none, 6 + signExtend32To64 i.disp⟩⟩, ⟨.store, .w64, ⟨some .rsp, none, -8⟩⟩]
+
 /- REF: intel-sdm#vol=2;instr=CALL;part=operation -/
 instance : X86_64Instruction CallRipRel where
   encode i :=
@@ -41,10 +52,11 @@ instance : X86_64Instruction CallRipRel where
     let targetFunc := s.read64 targetIat
     { (s.push64 nextRip) with rip := targetFunc }
 
-  toUops _ := [
-    { mnemonic := "CALL.loadTarget", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 4, reciprocalThroughput := 0.5 },
-    { mnemonic := "CALL.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
-    { mnemonic := "CALL.storeData", uopClass := .storeData, eligiblePorts := [.p4, .p9], latencyCycles := 1, reciprocalThroughput := 0.5 },
+  -- The derived memory uops (load the indirect target, then store the return address) precede
+  -- the hand-written `.branch` uop, matching the pre-migration literal's order and
+  -- `callRipRelAccesses`'s own [load, store] order (`derivedMemUops` preserves declaration
+  -- order: memUops(load) ++ memUops(store) = [loadUop, storeAddrUop, storeDataUop]).
+  toUops i := derivedMemUops (callRipRelAccesses i) defaultMemCostModel ++ [
     { mnemonic := "CALL.branch", uopClass := .branch, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }
   ]
   toNASM i := s!"call [rel $+6 {formatDisp32 i.disp}]"
@@ -54,16 +66,20 @@ instance : X86_64Instruction CallRipRel where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map CallRipRel.mk
-  -- `targetIat` is RIP-relative (base := none), not register-relative: `disp` folds in the
-  -- instruction's own fixed 6-byte encoded length so evaluating against the pre-step state
-  -- (which still has the *current*, not next, rip) yields the same address `step` computes.
-  memAccesses i := [⟨.load, .w64, ⟨none, none, 6 + signExtend32To64 i.disp⟩⟩, ⟨.store, .w64, ⟨some .rsp, none, -8⟩⟩]
+  memAccesses := callRipRelAccesses
 
 /- REF: intel-sdm#vol=2;instr=CALL;part=description -/
 /-- CALL rel32 instruction: direct near relative call. -/
 structure CallRel32 where
   disp : Int32
   deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- `CallRel32`'s declared memory access, hoisted to a top-level `def` and shared by both
+    `memAccesses` and `toUops` below (via `memUops`) -- see `Mov.lean`'s
+    `movRspDispByteAccesses` doc comment for why. -/
+@[simp] def callRel32Accesses (_ : CallRel32) : List MemAccessSpec :=
+  [⟨.store, .w64, ⟨some .rsp, none, -8⟩⟩]
 
 /- REF: intel-sdm#vol=2;instr=CALL;part=operation -/
 instance : X86_64Instruction CallRel32 where
@@ -75,9 +91,7 @@ instance : X86_64Instruction CallRel32 where
     let target := nextRip + signExtend32To64 i.disp
     { (s.push64 nextRip) with rip := target }
 
-  toUops _ := [
-    { mnemonic := "CALL.storeAddr", uopClass := .storeAddr, eligiblePorts := [.p2, .p3, .p7, .p8], latencyCycles := 1, reciprocalThroughput := 0.5 },
-    { mnemonic := "CALL.storeData", uopClass := .storeData, eligiblePorts := [.p4, .p9], latencyCycles := 1, reciprocalThroughput := 0.5 },
+  toUops i := derivedMemUops (callRel32Accesses i) defaultMemCostModel ++ [
     { mnemonic := "CALL.branch", uopClass := .branch, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }
   ]
   -- `$+5` is load-bearing, not decorative (found via P4(a)'s registry-derived encoding fuzzer,
@@ -99,7 +113,7 @@ instance : X86_64Instruction CallRel32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map CallRel32.mk
-  memAccesses _ := [⟨.store, .w64, ⟨some .rsp, none, -8⟩⟩]
+  memAccesses := callRel32Accesses
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- CALL [RIP + disp32] helper. -/
