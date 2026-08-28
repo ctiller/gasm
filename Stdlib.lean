@@ -19,6 +19,7 @@ import Stdlib.SmolAlloc.Windows
 import Stdlib.SmolAlloc.Program
 import Stdlib.SmolAlloc.Equivalence
 
+import Stdlib.Zlib.ByteArrayBridge
 import Stdlib.Zlib.CRC32
 import Stdlib.Zlib.Adler32
 import Stdlib.Zlib.Huffman

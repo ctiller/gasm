@@ -68,6 +68,18 @@ Given symbol bit lengths $L[0 \dots N-1]$:
    $$\text{code} = (\text{code} + \text{bl\_count}[\text{len}-1]) \ll 1$$
 3. Assign sequential codes to all active symbols with bit length $\ge 1$.
 
+### 3.1.1 Length-Limited Code Length Computation (Encoder Side)
+For dynamic-Huffman (BTYPE=10) block emission, per-block code lengths are computed from symbol
+frequencies by the package-merge (coin-collector) algorithm (`packageMergeLengths`): build
+`maxBits` levels of packaged-then-merged weight-sorted lists over the leaves, take the first
+$2n - 2$ items of the final list, and read each symbol's code length off as its occurrence count
+among the taken items. This yields lengths $\le$ `maxBits` (15 for the literal/length and distance
+alphabets, 7 for the code-length alphabet) satisfying the Kraft equality — a complete prefix
+code — for any $n \ge 2$ leaf distribution. Frequency arrays are padded to at least two nonzero
+entries (`padFrequencies`, mirroring zlib `trees.c`), so every transmitted tree is complete.
+Encoding tables are then produced by the same `buildHuffmanTable` §3.1 describes, which the
+decoder also applies to the transmitted lengths — encoder and decoder agree by construction.
+
 ### 3.2 Fixed Huffman Tables (RFC 1951 §3.2.6)
 - **Literal/Length Alphabet (0–287)**:
   - Symbols 0–143: 8 bits (`00110000` through `10111111`, values 48–191).
@@ -92,6 +104,15 @@ Given symbol bit lengths $L[0 \dots N-1]$:
   - `01`: Compressed with Fixed Huffman codes.
   - `10`: Compressed with Dynamic Huffman codes.
   - `11`: Reserved / Error.
+- **Encoder block selection**: `compress` tokenizes the input once (greedy LZ77 via
+  `tokenize`, each candidate back-reference certified by the total `matchValid` predicate —
+  the `findLongestMatch` search itself stays an untrusted heuristic), then chooses between one
+  final fixed-Huffman block and one final dynamic-Huffman block by exact bit-cost comparison
+  (`dynPlanBitCost` vs `fixedBitCost`; ties favor fixed). The dynamic path (`buildDynPlan`,
+  `emitDynamicBlock`) transmits the RFC 1951 §3.2.7 HLIT/HDIST/HCLEN header, the
+  code-length-alphabet lengths in the §3.2.7 permutation order, and the run-length-encoded
+  code-length sequence using symbols 16 (repeat previous 3–6), 17 (zeros 3–10), and
+  18 (zeros 11–138). `compressFixed` (the assembly-engine twin) remains fixed-Huffman-only.
 
 ---
 
@@ -149,3 +170,22 @@ theorem gzip_idempotent_canonical_roundtrip (bytes : ByteArray) :
   | none => True
   | some data => Gzip.decompress (Gzip.compress data) = some data
 ```
+
+### 6.4 LZ77 Token-Layer Roundtrip Soundness
+The LZ77 layer of the DEFLATE roundtrip — below Huffman coding and bitstream framing — is
+proven universally and kernel-checked (no `native_decide`): for every input, the greedy
+tokenizer's output (literals plus certified back-references, including self-overlapping
+RFC 1951 §3.2.3 matches with `dist < len`) expands back to exactly the input under the
+reference token decoder, whose copy loop is byte-for-byte the semantics of
+`decodeHuffmanStream`'s match-copy loop:
+
+```lean
+theorem lz77_roundtrip_soundness (data : ByteArray) :
+  expandTokens (tokenize data) = data
+```
+
+This is the L3 (match certificate) + L4 (self-overlapping copy induction) + token-level L5
+content of the PA16 decomposition (`docs/PA16_CODEC_SOUNDNESS.md` §4), stated over total
+functions only; the remaining distance to the full `deflate_roundtrip_soundness` in §6.2 is
+the Huffman/bitstream layer, which is blocked on PA16 P0 (the decoder's `partial def`
+conversion).

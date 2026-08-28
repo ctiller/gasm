@@ -389,48 +389,355 @@ def findLongestMatch (data : ByteArray) (pos : Nat) (maxLookback : Nat := 32768)
     if bestLen >= 3 then (bestLen, bestDist) else (0, 0)
 
 /- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
-/-- Core RFC 1951 DEFLATE compressor (emits Fixed Huffman BTYPE=01 compressed blocks with LZ77). -/
-def compress (data : ByteArray) : ByteArray :=
-  Id.run do
-    let mut w : BitWriter := {}
-    -- BFINAL = 1 (1 bit)
-    w := writeBits w 1 1
-    -- BTYPE = 01 (Fixed Huffman, 2 bits -> value 1)
-    w := writeBits w 1 2
+/-- An LZ77 token: either a literal byte or a (length, distance) back-reference. -/
+inductive LZToken where
+  | lit (b : UInt8)
+  | ref (len dist : Nat)
+  deriving Repr, DecidableEq, Inhabited
 
-    let total := data.size
-    let mut pos := 0
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Certifies a candidate LZ77 back-reference at `pos`: RFC 1951 length/distance ranges,
+    in-bounds source window, and byte-for-byte agreement of the referenced span with the data
+    it claims to repeat. `data.get! (pos - dist + i)` with `i` possibly `≥ dist` is exactly
+    the decoder's self-overlapping copy semantics (RFC 1951 §3.2.3, "the referenced string
+    may overlap the current position"). The match *search* (`findLongestMatch`) is an
+    untrusted heuristic; this total checker is what the tokenizer actually relies on, so a
+    future roundtrip proof needs only this predicate, never the search's internals. -/
+def matchValid (data : ByteArray) (pos len dist : Nat) : Bool :=
+  3 ≤ len && len ≤ 258 && 1 ≤ dist && dist ≤ 32768 && dist ≤ pos &&
+  pos + len ≤ data.size &&
+  (List.range len).all (fun i => data.get! (pos - dist + i) == data.get! (pos + i))
 
-    while pos < total do
-      let (matchLen, matchDist) := findLongestMatch data pos 32768 128
-      if matchLen >= 3 then
-        -- 1. Emit Length Code + extra bits
-        let (lenCode, lenExtraBits, lenExtraVal) := encodeLength matchLen
-        let (code, bitLen) := match fixedLitLenTable.codes[lenCode]! with | some p => p | none => (0, 8)
-        w := writeBits w (reverseBits code bitLen) bitLen
-        if lenExtraBits > 0 then
-          w := writeBits w lenExtraVal lenExtraBits
-
-        -- 2. Emit Distance Code + extra bits
-        let (distCode, distExtraBits, distExtraVal) := encodeDistance matchDist
-        let (dCode, dBitLen) := match fixedDistTable.codes[distCode]! with | some p => p | none => (0, 5)
-        w := writeBits w (reverseBits dCode dBitLen) dBitLen
-        if distExtraBits > 0 then
-          w := writeBits w distExtraVal distExtraBits
-
-        pos := pos + matchLen
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Greedy LZ77 tokenizer worker: at each position take the longest *certified* match
+    (falling back to a literal when the search returns nothing certifiable). Structural
+    recursion on `fuel` — never `partial`/`while` — so equation lemmas exist for future
+    proofs. Every step advances `pos` by at least 1, so `fuel = data.size` always suffices. -/
+def tokenizeAux (data : ByteArray) : Nat → Nat → Array LZToken → Array LZToken
+  | 0, _, acc => acc
+  | fuel + 1, pos, acc =>
+    if pos < data.size then
+      let m := findLongestMatch data pos 32768 128
+      if 3 ≤ m.1 ∧ matchValid data pos m.1 m.2 = true then
+        tokenizeAux data fuel (pos + m.1) (acc.push (.ref m.1 m.2))
       else
-        -- Literal byte (0..255)
-        let b := (data.get! pos).toNat
-        let (code, bitLen) := match fixedLitLenTable.codes[b]! with | some p => p | none => (0, 8)
-        w := writeBits w (reverseBits code bitLen) bitLen
-        pos := pos + 1
+        tokenizeAux data fuel (pos + 1) (acc.push (.lit (data.get! pos)))
+    else acc
 
-    -- End of block (symbol 256)
-    let eobCode := reverseBits 0 7
-    w := writeBits w eobCode 7
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Greedy LZ77 tokenization of an entire input buffer. -/
+def tokenize (data : ByteArray) : Array LZToken :=
+  tokenizeAux data data.size 0 #[]
 
-    flushBitWriter w
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Reference token-layer back-reference copy: append `len` bytes read `dist` positions back,
+    one at a time — byte-for-byte the self-overlap semantics of `decodeHuffmanStream`'s
+    RFC 1951 §3.2.3 match-copy loop, as a total structural recursion the kernel can induct
+    on. -/
+def lzCopy (dist : Nat) : Nat → ByteArray → ByteArray
+  | 0, out => out
+  | k + 1, out => lzCopy dist k (out.push (out.get! (out.size - dist)))
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Reference token-layer decode of a single LZ77 token onto an output accumulator. -/
+def expandToken (out : ByteArray) : LZToken → ByteArray
+  | .lit b => out.push b
+  | .ref len dist => lzCopy dist len out
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Reference token-layer decode of an LZ77 token stream from an empty accumulator. This is
+    the layer of `decompress` below Huffman coding and bitstream framing; `Stdlib/Zlib/
+    Equivalence.lean`'s `lz77_roundtrip_soundness` proves `∀ data, expandTokens (tokenize
+    data) = data` — the LZ77 half of the PA16 roundtrip decomposition. -/
+def expandTokens (tokens : Array LZToken) : ByteArray :=
+  tokens.foldl expandToken ByteArray.empty
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Counts literal/length-symbol and distance-symbol frequencies of a token stream,
+    including the mandatory end-of-block symbol 256 (RFC 1951 §3.2.6). -/
+def tokenFrequencies (tokens : Array LZToken) : Array Nat × Array Nat :=
+  Id.run do
+    let mut litFreq : Array Nat := Array.replicate 286 0
+    let mut distFreq : Array Nat := Array.replicate 30 0
+    for t in tokens do
+      match t with
+      | .lit b =>
+        litFreq := litFreq.set! b.toNat (litFreq[b.toNat]! + 1)
+      | .ref len dist =>
+        let (lenCode, _, _) := encodeLength len
+        litFreq := litFreq.set! lenCode (litFreq[lenCode]! + 1)
+        let (distCode, _, _) := encodeDistance dist
+        distFreq := distFreq.set! distCode (distFreq[distCode]! + 1)
+    litFreq := litFreq.set! 256 (litFreq[256]! + 1)
+    return (litFreq, distFreq)
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- A package-merge working item: total weight plus the leaf symbols merged into it. -/
+structure PMNode where
+  weight : Nat
+  syms   : List Nat
+  deriving Repr, Inhabited
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Pairs adjacent items of a weight-sorted list into packages (odd trailing item dropped),
+    the "package" step of the package-merge length-limited coding algorithm. -/
+def pmPackage : List PMNode → List PMNode
+  | a :: b :: rest => { weight := a.weight + b.weight, syms := a.syms ++ b.syms } :: pmPackage rest
+  | _ => []
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Stable merge of two weight-sorted lists, the "merge" step of package-merge. -/
+def pmMerge : List PMNode → List PMNode → List PMNode
+  | [], ys => ys
+  | x :: xs, [] => x :: xs
+  | x :: xs, y :: ys =>
+    if x.weight ≤ y.weight then x :: pmMerge xs (y :: ys)
+    else y :: pmMerge (x :: xs) ys
+termination_by xs ys => xs.length + ys.length
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Length-limited Huffman code lengths via the package-merge (coin-collector) algorithm:
+    build `maxBits` levels of packaged+merged lists over the weight-sorted leaves, take the
+    first `2n - 2` items of the final list, and read each symbol's code length off as its
+    number of occurrences among the taken items. Produces lengths `≤ maxBits` satisfying the
+    Kraft equality (a complete prefix code) for any `n ≥ 2` leaf distribution with
+    `2 ^ maxBits ≥ n`; a single-leaf distribution is assigned length 1. -/
+def packageMergeLengths (freqs : Array Nat) (maxBits : Nat) : Array Nat :=
+  let leaves : List PMNode := (List.range freqs.size).filterMap fun s =>
+    if freqs[s]! > 0 then some { weight := freqs[s]!, syms := [s] } else none
+  let leaves := leaves.mergeSort (fun a b => a.weight ≤ b.weight)
+  match leaves with
+  | [] => Array.replicate freqs.size 0
+  | [only] => (Array.replicate freqs.size 0).set! (only.syms.headD 0) 1
+  | _ =>
+    let n := leaves.length
+    let final := (List.range (maxBits - 1)).foldl
+      (fun cur _ => pmMerge leaves (pmPackage cur)) leaves
+    let solution := final.take (2 * n - 2)
+    Id.run do
+      let mut lengths := Array.replicate freqs.size 0
+      for item in solution do
+        for s in item.syms do
+          lengths := lengths.set! s (lengths[s]! + 1)
+      return lengths
+
+/- REF: docs/STDLIB_ZLIB.md#31-canonical-huffman-code-generation -/
+/-- Ensures a frequency array has at least two nonzero entries by bumping the smallest-index
+    unused symbols. Mirrors zlib `trees.c`'s `build_tree` invariant: every transmitted tree
+    has ≥ 2 codes, so both the literal/length and distance trees are always *complete*
+    (Kraft equality) — the shape every RFC 1951 inflater accepts unconditionally. -/
+def padFrequencies (freqs : Array Nat) : Array Nat :=
+  Id.run do
+    let mut f := freqs
+    let mut nonzero := 0
+    for i in [0:f.size] do
+      if f[i]! > 0 then nonzero := nonzero + 1
+    for j in [0:f.size] do
+      if nonzero < 2 && f[j]! == 0 then
+        f := f.set! j 1
+        nonzero := nonzero + 1
+    return f
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Splits a list into maximal runs of equal values, as `(value, count)` pairs. -/
+def runLengthsAux (v : Nat) (cnt : Nat) : List Nat → List (Nat × Nat)
+  | [] => [(v, cnt)]
+  | x :: xs => if x == v then runLengthsAux v (cnt + 1) xs else (v, cnt) :: runLengthsAux x 1 xs
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Splits a list into maximal runs of equal values, as `(value, count)` pairs. -/
+def runLengths : List Nat → List (Nat × Nat)
+  | [] => []
+  | x :: xs => runLengthsAux x 1 xs
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Encodes a run of `cnt` zero code lengths into RFC 1951 §3.2.7 code-length-alphabet
+    symbols: 18 (repeat zero 11–138, 7 extra bits), 17 (repeat zero 3–10, 3 extra bits),
+    or bare zeros. Each element is `(clenSymbol, extraBitCount, extraBitValue)`. -/
+def encodeZeroRun (cnt : Nat) : List (Nat × Nat × Nat) :=
+  if cnt ≥ 11 then
+    let k := min cnt 138
+    (18, 7, k - 11) :: encodeZeroRun (cnt - k)
+  else if cnt ≥ 3 then [(17, 3, cnt - 3)]
+  else List.replicate cnt (0, 0, 0)
+termination_by cnt
+decreasing_by omega
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Encodes `cnt` repeats of the *previous* (already-emitted) nonzero code length using
+    symbol 16 (copy previous 3–6 times, 2 extra bits), falling back to bare literals. -/
+def encodeRepeatRun (v : Nat) (cnt : Nat) : List (Nat × Nat × Nat) :=
+  if cnt ≥ 3 then
+    let k := min cnt 6
+    (16, 2, k - 3) :: encodeRepeatRun v (cnt - k)
+  else List.replicate cnt (v, 0, 0)
+termination_by cnt
+decreasing_by omega
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Run-length encodes the concatenated literal/length + distance code-length sequence into
+    the RFC 1951 §3.2.7 code length alphabet (symbols 0–18 with their extra bits). -/
+def rleCodeLengths (lengths : List Nat) : List (Nat × Nat × Nat) :=
+  (runLengths lengths).flatMap fun (v, cnt) =>
+    if v == 0 then encodeZeroRun cnt
+    else (v, 0, 0) :: encodeRepeatRun v (cnt - 1)
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Exact bit cost of one token under given literal/length and distance code-length arrays. -/
+def tokenBitCost (litLen distLen : Array Nat) (t : LZToken) : Nat :=
+  match t with
+  | .lit b => litLen[b.toNat]!
+  | .ref len dist =>
+    let (lenCode, lenEB, _) := encodeLength len
+    let (distCode, distEB, _) := encodeDistance dist
+    litLen[lenCode]! + lenEB + distLen[distCode]! + distEB
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Everything needed to emit (or cost) one dynamic-Huffman (BTYPE=10) block. -/
+structure DynPlan where
+  litLengths  : Array Nat
+  distLengths : Array Nat
+  clenLengths : Array Nat
+  rleTokens   : List (Nat × Nat × Nat)
+  hlit        : Nat
+  hdist       : Nat
+  hclen       : Nat
+  deriving Repr, Inhabited
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Index of the last nonzero entry plus one, floored at `atLeast`. -/
+def trimmedSize (arr : Array Nat) (atLeast : Nat) : Nat :=
+  Id.run do
+    let mut n := atLeast
+    for i in [0:arr.size] do
+      if arr[i]! > 0 then n := max n (i + 1)
+    return n
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Builds the dynamic-Huffman block plan for a token stream: package-merge code lengths for
+    the literal/length (≤ 15 bits) and distance (≤ 15 bits) alphabets, the RLE'd code-length
+    sequence, code lengths for the code-length alphabet itself (≤ 7 bits), and the
+    HLIT/HDIST/HCLEN header counts (RFC 1951 §3.2.7). -/
+def buildDynPlan (tokens : Array LZToken) : DynPlan :=
+  let (litFreqRaw, distFreqRaw) := tokenFrequencies tokens
+  let litFreq := padFrequencies litFreqRaw
+  let distFreq := padFrequencies distFreqRaw
+  let litLengths := packageMergeLengths litFreq 15
+  let distLengths := packageMergeLengths distFreq 15
+  let hlit := trimmedSize litLengths 257
+  let hdist := trimmedSize distLengths 1
+  let rleTokens := rleCodeLengths
+    ((litLengths.toList.take hlit) ++ (distLengths.toList.take hdist))
+  let clenFreq := Id.run do
+    let mut f : Array Nat := Array.replicate 19 0
+    for (sym, _, _) in rleTokens do
+      f := f.set! sym (f[sym]! + 1)
+    return f
+  let clenLengths := packageMergeLengths (padFrequencies clenFreq) 7
+  let hclen := Id.run do
+    let mut n := 4
+    for i in [0:19] do
+      if clenLengths[clenOrder[i]!]! > 0 then n := max n (i + 1)
+    return n
+  { litLengths, distLengths, clenLengths, rleTokens, hlit, hdist, hclen }
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Exact total bit cost of the dynamic block for this plan and token stream:
+    3 header bits + 14 count bits + 3·HCLEN code-length-length bits + RLE symbols with their
+    extra bits + token payload + the end-of-block symbol. -/
+def dynPlanBitCost (plan : DynPlan) (tokens : Array LZToken) : Nat :=
+  let headerBits := 3 + 14 + 3 * plan.hclen
+  let rleBits := plan.rleTokens.foldl
+    (fun acc (sym, eb, _) => acc + plan.clenLengths[sym]! + eb) 0
+  let payloadBits := tokens.foldl
+    (fun acc t => acc + tokenBitCost plan.litLengths plan.distLengths t) 0
+  headerBits + rleBits + payloadBits + plan.litLengths[256]!
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Exact total bit cost of the fixed-Huffman (BTYPE=01) encoding of a token stream:
+    3 header bits + token payload under the RFC 1951 §3.2.6 fixed code + 7-bit end-of-block. -/
+def fixedBitCost (tokens : Array LZToken) : Nat :=
+  3 + tokens.foldl
+    (fun acc t => acc + tokenBitCost fixedLitLenLengths fixedDistLengths t) 0 + 7
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Emits one Huffman-coded symbol (canonical code bit-reversed for LSB-first packing).
+    A symbol absent from the table is a plan-construction bug; it emits nothing, which the
+    differential fuzzers detect as a corrupt stream rather than masking silently. -/
+def emitHuffSymbol (w : BitWriter) (table : HuffmanTable) (sym : Nat) : BitWriter :=
+  match table.codes[sym]! with
+  | some (code, len) => writeBits w (reverseBits code len) len
+  | none => w
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Emits one LZ77 token under the given literal/length and distance Huffman tables. -/
+def emitToken (litTable distTable : HuffmanTable) (w : BitWriter) (t : LZToken) : BitWriter :=
+  match t with
+  | .lit b => emitHuffSymbol w litTable b.toNat
+  | .ref len dist =>
+    let (lenCode, lenEB, lenEV) := encodeLength len
+    let w := emitHuffSymbol w litTable lenCode
+    let w := if lenEB > 0 then writeBits w lenEV lenEB else w
+    let (distCode, distEB, distEV) := encodeDistance dist
+    let w := emitHuffSymbol w distTable distCode
+    if distEB > 0 then writeBits w distEV distEB else w
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Emits a complete token stream followed by the end-of-block symbol 256. -/
+def emitTokens (litTable distTable : HuffmanTable) (w : BitWriter) (tokens : Array LZToken) : BitWriter :=
+  let w := tokens.foldl (emitToken litTable distTable) w
+  emitHuffSymbol w litTable 256
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Emits a final (BFINAL=1) fixed-Huffman block (BTYPE=01) for a token stream. -/
+def emitFixedBlock (tokens : Array LZToken) : BitWriter :=
+  let w : BitWriter := {}
+  let w := writeBits w 1 1
+  let w := writeBits w 1 2
+  emitTokens fixedLitLenTable fixedDistTable w tokens
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Emits a final (BFINAL=1) dynamic-Huffman block (BTYPE=10): HLIT/HDIST/HCLEN counts, the
+    code-length-alphabet lengths in `clenOrder` permutation, the RLE'd code-length sequence
+    under the code-length code, then the token payload under the transmitted tables. The
+    encoding tables are built by the *same* `buildHuffmanTable` the decoder uses on the
+    transmitted lengths, so encoder and decoder agree by construction. -/
+def emitDynamicBlock (plan : DynPlan) (tokens : Array LZToken) : BitWriter :=
+  let w : BitWriter := {}
+  let w := writeBits w 1 1
+  let w := writeBits w 2 2
+  let w := writeBits w (plan.hlit - 257) 5
+  let w := writeBits w (plan.hdist - 1) 5
+  let w := writeBits w (plan.hclen - 4) 4
+  let w := (List.range plan.hclen).foldl
+    (fun w i => writeBits w plan.clenLengths[clenOrder[i]!]! 3) w
+  let clenTable := buildHuffmanTable plan.clenLengths 7
+  let w := plan.rleTokens.foldl
+    (fun w (sym, eb, ev) =>
+      let w := emitHuffSymbol w clenTable sym
+      if eb > 0 then writeBits w ev eb else w) w
+  let litTable := buildHuffmanTable plan.litLengths 15
+  let distTable := buildHuffmanTable plan.distLengths 15
+  emitTokens litTable distTable w tokens
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Core RFC 1951 DEFLATE compressor: LZ77 tokenization once, then per-stream selection
+    between a fixed-Huffman (BTYPE=01) and a dynamic-Huffman (BTYPE=10) final block by
+    exact bit-cost comparison (ties favor fixed, preserving the historical output on inputs
+    where dynamic cannot win). Returns the chosen encoding and whether dynamic was used. -/
+def compressPlan (data : ByteArray) : Bool × ByteArray :=
+  let tokens := tokenize data
+  let plan := buildDynPlan tokens
+  if dynPlanBitCost plan tokens < fixedBitCost tokens then
+    (true, flushBitWriter (emitDynamicBlock plan tokens))
+  else
+    (false, flushBitWriter (emitFixedBlock tokens))
+
+/- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
+/-- Core RFC 1951 DEFLATE compressor (emits a single final Fixed or Dynamic Huffman
+    compressed block with LZ77, whichever is smaller in exact bit cost). -/
+def compress (data : ByteArray) : ByteArray :=
+  (compressPlan data).2
 
 /- REF: docs/STDLIB_ZLIB.md#4-deflate-bitstream-engine-rfc-1951 -/
 /-- Pure RFC 1951 Fixed Huffman block compressor matching assembly machine code engine. -/

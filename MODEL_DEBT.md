@@ -100,6 +100,28 @@ exactly the class of "proof describes a machine no engine implements" risk B7 na
 Forcing function: any task that feeds `decompress`/`zlibDecompress`/`gzipDecompress`/
 `decodeImageRGBA8` a stream not produced by this codebase's own compressor (differential fuzzing
 against a real zlib/libdeflate, or decoding real-world PNGs, would both surface it immediately).
+**UPDATED 2026-08-27 (dynamic-Huffman encoder pass), two parts:** *(1) Correction to the original
+claim's strength.* "Unexercised by anything — no fuzzer" was too strong even when written: the
+grep finding (no *direct* reference to either function outside `Deflate.lean`) was and is true,
+but `lake exe gzip_fuzzer`'s Direction 2 has all along piped CPython `gzip.compress` output —
+which emits dynamic-Huffman blocks for compressible input and stored blocks for high-entropy
+input — into `Stdlib.Gzip.decompress` → `Stdlib.Zlib.decompress`, reaching both branches through
+`decompress`'s own dispatch. So both paths had indirect randomized differential coverage; what
+they had none of was direct/deterministic tests or proofs. *(2) Status change.* `compress` now
+emits BTYPE=10 dynamic-Huffman blocks whenever exact bit cost favors them
+(`Stdlib/Zlib/Deflate.lean`'s `compressPlan`), so `decodeDynamicTables` is now exercised
+deterministically in-tree: `test_zlib`'s `testDynamicHuffman` hard-fails if the dynamic block is
+not chosen and decoded, and `gzip_fuzzer`'s Direction 3 cross-checks every vector's
+fixed-or-dynamic DEFLATE output against CPython `zlib` (raw and container wbits) under a
+both-block-types-exercised vacuity floor (observed 55 dynamic / 53 fixed on `--count 100`).
+**What remains open of B10:** `decodeStoredBlock` still has only the indirect probabilistic
+coverage described in (1) — no in-tree encoder path reaches it (`gzipCompressStored` writes its
+stored block inline and is itself uncalled); and decoder *conformance* (correctly decoding any
+foreign valid RFC 1951 stream — malformed-input rejection, over-subscribed/incomplete foreign
+code sets, multi-block framing beyond what Python's encoder happens to emit) remains unproven and
+largely untested, exactly as the original entry states. The roundtrip theorem PA16 targets now
+covers dynamic-table construction *on the encoder's own output* once proven, but still says
+nothing about foreign streams.
 
 **B9. Wasm: large ISA and validation gaps.** Absent: all f32/f64 (declared in `ValType`, zero instructions), all *signed* ops (`div_s`, `rem_s`, `lt_s`, `shr_s` …), `clz/ctz/popcnt/rotl/rotr`, sub-width loads/stores beyond `load8_u`/`store8`, `br_table`, `call_indirect`/tables, multi-value, and function calls proper (`.call idx` is delegated wholesale to the host hook, `Semantics.lean:369`). `global_get`/`global_set` exist in the AST (`AST.lean:29-30`) with **no semantics and no globals in the machine state** — they fall through `| _ => (s, .next)` (`Semantics.lean:393`) as silent no-ops. There is no validator: `popI32` on a type mismatch returns `0` (`Semantics.lean:44-47`) rather than rejecting.
 

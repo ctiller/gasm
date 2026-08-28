@@ -87,6 +87,36 @@ def testDeflate : IO Unit := do
 
   IO.println "    ✓ RFC 1951 DEFLATE roundtrips passed (Empty, Binary, Text)."
 
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Test runner verifying the dynamic-Huffman (BTYPE=10) encode path is genuinely chosen
+    and decoded: asserts the exact-bit-cost heuristic picks the dynamic block on a
+    dynamic-favorable vector (so `decodeDynamicTables` is actually exercised, not
+    vacuously skipped), picks the fixed block on a fixed-favorable vector, and that both
+    roundtrip through the fully general `decompress`. -/
+def testDynamicHuffman : IO Unit := do
+  IO.println "[+] Testing RFC 1951 Dynamic Huffman (BTYPE=10) Encode/Decode Path..."
+  -- A skewed-alphabet repetitive vector: dynamic tables beat the fixed code here.
+  let mut skewed := ByteArray.empty
+  for i in [0:4096] do
+    skewed := skewed.push ((i % 17).toUInt8)
+  let (usedDyn, dynStream) := compressPlan skewed
+  if !usedDyn then
+    throw (IO.userError "Dynamic-favorable vector did not select the dynamic-Huffman block — decodeDynamicTables would go unexercised (vacuity)")
+  let dynInflated ← match decompress dynStream with
+    | Except.ok res => pure res
+    | Except.error e => throw (IO.userError s!"Dynamic block DEFLATE decomp error: {repr e}")
+  if dynInflated != skewed then throw (IO.userError "Dynamic block DEFLATE roundtrip mismatch")
+  -- A tiny vector: the ~dozens-of-bytes dynamic header can never win; fixed must be chosen.
+  let tiny := "Hi".toUTF8
+  let (usedDynTiny, tinyStream) := compressPlan tiny
+  if usedDynTiny then
+    throw (IO.userError "Tiny vector unexpectedly selected the dynamic-Huffman block")
+  let tinyInflated ← match decompress tinyStream with
+    | Except.ok res => pure res
+    | Except.error e => throw (IO.userError s!"Fixed block DEFLATE decomp error: {repr e}")
+  if tinyInflated != tiny then throw (IO.userError "Fixed block DEFLATE roundtrip mismatch")
+  IO.println s!"    ✓ Dynamic-Huffman block chosen ({dynStream.size} bytes for 4096) and decoded; fixed path preserved."
+
 /- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
 /-- Test runner verifying RFC 1950 ZLIB container roundtrips with Adler-32 validation. -/
 def testZlibContainer : IO Unit := do
@@ -124,6 +154,7 @@ def main : IO UInt32 := do
     testCrc32
     testAdler32
     testDeflate
+    testDynamicHuffman
     testZlibContainer
     testGzipContainer
     IO.println "\n[+] ALL STDLIB.ZLIB TESTS PASSED (100% SUCCESS)."

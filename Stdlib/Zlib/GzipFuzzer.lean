@@ -16,6 +16,7 @@ limitations under the License.
 
 import Lean
 import Stdlib.Gzip
+import Stdlib.Zlib.Spec
 
 namespace Stdlib.Zlib
 
@@ -174,6 +175,70 @@ def runOracleGzip (pythonPath : String) (rawBytes : ByteArray) (tmpPrefix : Stri
   removeTmpFile tmpGz
   return result
 
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Invokes the public Python standard library zlib oracle to inflate a gasm-produced
+    DEFLATE bitstream: `wbitsRaw = true` decodes a raw RFC 1951 stream (`wbits = -15`),
+    `false` decodes an RFC 1950 zlib container (`wbits = 15`). This is the direct
+    conformance oracle for `Stdlib.Zlib.compress`'s fixed- AND dynamic-Huffman block
+    emission — CPython's `zlib` is real-world inflate, so acceptance here is evidence the
+    encoder emits conformant DEFLATE, not merely streams our own decoder tolerates.
+    Fails loudly with the subprocess's captured stderr on any oracle malfunction and always
+    cleans up its temporary files. -/
+def runOracleInflate (pythonPath : String) (compBytes : ByteArray) (wbitsRaw : Bool)
+    (tmpPrefix : String := ".tmp_gasm_inflate") : IO (Except String ByteArray) := do
+  let tmpIn := s!"{tmpPrefix}.bin"
+  let tmpOut := s!"{tmpPrefix}.out"
+  IO.FS.writeBinFile tmpIn compBytes
+  let wbits := if wbitsRaw then "-15" else "15"
+  let pyScript := s!"import zlib; d = zlib.decompressobj(wbits={wbits}); out = d.decompress(open('{tmpIn}', 'rb').read()) + d.flush(); assert d.eof, 'stream not terminated'; open('{tmpOut}', 'wb').write(out)"
+  let result ← try
+    let proc ← IO.Process.spawn {
+      cmd := pythonPath
+      args := #["-c", pyScript]
+      stdout := .piped
+      stderr := .piped
+    }
+    let exitCode ← proc.wait
+    if exitCode != 0 then
+      let stderrOut ← proc.stderr.readToEnd
+      pure (Except.error s!"Python zlib inflate oracle failed with exit code {exitCode}:\n{stderrOut}")
+    else
+      let outBytes ← IO.FS.readBinFile tmpOut
+      pure (Except.ok outBytes)
+  catch e =>
+    pure (Except.error s!"Python zlib inflate oracle subprocess could not be executed (interpreter '{pythonPath}'): {e}")
+  removeTmpFile tmpIn
+  removeTmpFile tmpOut
+  return result
+
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
+/-- Cross-checks one vector through `Stdlib.Zlib.compress` (raw RFC 1951, fixed-or-dynamic
+    block selected by exact bit cost) and `zlibCompress` (RFC 1950 container) against the
+    Python zlib oracle, plus the in-Lean `decompress` roundtrip — which exercises
+    `decodeDynamicTables` whenever the dynamic block was chosen. Returns whether the
+    dynamic-Huffman (BTYPE=10) block type was chosen for this vector so the caller can
+    enforce a both-paths-exercised vacuity floor. -/
+def crossCheckDeflate (pythonPath : String) (label : String) (raw : ByteArray) : IO Bool := do
+  let (usedDynamic, deflated) := compressPlan raw
+  let blockKind := if usedDynamic then "dynamic" else "fixed"
+  match ← runOracleInflate pythonPath deflated true with
+  | .error err => throw (IO.userError s!"[FAIL] {label}: gasm DEFLATE ({blockKind} block) -> Python zlib raw inflate failed: {err}")
+  | .ok out =>
+    if out != raw then
+      throw (IO.userError s!"[FAIL] {label}: gasm DEFLATE ({blockKind} block) -> Python zlib raw inflate content mismatch (expected {raw.size} bytes, got {out.size})")
+  let zc := zlibCompress raw
+  match ← runOracleInflate pythonPath zc false with
+  | .error err => throw (IO.userError s!"[FAIL] {label}: gasm zlibCompress ({blockKind} block) -> Python zlib inflate failed: {err}")
+  | .ok out =>
+    if out != raw then
+      throw (IO.userError s!"[FAIL] {label}: gasm zlibCompress ({blockKind} block) -> Python zlib inflate content mismatch")
+  match decompress deflated with
+  | .error e => throw (IO.userError s!"[FAIL] {label}: gasm decompress rejected gasm compress {blockKind}-block output: {repr e}")
+  | .ok out =>
+    if out != raw then
+      throw (IO.userError s!"[FAIL] {label}: gasm decompress(compress) {blockKind}-block content mismatch")
+  return usedDynamic
+
 /- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
 /-- Runs cross-differential fuzzing iterations in both directions against the Python
     `pythonPath` interpreter oracle. -/
@@ -200,6 +265,8 @@ def runGzipDifferentialFuzzer (pythonPath : String) (iterations : Nat := 100) (s
   ]
 
   let mut totalTested := 0
+  let mut dynChosen := 0
+  let mut fixChosen := 0
 
   -- 1. Test Fixed Edge Cases
   IO.println "  [*] Stage 1: Testing deterministic edge cases..."
@@ -223,9 +290,13 @@ def runGzipDifferentialFuzzer (pythonPath : String) (iterations : Nat := 100) (s
       | .ok gasmDecomp =>
         if gasmDecomp != raw then
           throw (IO.userError s!"[FAIL] Edge Case '{name}' oracle Gzip -> gasm Gunzip content mismatch!")
+
+    -- Direction 3: gasm DEFLATE/zlib (fixed-or-dynamic block) -> python zlib inflate
+    let usedDyn ← crossCheckDeflate pythonPath s!"Edge Case '{name}'" raw
+    if usedDyn then dynChosen := dynChosen + 1 else fixChosen := fixChosen + 1
     totalTested := totalTested + 1
 
-  IO.println s!"      ✓ All {edgeCases.length} edge cases passed both directions."
+  IO.println s!"      ✓ All {edgeCases.length} edge cases passed all directions."
 
   -- 2. Randomized Differential Fuzzing
   -- REF: docs/REVIEW.md#law-13-findings-become-gates-the-ratchet-law
@@ -271,11 +342,26 @@ def runGzipDifferentialFuzzer (pythonPath : String) (iterations : Nat := 100) (s
         if gasmDecomp != raw then
           throw (IO.userError s!"[FAIL Iter {iter}] Oracle Gzip -> Gasm Gunzip content mismatch on len {len} (pattern {pattern})")
 
+    -- Direction 3: gasm DEFLATE/zlib (fixed-or-dynamic block) -> python zlib inflate
+    let usedDyn ← crossCheckDeflate pythonPath s!"Iter {iter} (len {len}, pattern {pattern})" raw
+    if usedDyn then dynChosen := dynChosen + 1 else fixChosen := fixChosen + 1
+
     totalTested := totalTested + 1
     if (iter + 1) % 20 == 0 then
       IO.println s!"      [Progress] {iter + 1}/{iterations} iterations verified (100% bidirectional match)..."
 
+  -- Vacuity floor (Law 13(4) class): the corpus must actually exercise BOTH encoder block
+  -- types — a run in which compress never chose the dynamic-Huffman (or never chose the
+  -- fixed-Huffman) block would leave that path's conformance claims untested while still
+  -- printing a blanket success message below. The deterministic edge cases alone contain
+  -- vectors on both sides of the cost heuristic, so this floor is seed-independent.
+  if dynChosen == 0 then
+    throw (IO.userError "[VACUITY FLOOR TRIPPED] No test vector caused compress to choose a dynamic-Huffman (BTYPE=10) block; the dynamic encode path was never exercised — hard FAIL, not a clean PASS.")
+  if fixChosen == 0 then
+    throw (IO.userError "[VACUITY FLOOR TRIPPED] No test vector caused compress to choose a fixed-Huffman (BTYPE=01) block; the fixed encode path was never exercised — hard FAIL, not a clean PASS.")
+
   IO.println s!"\n[+] GZIP DUAL-DIRECTION CROSS-DIFFERENTIAL FUZZER COMPLETE: {totalTested} TESTS PASSED (100% SUCCESS)."
+  IO.println s!"[Block Types] compress chose dynamic-Huffman (BTYPE=10) on {dynChosen} vectors, fixed-Huffman (BTYPE=01) on {fixChosen} vectors (both paths exercised)."
   IO.println "[Evidentiary Scope] Validated against exactly 1 oracle (Python standard library gzip/zlib)."
 
 end Stdlib.Zlib

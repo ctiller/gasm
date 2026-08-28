@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Lean
+import Stdlib.Zlib.ByteArrayBridge
 import Stdlib.Zlib.CRC32
 import Stdlib.Zlib.Adler32
 import Stdlib.Zlib.Deflate
@@ -205,5 +206,372 @@ theorem gzip_idempotent_canonical_roundtrip_inst :
        | Except.ok res => res == data
        | Except.error _ => false) = true := by
   native_decide
+
+/-
+## PA16 token layer: L3 (match certificate) + L4 (self-overlap copy) + token-level L5
+
+Universal, kernel-checked (rung 1, no `native_decide`/`decide` oracle) roundtrip soundness
+for the LZ77 layer of DEFLATE — the layer of `decompress` below Huffman coding and
+bitstream framing. `tokenize`'s greedy match emission relies only on the total certifying
+predicate `matchValid` (the `findLongestMatch` search stays an untrusted heuristic), and
+`expandTokens`'s copy loop is byte-for-byte the self-overlap semantics of
+`decodeHuffmanStream`'s back-reference loop, so once PA16 P0 (the decoder's `partial def`
+conversion) lands, `lz77_roundtrip_soundness` below is the L3/L4/L5 payload the full
+`deflate_roundtrip_soundness` composes with the Huffman/bitstream layer (L1/L2).
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
+/-- L3: unpacks a `matchValid` certificate into its propositional components — RFC 1951
+    range bounds, window containment, and the per-position byte-agreement the copy
+    induction (L4) consumes. -/
+theorem matchValid_spec {data : ByteArray} {pos len dist : Nat}
+    (h : matchValid data pos len dist = true) :
+    3 ≤ len ∧ len ≤ 258 ∧ 1 ≤ dist ∧ dist ≤ 32768 ∧ dist ≤ pos ∧ pos + len ≤ data.size ∧
+    ∀ j, j < len → data.get! (pos - dist + j) = data.get! (pos + j) := by
+  simp only [matchValid, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true,
+    List.mem_range, beq_iff_eq] at h
+  obtain ⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩ := h
+  exact ⟨h1, h2, h3, h4, h5, h6, h7⟩
+
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
+/-- The reference copy loop grows the output by exactly the match length. -/
+theorem lzCopy_size (dist : Nat) : ∀ (len : Nat) (out : ByteArray),
+    (lzCopy dist len out).size = out.size + len := by
+  intro len
+  induction len with
+  | zero => intro out; simp [lzCopy]
+  | succ k ih =>
+    intro out
+    simp only [lzCopy, ih, ByteArray.size_push]
+    omega
+
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
+/-- L4, the self-overlapping back-reference copy induction (PA16's hardest sub-lemma,
+    `docs/PA16_CODEC_SOUNDNESS.md` §4 L4): if the output so far is exactly `data[0:pos]`
+    and the match certificate holds at `pos`, then after copying `len` bytes from `dist`
+    back the output is exactly `data[0:pos+len]`. The induction restructures the design
+    doc's strong induction into a plain one: at every step the source index `pos - dist`
+    lies strictly inside the already-correct prefix (`dist ≥ 1`), so the prefix invariant
+    absorbs the `dist < len` self-overlap case with no separate case split — the
+    certificate at offset 0 plus a one-position shift of the certificate re-establishes
+    the invariant. -/
+theorem lzCopy_prefix (data : ByteArray) (dist : Nat) :
+    ∀ (len pos : Nat) (out : ByteArray),
+      out.size = pos → 1 ≤ dist → dist ≤ pos →
+      (∀ i, i < pos → out.get! i = data.get! i) →
+      (∀ j, j < len → data.get! (pos - dist + j) = data.get! (pos + j)) →
+      ∀ i, i < pos + len → (lzCopy dist len out).get! i = data.get! i := by
+  intro len
+  induction len with
+  | zero =>
+    intro pos out hsz _ _ hpref _ i hi
+    simp only [lzCopy]
+    exact hpref i (by omega)
+  | succ k ih =>
+    intro pos out hsz hd1 hdp hpref hmatch i hi
+    have hsrc : out.get! (out.size - dist) = data.get! pos := by
+      have h0 := hmatch 0 (by omega)
+      have e1 : pos - dist + 0 = pos - dist := by omega
+      have e2 : pos + 0 = pos := by omega
+      rw [e1, e2] at h0
+      have hlt : out.size - dist < pos := by omega
+      rw [hpref _ hlt]
+      have e3 : out.size - dist = pos - dist := by omega
+      rw [e3, h0]
+    simp only [lzCopy]
+    rw [hsrc]
+    refine ih (pos + 1) (out.push (data.get! pos)) ?_ hd1 (by omega) ?_ ?_ i (by omega)
+    · rw [ByteArray.size_push]; omega
+    · intro j hj
+      rcases Nat.lt_or_ge j pos with hjlt | hjge
+      · rw [ByteArray.get!_push_lt out _ j (by omega)]
+        exact hpref j hjlt
+      · have hjeq : j = pos := by omega
+        rw [ByteArray.get!_push_eq out _ j (by omega), hjeq]
+    · intro j hj
+      have h1 := hmatch (j + 1) (by omega)
+      have e1 : pos - dist + (j + 1) = pos + 1 - dist + j := by omega
+      have e2 : pos + (j + 1) = pos + 1 + j := by omega
+      rw [e1, e2] at h1
+      exact h1
+
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
+/-- Token-level L5, the main induction: from any position whose expansion invariant holds,
+    the tokenizer's remaining output expands to exactly `data`. Structural induction on the
+    tokenizer's fuel; each literal step extends the prefix by one pushed byte, each
+    certified match step extends it by `lzCopy_prefix` (L4). -/
+theorem tokenizeAux_expand (data : ByteArray) :
+    ∀ (fuel pos : Nat) (acc : Array LZToken),
+      data.size ≤ pos + fuel → pos ≤ data.size →
+      (acc.foldl expandToken ByteArray.empty).size = pos →
+      (∀ i, i < pos → (acc.foldl expandToken ByteArray.empty).get! i = data.get! i) →
+      (tokenizeAux data fuel pos acc).foldl expandToken ByteArray.empty = data := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro pos acc hfuel hpos hsz hpref
+    simp only [tokenizeAux]
+    have hpe : pos = data.size := by omega
+    exact ByteArray.ext_get! (by omega) (fun i hi => hpref i (by omega))
+  | succ k ih =>
+    intro pos acc hfuel hpos hsz hpref
+    simp only [tokenizeAux]
+    by_cases hlt : pos < data.size
+    · rw [if_pos hlt]
+      by_cases hv : 3 ≤ (findLongestMatch data pos 32768 128).1 ∧
+          matchValid data pos (findLongestMatch data pos 32768 128).1
+            (findLongestMatch data pos 32768 128).2 = true
+      · rw [if_pos hv]
+        obtain ⟨hlen3, hmv⟩ := hv
+        obtain ⟨_, _, hd1, _, hdp, hbound, hmatch⟩ := matchValid_spec hmv
+        refine ih (pos + (findLongestMatch data pos 32768 128).1) _
+          (by omega) (by omega) ?_ ?_
+        · rw [Array.foldl_push]
+          show (expandToken _ (.ref _ _)).size = _
+          simp only [expandToken]
+          rw [lzCopy_size, hsz]
+        · intro i hi
+          rw [Array.foldl_push]
+          show (expandToken _ (.ref _ _)).get! i = _
+          simp only [expandToken]
+          exact lzCopy_prefix data _ _ pos _ hsz hd1 hdp hpref hmatch i hi
+      · rw [if_neg hv]
+        refine ih (pos + 1) _ (by omega) (by omega) ?_ ?_
+        · rw [Array.foldl_push]
+          show (expandToken _ (.lit _)).size = _
+          simp only [expandToken]
+          rw [ByteArray.size_push, hsz]
+        · intro i hi
+          rw [Array.foldl_push]
+          show (expandToken _ (.lit _)).get! i = _
+          simp only [expandToken]
+          rcases Nat.lt_or_ge i pos with hilt | hige
+          · rw [ByteArray.get!_push_lt _ _ i (by omega)]
+            exact hpref i hilt
+          · have hieq : i = pos := by omega
+            rw [ByteArray.get!_push_eq _ _ i (by omega), hieq]
+    · rw [if_neg hlt]
+      exact ByteArray.ext_get! (by omega) (fun i hi => hpref i (by omega))
+
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
+/-- Universal LZ77 token-layer roundtrip soundness: for EVERY `ByteArray`, the greedy
+    tokenizer's output — literals plus certified back-references, including
+    self-overlapping RFC 1951 §3.2.3 matches — expands back to exactly the input.
+    Kernel-checked structural proof (rung 1); no `native_decide`, no sampling. This is the
+    L3+L4+token-level-L5 payload of the PA16 `deflate_roundtrip_soundness` decomposition;
+    the Huffman/bitstream layer above it remains blocked on PA16 P0. -/
+theorem lz77_roundtrip_soundness (data : ByteArray) :
+    expandTokens (tokenize data) = data := by
+  unfold expandTokens tokenize
+  refine tokenizeAux_expand data data.size 0 #[] (by omega) (by omega) ?_ ?_
+  · rfl
+  · intro i hi
+    omega
+
+/-
+## PA16 L1a: bitstream writer ghost algebra (write-append)
+
+The `List Bool` ghost bit-sequence `docs/PA16_CODEC_SOUNDNESS.md` §4 L1 calls for, plus the
+write-append law L1a: under the writer's operating invariant (pending bits fit the pending
+count, pending count below a byte, no `UInt32` overflow), `writeBits` appends exactly the
+`n` LSB-first bits of `v` to the emitted bit sequence — and re-establishes the invariant,
+so consecutive `writeBits` calls compose. Kernel-checked structural proofs (rung 1).
+-/
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- LSB-first list of the low `n` bits of `v` — the ghost denotation of `n` bits written
+    with value `v`. -/
+def natBits : Nat → Nat → List Bool
+  | 0, _ => []
+  | n + 1, v => (v % 2 == 1) :: natBits n (v / 2)
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Ghost denotation of a finished byte buffer: each byte contributes its 8 bits LSB-first,
+    bytes in order — exactly RFC 1951 §3.1.1's bit packing. -/
+def bytesBits (bs : ByteArray) : List Bool :=
+  bs.data.toList.flatMap fun b => natBits 8 b.toNat
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Ghost denotation of a `BitWriter`: all fully emitted bytes followed by the pending
+    sub-byte bits. -/
+def writerBits (w : BitWriter) : List Bool :=
+  bytesBits w.bytes ++ natBits w.bitCount w.bitBuf.toNat
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Splitting law for the ghost bit sequence: the low `m` bits of `a + b·2^m` (with `a`
+    fitting in `m` bits) are the bits of `a`, followed by the bits of `b`. -/
+theorem natBits_append (n : Nat) : ∀ (m a b : Nat), a < 2 ^ m →
+    natBits (m + n) (a + b * 2 ^ m) = natBits m a ++ natBits n b := by
+  intro m
+  induction m with
+  | zero =>
+    intro a b ha
+    have ha0 : a = 0 := by simp [Nat.pow_zero] at ha; omega
+    subst ha0
+    simp [natBits]
+  | succ m ih =>
+    intro a b ha
+    have hc : b * 2 ^ (m + 1) = (b * 2 ^ m) * 2 := by
+      rw [Nat.pow_succ, Nat.mul_assoc]
+    have hpow : 2 ^ (m + 1) = 2 ^ m * 2 := by rw [Nat.pow_succ]
+    have e : m + 1 + n = (m + n) + 1 := by omega
+    rw [e]
+    simp only [natBits]
+    have hmod : (a + b * 2 ^ (m + 1)) % 2 = a % 2 := by
+      rw [hc]; omega
+    have hdiv : (a + b * 2 ^ (m + 1)) / 2 = a / 2 + b * 2 ^ m := by
+      rw [hc]; omega
+    rw [hmod, hdiv, ih (a / 2) b (by rw [hpow] at ha; omega)]
+    rfl
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- The writer's `|||`-composition equals plain addition when the pending bits fit below
+    the shift — the arithmetic form the ghost algebra computes with. -/
+theorem lor_shiftLeft_eq_add {a v m : Nat} (ha : a < 2 ^ m) :
+    a ||| v <<< m = a + v * 2 ^ m := by
+  rw [Nat.or_comm, ← Nat.shiftLeft_add_eq_or_of_lt ha, Nat.shiftLeft_eq, Nat.add_comm]
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Pushing a byte appends its 8 bits to the buffer's ghost denotation. -/
+theorem bytesBits_push (bs : ByteArray) (b : UInt8) :
+    bytesBits (bs.push b) = bytesBits bs ++ natBits 8 b.toNat := by
+  simp [bytesBits, ByteArray.data_push, Array.toList_push]
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- `flushBytes` invariant + ghost preservation: draining full bytes out of the pending
+    buffer leaves fewer than 8 pending bits, keeps the pending value inside the pending
+    count, and preserves the total emitted bit sequence exactly. -/
+theorem flushBytes_spec : ∀ (cnt : Nat) (buf : UInt32) (acc : ByteArray),
+    buf.toNat < 2 ^ cnt → cnt ≤ 32 →
+    (writeBits.flushBytes buf cnt acc).2.1 < 8 ∧
+    (writeBits.flushBytes buf cnt acc).1.toNat < 2 ^ (writeBits.flushBytes buf cnt acc).2.1 ∧
+    bytesBits (writeBits.flushBytes buf cnt acc).2.2 ++
+      natBits (writeBits.flushBytes buf cnt acc).2.1 (writeBits.flushBytes buf cnt acc).1.toNat
+      = bytesBits acc ++ natBits cnt buf.toNat := by
+  intro cnt
+  induction cnt using Nat.strongRecOn with
+  | ind cnt ih =>
+    intro buf acc hbuf hcnt
+    rw [writeBits.flushBytes]
+    by_cases h8 : cnt ≥ 8
+    · rw [if_pos h8]
+      -- the recursive call's arguments
+      have h256 : (2 : Nat) ^ 8 = 256 := by decide
+      have hbyteNat : ((buf.toNat &&& 0xFF).toUInt8).toNat = buf.toNat % 256 := by
+        have hmask : buf.toNat &&& 0xFF = buf.toNat % 256 := by
+          have : (0xFF : Nat) = 2 ^ 8 - 1 := by decide
+          rw [this, Nat.and_two_pow_sub_one_eq_mod, h256]
+        simp [Nat.toUInt8, hmask, UInt8.toNat_ofNat']
+      have hnewNat : ((buf.toNat >>> 8).toUInt32).toNat = buf.toNat / 256 := by
+        have hshift : buf.toNat >>> 8 = buf.toNat / 256 := by
+          rw [Nat.shiftRight_eq_div_pow, h256]
+        have hlt : buf.toNat / 256 < 2 ^ 32 := by
+          have h32 : (2 : Nat) ^ cnt ≤ 2 ^ 32 := Nat.pow_le_pow_right (by omega) hcnt
+          omega
+        simp [Nat.toUInt32, hshift, UInt32.toNat_ofNat']
+        omega
+      have hsplit : 2 ^ cnt = 2 ^ (cnt - 8) * 256 := by
+        have : cnt = (cnt - 8) + 8 := by omega
+        rw [this, Nat.pow_add, h256]
+        have e2 : (cnt - 8) + 8 - 8 = cnt - 8 := by omega
+        rw [e2]
+      have hrec := ih (cnt - 8) (by omega) ((buf.toNat >>> 8).toUInt32)
+        (acc.push (buf.toNat &&& 0xFF).toUInt8)
+        (by rw [hnewNat]; rw [hsplit] at hbuf; omega)
+        (by omega)
+      refine ⟨hrec.1, hrec.2.1, ?_⟩
+      rw [hrec.2.2, bytesBits_push, hbyteNat, hnewNat, List.append_assoc]
+      congr 1
+      have hdecomp : buf.toNat = buf.toNat % 256 + (buf.toNat / 256) * 2 ^ 8 := by
+        rw [h256]; omega
+      have happ := natBits_append (cnt - 8) 8 (buf.toNat % 256) (buf.toNat / 256)
+        (by rw [h256]; omega)
+      rw [← hdecomp] at happ
+      have ecnt : 8 + (cnt - 8) = cnt := by omega
+      rw [ecnt] at happ
+      exact happ.symm
+    · rw [if_neg h8]
+      exact ⟨show cnt < 8 by omega, hbuf, rfl⟩
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- L1a, the write-append law (`docs/PA16_CODEC_SOUNDNESS.md` §4 L1): under the writer's
+    operating invariant — pending value inside the pending count, pending count below a
+    byte after any previous `writeBits` (`flushBytes_spec`), and no `UInt32` overflow
+    (`bitCount + n ≤ 32`; every call site in `compress` writes ≤ 15 bits onto < 8 pending) —
+    `writeBits w v n` with `v < 2^n` appends exactly the `n` LSB-first bits of `v` to the
+    emitted ghost bit sequence, and re-establishes the invariant so calls compose. -/
+theorem writerBits_writeBits (w : BitWriter) (v n : Nat)
+    (hbuf : w.bitBuf.toNat < 2 ^ w.bitCount)
+    (hv : v < 2 ^ n) (hcnt : w.bitCount + n ≤ 32) :
+    writerBits (writeBits w v n) = writerBits w ++ natBits n v ∧
+    (writeBits w v n).bitCount < 8 ∧
+    (writeBits w v n).bitBuf.toNat < 2 ^ (writeBits w v n).bitCount := by
+  unfold writeBits
+  have hP1 : (1 : Nat) ≤ 2 ^ w.bitCount := Nat.one_le_two_pow
+  have hQ1 : (1 : Nat) ≤ 2 ^ n := Nat.one_le_two_pow
+  have hmul : v * 2 ^ w.bitCount ≤ (2 ^ n - 1) * 2 ^ w.bitCount :=
+    Nat.mul_le_mul_right _ (by omega)
+  have hsub : (2 ^ n - 1) * 2 ^ w.bitCount = 2 ^ n * 2 ^ w.bitCount - 2 ^ w.bitCount := by
+    rw [Nat.sub_mul, Nat.one_mul]
+  have hPQ : 2 ^ w.bitCount ≤ 2 ^ n * 2 ^ w.bitCount :=
+    Nat.le_mul_of_pos_left _ (by omega)
+  have hpowadd : 2 ^ (w.bitCount + n) = 2 ^ n * 2 ^ w.bitCount := by
+    rw [Nat.pow_add, Nat.mul_comm]
+  have hsumlt : w.bitBuf.toNat + v * 2 ^ w.bitCount < 2 ^ (w.bitCount + n) := by
+    rw [hpowadd]; omega
+  have h32 : (2 : Nat) ^ (w.bitCount + n) ≤ 2 ^ 32 := Nat.pow_le_pow_right (by omega) hcnt
+  have hlor : w.bitBuf.toNat ||| v <<< w.bitCount =
+      w.bitBuf.toNat + v * 2 ^ w.bitCount := lor_shiftLeft_eq_add hbuf
+  have hnewNat : ((w.bitBuf.toNat ||| v <<< w.bitCount).toUInt32).toNat =
+      w.bitBuf.toNat + v * 2 ^ w.bitCount := by
+    simp [Nat.toUInt32, hlor, UInt32.toNat_ofNat']
+    omega
+  have hfb := flushBytes_spec (w.bitCount + n)
+    ((w.bitBuf.toNat ||| v <<< w.bitCount).toUInt32) w.bytes
+    (by rw [hnewNat]; exact hsumlt) hcnt
+  refine ⟨?_, hfb.1, hfb.2.1⟩
+  show bytesBits _ ++ natBits _ _ = _
+  rw [hfb.2.2, hnewNat, natBits_append n w.bitCount w.bitBuf.toNat v hbuf,
+    writerBits, List.append_assoc]
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Zero has all-false bits at every width. -/
+theorem natBits_zero (n : Nat) : natBits n 0 = List.replicate n false := by
+  induction n with
+  | zero => rfl
+  | succ n ih => simp [natBits, ih, List.replicate_succ]
+
+/- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
+/-- Writer half of L1c (`docs/PA16_CODEC_SOUNDNESS.md` §4 L1): byte-aligning flush emits
+    exactly the writer's ghost bit sequence followed by sub-byte zero padding — the padding
+    RFC 1951 decoding never reads, because it stops at the final block's EOB symbol. -/
+theorem flushBitWriter_bits (w : BitWriter)
+    (hbuf : w.bitBuf.toNat < 2 ^ w.bitCount) (hcnt : w.bitCount < 8) :
+    bytesBits (flushBitWriter w) =
+      writerBits w ++ List.replicate ((8 - w.bitCount) % 8) false := by
+  unfold flushBitWriter writerBits
+  by_cases h0 : w.bitCount > 0
+  · rw [if_pos h0]
+    have hsmall : w.bitBuf.toNat < 256 := by
+      have : (2 : Nat) ^ w.bitCount ≤ 2 ^ 7 := Nat.pow_le_pow_right (by omega) (by omega)
+      have h128 : (2 : Nat) ^ 7 = 128 := by decide
+      omega
+    have hbyteNat : ((w.bitBuf.toNat &&& 0xFF).toUInt8).toNat = w.bitBuf.toNat := by
+      have hmask : w.bitBuf.toNat &&& 0xFF = w.bitBuf.toNat % 256 := by
+        have : (0xFF : Nat) = 2 ^ 8 - 1 := by decide
+        have h256 : (2 : Nat) ^ 8 = 256 := by decide
+        rw [this, Nat.and_two_pow_sub_one_eq_mod, h256]
+      simp [Nat.toUInt8, hmask, UInt8.toNat_ofNat']
+      omega
+    rw [bytesBits_push, hbyteNat]
+    have happ := natBits_append (8 - w.bitCount) w.bitCount w.bitBuf.toNat 0 hbuf
+    have e1 : w.bitBuf.toNat + 0 * 2 ^ w.bitCount = w.bitBuf.toNat := by omega
+    have e2 : w.bitCount + (8 - w.bitCount) = 8 := by omega
+    rw [e1, e2, natBits_zero] at happ
+    have e3 : (8 - w.bitCount) % 8 = 8 - w.bitCount := by omega
+    rw [happ, e3, List.append_assoc]
+  · rw [if_neg h0]
+    have e0 : w.bitCount = 0 := by omega
+    simp [e0, natBits]
 
 end Stdlib.Zlib
