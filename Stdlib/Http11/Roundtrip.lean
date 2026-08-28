@@ -344,4 +344,143 @@ theorem request_parse_reencode_stable (b : List UInt8) (r1 r2 : Request)
   rw [request_roundtrip r1] at h2
   exact Except.ok.inj h2
 
+/-
+### Response
+
+Mirrors the `Request` development above (status line in place of request line; headers and
+`Content-Length` are handled by the same generic lemmas). `natToDigitBytes_length3` is the one
+genuinely new fact `Request` never needed: a request-target's byte length is unconstrained, but
+a status-code is grammatically fixed at exactly three decimal digits, so recovering it from the
+writer's output needs `natToDigitBytes`'s own length to be provably `3` on `100..599` (in fact
+on all of `100..999`).
+-/
+
+/- REF: docs/STDLIB_HTTP11.md#22-status-line -/
+/-- Every `natToDigitBytes` encoding of a 3-digit-range `Nat` is exactly 3 bytes long -- proved
+    by unfolding the encoder's own recursion twice (`n ≥ 100` forces two `n / 10` steps before
+    the base case) rather than by strong induction, since the bound needed at each step differs. -/
+theorem natToDigitBytes_length3 (n : Nat) (h1 : 100 ≤ n) (h2 : n ≤ 999) :
+    (natToDigitBytes n).length = 3 := by
+  unfold natToDigitBytes
+  rw [dif_neg (show ¬ n < 10 from by omega)]
+  simp only [List.length_append, List.length_cons, List.length_nil]
+  unfold natToDigitBytes
+  rw [dif_neg (show ¬ n / 10 < 10 from by omega)]
+  simp only [List.length_append, List.length_cons, List.length_nil]
+  unfold natToDigitBytes
+  rw [dif_pos (show n / 10 / 10 < 10 from by omega)]
+  simp
+
+/- REF: docs/STDLIB_HTTP11.md#22-status-line -/
+theorem natToDigitBytes_ne_sp (n : Nat) : ∀ b ∈ natToDigitBytes n, b ≠ SP := by
+  intro b hb
+  obtain ⟨hlo, hhi⟩ := natToDigitBytes_range n b hb
+  exact (digit_ne_sp_htab hlo hhi).1
+
+/- REF: docs/STDLIB_HTTP11.md#22-status-line -/
+theorem writeStatusLine_ne_nil (code : Nat) (reason : List UInt8) :
+    writeStatusLine code reason ≠ [] := by
+  unfold writeStatusLine
+  simp [httpVersionBytes]
+
+/- REF: docs/STDLIB_HTTP11.md#22-status-line -/
+/-- `parseStatusLine` recovers exactly the status-code/reason-phrase `writeStatusLine` wrote --
+    the reason-phrase is recovered by splitting only the *first two* spaces (see
+    `Parser.lean`'s `parseStatusLine` docstring for why: unlike the request line, the third
+    field here is deliberately allowed to contain further spaces). -/
+theorem parseStatusLine_writeStatusLine (code : Nat) (reason : List UInt8)
+    (hcr : 100 ≤ code ∧ code ≤ 599) (hrv : validFieldValue reason = true)
+    (hro : noOwsEdges reason = true) :
+    parseStatusLine (writeStatusLine code reason) = .ok (code, reason) := by
+  have hshape : writeStatusLine code reason
+      = httpVersionBytes ++ SP :: (natToDigitBytes code ++ SP :: reason) := by
+    unfold writeStatusLine
+    simp only [List.append_assoc, List.cons_append]
+  have hs1 : splitFirstSpace (writeStatusLine code reason)
+      = some (httpVersionBytes, natToDigitBytes code ++ SP :: reason) := by
+    rw [hshape]
+    exact splitFirstSpace_append _ httpVersionBytes (by decide)
+  have hs2 : splitFirstSpace (natToDigitBytes code ++ SP :: reason)
+      = some (natToDigitBytes code, reason) :=
+    splitFirstSpace_append _ (natToDigitBytes code) (natToDigitBytes_ne_sp code)
+  have hlen3 : (natToDigitBytes code).length = 3 :=
+    natToDigitBytes_length3 code hcr.1 (by omega)
+  unfold parseStatusLine
+  simp only [hs1, hs2]
+  simp only [hlen3, digitBytesToNat?_natToDigitBytes, hcr, hrv, hro, if_true, Bool.and_self]
+  simp
+
+/- REF: docs/STDLIB_HTTP11.md#4-writer--canonical-serialization -/
+theorem responseLines_ne_nil (resp : Response) : ∀ l ∈ responseLines resp, l ≠ [] := by
+  intro l hl
+  unfold responseLines at hl
+  simp only [List.mem_append, List.mem_cons, List.mem_map, List.not_mem_nil, or_false] at hl
+  rcases hl with (rfl | ⟨h, _, rfl⟩) | rfl
+  · exact writeStatusLine_ne_nil resp.statusCode resp.reason
+  · exact writeHeaderLine_ne_nil h
+  · exact writeContentLengthLine_ne_nil resp.body.length
+
+/- REF: docs/STDLIB_HTTP11.md#4-writer--canonical-serialization -/
+theorem responseLines_no_crlf (resp : Response) :
+    ∀ l ∈ responseLines resp, ∀ b ∈ l, b ≠ CR ∧ b ≠ LF := by
+  intro l hl
+  unfold responseLines at hl
+  simp only [List.mem_append, List.mem_cons, List.mem_map, List.not_mem_nil, or_false] at hl
+  rcases hl with (rfl | ⟨h, hh, rfl⟩) | rfl
+  · exact writeStatusLine_no_crlf resp.statusCode resp.reason resp.reasonOk.1
+  · exact writeHeaderLine_no_crlf h (List.all_eq_true.mp resp.headersOk h hh)
+  · exact writeContentLengthLine_no_crlf resp.body.length
+
+/- REF: docs/STDLIB_HTTP11.md#3-parser-behavior -/
+theorem peelLines_writeResponse (resp : Response) :
+    peelLines (writeResponse resp) = some (responseLines resp, resp.body) := by
+  unfold writeResponse
+  exact peelLines_append resp.body (responseLines resp)
+    (responseLines_ne_nil resp) (responseLines_no_crlf resp)
+
+/- REF: docs/STDLIB_HTTP11.md#51-write-then-parse-roundtrip-theorems -/
+/-- **Write-then-parse round trip, responses.** See `request_roundtrip`; identical shape and
+    argument, with the status line in place of the request line. -/
+theorem response_roundtrip (resp : Response) :
+    parseResponse (writeResponse resp) = .ok resp := by
+  have hpeel := peelLines_writeResponse resp
+  have hheadersOkEach : ∀ h ∈ resp.headers, headerFieldOk h = true :=
+    fun h hh => List.all_eq_true.mp resp.headersOk h hh
+  have hCLbytes : writeContentLengthLine resp.body.length
+      = writeHeaderLine (contentLengthBytes, natToDigitBytes resp.body.length) := rfl
+  have hparseHdrs : parseHeaderLines (resp.headers.map writeHeaderLine ++
+      [writeContentLengthLine resp.body.length])
+      = .ok (resp.headers ++ [(contentLengthBytes, natToDigitBytes resp.body.length)]) := by
+    rw [hCLbytes]
+    exact parseHeaderLines_map_append resp.headers _ hheadersOkEach
+      (parseHeaderLine_writeContentLengthLine resp.body.length)
+  have hCLexclude : ∀ h ∈ resp.headers, isContentLengthName h.1 = false := by
+    intro h hh
+    have hok := hheadersOkEach h hh
+    unfold headerFieldOk at hok
+    simp only [Bool.and_eq_true] at hok
+    simpa using hok.2
+  have hextract := extractContentLength_append resp.headers resp.body.length hCLexclude
+  have hstatus := parseStatusLine_writeStatusLine resp.statusCode resp.reason
+    resp.statusRange resp.reasonOk.1 resp.reasonOk.2
+  unfold parseResponse
+  rw [hpeel]
+  unfold responseLines
+  rw [show ([writeStatusLine resp.statusCode resp.reason] ++ resp.headers.map writeHeaderLine ++
+      [writeContentLengthLine resp.body.length] : List (List UInt8)) =
+      writeStatusLine resp.statusCode resp.reason :: (resp.headers.map writeHeaderLine ++
+      [writeContentLengthLine resp.body.length]) from rfl]
+  simp only [hstatus, hparseHdrs, hextract]
+  simp only [ne_eq, not_true_eq_false, if_false, resp.statusRange, resp.reasonOk, resp.headersOk]
+  simp
+
+/- REF: docs/STDLIB_HTTP11.md#52-parse-reencode-stability-theorems -/
+/-- **Parse-reencode stability, responses.** See `request_parse_reencode_stable`; identical
+    shape and argument. -/
+theorem response_parse_reencode_stable (b : List UInt8) (r1 r2 : Response)
+    (_h1 : parseResponse b = .ok r1) (h2 : parseResponse (writeResponse r1) = .ok r2) :
+    r1 = r2 := by
+  rw [response_roundtrip r1] at h2
+  exact Except.ok.inj h2
+
 end Stdlib.Http11
