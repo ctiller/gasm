@@ -198,25 +198,43 @@ def acceptHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) :
     (s', some (Inject.inject (NetEvent.accept "127.0.0.1")))
 
 /- REF: windows-winsock2-recv#parameters -/
-/-- Win32 recv call hook: copies next request from s.incomingRequests into buffer at RDX and emits NetEvent.recv. -/
+/- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
+/-- Win32 recv call hook: copies at most R8 (`len`, the syscall's declared cap) bytes from the
+head of `s.incomingRequests` into buffer at RDX and emits NetEvent.recv with exactly what was
+delivered. N2 fix (MODEL_DEBT.md §C1): the pre-N2 hook never read R8 at all and always wrote
+the entire queued logical request regardless of the caller's declared cap -- the gap
+`docs/READ_BINDER_CONTRACT.md` §5 names as making Spike 4's buffer/cap mismatch invisible to any
+proof (see `Gasm/Effects/ReadBinderWiring.lean`). Delivery is now built on
+`Gasm.Effects.splitBytes`: whenever the queued request already fits within the declared cap
+(every existing spike), `count = req.size` and the request is consumed atomically exactly as
+before; whenever it does not, this is a genuine short read -- the true, uncorrupted remainder is
+requeued as the new head of `incomingRequests` rather than being written past `len` bytes into
+memory. -/
 def recvHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) : X86_64MachineState × Option Event :=
   let bufAddr := s.gprs .rdx
+  let requested := (s.gprs .r8).toNat
   let s_popped := popReturnAddress s
   match s.incomingRequests with
   | [] =>
     let s' := s_popped.setGpr64 .rax 0
     (s', none)
   | req :: rest =>
-    let bytes := req.toUTF8
-    let count := bytes.size
+    let (delivered, remaining) := splitBytes req.toUTF8.toList requested
+    let count := delivered.length
+    let deliveredArr := ByteArray.mk delivered.toArray
+    let incomingRequests' :=
+      match String.fromUTF8? (ByteArray.mk remaining.toArray) with
+      | some r => if remaining.isEmpty then rest else r :: rest
+      | none => rest
+    let deliveredStr := (String.fromUTF8? deliveredArr).getD req
     let s' := { (s_popped.setGpr64 .rax count.toUInt64) with
-      incomingRequests := rest,
+      incomingRequests := incomingRequests',
       memory := fun a =>
         if a >= bufAddr && a < bufAddr + count.toUInt64 then
-          bytes.get! (a - bufAddr).toNat
+          deliveredArr.get! (a - bufAddr).toNat
         else s_popped.memory a
     }
-    (s', some (Inject.inject (NetEvent.recv req)))
+    (s', some (Inject.inject (NetEvent.recv deliveredStr)))
 
 /- REF: windows-winsock2-send#parameters -/
 /-- Win32 send call hook: extracts response string from memory at RDX and emits NetEvent.send. -/

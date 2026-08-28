@@ -130,23 +130,34 @@ def sysReadHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) 
     }
     (s', none)
   else if fd >= 100 then
+    -- N2 fix (MODEL_DEBT.md §C1): honors RDX (the syscall's declared cap) instead of ignoring
+    -- it and always delivering the whole queued logical request -- see Win32API.lean's
+    -- `recvHook` for the full rationale; this is the Linux `sys_read`-on-socket analogue,
+    -- built on the same `Gasm.Effects.splitBytes` primitive.
     let bufAddr := s.gprs .rsi
+    let requested := (s.gprs .rdx).toNat
     match s.incomingRequests with
     | [] =>
       let s' := { (s.setGpr64 .rax 0) with rip := nextRip }
       (s', none)
     | req :: rest =>
-      let bytes := req.toUTF8
-      let count := bytes.size
+      let (delivered, remaining) := splitBytes req.toUTF8.toList requested
+      let count := delivered.length
+      let deliveredArr := ByteArray.mk delivered.toArray
+      let incomingRequests' :=
+        match String.fromUTF8? (ByteArray.mk remaining.toArray) with
+        | some r => if remaining.isEmpty then rest else r :: rest
+        | none => rest
+      let deliveredStr := (String.fromUTF8? deliveredArr).getD req
       let s' := { (s.setGpr64 .rax count.toUInt64) with
         rip := nextRip,
-        incomingRequests := rest,
+        incomingRequests := incomingRequests',
         memory := fun a =>
           if a >= bufAddr && a < bufAddr + count.toUInt64 then
-            bytes.get! (a - bufAddr).toNat
+            deliveredArr.get! (a - bufAddr).toNat
           else s.memory a
       }
-      (s', some (Inject.inject (NetEvent.recv req)))
+      (s', some (Inject.inject (NetEvent.recv deliveredStr)))
   else
     -- Invalid fd: return -EBADF (-9)
     let s' := { (s.setGpr64 .rax 0xFFFFFFFFFFFFFFF7) with rip := nextRip }

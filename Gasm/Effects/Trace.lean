@@ -91,15 +91,28 @@ instance [Inject NetEvent Event] : MonadNetwork (TraceM Event) where
     | _ =>
       let s' := { s with events := s.events ++ [Inject.inject (NetEvent.accept "127.0.0.1")] }
       (some (some 101), s')
-  recv _sock _maxLen := fun s =>
+  -- N2 fix (MODEL_DEBT.md §C1): the spec-side model must respect `maxLen` (the syscall's
+  -- declared cap) the same way the machine-side hooks now do (`Win32API.lean`'s `recvHook`,
+  -- `Syscall.lean`'s `sysReadHook`, `WASI/ABI.lean`'s `sock_recv`) -- otherwise a `∀ env`
+  -- equivalence proof could never hold once a machine-side hook's short-read behaviour is
+  -- genuinely exercised, since the two sides would disagree on what a capped `recv` returns.
+  -- Built on the same `Gasm.Effects.splitBytes` primitive for parity.
+  recv _sock maxLen := fun s =>
     match s.incomingRequests with
     | [] => (some none, s)
     | req :: rest =>
+      let (delivered, remaining) := splitBytes req.toUTF8.toList maxLen
+      let deliveredArr := ByteArray.mk delivered.toArray
+      let incomingRequests' :=
+        match String.fromUTF8? (ByteArray.mk remaining.toArray) with
+        | some r => if remaining.isEmpty then rest else r :: rest
+        | none => rest
+      let deliveredStr := (String.fromUTF8? deliveredArr).getD req
       let s' := { s with
-        events := s.events ++ [Inject.inject (NetEvent.recv req)],
-        incomingRequests := rest
+        events := s.events ++ [Inject.inject (NetEvent.recv deliveredStr)],
+        incomingRequests := incomingRequests'
       }
-      (some (some req), s')
+      (some (some deliveredStr), s')
   send _sock data := do
     emitEvent (NetEvent.send data)
     return true
