@@ -237,4 +237,60 @@ theorem MovReg64Mem64Disp.readsWithin (i : MovReg64Mem64Disp) : ReadsWithin i :=
     simp only [X86_64Instruction.step, X86_64MachineState.setGpr64, X86_64MachineState.read64] <;>
     simp_all
 
+-- MovR32Imm32/MovR64Imm64/MovR64R64 are register-only (`memAccesses _ := []`): unlike the 9
+-- memory forms above, these instantiate the shared batch lemma
+-- (`registerOnly_writesWithin`/`registerOnly_readsWithin`, MemoryFrame/Common.lean) instead of
+-- re-deriving a bespoke connection proof, since their `step` never reads or writes `.memory` --
+-- see MemoryFrame/Add.lean's header comment for the batch-lemma-instantiation rationale (identical
+-- here). They live in this file (rather than a separate shard) because they're MOV variants, and
+-- Instructions/Mov.lean already mixes them with the 9 memory forms.
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR32Imm32.writesWithin (i : MovR32Imm32) : WritesWithin i :=
+  registerOnly_writesWithin i (fun s => by
+    simp only [X86_64Instruction.step, X86_64MachineState.setGpr32] <;>
+    (try split) <;> (try split) <;> (try split) <;> (try split) <;> (first | rfl | assumption))
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR32Imm32.readsWithin (i : MovR32Imm32) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+      simp only [X86_64Instruction.step, X86_64MachineState.setGpr32, hrip, hgprs, hflags, hstdin,
+        hreq, hfault] <;>
+      (try split) <;> (try split) <;> (try split) <;> (try split) <;> (first | rfl | assumption))
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR64Imm64.writesWithin (i : MovR64Imm64) : WritesWithin i :=
+  registerOnly_writesWithin i (fun s => by
+    simp only [X86_64Instruction.step, X86_64MachineState.setGpr64] <;>
+    (try split) <;> (try split) <;> (try split) <;> (try split) <;> (first | rfl | assumption))
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR64Imm64.readsWithin (i : MovR64Imm64) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+      simp only [X86_64Instruction.step, X86_64MachineState.setGpr64, hrip, hgprs, hflags, hstdin,
+        hreq, hfault] <;>
+      (try split) <;> (try split) <;> (try split) <;> (try split) <;> (first | rfl | assumption))
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR64R64.writesWithin (i : MovR64R64) : WritesWithin i :=
+  registerOnly_writesWithin i (fun s => by
+    simp only [X86_64Instruction.step, X86_64MachineState.setGpr64] <;>
+    (try split) <;> (try split) <;> (try split) <;> (try split) <;> (first | rfl | assumption))
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR64R64.readsWithin (i : MovR64R64) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+      simp only [X86_64Instruction.step, X86_64MachineState.setGpr64, hrip, hgprs, hflags, hstdin,
+        hreq, hfault] <;>
+      (try split) <;> (try split) <;> (try split) <;> (try split) <;> (first | rfl | assumption))
+
 end Gasm.Targets.X86_64.MemoryFrame
