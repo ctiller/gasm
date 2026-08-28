@@ -1,0 +1,104 @@
+# Memory-Operand Bypass Ledger (Law 11, docs/MEMORY_HOOK.md #4.5, MH3)
+#
+# Format (one entry per line, `::`-delimited, 5 fields):
+#   <relative-file-path>::<raw-constructor-name>::<fully-qualified-name>::<category>::<justification>
+#
+# - <relative-file-path> is HALF the match key: Tools/CheckMemBypass.lean converts it to the
+#   dotted module name Lean's own import resolution would assign it (the same
+#   `moduleNameOfPath` convention `Tools/CheckGatesAxioms.lean`/`Tools/CheckRefsCoverage.lean`
+#   use) and compares it against the ACTUAL originating module of the declaration referencing the
+#   raw constructor -- matching by fully-qualified name alone would let one entry blanket-
+#   authorize every module, the exact TC15-class exploit `scripts/gate_allowlist.txt`'s own header
+#   already documents for a different gate.
+# - <raw-constructor-name> is the bare name as an author would type it in source (e.g.
+#   `mov_mem64_disp`), documentation only -- not itself matched on.
+# - <fully-qualified-name> is the OTHER half of the match key:
+#   `Gasm.Targets.X86_64.Instructions.<name>`, exactly as Lean's compiled environment names it.
+#   Tools/CheckMemBypass.lean matches every project declaration whose compiled value references
+#   this constant, keyed by (originating module, fully-qualified name).
+# - <category> is `unmigrated` (the only category this ledger has: a module still authoring this
+#   memory-operand form raw, tracked as PA4 migration backlog). There is no "approved bypass"
+#   category -- per Law 11's text, review policy is that NEW entries are rejected; an entry here
+#   records debt, not a sanctioned exception.
+# - Justification is free text and may itself contain `::`; parsers here split with a bounded
+#   field count so that never breaks the format.
+#
+# THE LEDGER IS THE MIGRATION BACKLOG (docs/MEMORY_HOOK.md #4.5): a module with no memory-operand
+# smart-constructor calls never trips the gate and never appears here -- "not yet migrated" and
+# "does not need it" are mechanically distinct, not declared. Entries are counted and printed
+# every gate run (`lake exe check_mem_bypass`) and may ONLY be removed, never added -- migrating a
+# module's LAST raw call site of a given form is what deletes its line; a module partially
+# migrated (some call sites of a form now routed through `Gasm.Targets.X86_64.CheckedAsm`, others
+# still raw) keeps its line, honestly, until the form's raw call sites in that module reach zero.
+#
+# Designated infrastructure modules are exempt without a ledger entry (they exist to construct raw
+# memory-operand instructions on purpose -- the decoder, the differential fuzzers, the roundtrip
+# gate, symbolic-call-target resolution, and `CheckedAsm.lean` itself, the one place authorized to
+# call a raw constructor AFTER collecting the capability proof it demands): see
+# Tools/CheckMemBypass.lean's `infraModules` for the exact, enumerated list.
+#
+# Seeded 2026-08-28 (MH3) with the complete population found by walking every project declaration
+# for a reference to one of the 14 memory-touching forms' raw smart constructors, mechanically
+# enumerated from Gasm.Targets.X86_64.Registry.allEncodableInstructions (not hand-listed) -- see
+# Tools/CheckMemBypass.lean's `memFormConstructorNames`. `Stdlib/SmolAlloc/Program.lean`'s four
+# entries below reflect its state AFTER MH3's pathfinder migration (`freshAllocHeaderChecked`):
+# `mov_mem64_disp`'s remaining entry is `smol_free`'s still-raw store, not the fresh-alloc path's
+# (now-checked) one -- the pathfinder shrank this module's raw call-site COUNT without yet
+# emptying any of its four lines, because each of the four forms it uses still has at least one
+# other raw call site elsewhere in the same file. That is the honest, expected shape of a
+# module-internal partial migration; PA4 finishes it.
+
+Spikes/Spike1Hello/BareMetal/Program.lean::movzx_r64_mem8::Gasm.Targets.X86_64.Instructions.movzx_r64_mem8::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike1Hello/Windows/Program.lean::mov_rsp64::Gasm.Targets.X86_64.Instructions.mov_rsp64::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Linux/Program.lean::mov_mem8::Gasm.Targets.X86_64.Instructions.mov_mem8::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Linux/Program.lean::mov_rsp_byte::Gasm.Targets.X86_64.Instructions.mov_rsp_byte::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Linux/Program.lean::pop_r64::Gasm.Targets.X86_64.Instructions.pop_r64::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Linux/Program.lean::push_r64::Gasm.Targets.X86_64.Instructions.push_r64::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Linux/Program.lean::ret_op::Gasm.Targets.X86_64.Instructions.ret_op::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Windows/LoopInvariant.lean::ret_op::Gasm.Targets.X86_64.Instructions.ret_op::unmigrated::pre-MH3 raw memory-operand authoring (step-lemma proof over the raw instruction); migration tracked under PA4
+Spikes/Spike2Fibonacci/Windows/Program.lean::mov_mem8::Gasm.Targets.X86_64.Instructions.mov_mem8::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Windows/Program.lean::mov_rsp64::Gasm.Targets.X86_64.Instructions.mov_rsp64::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Windows/Program.lean::mov_rsp_byte::Gasm.Targets.X86_64.Instructions.mov_rsp_byte::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Windows/Program.lean::pop_r64::Gasm.Targets.X86_64.Instructions.pop_r64::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Windows/Program.lean::push_r64::Gasm.Targets.X86_64.Instructions.push_r64::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike2Fibonacci/Windows/Program.lean::ret_op::Gasm.Targets.X86_64.Instructions.ret_op::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Linux/Program.lean::mov_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Linux/Program.lean::mov_mem64_disp_imm::Gasm.Targets.X86_64.Instructions.mov_mem64_disp_imm::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Linux/Program.lean::mov_mem8::Gasm.Targets.X86_64.Instructions.mov_mem8::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Linux/Program.lean::mov_reg64_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_reg64_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Linux/Program.lean::movzx_r64_mem8::Gasm.Targets.X86_64.Instructions.movzx_r64_mem8::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Windows/InstructionStepLemmas.lean::call_rel32::Gasm.Targets.X86_64.Instructions.call_rel32::unmigrated::pre-MH3 raw memory-operand authoring (step-lemma proof over the raw instruction); migration tracked under PA4
+Spikes/Spike3SortLines/Windows/InstructionStepLemmas.lean::call_rip::Gasm.Targets.X86_64.Instructions.call_rip::unmigrated::pre-MH3 raw memory-operand authoring (step-lemma proof over the raw instruction); migration tracked under PA4
+Spikes/Spike3SortLines/Windows/InstructionStepLemmas.lean::mov_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring (step-lemma proof over the raw instruction); migration tracked under PA4
+Spikes/Spike3SortLines/Windows/InstructionStepLemmas.lean::mov_mem64_disp_imm::Gasm.Targets.X86_64.Instructions.mov_mem64_disp_imm::unmigrated::pre-MH3 raw memory-operand authoring (step-lemma proof over the raw instruction); migration tracked under PA4
+Spikes/Spike3SortLines/Windows/InstructionStepLemmas.lean::mov_r32_rsp::Gasm.Targets.X86_64.Instructions.mov_r32_rsp::unmigrated::pre-MH3 raw memory-operand authoring (step-lemma proof over the raw instruction); migration tracked under PA4
+Spikes/Spike3SortLines/Windows/InstructionStepLemmas.lean::mov_reg64_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_reg64_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring (step-lemma proof over the raw instruction); migration tracked under PA4
+Spikes/Spike3SortLines/Windows/InstructionStepLemmas.lean::mov_rsp64::Gasm.Targets.X86_64.Instructions.mov_rsp64::unmigrated::pre-MH3 raw memory-operand authoring (step-lemma proof over the raw instruction); migration tracked under PA4
+Spikes/Spike3SortLines/Windows/InstructionStepLemmas.lean::ret_op::Gasm.Targets.X86_64.Instructions.ret_op::unmigrated::pre-MH3 raw memory-operand authoring (step-lemma proof over the raw instruction); migration tracked under PA4
+Spikes/Spike3SortLines/Windows/Program.lean::mov_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Windows/Program.lean::mov_mem64_disp_imm::Gasm.Targets.X86_64.Instructions.mov_mem64_disp_imm::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Windows/Program.lean::mov_mem8::Gasm.Targets.X86_64.Instructions.mov_mem8::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Windows/Program.lean::mov_r32_rsp::Gasm.Targets.X86_64.Instructions.mov_r32_rsp::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Windows/Program.lean::mov_reg64_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_reg64_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Windows/Program.lean::mov_rsp64::Gasm.Targets.X86_64.Instructions.mov_rsp64::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike3SortLines/Windows/Program.lean::movzx_r64_mem8::Gasm.Targets.X86_64.Instructions.movzx_r64_mem8::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike4HttpServer/Linux/Program.lean::mov_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike4HttpServer/Linux/Program.lean::mov_mem64_disp_imm::Gasm.Targets.X86_64.Instructions.mov_mem64_disp_imm::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike4HttpServer/Linux/Program.lean::mov_reg64_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_reg64_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike4HttpServer/Windows/Program.lean::mov_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike4HttpServer/Windows/Program.lean::mov_mem64_disp_imm::Gasm.Targets.X86_64.Instructions.mov_mem64_disp_imm::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Spikes/Spike4HttpServer/Windows/Program.lean::mov_reg64_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_reg64_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Stdlib/SmolAlloc/Program.lean::mov_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_mem64_disp::unmigrated::smol_free's header-link store is still raw; smol_malloc's fresh-alloc use of this form is migrated (freshAllocHeaderChecked, MH3 pathfinder)
+Stdlib/SmolAlloc/Program.lean::mov_mem64_disp_imm::Gasm.Targets.X86_64.Instructions.mov_mem64_disp_imm::unmigrated::check_freelist's and smol_free's stores are still raw; smol_malloc's fresh-alloc use of this form is migrated (freshAllocHeaderChecked, MH3 pathfinder)
+Stdlib/SmolAlloc/Program.lean::mov_reg64_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_reg64_mem64_disp::unmigrated::check_freelist's loads are still raw (computed-address anchor, PA4 scope); not touched by the MH3 pathfinder
+Stdlib/SmolAlloc/Program.lean::ret_op::Gasm.Targets.X86_64.Instructions.ret_op::unmigrated::check_freelist's and smol_free's returns are still raw; the fresh-alloc path's own ret is migrated (freshAllocHeaderChecked, MH3 pathfinder)
+Stdlib/Zlib/CRC32Equivalence.lean::ret_op::Gasm.Targets.X86_64.Instructions.ret_op::unmigrated::pre-MH3 raw memory-operand authoring (step-lemma proof over the raw instruction); migration tracked under PA4
+Stdlib/Zlib/Windows.lean::mov_r32_rsp::Gasm.Targets.X86_64.Instructions.mov_r32_rsp::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Stdlib/Zlib/Windows.lean::mov_rsp64::Gasm.Targets.X86_64.Instructions.mov_rsp64::unmigrated::pre-MH3 raw memory-operand authoring; migration tracked under PA4
+Stdlib/Zlib/X86_64.lean::mov_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring; the largest migration target, PA4's ratified ordering places it last
+Stdlib/Zlib/X86_64.lean::mov_mem8::Gasm.Targets.X86_64.Instructions.mov_mem8::unmigrated::pre-MH3 raw memory-operand authoring; the largest migration target, PA4's ratified ordering places it last
+Stdlib/Zlib/X86_64.lean::mov_reg64_mem64_disp::Gasm.Targets.X86_64.Instructions.mov_reg64_mem64_disp::unmigrated::pre-MH3 raw memory-operand authoring; the largest migration target, PA4's ratified ordering places it last
+Stdlib/Zlib/X86_64.lean::movzx_r64_mem8::Gasm.Targets.X86_64.Instructions.movzx_r64_mem8::unmigrated::pre-MH3 raw memory-operand authoring; the largest migration target, PA4's ratified ordering places it last
+Stdlib/Zlib/X86_64.lean::pop_r64::Gasm.Targets.X86_64.Instructions.pop_r64::unmigrated::pre-MH3 raw memory-operand authoring; the largest migration target, PA4's ratified ordering places it last
+Stdlib/Zlib/X86_64.lean::push_r64::Gasm.Targets.X86_64.Instructions.push_r64::unmigrated::pre-MH3 raw memory-operand authoring; the largest migration target, PA4's ratified ordering places it last
+Stdlib/Zlib/X86_64.lean::ret_op::Gasm.Targets.X86_64.Instructions.ret_op::unmigrated::pre-MH3 raw memory-operand authoring; the largest migration target, PA4's ratified ordering places it last

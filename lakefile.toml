@@ -37,7 +37,7 @@ defaultTargets = [
   "spike3_sort_lines_linux", "test_spike3_linux",
   "spike3_sort_lines_wasm", "test_spike3_wasm",
   "test_smolalloc", "test_zlib", "test_png", "test_http11", "gzip_fuzzer", "perf_fuzzer", "encoding_fuzzer", "test_roundtrip",
-  "check_x86_obligations",
+  "check_x86_obligations", "check_mem_bypass",
   "spike4_http_windows", "spike4_http_linux", "spike4_http_wasm", "test_spike4",
   "spike5_gzip_windows", "spike5_gunzip_windows",
   "spike5_gzip_linux", "spike5_gunzip_linux",
@@ -92,6 +92,15 @@ root = "Tools.CheckRefsCoverage"
 [[lean_exe]]
 name = "check_x86_obligations"
 root = "Tools.CheckX86Obligations"
+
+# Law 11 bypass-ledger gate (MH3): walks every project declaration's compiled value for a
+# reference to one of the 14 memory-touching forms' raw smart constructors (mechanically derived
+# from the registry, not hand-listed) outside scripts/mem_bypass_allowlist.txt + designated
+# infrastructure modules. See Tools/CheckMemBypass.lean for the full specification and
+# docs/MEMORY_HOOK.md #4.5 for the design this closes.
+[[lean_exe]]
+name = "check_mem_bypass"
+root = "Tools.CheckMemBypass"
 
 [[lean_exe]]
 name = "spike1_hello_windows"

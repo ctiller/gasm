@@ -32,6 +32,7 @@ import Gasm.Targets.X86_64.Instructions.And
 import Gasm.Targets.X86_64.Instructions.Call
 import Gasm.Targets.X86_64.Instructions.Ret
 import Gasm.Targets.X86_64.Assembler
+import Gasm.Targets.X86_64.CheckedAsm
 import Stdlib.SmolAlloc.Spec
 
 namespace Stdlib.SmolAlloc
@@ -40,6 +41,29 @@ open Gasm.Core
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.Assembler
+open Gasm.Targets.X86_64.CheckedAsm
+
+/- REF: docs/MEMORY_HOOK.md#44-the-soundness-theorem-what-the-carried-proofs-mean -/
+/-- MH3 pathfinder (`docs/tasks/MH3-capability-authoring-surface.md`): the frame granted at the
+    entry to `smol_malloc`'s fresh-allocation header-initialization sequence -- `rax` (the fresh
+    block's payload-header base, just bumped from the arena pointer) holds the base of a 32-byte
+    exclusively-held region, the exact size of the header the four stores below populate. This is
+    the "RSP-frame / header-field pattern" `docs/MEMORY_HOOK.md` #4.2 names as what literal-
+    displacement discharge exists for. -/
+def freshAllocFrame : Frame := [⟨.rax, 32, .Exclusive⟩]
+
+/- REF: docs/MEMORY_HOOK.md#44-the-soundness-theorem-what-the-carried-proofs-mean -/
+/-- The four header-field stores of `smol_malloc`'s fresh-allocation path, authored through the
+    Layer A capability surface instead of raw `instr (mov_mem64_disp ...)`: every literal
+    displacement (`0x00`, `0x08`, `0x10`, `0x18`) discharges its `AccessOK` proof automatically via
+    `mem_bounds` against `freshAllocFrame`'s 32-byte region -- omit any one of the four, or push a
+    displacement past `0x18`, and the term fails to elaborate (`docs/tasks/MH3-...md`'s negative
+    control, demonstrated interactively and reverted, not committed as a standing broken build). -/
+def freshAllocHeaderChecked : CheckedProgram freshAllocFrame (fun _ => True) :=
+  [ storeReg64 .rax 0x00 .r8,
+    storeImm64 .rax 0x08 0,
+    storeImm64 .rax 0x10 8,
+    storeImm64 .rax 0x18 0 ]
 
 /- REF: docs/STDLIB_SMOLALLOC.md#3-block-structure-freelist-state-model -/
 /-- Symbolic x86-64 assembly routine for smol_malloc(size : rcx) -> rax.
@@ -62,11 +86,15 @@ def smolMallocSymbolicProgram : List SymbolicInstr := [
   label "fresh_alloc",
   instr (mov_r64 .rax .r11),        -- rax = current bump pointer
   instr (add_r64 .r11 .r9),         -- advance arena bump pointer: r11 += r9
-  -- Initialize 32-byte header in memory at [rax]:
-  instr (mov_mem64_disp .rax 0x00 .r8),   -- [rax + 0x00] = blockSize (r8)
-  instr (mov_mem64_disp_imm .rax 0x08 0), -- [rax + 0x08] = isFree (0)
-  instr (mov_mem64_disp_imm .rax 0x10 8), -- [rax + 0x10] = alignment (8)
-  instr (mov_mem64_disp_imm .rax 0x18 0), -- [rax + 0x18] = nextFree = 0
+  ] ++
+  -- Initialize 32-byte header in memory at [rax]: MH3 pathfinder -- authored through the Layer A
+  -- capability surface (`freshAllocHeaderChecked` above) instead of raw memory-operand
+  -- constructors; `CheckedAsm.erase` produces exactly the four `instr (mov_mem64_disp ...)` /
+  -- `instr (mov_mem64_disp_imm ...)` terms the unmigrated version authored directly (encoding is
+  -- byte-for-byte unchanged, `docs/MEMORY_HOOK.md` #4.5) -- so this is that raw list, PROVED
+  -- in-bounds against `freshAllocFrame` at authoring time rather than merely asserted correct.
+  CheckedAsm.erase freshAllocHeaderChecked ++
+  [
   instr (add_r64_imm8 .rax 32),           -- Return payload pointer: rax = rax + 32
   instr ret_op,
 

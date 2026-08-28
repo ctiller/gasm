@@ -17,6 +17,7 @@ limitations under the License.
 import Stdlib.SmolAlloc.Spec
 import Stdlib.SmolAlloc.Windows
 import Stdlib.SmolAlloc.Program
+import Stdlib.SmolAlloc.MemSafety
 import Stdlib.SmolAlloc.Equivalence
 
 import Stdlib.Zlib.ByteArrayBridge
