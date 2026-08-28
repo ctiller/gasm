@@ -707,12 +707,15 @@ calibrate §5's table when they land.
 
 The owner asked directly whether anything here needs to generalize to the Wasm target.
 **Status**: §12.3's seal is implemented and verified in the tree (below); §12.1, §12.2,
-§12.4, and §12.5 are analysis, not new machinery — each says explicitly which of its
-claims were checked by reading code/running gates versus recommended for later. Verified
-against `main` at `27ab4ed` (this section's own change stacks on top of it) by reading
-`Gasm/Targets/X86_64/MemoryCell.lean`, `Gasm/Targets/X86_64/Memory.lean`,
+§12.4, §12.5, and §12.6 are analysis, not new machinery — each says explicitly which of
+its claims were checked by reading code/running gates versus recommended for later.
+Verified against `main` at `27ab4ed` (this section's own change stacks on top of it, then
+rebased onto the tip carrying `docs/BORROW_MODEL.md` and the x86-64 seal-audit correction
+§12.3 cites) by reading `Gasm/Targets/X86_64/MemoryCell.lean`,
+`Gasm/Targets/X86_64/Memory.lean`, `Gasm/Targets/X86_64/MemoryFrameAudit.lean`,
 `Gasm/Core/Permissions.lean`, `Gasm/Core/State.lean`, `Gasm/Targets/Wasm/Semantics.lean`,
-and `Gasm/Targets/WASI/ABI.lean`, and by `grep`-confirming call-site counts asserted below.
+`Gasm/Targets/WASI/ABI.lean`, and `docs/BORROW_MODEL.md`, and by `grep`-confirming
+call-site counts asserted below.
 
 ### 12.1 The asymmetry, verified
 
@@ -832,21 +835,68 @@ class MH1's x86-64 seal makes unrepresentable (§3.2): a memory-touching functio
 outside the chokepoint that a caller can reach without going through the checked path.
 
 The fix mirrors MH1's mechanism, adapted to Wasm's asymmetry (§12.1: a per-access
-Option/trap outcome, not a capability proof):
+Option/trap outcome, not a capability proof).
+
+> **Correction, made against this file rather than repeated (2026-08-28, prompted by the
+> same adversarial-review finding §3.2's own CORRECTION block records for x86-64, read
+> during a rebase onto the commit that added it).** An earlier draft of this bullet claimed
+> `private mk`/`private raw` made `WasmMemory` "no term outside this file can construct
+> one from an arbitrary `ByteArray` or project one back out" — the exact overclaim §3.2
+> names for `X86_64Memory`, and false for the identical reason: `private mk ::` does not
+> privatize the auto-generated `WasmMemory.casesOn`/`.rec`/`.recOn`, so
+> `m.casesOn (fun f => f)` returns the raw `ByteArray` from any module. §3.2's
+> "semantically empty" argument applies here at least as strongly, because unlike x86-64
+> (which had no public total-observation function before its audit named one), this
+> design's `toBytes` is *already* the public, total, unrestricted read API — the `casesOn`
+> leak reveals nothing `toBytes` does not. Construction was likewise never sealed **by
+> design**: `ofBytes` is public and unrestricted, mirroring `X86_64Mem.initRegion`,
+> exactly as §3.2 (post-correction) says `initRegion` itself was never sealed.
+>
+> What the seal buys is the same property §3.2 lands on for x86-64: every memory touch
+> goes through a *named* function in `MemoryCell.lean`, keeping access sites enumerable —
+> **not** confidentiality or immutability of the bytes. `Gasm/Targets/X86_64/
+> MemoryFrameAudit.lean`'s tier-3 seal-audit (which fails the build if a declaration
+> outside `MemoryCell.lean` names an `X86_64Memory` eliminator) is hardcoded to
+> `X86_64Memory`'s three eliminator names (verified by reading `sealOwningModule`/
+> `sealedEliminators` in that file) and does **not** cover `WasmMemory`. **Status**: no
+> equivalent audit exists for the Wasm seal — recommended follow-up, not built here (scope:
+> the concrete gap this section closes is the OOB-trap bypass named below, which the seal
+> closes regardless of eliminator-leak enumerability; extending the tier-3 audit pattern
+> to `WasmMemory` is separable work, and touching `MemoryFrameAudit.lean` itself was
+> avoided here as x86-64/MH-team territory per this task's own instruction to stay out of
+> concurrently-edited files).
+>
+> **A second, Wasm-specific residual worth naming precisely because x86-64 has no
+> analogue of it**: `toBytes` and `ofBytes` round-trip freely (by design, for the loader/
+> test-harness use case), and x86-64's unstructured address space has no size invariant
+> for that round-trip to violate — but Wasm's `memory.grow` DOES enforce one (`memMax`/the
+> hard ceiling, B8). Code that fetched `toBytes`, grew or shrank the `ByteArray` with
+> ordinary (unchecked) `ByteArray` operations, and re-wrapped the result via `ofBytes`
+> would change linear-memory size without going through `evalLeafInstr`'s
+> `.memory_grow` case at all — bypassing the max-size/hard-ceiling check, not the
+> OOB-access trap check this section's gap is about. **Checked, not assumed to be safe**:
+> `grep`-confirmed zero call sites do this anywhere in the tree today (`toBytes`'s one
+> caller is `SemanticsFuzzer.lean`'s host-module serialization, which does not
+> round-trip through `ofBytes`; every `ofBytes` call site constructs from a freshly-built
+> image, never from a `toBytes` result) — not a live bug, same category as the WASI gap
+> this section closes was before this change. Named here rather than left implicit,
+> per this project's own standard for such findings (Law 13): the mechanical prevention
+> (a growth-invariant check inside `ofBytes`, or narrowing what `toBytes`/`ofBytes` can
+> compose into) is future work, not claimed as done.
 
 - `Gasm/Targets/Wasm/MemoryCell.lean` (new) defines `WasmMemory`, a sealed wrapper
-  (`private mk`, `private raw : ByteArray`) exactly like `X86_64Memory` — module-scoped
-  `private` in Lean 4, so no term outside this file can construct one from an arbitrary
-  `ByteArray` or project one back out. `WasmMachineState.memory`
-  (`Gasm/Targets/Wasm/Semantics.lean`) is now typed `WasmMemory`, not `ByteArray`.
+  (`private mk`, `private raw : ByteArray`) structurally identical to `X86_64Memory`.
+  `WasmMachineState.memory` (`Gasm/Targets/Wasm/Semantics.lean`) is now typed
+  `WasmMemory`, not `ByteArray`.
 - The module exposes exactly: bulk construction/observation (`ofBytes`, `zero`, `empty`,
   `toBytes`, `grow` — the legitimate loader/test-harness/serialization operations, mirroring
   `X86_64Mem.initRegion`/`zero`), and checked, `Option`-returning, width-indexed
   read/write (`read8`/`read32`/`read64`/`write8`/`write32`/`write64`) plus bulk
   `readBytes`/`writeBytes` for the WASI iovec-buffer case. `none` means out of bounds; the
   caller decides what that means (every current caller traps), but the *decision* to
-  observe the failure is now structurally forced — a caller cannot silently drop it the
-  way a total, silently-permissive helper function let it before.
+  observe the failure is now structurally forced at every access site this section audits
+  below — a caller cannot silently drop it the way a total, silently-permissive helper
+  function let it before.
 - `evalLeafInstr`'s six memory-instruction cases (`Semantics.lean`) now call these checked
   accessors instead of re-deriving the bounds inequality inline; `wasiHostCall`'s
   `fd_read`/`fd_write`/`sock_recv`/`sock_send` cases (`ABI.lean`) do the same, and now set
@@ -896,6 +946,21 @@ MemoryPermissions Arch` (`Gasm/Core/Permissions.lean`), and that container is ge
   a `UInt64`-typed capability is a permissive superset (not unsound) but is not the tight
   bound Wasm's own address space has, another small tell that this vocabulary was shaped
   for x86-64 and not yet exercised against a second target.
+- **`Arch` is a phantom parameter of `MemoryPermissions`, not a real index**: re-reading
+  `Gasm/Core/Permissions.lean`'s definition — `structure MemoryPermissions (Arch : Type)
+  where tokens : List (Address × Nat × PermissionShare); disjoint : DisjointTokens
+  tokens` — `Arch` appears nowhere in either field's type. `docs/BORROW_MODEL.md` §9
+  reads this as a *feature* ("the vocabulary is neutral... `MemoryPerm`/`DisjointRanges`/
+  `DisjointTokens` mention no architecture"), correctly, from the angle of "will this
+  shape need to change for ARM" — it will not, because it never depended on `x86-64` in
+  the first place. But the same fact read from *this* section's angle is a caution, not a
+  feature: "arch-parameterized" is doing no real work today. `ComposedState WasmArch _`
+  would type-check and would carry a *phantom-tagged* `MemoryPermissions WasmArch`, but
+  its `tokens`/`disjoint` fields would be bit-for-bit the same shape as x86-64's — the
+  parameter exists to keep two architectures' capabilities from being mixed at the type
+  level, not to encode anything architecture-specific about what a capability *is*. Both
+  readings are correct; this document's is the one relevant to "does Wasm already have a
+  usable slot," and the answer stays no.
 
 **Conclusion: there is no populated slot to reuse, for any target — "Wasm already has a
 permissions slot it isn't using" overstates what exists; the accurate statement is "Core
@@ -943,7 +1008,58 @@ fuel-out, no-instruction-at-rip, *and* a clean fault alike — TCB.md T12).
   designed to replace `faulted`. No such consumer exists today (every current check is
   "trapped or not"), so this is named as a parallel future step, not built now (Law 5).
 
-### 12.6 What this section rejects, and why
+### 12.6 Relationship to the borrow model — does it subsume Wasm's memory safety?
+
+`docs/BORROW_MODEL.md` (design, dated the same day as this section, landed on `main`
+while this change was in flight) designs an indexed monad over `BlockM Arch S₁ S₂ α` plus
+a weaving DSL, and states plainly in its own §6 title that "this subsumes it" — meaning
+MH3 (§4 of this document, the x86-64 capability-authoring surface). That is close enough
+to this section's subject matter that the question has to be asked directly, per this
+task's own instruction not to build a parallel mechanism silently: **does the borrow
+model, once it lands, also subsume the Wasm memory-safety story §12.1–§12.3 describe?**
+
+**No, and the reason is the same asymmetry §12.1 verifies, restated at the level the
+borrow model operates at.** The borrow model's entire mechanism — obligation dispatch at
+monadic binds, a `CheckedInstr (Γ : Frame) (Inv : X86_64MachineState → Prop)` term whose
+elaboration fails without a discharged proof — is a *stronger, more ergonomic engine for
+producing exactly the artifact MH3/Layer A already targets*: a carried, checked,
+assemble-time proof that a symbolic access lands inside a granted region. It is a better
+way to build the thing x86-64 needs because x86-64 has no other way to establish that
+fact. Wasm has no symmetric need for the borrow model to fill, for the identical reason
+Layer A doesn't (§12.1, §12.6 below): the interpreter already establishes "this access is
+in bounds" for every access, unconditionally, at run time, without any authored proof —
+there is no obligation left over for an indexed monad to track. Wiring `WasmMachineState`
+through `BlockM`/the weaving DSL to get a Wasm-side `CheckedInstr` would be building
+authoring-time machinery to discharge an obligation that does not exist, which is the
+same "capability machinery with no obligation to discharge" objection §12.4 and §12.7
+raise against a `WasmCheckedAsm` surface and a populated `MemoryPermissions` respectively
+— restated once more here because the borrow model is the *strongest* version of that
+temptation yet designed: its own §10.1 records the owner's trigger for it verbatim
+("isa scale up: we need multithreading and borrowing resolved") and treats it as a Law 5
+demand blocking the x86-64 ISA expansion, which is a real pull toward pattern-matching
+every target onto it once it lands.
+
+**Where the two designs are NOT competing, and could share a source of truth rather than
+become a Law-12 unlinked-twin pair**: `docs/BORROW_MODEL.md` §9 observes that
+`MemoryPermissions Arch`'s vocabulary is already architecture-neutral in *shape* (§12.4
+above reads the same fact and finds it currently unpopulated, not contradicting §9 — a
+neutral, empty container is exactly what "unpopulated" means). If a genuine Wasm need for
+capability-shaped reasoning ever materializes — §12.4's example was WASI-granted
+file/socket-handle lifecycle, a resource class with real acquire/release/borrow structure,
+unlike linear memory — the borrow model's general obligation-dispatch machinery (not its
+`X86_64MachineState`-specific `CheckedInstr` instantiation) is the natural mechanism to
+extend, rather than inventing a second, Wasm-specific obligation-tracking DSL from
+scratch. That is a recommendation for *if and when* such a need appears (Law 5), not a
+present design: no WASI resource-handle capability need has been identified by this
+section, and this change does not build toward one.
+
+**Status**: this subsection is analysis only; nothing here proposes new machinery.
+`docs/BORROW_MODEL.md` itself is a design document (its own Status line), not yet
+implemented; this finding is recorded now, while both documents are fresh, specifically
+so the "does this subsume that" question has a written answer before either design's
+implementation makes the question expensive to re-ask.
+
+### 12.7 What this section rejects, and why
 
 - **An arch-generic Core hook typeclass** — already rejected in §9 for Wasm-as-second-
   target under Law 5/Law 8; §12.1–§12.4 add the concrete evidence (the asymmetry is real
@@ -953,11 +1069,15 @@ fuel-out, no-instruction-at-rip, *and* a clean fault alike — TCB.md T12).
 - **Reusing `MemAccessSpec`/`MemRef` for Wasm** — §12.2: Wasm's addresses are concrete by
   the time any access executes, not symbolic; forcing them through a register-relative
   descriptor shape would misdescribe the target, not generalize over it.
-- **A `WasmCheckedAsm` capability-authoring surface** — §12.1/§12.2: there is no
+- **A `WasmCheckedAsm` capability-authoring surface, whether built directly or via the
+  borrow model's `BlockM`/weaving-DSL machinery** — §12.1/§12.2/§12.6: there is no
   assemble-time obligation for it to carry: the interpreter already guarantees every
-  memory access is in-bounds or the program traps, unconditionally, in every build.
+  memory access is in-bounds or the program traps, unconditionally, in every build. The
+  borrow model does not change this answer; it only makes the rejected surface cheaper to
+  build, which is not the same as making it needed (§12.6).
 - **Populating `MemoryPermissions` for Wasm now** — §12.4: the slot is unpopulated
-  architecture-wide, not Wasm-specifically neglected; inventing tokens for it ahead of any
+  architecture-wide, not Wasm-specifically neglected, and its `Arch` parameter is phantom
+  (carries no architecture-specific content today); inventing tokens for it ahead of any
   concrete need is speculative structure, same objection as the two items above.
 - **Moving `MemWidth`/`MemAccessKind` to `Gasm/Core` in this change** — §12.2: the move
   would be correct in principle (the types carry no x86-specific content) but has no
