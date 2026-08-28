@@ -471,4 +471,49 @@ theorem splitHeaderLine_append (value : List UInt8) :
     simp only [hcond, Bool.false_eq_true, if_false]
     rw [ih ht]
 
+
+/- REF: docs/STDLIB_HTTP11.md#24-token-and-field-value-character-classes -/
+/-- No leading or trailing SP/HTAB byte -- the "no OWS at the edges" rule the writer relies
+    on to make its output re-parse to itself (a header value or reason-phrase with leading or
+    trailing whitespace would otherwise be ambiguous with the canonical form that strips it). -/
+def noOwsEdges (bs : List UInt8) : Bool :=
+  (match bs.head? with | some b => b != SP && b != HTAB | none => true) &&
+  (match bs.getLast? with | some b => b != SP && b != HTAB | none => true)
+
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
+/-- Every byte `natToDigitBytes` produces is an ASCII decimal digit (`0x30`-`0x39`). Proved by
+    the same strong induction as the digit codec itself, reducing each branch to a 10-way case
+    split on the single digit produced there. -/
+theorem natToDigitBytes_range (n : Nat) : ∀ b ∈ natToDigitBytes n, 0x30 ≤ b ∧ b ≤ 0x39 := by
+  have digit_byte_range : ∀ m, m < 10 → 0x30 ≤ (0x30 + m).toUInt8 ∧ (0x30 + m).toUInt8 ≤ 0x39 := by
+    intro m hm
+    have h10 : m = 0 ∨ m = 1 ∨ m = 2 ∨ m = 3 ∨ m = 4 ∨ m = 5 ∨ m = 6 ∨ m = 7 ∨ m = 8 ∨ m = 9 := by
+      omega
+    rcases h10 with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl <;> decide
+  induction n using Nat.strongRecOn with
+  | _ n ih =>
+    unfold natToDigitBytes
+    split
+    · rename_i h
+      intro b hb
+      simp only [List.mem_singleton] at hb
+      subst hb
+      exact digit_byte_range n h
+    · rename_i h
+      intro b hb
+      simp only [List.mem_append, List.mem_singleton] at hb
+      rcases hb with hb | hb
+      · exact ih (n / 10) (Nat.div_lt_self (by omega) (by omega)) b hb
+      · subst hb
+        exact digit_byte_range (n % 10) (Nat.mod_lt n (by omega))
+
+/- REF: docs/STDLIB_HTTP11.md#25-message-body-and-content-length -/
+/-- Corollary of `natToDigitBytes_range`: a digit byte is never `CR` or `LF`, the fact the
+    writer/parser round-trip proof needs to place a `Content-Length` line's digits inside a
+    `peelLines_append`-recovered line. -/
+theorem natToDigitBytes_not_crlf (n : Nat) : ∀ b ∈ natToDigitBytes n, b ≠ CR ∧ b ≠ LF := by
+  intro b hb
+  have := natToDigitBytes_range n b hb
+  constructor <;> (intro hcontra; subst hcontra; simp [CR, LF] at this <;> omega)
+
 end Stdlib.Http11
