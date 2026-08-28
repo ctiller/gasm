@@ -34,6 +34,8 @@ import Gasm.Effects.Clock
 import Gasm.Effects.Network
 import Gasm.Effects.Trace
 import Gasm.Effects.ReadBinder
+import Gasm.Effects.ReadBinderWiring
+import Gasm.Effects.CanonicalizeTrace
 
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Instructions.Base

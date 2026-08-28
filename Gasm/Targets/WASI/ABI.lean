@@ -157,6 +157,11 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
       return (pushVal (.i32 101) { s1 with events := newEvents }, .next)
 
   | some "sock_recv" =>
+    -- N2 fix (MODEL_DEBT.md §C1): this hook already capped the write at `max_len` (the
+    -- syscall's declared cap), but silently DROPPED the undelivered remainder rather than
+    -- queuing it for a following call -- a genuine short read requires the remainder to
+    -- survive, not vanish. Rebuilt on `Gasm.Effects.splitBytes` for parity with the
+    -- Windows/Linux recv hooks (`Win32API.lean`'s `recvHook`, `Syscall.lean`'s `sysReadHook`).
     let (max_len, s1) := popI32 s
     let (buf_ptr, s2) := popI32 s1
     let (_sock, s3) := popI32 s2
@@ -164,13 +169,19 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
     | [] =>
       return (pushVal (.i32 0) s3, .next)
     | req :: rest =>
-      let bytes := req.toUTF8
-      let count := min max_len.toNat bytes.size
+      let (delivered, remaining) := splitBytes req.toUTF8.toList max_len.toNat
+      let count := delivered.length
+      let deliveredArr := ByteArray.mk delivered.toArray
       let mut curMem := s3.memory
       for i in [0:count] do
-        curMem := curMem.set! (buf_ptr.toNat + i) (bytes.get! i)
-      let newEvents := s3.events ++ [Inject.inject (NetEvent.recv req)]
-      return (pushVal (.i32 count.toUInt32) { s3 with memory := curMem, incomingRequests := rest, events := newEvents }, .next)
+        curMem := curMem.set! (buf_ptr.toNat + i) (deliveredArr.get! i)
+      let incomingRequests' :=
+        match String.fromUTF8? (ByteArray.mk remaining.toArray) with
+        | some r => if remaining.isEmpty then rest else r :: rest
+        | none => rest
+      let deliveredStr := (String.fromUTF8? deliveredArr).getD req
+      let newEvents := s3.events ++ [Inject.inject (NetEvent.recv deliveredStr)]
+      return (pushVal (.i32 count.toUInt32) { s3 with memory := curMem, incomingRequests := incomingRequests', events := newEvents }, .next)
 
   | some "sock_send" =>
     let (len, s1) := popI32 s
