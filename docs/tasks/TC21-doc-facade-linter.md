@@ -1,7 +1,7 @@
 ---
 id: TC21
 title: doc-facade linter — enforcement-claim vs tree-reality drift
-status: ready
+status: done
 blocked_on: ""
 after: []
 related: [TC16]
@@ -100,5 +100,10 @@ load-bearing rather than a one-time hand-audit.
   a citation/corpus pointing at content that isn't there, TC21 catches prose asserting a
   mechanism is enforced when it isn't yet implemented. A fresh agent building either linter
   should look at the other's file-walking/exception-allowlist conventions first.
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): status corrected `ready` → `done`.
+  `scripts/check_doc_facade.py` exists and git history shows it wired into `run_gates.py`, `REVIEW.md`,
+  and CI (`feat(ci): wire the doc-facade linter into run_gates.py, REVIEW.md, and CI`; `feat(scripts):
+  add doc-facade linter (TC21) and fix progressProof facade`). Frontmatter had not been updated;
+  corrected on inspection.
 
 _(none yet — first entries append here as work begins.)_

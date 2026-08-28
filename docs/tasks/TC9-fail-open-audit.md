@@ -1,7 +1,7 @@
 ---
 id: TC9
 title: Fail-open audit completion
-status: implementing
+status: done
 blocked_on: ""
 after: []
 related: [TC17]
@@ -159,6 +159,7 @@ honesty, not ISA model completeness.
 
 - 2026-08-27: priority 7.5 — fail-open audit completion folds in TCB's one-line fixes (EncodingFuzzer controls, Wasm Test.lean honesty, GzipFuzzer UTF-8) — closes the exact defect class TC1/TC2 already proved costly twice.
 - 2026-08-27: related: [TC17] — TC9's fail-open audit and TC17's vacuity floors close two distinct but easily-confused failure modes (an oracle that silently no-ops vs. a suite that runs zero vectors and reports success); TC1/TC2's history is the shared precedent for both.
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): status corrected `implementing` → `done`. Grep-confirmed landed: `GzipFuzzer.lean` has an explicit oracle-presence check and a `--count` floor (both citing Law 13(4) in their own diagnostics), and both `Spikes/Spike1Hello/Wasm/Test.lean` and `Spikes/Spike2Fibonacci/Wasm/Test.lean` now state "an oracle that cannot run must fail the run, never report a synthesized '100% sound' pass" rather than the old silent-success fallback. Frontmatter had not been updated to reflect this; corrected on inspection.
 
 _(none yet — first entries append here as work begins; this looks like mechanical audit-and-fix
 work following an already-established pattern (TC1/TC2's fixes), so an inline `## Design`

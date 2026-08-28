@@ -1,7 +1,7 @@
 ---
 id: TC17
 title: Vacuity floors — kill zero-vector auto-PASS across all fuzzers
-status: implementing
+status: done
 blocked_on: ""
 after: []
 related: []
@@ -80,6 +80,7 @@ This is mechanical (a floor check added to existing harnesses, no new model conc
 ## Notes
 
 - 2026-08-27: priority 7.8 — TCB ranked-top-8 #5 (T11-b vacuity floors — 'cheap,' a zero-vector fuzzer run currently reports a clean PASS).
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): status corrected `implementing` → `done`. Grep-confirmed `[VACUITY FLOOR TRIPPED]` diagnostics present in `Gasm/Targets/Wasm/SemanticsFuzzer.lean`, `Gasm/Targets/X86_64/EncodingFuzzerCLI.lean`, `Gasm/Targets/X86_64/PerfFuzzerCLI.lean`, and `Gasm/Targets/X86_64/SemanticsFuzzer.lean` — covering the x86 hardware, Wasm, perf, and encoding fuzzers this task named. Frontmatter had not been updated; corrected on inspection.
 
 _(none yet — first entries append here as work begins; mechanical task, consolidate into an
 inline `## Design` section before implementation, `design_review: waived-mechanical`.)_

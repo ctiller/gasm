@@ -1,7 +1,7 @@
 ---
 id: TC16
 title: References pipeline integrity (SHA-256 manifest, honest verify)
-status: implementing
+status: done
 blocked_on: ""
 after: []
 related: [G5]
@@ -81,6 +81,7 @@ contract), hence empty `design` until an inline `## Design` section covers it.
 
 - 2026-08-27: priority 8.3 — TCB ranked-top-8 #3 (T8 — the references-verify gate is a facade that only counts files; 89% of the corpus, intel_sdm, is unreproducible).
 - 2026-08-27: related: [G5] — TC16's references-integrity fix (TCB T8) is the general case of the exact gap G5 will hit concretely: `spirv.core.grammar.json` is named in the ingestion manifest and cited as ingested, but does not exist on disk (references/spirv/ holds only four prose chapters). A fresh agent starting G5 should read TC16 first.
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): status corrected `implementing` → `done`. `scripts/check_references.py` (the file this task's pointers name as `regenerate_references.py`, since renamed) contains 21 occurrences of `sha256` and an explicit `intel_sdm` disposition comment; matches this task's manifest/honest-declaration acceptance criteria. Frontmatter had not been updated; corrected on inspection.
 
 _(none yet — first entries append here as work begins; mechanical task, consolidate into an
 inline `## Design` section before implementation, `design_review: waived-mechanical` unless the

@@ -4,11 +4,11 @@ title: Law 9 migration — Spike5 domain-shrinking fix, then Tier-1 real env qua
 status: ready
 blocked_on: ""
 after: [PA6]
-related: []
+related: [B7]
 bar: ""
 track: proof-arch
-priority: 6.5
-priority_set: 2026-08-27T18:25:47Z
+priority: 9.4
+priority_set: 2026-08-28T02:00:00Z
 design: ""
 design_review: ""
 date: 2026-08-27
@@ -178,6 +178,15 @@ PA7, and the rest of the migration after PA6 alone.
 ## Notes
 
 - 2026-08-27: priority 6.5 — Law 9 migration (Spike5 domain-shrinking fix + Tier-1 real-env quantification) closes a known universal-quantification gap once PA6/PA7 land.
+- 2026-08-27 (oracle-debt audit, `docs/ORACLE_DEBT.md` Part 6): priority raised 6.5 → 9.4. Re-derived
+  from `docs/ORACLE_DEBT.md`'s coverage matrix: this task's Tier-1 + Tier-2 fixes are the *only*
+  existing-task coverage for 8 of the 37 `grandfathered` allowlist entries (Spike1 Win/Wasm, Spike2
+  Win/Wasm, Spike3 Wasm, and 3 of Spike5's 5 entries), which the owner has named the top priority in
+  the repository. Also noting for this task's Wasm-target slice (Spike1 Wasm, Spike2 Wasm, Spike3
+  Wasm, Spike5 wasm_gzip): `docs/tasks/B7-wasm-oob-trap-and-limits.md` is concurrently changing
+  `Gasm/Targets/Wasm/Semantics.lean`'s trap-handling paths; none of these four routines perform an
+  out-of-bounds access, so no hard `after` edge is added, but re-verify against B7's post-fix
+  semantics if B7 lands first, to avoid a proof stated against a since-superseded model.
 
 _(none yet — first entries append here as work begins; this is Law-5-class proof-architecture
 work — consolidate Notes into a real docs/ design doc before implementation, and route it through a
