@@ -32,6 +32,7 @@ import Stdlib.Zlib.Linux
 import Stdlib.Zlib.Wasm
 import Stdlib.Zlib.Equivalence
 import Stdlib.Zlib.CRC32Equivalence
+import Stdlib.Zlib.CanonicalTableSpec
 
 import Stdlib.Png.Spec
 import Stdlib.Png.Filter
