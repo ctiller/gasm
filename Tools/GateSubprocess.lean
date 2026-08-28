@@ -191,7 +191,13 @@ one outcome a coverage gate must never produce silently. -/
 def trackedLeanFiles : IO (Array String) := do
   let out ←
     try
-      IO.Process.output { cmd := "git", args := #["ls-files", "-z", "--", "*.lean"] }
+      -- `--deduplicate`: during an unmerged index `git ls-files` prints ONE
+      -- LINE PER STAGE, so a conflicted path is enumerated (and scanned, and
+      -- counted) two or three times. Latent rather than triggered -- a clean
+      -- checkout has one stage per path -- but the duplicate would inflate
+      -- the module-coverage headline and re-scan the same module, so the flag
+      -- closes it for good.
+      IO.Process.output { cmd := "git", args := #["ls-files", "-z", "--deduplicate", "--", "*.lean"] }
     catch e =>
       throw (IO.userError s!"could not run `git ls-files` to enumerate project modules: {e.toString}\n\
         This gate enumerates the TRACKED tree (the one CI checks out) and deliberately has no \
