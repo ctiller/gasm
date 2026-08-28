@@ -129,15 +129,18 @@ def stepBareMetal (instr : X86_64Instr) (s : BareMetalMachineState) : BareMetalM
 /- REF: docs/TARGETS/BARE_METAL.md#1-machine-model-in-freestanding-mode -/
 /-- Fuel-based evaluator executing a list of x86-64 instructions on bare-metal machine state. -/
 def runBareMetalProgram (baseRip : UInt64) (instructions : List X86_64Instr) (fuel : Nat) (s : BareMetalMachineState) : BareMetalMachineState :=
-  match fuel with
-  | 0 => s
-  | fuel + 1 =>
-    match instructionAtRip baseRip instructions s.cpu.rip with
-    | none => s
-    | some instr =>
-      let s' := stepBareMetal instr s
-      if s'.cpu.faulted then s'
-      else runBareMetalProgram baseRip instructions fuel s'
+  let indexed := indexInstructions baseRip instructions
+  let rec loop (fuel : Nat) (s : BareMetalMachineState) : BareMetalMachineState :=
+    match fuel with
+    | 0 => s
+    | fuel + 1 =>
+      match instructionAtRipIndexed indexed s.cpu.rip with
+      | none => s
+      | some instr =>
+        let s' := stepBareMetal instr s
+        if s'.cpu.faulted then s'
+        else loop fuel s'
+  loop fuel s
 
 /- REF: docs/TARGETS/BARE_METAL.md#7-spike-1-bare-metal-hello-world-verification -/
 /-- Evaluates bare-metal execution and produces canonical observable effect trace. -/

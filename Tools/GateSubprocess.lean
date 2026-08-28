@@ -131,3 +131,47 @@ def spawnAndGetResultPayload (selfExe : System.FilePath) (cwd : System.FilePath)
       pure (Except.ok ((line.drop resultMarker.length).toString))
   catch e =>
     pure (Except.error s!"failed to spawn scan subprocess: {e.toString}")
+
+/-- Resolves gate subprocess concurrency from `GASM_SCAN_CONCURRENCY` env var, defaulting to 8. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def defaultScanConcurrency : IO Nat := do
+  let envVal ← IO.getEnv "GASM_SCAN_CONCURRENCY"
+  pure (envVal.bind String.toNat? |>.getD 8)
+
+/-- Bounded-concurrency worker pool running IO tasks across `items` with at most
+`maxConcurrency` workers executing concurrently. Results maintain input ordering. -/
+/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+partial def runWorkerPool {α β : Type} (items : Array α) (maxConcurrency : Nat) (f : α → IO β) : IO (Array β) := do
+  if items.isEmpty then
+    return #[]
+  let indexedItems := items.mapIdx (fun idx item => (idx, item))
+  let queueRef ← IO.mkRef indexedItems.toList
+  let resultsRef : IO.Ref (Array (Option β)) ← IO.mkRef (Array.replicate items.size (none : Option β))
+
+  let rec worker : IO Unit := do
+    let nextItem? ← queueRef.modifyGet fun q =>
+      match q with
+      | [] => (none, [])
+      | x :: xs => (some x, xs)
+    match nextItem? with
+    | none => pure ()
+    | some (idx, item) =>
+      let res ← f item
+      resultsRef.modify fun (arr : Array (Option β)) => arr.set! idx (some res)
+      worker
+
+  let numWorkers := min (max 1 maxConcurrency) items.size
+  let tasks ← (List.range numWorkers).mapM fun _ => IO.asTask worker
+  for t in tasks do
+    let _ ← IO.ofExcept t.get
+
+  let finalResults ← resultsRef.get
+  let mut out := #[]
+  for opt in finalResults do
+    match opt with
+    | some v => out := out.push v
+    | none => throw (IO.userError "worker pool item missing result")
+  return out
+
