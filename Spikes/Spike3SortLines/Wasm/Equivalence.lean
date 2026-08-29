@@ -32,6 +32,7 @@ import Spikes.Spike3SortLines.Wasm.Outcome
 namespace Spikes.Spike3SortLines.Wasm
 
 open Gasm.Core
+open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.Targets.Wasm
@@ -93,6 +94,18 @@ theorem spike3_wasm_canonical_effect_trace_equivalence :
 -- `runWasiTraceState`, rather than merely assuming it.
 #guard !Gasm.Targets.Wasm.WasmRunResult.isError
   (runWasiTraceState spike3WasmInstructions spike3DataSegments defaultSampleInput ["fd_read", "fd_write", "proc_exit"])
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- The operational target is parameterized by the canonical environment, not a Bool or a finite
+    collection of samples. `environmentInputLines` is its shared executable byte-stream model. -/
+def spike3WasmTraceFor (environment : Environment) : List AnyEvent :=
+  runWasiTrace spike3WasmInstructions spike3DataSegments environment.stdin
+    ["fd_read", "fd_write", "proc_exit"] environment.incomingRequests
+
+/- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
+/-- The exact byte-level input observation which the whole-program sort specification consumes. -/
+def spike3WasmInputFor (environment : Environment) : List (List UInt8) :=
+  environmentInputLines environment
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- The independent, byte-total specification attached to the canonical environment. -/
