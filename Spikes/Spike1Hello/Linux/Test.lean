@@ -26,7 +26,8 @@ open Spikes.Spike1Hello.Linux
 def main : IO UInt32 := do
   let exePath := "./hello_linux"
   if !(← (System.FilePath.mk exePath).pathExists) then
-    IO.FS.writeBinFile exePath (emitVerifiedLinuxExecutable spike1VerifiedProgram)
+    IO.FS.writeBinFile exePath (← IO.ofExcept
+      (Gasm.Core.Platform.emitVerifiedProgram spike1VerifiedProgram))
 
   IO.println s!"[*] Testing binary execution: {exePath}..."
   try

@@ -25,7 +25,8 @@ open Spikes.Spike1Hello.Linux
 /- REF: docs/TARGETS/LINUX.md#spikes-verification -/
 /-- CLI Emitter Target: Serializes and writes hello_linux to disk strictly from the verified program contract. -/
 def main : IO UInt32 := do
-  let exeBytes := emitVerifiedLinuxExecutable spike1VerifiedProgram
+  let exeBytes ← IO.ofExcept
+    (Gasm.Core.Platform.emitVerifiedProgram spike1VerifiedProgram)
   let outputPath := "hello_linux"
   IO.println s!"[*] Emitting {exeBytes.size} bytes to {outputPath}..."
   IO.FS.writeBinFile outputPath exeBytes

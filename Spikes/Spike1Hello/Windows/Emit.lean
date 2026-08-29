@@ -25,7 +25,8 @@ open Spikes.Spike1Hello.Windows
 /- REF: docs/SPIKES.md#2-spike-1-windows-x64-hello-world-pe-binary -/
 /-- CLI Emitter Target: Serializes and writes hello.exe to disk strictly from the verified program contract. -/
 def main : IO UInt32 := do
-  let exeBytes := emitVerifiedExecutable spike1VerifiedProgram
+  let exeBytes ← IO.ofExcept
+    (Gasm.Core.Platform.emitVerifiedProgram spike1VerifiedProgram)
   let outputPath := "hello.exe"
   IO.println s!"[*] Emitting {exeBytes.size} bytes to {outputPath}..."
   IO.FS.writeBinFile outputPath exeBytes
