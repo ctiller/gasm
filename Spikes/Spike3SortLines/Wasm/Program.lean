@@ -751,4 +751,45 @@ def spike3WasmModule : WasmModule := {
   ]
 }
 
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- The sole defined function has the fourth declared WASI function type.  This closes the
+    fail-closed encoder's only error branch without relying on post-hoc evaluation. -/
+theorem spike3WasmTypesCovered :
+    FunctionsCoveredByTypes spike3WasmModule.functions spike3TypeSignatures := by
+  intro fn hfn
+  have hfn' : fn = {
+      name := "_start"
+      params := []
+      results := []
+      locals := List.replicate 28 .i32
+      body := spike3WasmInstructions
+      exportName := some "_start"
+    } := by
+    simpa [spike3WasmModule] using hfn
+  subst fn
+  exact ⟨3, by decide⟩
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- The checked type-coverage proof supplies exact function-section bytes for the sole `_start`
+    definition. -/
+def spike3WasmFunctionIndices : ByteArray := encodeULEB128 3
+
+theorem spike3WasmFunctionIndicesCorrect :
+    encodeFunctionTypeIndices spike3WasmModule.functions spike3TypeSignatures =
+      .ok spike3WasmFunctionIndices := by
+  simp [encodeFunctionTypeIndices, spike3WasmModule, spike3TypeSignatures,
+    spike3WasmFunctionIndices, fdReadType, fdWriteType, procExitType, findTypeIdx,
+    findTypeIdx.loop]
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Proof-carrying serialized module used by the canonical WASI platform artifact. -/
+def spike3EncodedWasmArtifact : EncodedWasmArtifact := {
+  module := spike3WasmModule
+  typeSignatures := spike3TypeSignatures
+  bytes := emitWasmBinaryWithFunctionIndices spike3WasmModule spike3TypeSignatures
+    spike3WasmFunctionIndices
+  encoder_ok := by
+    simp [emitWasmBinary, spike3WasmFunctionIndicesCorrect]
+}
+
 end Spikes.Spike3SortLines.Wasm
