@@ -18,17 +18,6 @@
 # stale entry (its check::key no longer trips anything) is also a hard
 # failure -- see scripts/check_doc_facade.py's module docstring.
 #
-# Do not widen this file to reach green. Every finding MECHANISM_ABSENT /
-# GATE_SCRIPT_MISSING / GATE_NOT_WIRED has ever produced against this tree was
-# fixed at the source (see docs/REVIEW.md Law 9's `progressProof` Status
-# clause) rather than allowlisted, and those three checks still have zero
-# entries here. THEOREM_FENCE_ABSENT (TC22) has two, both for the one shape a
-# `**Status**:` marker cannot honestly cover: a fenced block whose theorem name
-# is a deliberate PLACEHOLDER in an illustration of syntax or format, not a
-# design target. Stamping "design pending implementation" on a placeholder
-# would itself be a doc-facade defect -- a claim that something is planned when
-# nothing is. Of the 19 instances that check found on its first run against the
-# corpus, 17 were fixed or honestly disclosed in the documents themselves; only
-# these 2 are exempted.
-theorem-fence-absent::docs/READ_BINDER_CONTRACT.md:58:foo_correct::2026-08-28::TC22::The block is explicitly captioned `-- PROHIBITED shape: pins the read to a concrete vector.` and exists to show a contract shape Law 9 review must REJECT. `foo_correct` is a placeholder name in a deliberate counter-example; it is not a design target, so no Status marker would be truthful.
-theorem-fence-absent::docs/REVIEW.md:29:memcpy_callability::2026-08-28::TC22::Section 1.1 "Citation Format Rules" -- the block illustrates the `/- REF: ... -/` annotation FORMAT (two stacked REF comments above a declaration). The declaration line is scaffolding for the citation example; the name is borrowed from docs/EQUIVALENCE_PROOFS.md section 4's worked illustration, which is itself now marked as illustrative. docs/REVIEW.md is this repository's governing law document, not a design doc, so a file-level design Status would be false.
+# Do not widen this file to reach green. Deliberate placeholder or prohibited
+# examples use `text` fences rather than pretending to be implemented Lean;
+# all actual Lean-shaped design claims must be implemented or truthfully staged.

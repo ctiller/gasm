@@ -23,7 +23,7 @@ structure ComposedState (Arch : Type) (ApiStateType : Type) where
 - **Path Target**: Path relative to repository root (e.g. `docs/API_STATE_MODELS.md` or `references/intel_sdm/...`).
 - **Section Anchor**: Standard github markdown heading anchor (e.g. `#1-the-composed-state-model--zero-cost-proof-erasure` or `#2-multi-abi-calling-conventions--stack-restoration-laws`).
 - **Multiple References**: When a Lean item synthesizes multiple specification concepts, multiple `/- REF: ... -/` annotations are placed in sequence:
-  ```lean
+  ```text
   /- REF: docs/STACK_DISCIPLINE.md#2-multi-abi-calling-conventions-stack-restoration-laws -/
   /- REF: docs/EQUIVALENCE_PROOFS.md#42-theorem-2-callability-abi-preservation-caller-consumer -/
   theorem memcpy_callability [abi : AbiDiscipline Arch ABI] : ...
