@@ -76,4 +76,14 @@ theorem completed_streaming_request_line_agrees (line : List UInt8) :
     finishStreamingRequestLine { line := line, pendingCR := false, complete := true } =
       Stdlib.Http11.parseRequestLine line := rfl
 
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- A byte that would exceed a request's finite line budget is reported without mutating the
+    retained parser state.  The caller can therefore close the request scope and continue serving
+    the next connection. -/
+theorem stream_request_line_budget_exhausted (budget : Nat) (state : StreamingRequestLineState)
+    (byte : UInt8) (hComplete : state.complete = false) (hPending : state.pendingCR = false)
+    (hByte : byte ≠ 13) (hBudget : budget < state.line.length + 1) :
+    streamRequestLineByte budget state byte = .resourceExhausted state := by
+  simp [streamRequestLineByte, hComplete, hPending, hByte, hBudget]
+
 end Spikes.Spike4HttpServer
