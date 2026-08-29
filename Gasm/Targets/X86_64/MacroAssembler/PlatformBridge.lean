@@ -110,6 +110,25 @@ structure ContiguousInstructionSubsequence (indexed : List (UInt64 × X86_64Inst
     (bodyBase : UInt64) (code : List X86_64Instr) : Prop where
   included : ∀ entry ∈ indexInstructions bodyBase code, entry ∈ indexed
 
+/- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
+/-- Linker-facing constructor: an instruction-list decomposition and the encoded prefix span imply
+    inclusion of the body's complete index in the final artifact index. -/
+theorem ContiguousInstructionSubsequence.ofDecomposition
+    (artifactBase bodyBase : UInt64) (instructions beforeCode code afterCode : List X86_64Instr)
+    (stream_eq : instructions = beforeCode ++ code ++ afterCode)
+    (bodyBase_eq : bodyBase = artifactBase + instructionSpan beforeCode) :
+    ContiguousInstructionSubsequence (indexInstructions artifactBase instructions) bodyBase code := by
+  subst instructions
+  subst bodyBase
+  constructor
+  intro entry memberBody
+  simp only [indexInstructions] at memberBody ⊢
+  rw [List.append_assoc]
+  rw [indexInstructions_loop_append artifactBase beforeCode (code ++ afterCode)]
+  apply List.mem_append_right
+  rw [indexInstructions_loop_append (artifactBase + instructionSpan beforeCode) code afterCode]
+  exact List.mem_append_left _ memberBody
+
 /- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
 /-- Exact target-owned placement evidence for a straight-line body inside a larger indexed stream.
     It connects each locally executed prefix to production instruction lookup. -/

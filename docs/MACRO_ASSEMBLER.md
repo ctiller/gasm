@@ -151,6 +151,9 @@ The construction derives prefix RIP from encoded instruction sizes and proves me
 the target indexer's append law. A differential relayout therefore regenerates only final layout
 resolution and subsequence inclusion; the symbolic/local compiler proof remains reusable. The linker
 is expected to derive `IndexedLayoutCertificate` from its injective, aligned address assignment.
+`ContiguousInstructionSubsequence.ofDecomposition` supplies the complementary linker-facing
+constructor directly from `beforeCode ++ code ++ afterCode` and the encoded prefix span, so consumers
+do not prove index membership manually.
 
 This initial straight-line slice therefore supplies instruction realization, local ABI realization,
 and an exact byte boundary, but does not claim whole-function callability merely from its RAX theorem.
