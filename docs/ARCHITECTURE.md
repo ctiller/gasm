@@ -75,8 +75,9 @@ graph LR
 4. **Binary Emission**: Pure deterministic serialization from verified AST to machine bytes with zero runtime overhead.
 
 Internal control-flow boundaries obey the same assume/guarantee principle as function calls. A
-direct or conditional jump targets a typed basic-block entry contract, not an untyped label plus a
-stack-depth check. The edge must establish the destination's complete entry relation—including the
+direct or conditional jump targets a nominally identified typed basic-block entry contract, not an
+untyped text label plus a stack-depth check. Human-readable linker/debug names are separate from
+proof identity. The edge must establish the destination's complete entry relation—including the
 ghost authority/obligation world—from the source exit world while preserving the concrete machine
 state according to the instruction semantics. A generic CFG composition theorem turns edge-local
 certificates into routine preservation; consumers must not replay whole paths. Indirect jumps add a

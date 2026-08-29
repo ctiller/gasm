@@ -88,11 +88,13 @@ def RuntimeSilentAt {Event : Type}
     The constructors bind instruction family, host outcome/events, destination selection, RET stack
     behavior, and the platform ABI register carrying an exit code. There is intentionally no
     indirect-jump constructor until an emitted indirect-target decoder is connected. -/
-inductive TerminatorRealization {Event : Type}
+inductive TerminatorRealization {Event BlockId : Type}
     [ExternalCallInterceptor X86_64 Event]
     (instruction : X86_64Instr) (before : X86_64MachineState) (eventsRev : List Event) :
-    {S : Type} → (exit : ComposedState X86_64 S) → CpuTerminator X86_64 exit → Prop where
-  | direct {S} {exit : ComposedState X86_64 S} (edge : BlockEdge exit)
+    {S : Type} → (exit : ComposedState X86_64 S) →
+      CpuTerminator X86_64 BlockId exit → Prop where
+  | direct {S} {exit : ComposedState X86_64 S}
+      (edge : BlockEdge (BlockId := BlockId) exit)
       (encoding : DirectJumpEncoding instruction) (eventsAfter : List Event)
       (transition : nativeOutcomeTransition instruction before eventsRev =
         (exit.machine, eventsAfter))
@@ -101,8 +103,10 @@ inductive TerminatorRealization {Event : Type}
       (destination : exit.machine.rip = edge.targetState.machine.rip) :
       TerminatorRealization instruction before eventsRev exit (.jmp edge)
   | conditional {S} {exit : ComposedState X86_64 S} (condition : ConditionCode X86_64)
-      (targetTrue : ConditionalBlockEdge exit (condition.holds exit.machine))
-      (targetFalse : ConditionalBlockEdge exit (¬ condition.holds exit.machine))
+      (targetTrue : ConditionalBlockEdge (BlockId := BlockId) exit
+        (condition.holds exit.machine))
+      (targetFalse : ConditionalBlockEdge (BlockId := BlockId) exit
+        (¬ condition.holds exit.machine))
       (kind : X86BranchCondition) (encoding : ConditionalJumpEncoding instruction kind)
       (conditionMatches : condition.holds exit.machine ↔ kind.holds before)
       (eventsAfter : List Event)
@@ -149,11 +153,11 @@ inductive TerminatorRealization {Event : Type}
 /-- Production continuation selected by the logical terminator after its concrete instruction has
     executed. The logical constructor remains visible, so a syscall exit cannot be confused with an
     arbitrary HLT even though both use the native evaluator's `halted` stop reason. -/
-def resumeAfterTerminator {Event S : Type}
+def resumeAfterTerminator {Event BlockId S : Type}
     [ExternalCallInterceptor X86_64 Event]
     (indexed : List (UInt64 × X86_64Instr)) (fuel : Nat)
     (exit : ComposedState X86_64 S) (eventsRev : List Event) :
-    CpuTerminator X86_64 exit → NativeRunOutcome Event
+    CpuTerminator X86_64 BlockId exit → NativeRunOutcome Event
   | .jmp _ | .jmpIndirect _ | .jcc .. | .ret .. =>
       runProgramOutcomeLoop indexed fuel exit.machine eventsRev
   | .sysExit .. | .halt .. => .halted exit.machine eventsRev.reverse
@@ -163,11 +167,11 @@ namespace TerminatorRealization
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- A realized terminator is exactly one production evaluator step followed by the logical
     continuation (or the explicit halt outcome). -/
-theorem runProgramOutcomeLoop_step {Event S : Type}
+theorem runProgramOutcomeLoop_step {Event BlockId S : Type}
     [ExternalCallInterceptor X86_64 Event]
     (indexed : List (UInt64 × X86_64Instr)) (fuel : Nat)
     (instruction : X86_64Instr) (before : X86_64MachineState) (eventsRev : List Event)
-    (exit : ComposedState X86_64 S) (terminator : CpuTerminator X86_64 exit)
+    (exit : ComposedState X86_64 S) (terminator : CpuTerminator X86_64 BlockId exit)
     (lookup : instructionAtRipIndexed indexed before.rip = some instruction)
     (realized : TerminatorRealization instruction before eventsRev exit terminator) :
     runProgramOutcomeLoop indexed (fuel + 1) before eventsRev =
@@ -182,8 +186,9 @@ end TerminatorRealization
 /-- One basic block as an exact contiguous slice of one final artifact. `bodyCode` is the ordinary
     prefix discharged by the macro runner; `terminatorInstruction` is deliberately outside that
     prefix and is checked by the production evaluator itself. -/
-structure EmittedBasicBlock {Artifact : Type} (indexOf : Artifact → List (UInt64 × X86_64Instr))
-    (artifact : Artifact) (block : BasicBlock X86_64) where
+structure EmittedBasicBlock {Artifact BlockId : Type}
+    (indexOf : Artifact → List (UInt64 × X86_64Instr))
+    (artifact : Artifact) (block : BasicBlock X86_64 BlockId) where
   bodyBase : UInt64
   bodyCode : List X86_64Instr
   terminatorInstruction : X86_64Instr
@@ -196,8 +201,9 @@ namespace EmittedBasicBlock
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- Exact lookup of the emitted terminator follows from the artifact-global layout law and the
     block's contiguous-slice certificate. -/
-theorem terminatorLookup {Artifact : Type} {indexOf : Artifact → List (UInt64 × X86_64Instr)}
-    {artifact : Artifact} {block : BasicBlock X86_64}
+theorem terminatorLookup {Artifact BlockId : Type}
+    {indexOf : Artifact → List (UInt64 × X86_64Instr)}
+    {artifact : Artifact} {block : BasicBlock X86_64 BlockId}
     (emitted : EmittedBasicBlock indexOf artifact block)
     (layout : IndexedLayoutCertificate (indexOf artifact))
     (initial : X86_64MachineState) (entryRip : initial.rip = emitted.bodyBase) :
@@ -215,10 +221,10 @@ theorem terminatorLookup {Artifact : Type} {indexOf : Artifact → List (UInt64 
 /-- Pointwise operational realization. This is the only block-local proof obligation: the entry
     names the emitted slice, the ordinary prefix is runtime-silent, and the exact production host
     transition for the emitted terminator produces the dependent body result. -/
-structure RealizesAt {Event Artifact : Type}
+structure RealizesAt {Event Artifact BlockId : Type}
     [ExternalCallInterceptor X86_64 Event]
     {indexOf : Artifact → List (UInt64 × X86_64Instr)} {artifact : Artifact}
-    {block : BasicBlock X86_64} (emitted : EmittedBasicBlock indexOf artifact block)
+    {block : BasicBlock X86_64 BlockId} (emitted : EmittedBasicBlock indexOf artifact block)
     (state : ComposedState X86_64 block.entry.State)
     (accepted : block.entry.accepts state) : Prop where
   entryRip : state.machine.rip = emitted.bodyBase
@@ -236,10 +242,10 @@ structure RealizesAt {Event Artifact : Type}
 /-- Exact production execution theorem for a realized block. Unlike `Step.fromBody`, this theorem
     cannot be constructed from an arbitrary Lean body: it consumes final-artifact placement and the
     actual production instruction/interceptor transition. -/
-theorem runProgramOutcomeLoop_block {Event Artifact : Type}
+theorem runProgramOutcomeLoop_block {Event Artifact BlockId : Type}
     [ExternalCallInterceptor X86_64 Event]
     {indexOf : Artifact → List (UInt64 × X86_64Instr)} {artifact : Artifact}
-    {block : BasicBlock X86_64} (emitted : EmittedBasicBlock indexOf artifact block)
+    {block : BasicBlock X86_64 BlockId} (emitted : EmittedBasicBlock indexOf artifact block)
     (layout : IndexedLayoutCertificate (indexOf artifact))
     (state : ComposedState X86_64 block.entry.State)
     (accepted : block.entry.accepts state)
@@ -272,14 +278,14 @@ end EmittedBasicBlock
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- Final-artifact operational realization of every published block in a typed CFG. Link layout is
     owned once here; consumers select blocks and edges without replaying global placement facts. -/
-structure OperationalCFGRealization {Event Artifact : Type}
+structure OperationalCFGRealization {Event Artifact BlockId : Type}
     [ExternalCallInterceptor X86_64 Event]
     (indexOf : Artifact → List (UInt64 × X86_64Instr)) (artifact : Artifact)
-    (graph : TypedControlFlowGraph X86_64) where
+    (graph : TypedControlFlowGraph X86_64 BlockId) where
   layout : IndexedLayoutCertificate (indexOf artifact)
-  emitted : (block : BasicBlock X86_64) → block ∈ graph.blocks →
+  emitted : (block : BasicBlock X86_64 BlockId) → block ∈ graph.blocks →
     EmittedBasicBlock indexOf artifact block
-  realizes : ∀ (block : BasicBlock X86_64) (member : block ∈ graph.blocks)
+  realizes : ∀ (block : BasicBlock X86_64 BlockId) (member : block ∈ graph.blocks)
     (state : ComposedState X86_64 block.entry.State) (accepted : block.entry.accepts state),
     EmittedBasicBlock.RealizesAt (Event := Event) (emitted block member) state accepted
 

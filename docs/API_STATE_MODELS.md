@@ -137,41 +137,43 @@ def linuxSyscallUpdate (s : ComposedState x86_64 InState) : ComposedState x86_64
 
 ## 4. BasicBlock Structure & Target-Parametric Terminators
 
-A `BasicBlock` owns a dependent `BlockEntry`: an erased typestate, a label, an expected stack
-depth, and the complete predicate demanded of predecessors. Its body can be invoked only with that
+A `BasicBlock` owns a dependent `BlockEntry`: an erased typestate, a nominal ID, an expected stack
+depth, and the complete predicate demanded of predecessors. Human-readable linker/debug names are
+kept in a separate rendering map and never serve as proof identity. Its body can be invoked only with that
 predicate established. A jump carries a `BlockEdge`, which supplies the destination state, preserves
 the concrete machine and framed ghost resources, and proves the destination predicate. Conditional
 edges make that last proof conditional on the target-owned meaning of the branch condition.
 
 ```lean
-structure BlockEntry (Arch : Type) [TargetArch Arch] where
+structure BlockEntry (Arch : Type) [TargetArch Arch] (BlockId : Type) where
   State : Type
-  label : String
+  id : BlockId
   expectedDepth : Nat
   accepts : ComposedState Arch State → Prop
 
-structure BlockEdge {Arch : Type} [TargetArch Arch] {Source : Type}
+structure BlockEdge {Arch BlockId : Type} [TargetArch Arch] {Source : Type}
     (source : ComposedState Arch Source) where
-  target : BlockEntry Arch
+  target : BlockEntry Arch BlockId
   targetState : ComposedState Arch target.State
   framePreserved : JumpFramePreserved source targetState
   depthEstablished : target.expectedDepth = targetState.stackDepth
   entryEstablished : target.accepts targetState
 
-inductive CpuTerminator (Arch : Type) [TargetArch Arch] {S : Type} (s_exit : ComposedState Arch S) where
-  | jmp (edge : BlockEdge s_exit)
+inductive CpuTerminator (Arch : Type) [TargetArch Arch] (BlockId : Type)
+    {S : Type} (s_exit : ComposedState Arch S) where
+  | jmp (edge : BlockEdge (BlockId := BlockId) s_exit)
   | jcc (cond : ConditionCode Arch)
-      (targetTrue : ConditionalBlockEdge s_exit (cond.holds s_exit.machine))
-      (targetFalse : ConditionalBlockEdge s_exit (¬ cond.holds s_exit.machine))
+      (targetTrue : ConditionalBlockEdge (BlockId := BlockId) s_exit (cond.holds s_exit.machine))
+      (targetFalse : ConditionalBlockEdge (BlockId := BlockId) s_exit (¬ cond.holds s_exit.machine))
   | ret   (exportedObligations : List Obligation) (bytesToPop : UInt16 := 0)
           (h_zero      : s_exit.stackDepth = 0)
           (h_match     : s_exit.obligations = exportedObligations)
-          (h_callee    : CalleeDiscipline Arch s_exit) : CpuTerminator Arch s_exit
+          (h_callee    : CalleeDiscipline Arch s_exit) : CpuTerminator Arch BlockId s_exit
 
-structure BasicBlock (Arch : Type) [TargetArch Arch] where
-  entry : BlockEntry Arch
+structure BasicBlock (Arch : Type) [TargetArch Arch] (BlockId : Type) where
+  entry : BlockEntry Arch BlockId
   body : (state : ComposedState Arch entry.State) → entry.accepts state →
-    Σ ExitState, Σ exit : ComposedState Arch ExitState, CpuTerminator Arch exit
+    Σ ExitState, Σ exit : ComposedState Arch ExitState, CpuTerminator Arch BlockId exit
 ```
 
 Direct, conditional, and duplicate-free closed-set indirect edge constructors are implemented.
@@ -203,12 +205,15 @@ inductive DBState where
   | InTransaction (conn : ConnectionHandle) (txId : Nat)
   | Error (errCode : Nat)
 
+private inductive DBBlockId where
+  | queryLoop
+
 class HasActiveTransaction (State : Type) where
   txId       : State → Nat
   connHandle : State → ConnectionHandle
 
-def bb_query_loop [HasActiveTransaction S] : BasicBlock x86_64 S := {
-  label := "bb_query_loop"
+def bb_query_loop [HasActiveTransaction S] : BasicBlock x86_64 DBBlockId := {
+  id := .queryLoop
   expectedDepth := 64
   entryProof := fun s => s.machine.isReadableString s.machine.rsi "SELECT balance FROM users"
   body := ⟨S, fun s =>
@@ -235,8 +240,12 @@ inductive UartState where
   | InBaudConfig
   | Ready (baud : Nat)
 
-def bb_uart_poll (ch : UInt8) (baud : Nat) : BasicBlock x86_64 (DeviceState .UART (.Ready baud)) := {
-  label := "bb_uart_poll"
+private inductive UartBlockId where
+  | poll
+  | send
+
+def bb_uart_poll (ch : UInt8) (baud : Nat) : BasicBlock x86_64 UartBlockId := {
+  id := .poll
   expectedDepth := 0
   entryProof := fun s => s.machine.getReg .rdx = UART_LSR_ADDR
   body := ⟨DeviceState .UART (.Ready baud), fun s =>
@@ -244,8 +253,8 @@ def bb_uart_poll (ch : UInt8) (baud : Nat) : BasicBlock x86_64 (DeviceState .UAR
     ⟨s', CpuTerminator.jcc .ZeroFlag (bb_uart_poll ch baud) (bb_uart_send ch baud) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)⟩⟩
 }
 
-def bb_uart_send (ch : UInt8) (baud : Nat) : BasicBlock x86_64 (DeviceState .UART (.Ready baud)) := {
-  label := "bb_uart_send"
+def bb_uart_send (ch : UInt8) (baud : Nat) : BasicBlock x86_64 UartBlockId := {
+  id := .send
   expectedDepth := 0
   entryProof := fun s => s.machine.getReg .rdx = UART_THR_ADDR
   body := ⟨DeviceState .UART (.Ready baud), fun s =>

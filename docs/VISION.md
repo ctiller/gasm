@@ -273,7 +273,7 @@ for realistically sized programs. It **is** tractable as a composition:
    effects, profiles, guarantees, reachable calls, and failure paths. Unselected GPU,
    process, RDMA, interrupt, architecture, or progress profiles impose no proof burden;
    once a feature or claim is selected, all of its transitive safety/platform obligations
-   remain mandatory and cannot be escaped by omitting a label. A generic DSL or library
+   remain mandatory and cannot be escaped by omitting a nominal block identity. A generic DSL or library
    theorem is paid once and reused; a specialized implementation proves only its declared
    refinement delta and any stronger guarantee it advertises.
 3. **Composition rules.** Sequential composition, call, and loop rules assemble routine

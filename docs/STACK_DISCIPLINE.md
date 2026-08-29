@@ -104,8 +104,9 @@ table above does not manufacture a universal one. A closed registry/artifact/cal
 ## 3. BasicBlock Structure & Typed Terminators
 
 The basic-block authoring surface checks direct, conditional, and closed-set indirect CFG
-transitions against typed entry contracts and `expectedDepth`. `TypedControlFlowGraph` publishes a
-finite, label-unique block set and proves every terminator target is in that set;
+transitions against typed entry contracts and `expectedDepth`. `TypedControlFlowGraph` is indexed by
+a nominal `BlockId`, publishes a finite ID-unique block set, and proves every terminator target is in
+that set. Human-readable linker/debug names are not proof identity;
 `TypedControlFlowGraph.Reachable` and its composition/membership theorems provide the generic
 edge-local whole-CFG induction rule. Connecting indirect decoding and this semantic CFG to the exact
 final emitted artifact remains the final trust connection for this substrate:
@@ -125,30 +126,31 @@ by `VerifiedProgram`; path enumeration or restating target-block proofs at whole
 an acceptable substitute.
 
 ```lean
-structure BlockEntry (Arch : Type) [TargetArch Arch] where
+structure BlockEntry (Arch : Type) [TargetArch Arch] (BlockId : Type) where
   State : Type
-  label : String
+  id : BlockId
   expectedDepth : Nat
   accepts : ComposedState Arch State → Prop
 
-structure BlockEdge {Arch : Type} [TargetArch Arch] {Source : Type}
+structure BlockEdge {Arch BlockId : Type} [TargetArch Arch] {Source : Type}
     (source : ComposedState Arch Source) where
-  target : BlockEntry Arch
+  target : BlockEntry Arch BlockId
   targetState : ComposedState Arch target.State
   framePreserved : JumpFramePreserved source targetState
   depthEstablished : target.expectedDepth = targetState.stackDepth
   entryEstablished : target.accepts targetState
 
-inductive CpuTerminator (Arch : Type) [TargetArch Arch] {S : Type} (s_exit : ComposedState Arch S) where
-  | jmp (edge : BlockEdge s_exit)
+inductive CpuTerminator (Arch : Type) [TargetArch Arch] (BlockId : Type)
+    {S : Type} (s_exit : ComposedState Arch S) where
+  | jmp (edge : BlockEdge (BlockId := BlockId) s_exit)
   | jcc (cond : ConditionCode Arch)
-      (targetTrue : ConditionalBlockEdge s_exit (cond.holds s_exit.machine))
-      (targetFalse : ConditionalBlockEdge s_exit (¬ cond.holds s_exit.machine))
+      (targetTrue : ConditionalBlockEdge (BlockId := BlockId) s_exit (cond.holds s_exit.machine))
+      (targetFalse : ConditionalBlockEdge (BlockId := BlockId) s_exit (¬ cond.holds s_exit.machine))
 
-structure BasicBlock (Arch : Type) [TargetArch Arch] where
-  entry : BlockEntry Arch
+structure BasicBlock (Arch : Type) [TargetArch Arch] (BlockId : Type) where
+  entry : BlockEntry Arch BlockId
   body : (state : ComposedState Arch entry.State) → entry.accepts state →
-    Σ ExitState, Σ exit : ComposedState Arch ExitState, CpuTerminator Arch exit
+    Σ ExitState, Σ exit : ComposedState Arch ExitState, CpuTerminator Arch BlockId exit
 ```
 
 ---
