@@ -143,38 +143,79 @@ def emitSmolMallocWasm (localSize : Nat) (localAligned : Nat) (localHeader : Nat
     .i32_load 2 0,
     .local_set localHeader,
 
-    -- Advance bump pointer: [wasmArenaBumpPtrAddr] = localHeader + localAligned + 32
-    .i32_const wasmArenaBumpPtrAddr,
+    -- A fresh allocation must first reserve enough finite linear-memory pages for its
+    -- exclusive end.  `memory.grow` returns Wasm's -1 failure sentinel rather than trapping;
+    -- preserve that fallibility at the allocator boundary by returning a null payload pointer
+    -- and leaving the bump pointer/header memory untouched.
     .local_get localHeader,
     .local_get localAligned,
     .i32_add,
     .i32_const 32,
     .i32_add,
-    .i32_store 2 0,
+    .local_set localCur,
+    .memory_size,
+    .local_set localPrev,
+    .local_get localCur,
+    .i32_const 65535,
+    .i32_add,
+    .i32_const 65536,
+    .i32_div_u,
+    .local_set localSize,
+    .local_get localSize,
+    .local_get localPrev,
+    .i32_gt_u,
+    .if_else .empty [
+      .local_get localSize,
+      .local_get localPrev,
+      .i32_sub,
+      .memory_grow,
+      .i32_const 0xFFFFFFFF,
+      .i32_eq,
+      .if_else .empty [
+        .i32_const 0,
+        .local_set localHeader
+      ] []
+    ] [],
 
-    -- Initialize 32-byte header at localHeader:
-    -- [localHeader + 0] = localAligned (blockSize)
-    .local_get localHeader,
-    .local_get localAligned,
-    .i32_store 2 0,
-    -- [localHeader + 8] = 0 (isFree = false)
+    -- Only publish a fresh allocation after page reservation succeeded.
     .local_get localHeader,
     .i32_const 0,
-    .i32_store 2 8,
-    -- [localHeader + 16] = 8 (alignment = 8)
-    .local_get localHeader,
-    .i32_const 8,
-    .i32_store 2 16,
-    -- [localHeader + 24] = 0 (nextFree = null)
-    .local_get localHeader,
-    .i32_const 0,
-    .i32_store 2 24
+    .i32_eq,
+    .if_else .empty [] [
+      -- Advance bump pointer: [wasmArenaBumpPtrAddr] = localHeader + localAligned + 32
+      .i32_const wasmArenaBumpPtrAddr,
+      .local_get localHeader,
+      .local_get localAligned,
+      .i32_add,
+      .i32_const 32,
+      .i32_add,
+      .i32_store 2 0,
+
+      -- Initialize the 32-byte header.
+      .local_get localHeader,
+      .local_get localAligned,
+      .i32_store 2 0,
+      .local_get localHeader,
+      .i32_const 0,
+      .i32_store 2 8,
+      .local_get localHeader,
+      .i32_const 8,
+      .i32_store 2 16,
+      .local_get localHeader,
+      .i32_const 0,
+      .i32_store 2 24
+    ]
   ] [],
 
-  -- 4. Return payload pointer = localHeader + 32
+  -- 4. Return payload pointer = localHeader + 32, or 0 on finite-capability refusal.
   .local_get localHeader,
-  .i32_const 32,
-  .i32_add
+  .i32_const 0,
+  .i32_eq,
+  .if_else .empty [ .i32_const 0 ] [
+    .local_get localHeader,
+    .i32_const 32,
+    .i32_add
+  ]
 ]
 
 /- REF: docs/STDLIB_SMOLALLOC.md#33-deallocation-free -/

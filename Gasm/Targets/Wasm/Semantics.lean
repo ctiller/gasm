@@ -27,6 +27,14 @@ namespace Gasm.Targets.Wasm
 open Gasm.Core
 open Gasm.Effects
 
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- A finite resource refusal made by the execution platform.  This is distinct from a Wasm
+    trap: `memory.grow` reports the refusal to guest code as `-1`, while the platform trace keeps
+    the reason so a verified whole-program contract cannot erase an allocation failure. -/
+inductive WasmResourceFailure where
+  | memoryPages (requestedPages : Nat) (availablePages : Nat) : WasmResourceFailure
+  deriving Repr, DecidableEq, BEq, Inhabited
+
 /- REF: wasm-exec-runtime#values -/
 /-- Runtime typed value representation on the operand stack and locals. -/
 inductive WasmVal where
@@ -58,6 +66,11 @@ structure WasmMachineState where
   -- field existed keeps behaving exactly as it did (an unconstrained memory), not a silent
   -- behavior change.
   memMax           : Option UInt32 := none
+  -- Set exactly when `memory.grow` is refused by the platform's finite page capability.  It is
+  -- sticky for the invocation: guest code receives Wasm's `-1` result, but an enclosing WASI
+  -- execution must still expose the resource outcome rather than mistake later recovery code for
+  -- a successful unbounded allocation.
+  resourceFailure  : Option WasmResourceFailure := none
   stdin            : ByteArray    := ByteArray.empty
   stdinPos         : Nat          := 0
   incomingRequests : List String  := []
@@ -442,7 +455,11 @@ def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
           | some maxP => requestedPages > maxP.toNat
           | none => false
         if exceedsDeclaredMax || requestedPages > hardCeilingPages then
-          (pushVal (.i32 (0xFFFFFFFF : UInt32)) s1, .next)
+          let availablePages := match s1.memMax with
+            | some maxP => Nat.min maxP.toNat hardCeilingPages
+            | none => hardCeilingPages
+          (pushVal (.i32 (0xFFFFFFFF : UInt32))
+            { s1 with resourceFailure := some (.memoryPages requestedPages availablePages) }, .next)
         else
           let padding := ByteArray.mk (Array.mk (List.replicate (delta.toNat * 65536) (0 : UInt8)))
           (pushVal (.i32 oldPages.toUInt32) { s1 with memory := WasmMem.grow s1.memory padding }, .next)

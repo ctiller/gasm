@@ -278,103 +278,178 @@ def runWasiTraceState (instrs : List WasmInstr) (segments : List WasmDataSegment
   evalInstrs fuel instrs s (wasiHostCall imports)
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- The externally visible result of a bounded WASI execution.
+/-- The externally visible result of a WASI execution under finite platform capabilities.
 
-    Fuel is an implementation resource, not a semantic event.  In particular, callers cannot
-    project an event trace from `.resourceExhausted`: a proof that a chosen dynamic budget is
-    sufficient is required before a run may be used as a completed program execution.  A clean
-    fall-through, a `proc_exit`, and a Wasm trap remain distinct outcomes. -/
+    A clean fall-through, a `proc_exit`, a Wasm trap, interpreter fuel exhaustion, and refusal of
+    the memory-page capability are distinct outcomes.  In particular, a caller cannot project a
+    successful trace from either resource-exhaustion branch. -/
 inductive WasiRunOutcome where
   | completed (state : WasmMachineState) (signal : ControlSignal) : WasiRunOutcome
   | exited (state : WasmMachineState) (code : UInt32) : WasiRunOutcome
   | trapped (state : WasmMachineState) : WasiRunOutcome
-  | resourceExhausted (partialState : WasmMachineState) : WasiRunOutcome
+  | fuelExhausted (partialState : WasmMachineState) : WasiRunOutcome
+  | memoryExhausted (state : WasmMachineState) (requestedPages availablePages : Nat) : WasiRunOutcome
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Finite execution resources supplied by the WASI platform capability.  Input remains an
+    arbitrary `ByteArray`; a budget limits execution resources, not the input domain. -/
+structure WasiResourceBudget where
+  fuel : Nat
+  memoryPages : Nat
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Accounting carried by a recoverable allocation scope.  `liveBytes` is charged against the
+    capability now; `peakLiveBytes` and `cumulativeAllocatedBytes` remain after scope close for
+    auditing, admission control, and parent-scope composition. -/
+structure WasiAllocationAccount where
+  byteBudget : Nat
+  liveBytes : Nat := 0
+  peakLiveBytes : Nat := 0
+  cumulativeAllocatedBytes : Nat := 0
+  deriving Repr, DecidableEq, BEq
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- A lexical allocation scope.  `entry` is retained so closing a child reliably reclaims every
+    byte allocated in that child, while cumulative and peak accounting compose into its parent.
+    Opening another scope from `current` nests naturally. -/
+structure WasiAllocationScope where
+  entry : WasiAllocationAccount
+  current : WasiAllocationAccount
+  deriving Repr, DecidableEq, BEq
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Starts a root allocation scope under a finite byte capability. -/
+def WasiAllocationScope.root (byteBudget : Nat) : WasiAllocationScope :=
+  let account := { byteBudget := byteBudget }
+  { entry := account, current := account }
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Opens a nested scope from the current accounting state. -/
+def WasiAllocationScope.openChild (scope : WasiAllocationScope) : WasiAllocationScope :=
+  { entry := scope.current, current := scope.current }
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Data result of a scope-local allocation attempt.  Exhaustion is returned to the request scope
+    as data; it does not terminate the process or erase the account needed for recovery. -/
+inductive WasiAllocationResult where
+  | allocated (scope : WasiAllocationScope) : WasiAllocationResult
+  | exhausted (scope : WasiAllocationScope) : WasiAllocationResult
+  deriving Repr, DecidableEq, BEq
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Attempts to charge `bytes` to the current scope.  Failed attempts leave all accounting
+    unchanged, making retry, fallback, and request-level error responses well-defined. -/
+def WasiAllocationScope.allocate (scope : WasiAllocationScope) (bytes : Nat) : WasiAllocationResult :=
+  let nextLive := scope.current.liveBytes + bytes
+  if nextLive > scope.current.byteBudget then
+    .exhausted scope
+  else
+    let next : WasiAllocationAccount := {
+      scope.current with
+      liveBytes := nextLive
+      peakLiveBytes := Nat.max scope.current.peakLiveBytes nextLive
+      cumulativeAllocatedBytes := scope.current.cumulativeAllocatedBytes + bytes
+    }
+    .allocated { scope with current := next }
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Closes a scope and reclaims its live allocations.  Cumulative allocation and peak live usage
+    are deliberately retained in the returned parent account, so nested scopes compose without
+    losing resource-accounting evidence. -/
+def WasiAllocationScope.close (scope : WasiAllocationScope) : WasiAllocationAccount :=
+  { scope.entry with
+    peakLiveBytes := Nat.max scope.entry.peakLiveBytes scope.current.peakLiveBytes
+    cumulativeAllocatedBytes := scope.current.cumulativeAllocatedBytes }
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Request failure closes the same scope as ordinary success: live allocations are reclaimed
+    before a caller decides whether to return a request error or escalate to process termination. -/
+def WasiAllocationScope.closeOnFailure (scope : WasiAllocationScope) : WasiAllocationAccount :=
+  scope.close
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Closing, including failure close, restores the parent's live-byte charge exactly. -/
+theorem WasiAllocationScope.close_reclaims_live (scope : WasiAllocationScope) :
+    scope.close.liveBytes = scope.entry.liveBytes := rfl
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Allocation exhaustion is recoverable data and leaves the scope unchanged. -/
+theorem WasiAllocationScope.exhausted_unchanged (scope : WasiAllocationScope) (bytes : Nat)
+    (h : scope.current.byteBudget < scope.current.liveBytes + bytes) :
+    scope.allocate bytes = .exhausted scope := by
+  simp [WasiAllocationScope.allocate, Nat.not_le_of_lt h]
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Classifies the interpreter result without collapsing fuel exhaustion into a trace. -/
 def WasiRunOutcome.ofResult : WasmRunResult → WasiRunOutcome
-  | .error partialState => .resourceExhausted partialState
+  | .error partialState => .fuelExhausted partialState
   | .ok (state, signal) =>
-    if state.trapped then .trapped state
-    else match state.exitCode with
-      | some code => .exited state code
-      | none => .completed state signal
+    match state.resourceFailure with
+    | some (.memoryPages requested available) => .memoryExhausted state requested available
+    | none =>
+      if state.trapped then .trapped state
+      else match state.exitCode with
+        | some code => .exited state code
+        | none => .completed state signal
 
-/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- Runs a WASI module with an explicit, caller-provided resource budget. -/
+/-- Runs a WASI artifact under an explicit finite platform resource capability. -/
 def runWasiOutcome (instrs : List WasmInstr) (segments : List WasmDataSegment)
     (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"])
-    (incomingRequests : List String := []) (fuel : Nat := defaultWasmFuel) : WasiRunOutcome :=
-  WasiRunOutcome.ofResult (runWasiTraceState instrs segments stdin imports incomingRequests fuel)
+    (incomingRequests : List String := []) (budget : WasiResourceBudget :=
+      { fuel := defaultWasmFuel, memoryPages := 65536 }) : WasiRunOutcome :=
+  let initialMemory := initWasmMemory segments
+  let initialPages := (WasmMem.size initialMemory + 65535) / 65536
+  let availablePages := Nat.min budget.memoryPages 65536
+  let state : WasmMachineState := {
+    memory := initialMemory
+    memMax := some availablePages.toUInt32
+    stdin := stdin
+    incomingRequests := incomingRequests
+  }
+  if initialPages > availablePages then
+    .memoryExhausted state initialPages availablePages
+  else
+    WasiRunOutcome.ofResult (evalInstrs budget.fuel instrs state (wasiHostCall imports))
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- The non-resource outcomes from which a whole-program trace may soundly be observed. -/
-inductive WasiCompletedRun where
-  | completed (state : WasmMachineState) (signal : ControlSignal) : WasiCompletedRun
-  | exited (state : WasmMachineState) (code : UInt32) : WasiCompletedRun
-  | trapped (state : WasmMachineState) : WasiCompletedRun
+/-- The observable events of a non-resource WASI outcome.  Resource exhaustion deliberately has
+    no event projection, preventing a partial trace from being treated as a successful result. -/
+def WasiRunOutcome.events? : WasiRunOutcome → Option (List AnyEvent)
+  | .completed state _ => some state.events
+  | .exited state _ => some state.events
+  | .trapped state => some state.events
+  | .fuelExhausted _ => none
+  | .memoryExhausted _ _ _ => none
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- A dynamically justified fuel choice for one concrete WASI invocation.
-
-    `fuel` may depend on every finite input byte.  The proof rules out only resource exhaustion;
-    it deliberately does not conflate ordinary program outcomes such as a trap or `proc_exit`.
-    A universal verified program supplies this certificate for every `Environment`. -/
-structure WasiFuelCertificate (instrs : List WasmInstr) (segments : List WasmDataSegment)
-    (stdin : ByteArray) (imports : List String) (incomingRequests : List String) where
-  fuel : Nat
-  sufficient : match runWasiOutcome instrs segments stdin imports incomingRequests fuel with
-    | .resourceExhausted _ => False
-    | _ => True
-
-/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- A proof-carrying dynamic-fuel policy for every finite byte stream and request queue accepted
-    by a WASI artifact.  This is the unbounded-input interface: it does not postulate an infinite
-    evaluator; instead it gives each finite invocation the finite amount of fuel its terminating
-    execution requires, together with the proof that the amount is sufficient. -/
-structure WasiFuelStrategy (instrs : List WasmInstr) (segments : List WasmDataSegment)
-    (imports : List String) where
-  fuelFor : ByteArray → List String → Nat
-  sufficient : ∀ stdin incomingRequests,
-    match runWasiOutcome instrs segments stdin imports incomingRequests (fuelFor stdin incomingRequests) with
-    | .resourceExhausted _ => False
-    | _ => True
+/-- Observable contract result for a WASI request.  Resource failures are first-class values so a
+    service can recover at request scope; a process-level policy may choose to escalate one, but
+    the platform does not do so implicitly. -/
+inductive WasiObservable (Event : Type) where
+  | completed (events : List Event) : WasiObservable Event
+  | exited (code : UInt32) (events : List Event) : WasiObservable Event
+  | trapped (events : List Event) : WasiObservable Event
+  | fuelExhausted : WasiObservable Event
+  | memoryExhausted (requestedPages availablePages : Nat) : WasiObservable Event
+  deriving BEq
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- Instantiates an all-finite-input fuel policy at one invocation. -/
-def WasiFuelStrategy.certificate (strategy : WasiFuelStrategy instrs segments imports)
-    (stdin : ByteArray) (incomingRequests : List String) :
-    WasiFuelCertificate instrs segments stdin imports incomingRequests :=
-  { fuel := strategy.fuelFor stdin incomingRequests
-    sufficient := strategy.sufficient stdin incomingRequests }
+/-- Maps the event payload without changing completion or resource semantics. -/
+def WasiObservable.mapEvents (f : Event → Event') : WasiObservable Event → WasiObservable Event'
+  | .completed events => .completed (events.map f)
+  | .exited code events => .exited code (events.map f)
+  | .trapped events => .trapped (events.map f)
+  | .fuelExhausted => .fuelExhausted
+  | .memoryExhausted requested available => .memoryExhausted requested available
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- Eliminates the resource-exhausted branch using a supplied dynamic fuel certificate. -/
-def runWasiCompleted (instrs : List WasmInstr) (segments : List WasmDataSegment)
-    (stdin : ByteArray) (imports : List String) (incomingRequests : List String)
-    (budget : WasiFuelCertificate instrs segments stdin imports incomingRequests) : WasiCompletedRun :=
-  match h : runWasiOutcome instrs segments stdin imports incomingRequests budget.fuel with
-  | .completed state signal => .completed state signal
-  | .exited state code => .exited state code
-  | .trapped state => .trapped state
-  | .resourceExhausted state => False.elim (by simpa [h] using budget.sufficient)
-
-/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- The observable events of a completed WASI run.  There is intentionally no corresponding
-    projection from `WasiRunOutcome`, because doing so would make fuel exhaustion observationally
-    indistinguishable from successful termination again. -/
-def WasiCompletedRun.events : WasiCompletedRun → List AnyEvent
-  | .completed state _ => state.events
-  | .exited state _ => state.events
-  | .trapped state => state.events
-
-/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- A certified invocation cannot be classified as resource exhaustion. -/
-theorem WasiFuelCertificate.not_resource (budget : WasiFuelCertificate instrs segments stdin imports incomingRequests)
-    (partialState : WasmMachineState) :
-    runWasiOutcome instrs segments stdin imports incomingRequests budget.fuel ≠ .resourceExhausted partialState := by
-  intro h
-  simpa [h] using budget.sufficient
+/-- Erases machine-internal state only after preserving every externally meaningful outcome. -/
+def WasiRunOutcome.observable : WasiRunOutcome → WasiObservable AnyEvent
+  | .completed state _ => .completed state.events
+  | .exited state code => .exited code state.events
+  | .trapped state => .trapped state.events
+  | .fuelExhausted _ => .fuelExhausted
+  | .memoryExhausted _ requested available => .memoryExhausted requested available
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Runs a full instruction sequence under the WASI system model and returns the observable event
@@ -416,10 +491,11 @@ instance : WasiEnvironmentLoader (List String) where
 /-- First-Class Universally Parametric Verified WebAssembly Program Contract.
     A WebAssembly binary or WAT artifact CANNOT be emitted without supplying:
     1. The WasmModule and its instructions/data segments.
-    2. The high-level parametric specification function (`spec`).
+    2. The finite platform resource capability (`resources`) and high-level parametric outcome
+       specification (`spec`).
     3. THE MATHEMATICAL UNIVERSAL EQUIVALENCE PROOF TERM (`traceEquivalence`)
-       proving that for ALL possible external environments `env : Env`, the WASI execution trace
-       matches the high-level specification trace. -/
+       proving that for ALL possible external environments `env : Env`, the complete WASI outcome
+       (including recoverable resource exhaustion) matches the specification. -/
 structure VerifiedWasmProgram (Env : Type := Unit) (Event : Type := AnyEvent)
     [BEq Event] [Inject Event AnyEvent] [WasiEnvironmentLoader Env] where
   name             : String
@@ -428,10 +504,12 @@ structure VerifiedWasmProgram (Env : Type := Unit) (Event : Type := AnyEvent)
   instructions     : List WasmInstr
   dataSegments     : List WasmDataSegment
   imports          : List String := ["fd_write", "proc_exit"]
-  spec             : Env → List Event
+  resources        : WasiResourceBudget
+  spec             : Env → WasiObservable Event
   traceEquivalence : ∀ (env : Env),
     let (stdin, reqs) := WasiEnvironmentLoader.loadWasiEnvironment env
-    (runWasiTrace instructions dataSegments stdin imports reqs == (spec env).map Inject.inject) = true
+    ((runWasiOutcome instructions dataSegments stdin imports reqs resources).observable ==
+      (spec env).mapEvents Inject.inject) = true
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- First-Class Verified WebAssembly Program Contract for dynamic stdin stream filters. -/

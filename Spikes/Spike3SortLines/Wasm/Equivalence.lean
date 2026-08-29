@@ -48,7 +48,7 @@ def defaultSampleInput : ByteArray :=
     `runSpike3WasiWithStrategy`; this named outcome keeps the sample theorem from treating fuel
     exhaustion as an ordinary empty or partial trace. -/
 def spike3WasmCanonicalOutcome : WasiRunOutcome :=
-  runSpike3WasiOutcome defaultSampleInput defaultWasmFuel
+  runSpike3WasiOutcome defaultSampleInput { fuel := defaultWasmFuel, memoryPages := 65536 }
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Observable Wasm trace on canonical 3-line input. -/
