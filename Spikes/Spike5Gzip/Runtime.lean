@@ -184,22 +184,22 @@ def linuxStaticCallTarget (index : Nat) : Address :=
 theorem linux_find_call_zero :
     (List.range 4).find? (fun index =>
       linuxStaticCallTarget index == linuxStaticCallTarget 0) = some 0 := by
-  native_decide
+  decide
 
 theorem linux_find_call_one :
     (List.range 4).find? (fun index =>
       linuxStaticCallTarget index == linuxStaticCallTarget 1) = some 1 := by
-  native_decide
+  decide
 
 theorem linux_find_call_two :
     (List.range 4).find? (fun index =>
       linuxStaticCallTarget index == linuxStaticCallTarget 2) = some 2 := by
-  native_decide
+  decide
 
 theorem linux_find_call_three :
     (List.range 4).find? (fun index =>
       linuxStaticCallTarget index == linuxStaticCallTarget 3) = some 3 := by
-  native_decide
+  decide
 
 def linuxStreamProviders (direction : CodecDirection) :
     List LinuxX86_64Provider :=
@@ -477,11 +477,12 @@ def wasiStreamArtifact (direction : CodecDirection) : WasiArtifact :=
     resources := { fuel := 16, memoryPages := 1 } }
 
 theorem empty_wasi_memory_size : WasmMem.size (initWasmMemory []) = 65536 := by
-  native_decide
+  change (List.replicate 65536 (0 : UInt8)).length = 65536
+  exact List.length_replicate
 
 theorem empty_wasi_initial_pages :
     (WasmMem.size (initWasmMemory []) + 65535) / 65536 = 1 := by
-  native_decide
+  rw [empty_wasi_memory_size]
 
 theorem one_wasi_page_available : Nat.min 1 65536 = 1 := by decide
 
@@ -627,10 +628,10 @@ def wasiStreamExports (direction : CodecDirection) :=
     (by
       change ((wasiPublicEntries (wasiStreamArtifact direction)).map
         (fun entry => entry.name)).Nodup
-      cases direction <;> native_decide)
+      cases direction <;> decide)
     (by
       change wasiCallableEntries (wasiStreamArtifact direction) = []
-      cases direction <;> native_decide)
+      cases direction <;> decide)
     (by rfl)
 
 theorem wasi_stream_artifact_connected (direction : CodecDirection) :
