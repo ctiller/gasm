@@ -48,11 +48,17 @@ graph TD
 | :--- | :--- | :--- | :--- | :--- |
 | **Windows x86-64 + Vulkan 1.3 (compute-only)** | Windows x86-64 | Vulkan 1.3, compute pipeline only — no rasterization, no render pass, no presentation | `Gasm.Targets.Spirv` (Binary Words) | `vulkan-1.dll` / Win32 Fastcall |
 
-Reference registration for this target is complete: the SPIR-V specification, machine-readable
-SPIR-V grammar, and Vulkan specification are hash-pinned as `spirv-spec`, `spirv-grammar`, and
-`vulkan-spec` entries in `references.json`. A build-time Lean SPIR-V validator with a
-grammar-driven encode/decode roundtrip theorem remains future graphics work tracked by
-`docs/ROADMAP.md` §1; it is not implemented by this document.
+Initial reference registration exists: the SPIR-V specification, machine-readable SPIR-V grammar,
+and Vulkan specification are content-hashed as `spirv-spec`, `spirv-grammar`, and `vulkan-spec`
+entries in `references.json`. Normative profile intake is **not** complete: the committed target
+names Vulkan 1.3 while the registered Vulkan source is a rolling 1.4 page, the SPIR-V specification
+uses a versionless rolling page, and the grammar source tracks an unpinned upstream branch. Before
+the synchronization or validator design begins, its
+stage-entry gate must select one exact Vulkan/SPIR-V execution profile, immutable upstream
+revisions, required capabilities/features and errata disposition, plus matching Khronos formal
+memory-model artifacts. A build-time Lean SPIR-V validator with a grammar-driven encode/decode
+roundtrip theorem remains future graphics work tracked by `docs/ROADMAP.md` §1; it is not
+implemented by this document.
 
 ### 2.2 Possible Futures (No Obligations, No REF Targets)
 
@@ -194,17 +200,21 @@ part of that contract's equivalence obligation.
 > prior claim and its replacement pointer.
 >
 > **Ratified direction** (not yet designed here): synchronization is modeled on Vulkan's own
-> memory model — synchronizes-with / happens-before / availability+visibility, grounded in the
-> hash-pinned `vulkan-spec` entry in `references.json` — mapped onto this repository's existing
-> `VectorClock` machinery (`Gasm/Core/Types.lean:32-47`, currently unused by any graphics
-> code) and the causally-ordered trace representation already ratified in
-> `docs/SYSTEM_EFFECTS.md` §6.3–6.4. `vkQueueSubmit` is a host→queue edge; a fence is a
-> queue→host edge; semaphores are queue→queue edges; barriers are intra-queue edges carrying
-> availability/visibility, with RAW included alongside WAR/WAW. The full DSL design — total
-> race-freedom and happens-before-soundness theorems over the command-stream language, per
-> `docs/DECISIONS.md` §2's DSL-as-proof-leverage principle — remains a prerequisite in
-> `docs/ROADMAP.md` §1. This document does not sketch that design; it only states that the prior
-> layout-FSM claim is retracted and records the required replacement shape.
+> first-class relations and state — program order, storage-class-parameterized inter-thread
+> happens-before, system-synchronizes-with, execution and memory dependencies, scopes, memory
+> domains, and per-write availability/visibility — grounded in the exact profile intake required
+> above. Vulkan happens-before is not transitive and is not by itself sufficient to make a write
+> visible, so it must **not** be identified with this repository's transitive `VectorClock`
+> reachability. A vector clock may cache only a separately proved transitive causal projection,
+> while the source Vulkan relations and labels remain authoritative. Submission order alone creates
+> no execution or memory dependency; queue submission, fence signal plus successful host wait,
+> semaphore signal/wait, events, and pipeline barriers instead receive their exact profile-defined
+> scopes and availability/visibility consequences, with RAW included alongside WAR/WAW. The full
+> DSL design — total race-freedom, relation-soundness, visibility, and host/queue/shader refinement
+> theorems over the command-stream language, per `docs/DECISIONS.md` §2's DSL-as-proof-leverage
+> principle — remains a prerequisite in `docs/ROADMAP.md` §1. This document does not sketch that
+> design; it only retracts the prior layout-FSM and direct-vector-clock claims and records the
+> required replacement boundary.
 
 ### 3.4 Floating-Point Kernel Determinism — SUPERSEDED, replacement pending
 

@@ -77,9 +77,11 @@ and `ExitThread` terminate one thread; `ExitProcess` terminates the process. A t
 object becoming signaled, consuming a logical join right, waiting on a handle, and closing that
 handle are distinct transitions and obligations.
 
-Wait operations retain handle lifetime and represent success, timeout, and failure. If
-wait-on-address is selected for mutex parking, every return rechecks the 32-bit user-space atomic
-state. Wake-to-resume is scheduler causality, not memory synchronization.
+Wait operations retain handle lifetime and represent success, timeout, and failure. The standard
+`ParkedMutex32` adapter uses a four-byte `WaitOnAddress` comparison and rechecks the user-space
+atomic state after every return. A specialized mutex must prove the comparison width, representation
+lifetime, retry rule, and lost-wakeup behavior of any adapter it claims. Wake-to-resume is scheduler
+causality, not memory synchronization.
 
 ---
 

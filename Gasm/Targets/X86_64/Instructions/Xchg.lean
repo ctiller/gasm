@@ -31,9 +31,11 @@ NOTE for future authors (`docs/MEMORY_MODEL.md` §§4–5.1, stage M2-X): this r
 carries no atomicity semantics — `memAccesses` is honestly `[]`. XCHG with a *memory* operand is
 architecturally LOCK'd on x86 (implicitly atomic, with or without the prefix; intel-sdm XCHG
 description). Memory forms land with M2-X and declare one `.atomicRmw` event under that model.
-The portable Linux futex/mutex baseline specifically requires a naturally aligned 32-bit memory
-form and practical 32-bit compare-exchange support; 64-bit forms may be added for independent ISA
-coverage. Adding either outside M2-X would create an unannotated atomic. -/
+The standard-library `ParkedMutex32` Linux/futex baseline specifically requires a naturally aligned
+32-bit memory form and practical 32-bit compare-exchange support; this is one preferred implementation
+of the representation-independent mutex contract, not a universal mutex layout. 64-bit forms may be
+added for independent ISA coverage or proved specialized implementations. Adding either outside
+M2-X would create an unannotated atomic. -/
 structure XchgR64R64 where
   dst : Reg64
   src : Reg64

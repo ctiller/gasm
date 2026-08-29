@@ -33,6 +33,34 @@ prohibitively expensive for humans (exploring many low-level implementations, wr
 simulation proofs, re-deriving code after a spec change) is cheap for agents, provided
 the framework gives them fast, sound, mechanical feedback.
 
+### Bound the solution; do not prescribe the implementation
+
+A high-level specification defines the exact **admissible set** of implementations, not a
+preferred spelling of one implementation. It states the required behavior, authority and
+lifetime transfers, safety and security properties, progress assumptions, observables, ABI,
+and performance envelope. It names a concrete mechanism only when that mechanism is itself an
+observable requirement or part of a platform contract.
+
+Inside that boundary, an implementing agent retains maximum control: representation, algorithm,
+instruction selection, synchronization strategy, implementation-owned work partitioning and
+scheduling policy, and target-specific specialization are implementation choices, while external
+scheduler/environment nondeterminism remains universally quantified by the contract. The agent may
+combine compatible obligations into one mechanism
+or discharge them separately, but acceptance requires a checked refinement witness for every
+active obligation. A pre-canned library implementation is therefore a preferred proof-carrying
+candidate, never an accidental restriction on the solution space.
+
+Target and platform profiles provide the non-negotiable guardrails. They state which agents,
+memory domains, scopes, atomic widths, barriers, ABIs, lifecycle transitions, device-completion
+rules, failure modes, and progress assumptions really exist. A realization is rejected unless its
+proof uses only those facilities and establishes every claimed consequence — spatial and temporal
+memory safety, race freedom and atomicity, ownership and obligation preservation, synchronization
+and visibility, deadlock/order requirements where demanded, and the relevant device, durability,
+or security properties. Using a notionally “stronger” primitive is not automatically valid: it
+must also preserve the contract's progress, performance, failure, and observable-behavior bounds.
+The specification should make unsafe realizations unrepresentable or mechanically rejectable
+while leaving everything inside the proved envelope open to creative implementation.
+
 ### The Target Systems
 
 The systems gasm exists to build are: **game engines, operating systems, web/gRPC

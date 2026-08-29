@@ -7,7 +7,8 @@ This document defines the binary generation model for **SPIR-V shaders** and the
 > fixed below (§1.2) by indexing `SpirvTerminator` on the reached exit state (matching
 > `CpuTerminator`'s pattern), and its synchronization model (§2) is marked **SUPERSEDED** —
 > the prior WAR/WAW-only layout-FSM claim omitted Read-After-Write hazards entirely, and its
-> replacement (Vulkan's own memory-model happens-after relation) is a separate design, not
+> replacement (Vulkan's execution, synchronization, scope, and availability/visibility relations)
+> is a separate design, not
 > authored in this document. A pointer to the floating-point determinism question is likewise
 > added rather than answered here. The `spirv-val`
 > "guarantee" claim at the end of §1.2 is marked **UNSUBSTANTIATED** (no validator exists);
@@ -120,14 +121,16 @@ stateDiagram-v2
 > > `ValidBarrierTransition` before dispatches, preventing Write-After-Read (WAR) and
 > > Write-After-Write (WAW) pipeline hazards.
 >
-> **Ratified direction** (not designed in this document): Vulkan's own memory model —
-> synchronizes-with / happens-before / availability+visibility
-> (the hash-pinned `vulkan-spec` entry in `references.json`) mapped onto this repository's
-> `VectorClock` machinery (`Gasm/Core/Types.lean:32-47`) and the causally-ordered trace
-> representation of `docs/SYSTEM_EFFECTS.md` §6.3–6.4: `vkQueueSubmit` = host→queue edge,
-> fence = queue→host edge, semaphores = queue→queue edges, barriers = intra-queue edges with
-> availability/visibility, **RAW included** alongside WAR/WAW. The full DSL — total
-> race-freedom and happens-before-soundness theorems over the command-stream language, per
-> `docs/DECISIONS.md` §2 — remains prerequisite work in `docs/ROADMAP.md` §1. See
+> **Ratified direction** (not designed in this document): retain Vulkan's program order,
+> storage-class-parameterized inter-thread happens-before, system-synchronizes-with, execution and
+> memory dependencies, scopes, memory domains, and availability/visibility as first-class profile
+> semantics. Vulkan happens-before is non-transitive and does not alone imply visibility; it must
+> not be mapped directly to the repository's transitive `VectorClock` relation. Clocks may cache
+> only a proved causal projection while the labelled Vulkan relations remain authoritative.
+> Submission order alone is not a dependency, and queue submission, fence signal/host observation,
+> semaphore signal/wait, events, and barriers each require their exact profile-defined scopes and
+> consequences, with **RAW included** alongside WAR/WAW. The full DSL — total race-freedom,
+> relation-soundness, visibility, and host/queue/shader refinement theorems over the command-stream
+> language, per `docs/DECISIONS.md` §2 — remains prerequisite work in `docs/ROADMAP.md` §1. See
 > `docs/GRAPHICS_ARCHITECTURE.md` §3.3 for the same requirement stated
 > alongside the contract/audit trace split it depends on.

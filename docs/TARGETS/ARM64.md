@@ -1386,8 +1386,10 @@ because they are the design's own account of what a seal does and does not buy:
 
 `docs/MEMORY_MODEL.md` §§4, 6, and 7 consolidate the required event, borrowing, and lock
 design. It replaces the old task labels with exit-criterion stages: M0 for the event graph, M1
-and M4 for indexed authority and cross-thread transfer, and M5-S/M5-A for the portable lock
-contract and its AArch64 realization. `Gasm/Core/BlockM.lean` exists, but its open `set`
+and M4 for indexed authority and cross-thread transfer, M5-S for the representation-independent
+mutex contract, and M5-L/M5-A for the standard `ParkedMutex32` library and its AArch64 realization.
+Specialized mutex libraries use the same M5-S refinement interface. `Gasm/Core/BlockM.lean` exists,
+but its open `set`
 operation and value-level permission/obligation fields do not enforce those transitions.
 
 The practical consequence: **the descriptor layer (`AArch64MemAccessSpec`, access lists,

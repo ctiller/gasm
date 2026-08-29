@@ -98,8 +98,10 @@ lost wakeups.
 
 Two threads each perform a fixed number of increments of a shared counter. The counter and any
 ordinary protected state are accessed only through the exclusive capability carried by a successful
-lock guard. The portable lock/parking state is a naturally aligned, stable-lifetime 32-bit atomic
-word so the same abstract protocol refines to Linux futexes on both architectures.
+lock guard. This workload deliberately instantiates the standard-library `ParkedMutex32`: a
+naturally aligned, stable-lifetime 32-bit atomic word whose audited protocol refines to Linux
+futexes, Windows address waiting, and the selected bare-metal parking adapters. It is the common
+validation fixture, not the only implementation admitted by the portable mutex contract.
 
 The architecture-neutral proof establishes:
 
@@ -127,8 +129,8 @@ mutual exclusion.
 
 ## 4. Blocking and Futex Workload
 
-Every hosted mutex variant adds deliberate contention so at least one worker takes the parking slow
-path. Linux uses the process-private futex profile in `docs/MEMORY_MODEL.md` §9:
+Every hosted `ParkedMutex32` realization adds deliberate contention so at least one worker takes the
+parking slow path. Linux uses the process-private futex profile in `docs/MEMORY_MODEL.md` §9:
 
 1. user-space atomic state determines whether acquisition can proceed;
 2. the waiter calls wait only after observing the contended state;
@@ -137,10 +139,12 @@ path. Linux uses the process-private futex profile in `docs/MEMORY_MODEL.md` §9
 5. wake makes an eligible waiter runnable but creates no memory-order edge by itself;
 6. the waiter loops and rechecks the user-space state after every return.
 
-Before emission, the design gate selects the exact 32-bit mutex values and transitions, waiter
-marking, wait expected value, unlock value, wake policy, and retry behavior. The target proof also
-orders the release publication before the wake/notification side effect; this prevents a waiter
-from re-enqueuing after the only wake without pretending the wake is a memory fence.
+Before this library is implemented, its design gate selects the exact 32-bit values and transitions,
+waiter marking, wait expected value, unlock value, wake policy, and retry behavior. The target proof
+also orders the release publication before the wake/notification side effect; this prevents a
+waiter from re-enqueuing after the only wake without pretending the wake is a memory fence. A
+specialized mutex instead pins and proves its own representation and parking plan through the common
+implementation-refinement interface.
 
 Linux acceptance requires evidence that the futex wait and wake paths both executed; a run that
 never blocks is a lifecycle/lock test but not a futex validation.
@@ -167,7 +171,7 @@ return from the thread start routine, handle lifetime, join result, and per-thre
 wait is a scheduler transition, not a synchronous function over one CPU state.
 
 Mutex contention is a separate live-thread workload using `WaitOnAddress` and
-`WakeByAddressSingle`/`WakeByAddressAll` over the selected 32-bit parked-mutex state machine. It
+`WakeByAddressSingle`/`WakeByAddressAll` over the standard-library `ParkedMutex32` state machine. It
 must demonstrate both wait and wake paths and recheck the atomic state after every return; a
 thread-handle join does not count as mutex parking. Explicit start/terminal release-acquire words
 provide lifecycle visibility unless a later pinned Windows profile proves an equivalent API edge.
@@ -262,12 +266,13 @@ Spike 8 is complete only when:
    and emitted program bytes decode back to those instructions with relocation/layout fidelity;
 2. x86 and AArch64 model-derived litmus theorems pass;
 3. native hosted runs observe only model-allowed outcomes;
-4. the lock invariant, capability transfer, must-release obligation, and final counter theorem are
-   proved once at the common contract and discharged by both architectures;
+4. the representation-independent lock invariant, capability transfer, must-release obligation, and
+   final counter theorem are proved once at the common contract; `ParkedMutex32` refines that
+   contract and is discharged by both architectures;
 5. Linux x86-64 and AArch64 execute and validate the futex slow path;
 6. Windows validates its lifecycle and parking refinement;
 7. x86 and AArch64 bare-metal targets start at least two CPUs/PEs, prove the boot-mailbox handoff,
-   run the lock counter, refine their selected wait strategy, and validate one device
+   run the `ParkedMutex32` lock counter, refine their selected wait strategy, and validate one device
    order/completion protocol with a barrier/attribute negative control;
 8. the causal trace node quotient is total/non-inventing and its labelled edge order is connected in
    both directions to projected program and scheduler causality;

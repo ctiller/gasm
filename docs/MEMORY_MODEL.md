@@ -31,8 +31,9 @@ The completed system must provide all of the following:
    in-bounds authority; conflicting ordinary accesses cannot be authorized concurrently.
 3. **Cross-thread ownership transfer:** spawn, join, successful lock acquisition, and lock release
    move capabilities rather than copying them.
-4. **Lock invariants and linear cleanup:** a lock word can guard a different region; successful
-   acquisition creates a guard and a must-release obligation, and release consumes both.
+4. **Lock invariants and linear cleanup:** an implementation-defined atomic synchronization
+   representation can guard a different region; successful acquisition creates a guard and a
+   must-release obligation, and release consumes both.
 5. **Blocking synchronization:** Linux futex wait/wake, Windows waiting, and bare-metal parking
    refine a common scheduler-level parking contract without pretending they have identical APIs.
 6. **Two bare-metal SMP stories:** x86 application-processor bring-up and AArch64 processing-
@@ -54,6 +55,13 @@ The first supported concurrent profile is deliberately bounded:
 
 These restrictions are acceptance boundaries, not silent assumptions. Widening any one requires a
 new validation demand and an update here before implementation.
+
+This first profile is CPU concurrency, not a claim that CPU-shaped event fields are universal.
+SPIR-V/Vulkan, WGSL/WebGPU, DMA submission/completion interfaces, network and IPC protocols, and
+durable storage need additional execution agents, locations, scopes, relations, and consequences.
+They may reuse the common authority, obligation, event-identity, and causal-projection framework,
+but must not be encoded as x86/AArch64 threads or as opaque “device fences.” Before M0 fixes public
+types, §15 decision 2 must preserve target-indexed extension points for those domains.
 
 ---
 
@@ -110,8 +118,9 @@ The connection theorems between layers are mandatory:
   emission preserves relocation targets, layout, and the instruction stream used by the proof;
 - the remaining model-to-hardware semantics boundary is recorded as a cited TCB assumption and
   challenged by architecture-appropriate differential tests;
-- every claimed synchronizes-with edge is backed by the atomic read-from or lifecycle event that
-  creates it;
+- every first-profile CPU release/acquire synchronizes-with edge is backed by the atomic read-from
+  or lifecycle event that creates it; every other target relation has its own profile-indexed
+  witness and connection theorem rather than being forced into the CPU witness shape;
 - every observable causal edge is backed by the corresponding labelled program-happens-before or
   scheduler-causality edge, and every projected source edge is retained;
 - every platform wait/wake operation refines the scheduler parking contract.
@@ -124,9 +133,17 @@ Without these the layers are parallel descriptions, not a verified system.
 
 Static instruction descriptors remain target-specific where addressing demands it: x86 SIB
 operands and AArch64 pre/post-indexed operands should not be forced into one operand type. They
-must, however, instantiate one dynamic event vocabulary after effective addresses are known.
+must, however, instantiate a checked target projection into the common event envelope after
+effective addresses are known.
 
-An implementation should carry information equivalent to:
+The sketch below states the information required by the first **CPU byte-memory projection**. It is
+not an accepted universal Lean representation: §15 decision 2 must first choose target-indexed
+agent, memory-object/reference, location-set, scope, semantics, and relation interfaces. A shader,
+DMA, or storage profile adds its own required information through those interfaces rather than
+pretending every operation has a CPU `ThreadId` and numeric `AddressRange`, or by filling a common
+record with meaningless optional fields.
+
+The CPU projection should carry information equivalent to:
 
 ```lean
 inductive AccessRole where
@@ -204,12 +221,14 @@ shareability/scope, whether it imposes ordering or completion, and whether it sy
 instruction stream. Architecture-specific semantics interpret those fields; they are not collapsed
 into one architecture-neutral notion of “full fence.”
 
-Protocol synchronization is a proof-produced layer over concrete event keys, not another ISA order
-tag. A `SyncWitness` (or equivalent) names the protocol/lock instance and generation, the release
+CPU mutex protocol synchronization is a proof-produced layer over concrete event keys, not another
+ISA order tag. A `SyncWitness` (or equivalent) names the protocol/lock instance and generation, the release
 key, the acquire-observation key, any distinct success-linearization key (for example AArch64's
 load-exclusive plus successful store-exclusive), the relevant reads-from/value or RMW relation, and
-the target-specific proof that those events implement release/acquire. It is the canonical source of a
-synchronizes-with edge. Thus an x86 `MOV` unlock may have `explicitOrder = none` while one proved
+the target-specific proof that those events implement release/acquire. It is the canonical source
+of a first-profile mutex synchronizes-with edge, not the universal shape for Vulkan system
+synchronization, API dependencies, DMA completion, or other target relations. Thus an x86 `MOV`
+unlock may have `explicitOrder = none` while one proved
 protocol use is a release; unrelated stores are not relabelled, and a failed compare/exchange or
 store-exclusive creates no witness.
 
@@ -277,12 +296,15 @@ source-backed vendor/profile set may run functional controls but reports memory-
 - naturally aligned supported-width ordinary accesses are untearable as required by the selected
   x86 profile.
 
-The portable parked-mutex state is a naturally aligned 32-bit word because Linux futexes operate on
-32-bit words on every supported architecture. The initial x86 instruction demand therefore includes
-memory `XCHG r/m32` (implicitly locked), `LOCK CMPXCHG r/m32` (plus any 64-bit forms independently
-demanded), `MFENCE`, and optionally `PAUSE`. Release of a simple x86 mutex may use an approved
+The standard-library `ParkedMutex32` implementation uses a naturally aligned 32-bit word because
+Linux futexes operate on 32-bit words on every supported architecture. Its initial x86 instruction
+demand therefore includes memory `XCHG r/m32` (implicitly locked), `LOCK CMPXCHG r/m32` (plus any
+64-bit forms independently demanded), and optionally `PAUSE`. `MFENCE` belongs independently to the
+broader M2-X synchronization and litmus surface; it becomes a library dependency only if the pinned
+`ParkedMutex32` algorithm actually emits it. Release of a simple x86 mutex may use an approved
 aligned `MOV` atomic-object store only when the x86 model proves the required
-prior-write-before-release visibility.
+prior-write-before-release visibility. This is the instruction demand of that reusable library
+implementation, not a width or encoding restriction on the portable mutex contract.
 
 UC/WC/MMIO ordering is not folded into WB TSO. LAPIC accesses and other devices use the device
 model in §10 and force an explicitly cited x86 memory-type extension.
@@ -402,8 +424,9 @@ The canonical authority algebra distinguishes:
 - `Atomic`: contexts may access a specifically declared atomic object, but only with supported
   atomic operations.
 
-`Atomic` is not authority to mutate an entire mutex-protected region. The lock word has atomic
-authority; the protected region moves as exclusive authority to the successful acquirer.
+`Atomic` is not authority to mutate an entire mutex-protected region. The mutex implementation's
+synchronization representation has atomic authority; the protected region moves as exclusive
+authority to the successful acquirer.
 
 This is a resource algebra, not a pairwise-disjoint list. Spatial composition requires disjoint
 regions, while same-region composition permits identified shared-read leases and separately
@@ -483,23 +506,31 @@ explicit release/acquire publication word alongside its lifecycle mechanism.
 
 ## 7. Lock Invariants and Unlock Obligations
 
-A v1 mutex is nonrecursive and connects disjoint atomic lock region `w` and protected region `p`.
-Initialization consumes raw exclusive authority for both regions, checks/establishes the physical
-unlocked representation, registers `w` as an atomic object, and creates a fresh `LockInstanceId`.
-That instance identity is distinct from the fresh acquisition generation created on every success:
+The portable v1 mutex contract is nonrecursive and connects an opaque, implementation-owned atomic
+representation footprint `r` and a disjoint protected region `p`. It deliberately does not fix the
+number or width of atomic objects, bit layout, parking strategy, or concrete acquisition algorithm.
+Initialization consumes raw exclusive authority for `r` and `p`, establishes an
+implementation-defined unlocked representation (including any admitted initial payload), registers
+each declared atomic object in `r`, and creates a fresh `LockInstanceId`. That instance identity is
+distinct from the fresh acquisition generation created on every success:
 
 ```lean
-structure LockInv (lockInstance : LockInstanceId) (w p : RegionId) where
-  -- When unlocked, the invariant owns p.
-  -- When locked, exactly one live guard owns p.
-  invariant : LockStateRelation w p
+structure LockInv
+    (implementation : MutexImplementationId)
+    (lockInstance : LockInstanceId)
+    (representation : MutexRepresentationId)
+    (protected : RegionId) where
+  -- When unlocked, the invariant owns protected.
+  -- When locked, exactly one live guard owns protected.
+  invariant : LockStateRelation implementation representation protected
 ```
 
-The lock’s physical value does not by itself prove ownership. The ghost invariant relates the
-physical protocol state, current owner identity and acquisition generation, protected authority,
-wait state, and lifecycle. Contenders share atomic authority only for `w`; mixed atomic/plain access
-to `w` is rejected. The invariant owns `p` while available, and exactly one live guard owns `p`
-while held.
+The synchronization representation's physical state does not by itself prove ownership. The ghost
+invariant relates its implementation-defined state, current owner identity and acquisition
+generation, protected authority, wait state, lifecycle, and any additional packed payload.
+Contenders receive only the implementation-declared atomic grants for `r`; mixed atomic/plain access
+or separately claimed authority for overlapping fields of any object in `r` is rejected. The
+invariant owns `p` while available, and exactly one live guard owns `p` while held.
 
 ### 7.1 Acquire
 
@@ -511,8 +542,9 @@ Try-acquire has a result-dependent postcondition:
   region to that guard, and adds a matching `MustRelease lock thread generation`.
 
 A blocking acquire returns only the success case but carries a liveness theorem conditional on the
-scheduler, wakeup, and fairness assumptions. Mutual exclusion is a safety theorem and does not
-depend on fairness.
+implementation's declared progress assumptions. These may include scheduler and wakeup fairness for
+a parked implementation or interference and execution fairness for a spin-only implementation.
+Mutual exclusion is a safety theorem and does not depend on fairness.
 
 An acquire synchronizes with the particular prior release it observes only when the architecture
 model proves the required release/acquire relation. The proof cannot be generated merely because
@@ -531,9 +563,13 @@ Target realizations differ:
 - x86 may use locked acquire/CAS plus an aligned `MOV` release store under the TSO proof. On a
   registered atomic word that approved authoring operation emits `AccessClass.atomicStore` with
   `explicitOrder = none`; it is not authorized or modeled as a `.plain` access, even though the
-  machine instruction is an ordinary `MOV`;
-- AArch64 uses an acquire-capable load/exclusive sequence and `STLR` or a proven barrier sequence
-  for release.
+  machine instruction is an ordinary `MOV`. A packed implementation may use this replacement store
+  only when its whole-word transition proof shows that no concurrently mutable auxiliary field is
+  clobbered; otherwise it requires a proved RMW loop;
+- the first-profile AArch64 realization uses an acquire-capable load/exclusive sequence and `STLR`
+  or a proven barrier sequence for release. A packed release may analogously require a
+  release-capable exclusive update rather than a whole-word `STLR` replacement; later profiles may
+  add LSE through the same implementation-refinement boundary.
 
 ### 7.3 Typed Obligations
 
@@ -555,9 +591,88 @@ must remove them through scheduler transitions. Mutex destruction requires autho
 control, an unlocked state, and proof that no guard, waiter, in-flight access, reservation, or
 scheduler registration remains. It revokes and consumes every instance-scoped atomic grant,
 consumes the `LockInv` and `LockInstanceId`, invalidates stale handles by generation, and returns raw
-exclusive authority for both `w` and `p`. The 32-bit lock/parking word has stable lifetime until that
-transition completes. Forced thread termination while holding a guard is unsupported in v1 rather
-than silently discarding the guard or poisoning the invariant.
+exclusive authority for every region in `r` and for `p`. The implementation's complete atomic
+representation has stable lifetime until that transition completes. Forced thread termination while
+holding a guard is unsupported in v1 rather than silently discarding the guard or poisoning the
+invariant.
+
+### 7.4 Implementations and Library Selection
+
+Higher-level checked code targets the portable mutex contract above. A concrete
+`MutexImplementation` (or equivalent refinement record) supplies the atomic representation, valid
+states, initialization and destruction rules, acquire/release linearization points, target event
+witnesses, declared progress properties, and any parking adapter. The proof, rather than a hard-coded
+word layout, makes that implementation eligible wherever its advertised traits satisfy the mutex
+demand.
+
+`ParkedMutex32` is the planned standard verified library implementation and preferred default for
+ordinary hosted and bare-metal mutex requests. It will own a dedicated, naturally aligned 32-bit
+atomic word, use one pinned simple/contended state machine, and supply reusable x86-64, AArch64,
+Linux futex, Windows address-wait, and bare-metal refinements. Spike 8 validates this implementation
+as the portable baseline. Pinning its state values is necessary before proving this library; it does
+not freeze the representation of every future mutex.
+
+Specialized libraries may implement the same mutex contract with a different state machine or with
+additional state packed into the atomic representation—for example a version, waiter count, owner
+metadata, or application-specific bits. Such an implementation must prove all of the following:
+
+- every declared object has a target-supported width, alignment, memory type, and scope. Packed
+  fields within one overlapping word form one registered atomic object; a companion parking word is
+  a separate disjoint object accounted for by the same implementation footprint;
+- every transition uses approved atomic operations and preserves the encoding and packed-payload
+  invariant; no client obtains plain or independently writable authority to a bit field inside it;
+- every reachable physical value has a defined simulation to abstract lock state and auxiliary ghost
+  state; reserved encodings are unreachable or explicitly handled, and field updates cannot overflow,
+  carry into, or silently overwrite neighboring fields. Several concrete values may refine one
+  abstract lock state when the simulation and retry proofs account for them;
+- the physical transitions have the claimed acquire/release linearization points and refine the same
+  `LockGuard` transfer and `MustRelease` discipline;
+- its parking projection supplies an exact observed wait value, retry rule, release-before-notify
+  order, and lost-wakeup proof. Linux futex comparison is over the full aligned 32-bit word, so a
+  wider representation needs a separate 32-bit parking word or another proved adapter. Auxiliary
+  changes may cause safe value-mismatch retries, but every transition that makes acquisition possible
+  must discharge the implementation's notification responsibility;
+- every architecture, platform, and profile the implementation claims to support supplies its own
+  realization and validation evidence.
+
+Hidden waiter, version, and owner metadata are simply part of the implementation invariant.
+Application-visible auxiliary state instead requires an enriched typed interface whose whole-word
+atomic accessors relate the decoded payload to ghost state, together with an erasure theorem showing
+that the enriched implementation still refines the ordinary mutex contract. Holding the guard does
+not authorize a plain subword access to that payload because contenders retain atomic authority over
+the overlapping object.
+
+An implementing agent may preferentially select `ParkedMutex32`, but it may select or author a
+specialized implementation when the higher-level contract permits it and the refinement record
+checks. Generic mutex clients see the common guard, ownership, visibility, and cleanup contract;
+only clients of an explicitly richer library see its packed-state operations. Selection is
+trait-directed: a caller may demand blocking support, a platform profile, a progress class, a
+footprint or ABI, or enriched payload operations without prescribing an algorithm, and only an
+implementation proving those traits is admissible.
+
+### 7.5 Multi-lock ordering and deadlock demands
+
+The portable mutex contract proves per-instance mutual exclusion and visibility; it does not by
+itself prove that a program using several locks is deadlock-free. Higher-level code may demand a
+strict, well-founded acquisition relation over lock instances or lock classes. In a rank-based
+realization, acquiring `next` while holding a set `held` requires a proof that every blocking lock in
+`held` precedes `next`; guards carry enough lock-set/rank evidence for the checked authoring surface
+to reject an order inversion. A separate trait may require properly nested LIFO release, but lock
+ordering alone need not.
+
+Rank order is one proof library, not the definition of deadlock freedom. A higher-level
+no-deadlock demand may instead be discharged by an ordered multi-lock primitive, try-lock plus
+proved rollback/backoff, a scheduler or transaction protocol, lock fusion/elimination, or another
+target plan whose wait-for graph is proved acyclic under its explicit progress assumptions. The
+specification may require a particular order when that order is an interoperability, audit, or
+performance requirement; otherwise it should demand the safety/liveness consequence and let the
+implementor select the proof plan.
+
+Similarly, one physical lock may discharge synchronization demands for several protected regions
+only when its invariant transfers authority for their exact union and coarser exclusion preserves
+all progress, observability, footprint, and performance contracts. Separate locks remain admissible
+when their composition proof establishes the requested ordering/deadlock properties. Neither
+fusion nor separation is inferred merely because two demands mention synchronization.
 
 ---
 
@@ -616,9 +731,11 @@ park-if-equal(key, expected) -> blocked | value-changed | error
 wake(key, maximum)           -> number-woken
 ```
 
-The mutex slow path consumes one selected 32-bit abstract state machine (§15): its fast and slow
-transitions, waiter mark, exact expected value passed to wait, unlock value, wake policy, and retry
-loop are part of the proof. The generic parking API does not choose or silently repair that protocol.
+A mutex slow path consumes the state machine supplied by its selected implementation: its fast and
+slow transitions, waiter mark or projection, exact expected value passed to wait, unlock transition,
+wake policy, and retry loop are part of the proof. The generic parking API does not choose or
+silently repair that protocol. The standard `ParkedMutex32` library pins one 32-bit abstract state
+machine under §15; specialized libraries supply and prove their own protocol.
 
 The first Linux refinement supports process-private `FUTEX_WAIT` and `FUTEX_WAKE` operations. It
 must model:
@@ -634,11 +751,14 @@ must model:
 - removal of wait registrations on wake, supported cancellation, or thread exit;
 - a caller loop that rechecks the user-space atomic state after every return.
 
-Every park-if-equal adapter comparison is a well-formed `atomicLoad` of the registered, stable,
-aligned 32-bit object under scoped platform authority. This includes the Linux `FUTEX_WAIT`
-comparison and the selected Windows `WaitOnAddress` refinement. Each target proves the operation's
-single-copy atomicity and value comparison; neither comparison is a hidden plain access that
-bypasses §6.3, and neither creates memory synchronization by itself.
+Every park-if-equal adapter comparison is a well-formed `atomicLoad` of a registered, stable wait
+object under scoped platform authority, at the exact width and alignment admitted by that
+implementation and platform profile. The v1 Linux `FUTEX_WAIT` object is necessarily 32-bit, and
+the standard Windows `ParkedMutex32` adapter selects a four-byte `WaitOnAddress` comparison. A
+specialized Windows adapter may claim another documented comparison width only after the pinned
+Windows profile and target proof admit it. Each target proves the operation's single-copy atomicity
+and exact value comparison; no comparison is a hidden plain access that bypasses §6.3, and none
+creates memory synchronization by itself.
 
 The v1 profile may require a null timeout and no signal model, returning an explicit unsupported
 result for other operations rather than inventing semantics. Timed waits, shared futexes, requeue,
@@ -686,9 +806,9 @@ The Windows refinement models these facts explicitly:
 - waits have success, timeout, and failure outcomes, and handle lifetime is preserved while a wait
   is pending;
 - per-thread OS state such as last-error values lives in `ThreadState`, not process-global state;
-- the v1 mutex slow path uses `WaitOnAddress` plus `WakeByAddressSingle`/`WakeByAddressAll` over the
-  stable 32-bit lock word; early returns and races are handled by always rechecking the user-space
-  atomic state;
+- the v1 standard-library mutex slow path uses `WaitOnAddress` plus
+  `WakeByAddressSingle`/`WakeByAddressAll` over the stable `ParkedMutex32` word; early returns and
+  races are handled by always rechecking the user-space atomic state;
 - thread-object signaling/waiting supplies lifecycle observation. The v1 adapter also uses explicit
   target-specific release/acquire start and terminal publication words; a later profile may remove
   them only after pinned Microsoft guarantees prove the same §6.4 visibility contract.
@@ -768,12 +888,62 @@ Four relations must remain distinct:
 4. **Observable causal order** is the projection of labelled program and scheduler causality onto
    effect events without conflating their edge kinds.
 
-The explicit labelled edge graph is authoritative. Vector clocks may cache reachability only after
-relations 2 and 3 are established, using separate relation-aware clocks or retaining the source-label
-set on every edge. Comparing one clock over their union cannot recover whether an edge came from
-program synchronization, scheduler control, or both, and may never synthesize that label. Clocks do
-not replace relation 1. Plain reads-from is not automatically synchronizes-with, and futex wake is
-not automatically synchronizes-with.
+### 11.1 Global and heterogeneous order
+
+There is one useful global **event envelope**, but there is no one unlabeled global memory
+happens-before relation. “B happens after A” is meaningful only when it names either the source
+relation or the consequence being proved. A target execution profile contributes its primitive
+relations, scopes, and legal path-composition rules. Consumers then ask for typed consequences such
+as:
+
+- execution of one operation before another;
+- visibility of a particular write to a particular agent/reference and location set;
+- transfer or return of authority over a resource;
+- operation completion and permission to reuse an in-flight buffer;
+- remote delivery or application-level acknowledgement;
+- persistence across a declared crash boundary; or
+- observable causal dependence in the contract trace.
+
+A high-level synchronization demand states the required source/destination agents and operations,
+resource footprint, scopes, consequences, progress/failure assumptions, and performance envelope —
+not a preferred instruction or API call. A target-specific synchronization plan may fuse compatible
+demands into one mechanism or discharge them separately. Fusion is accepted only with a proof that
+the one plan entails every demand without widening ownership, violating participation/scope rules,
+or breaking progress, failure, observability, or cost bounds. A specification requires a particular
+fusion or primitive count only when that choice is itself observable, is an explicit
+performance/ABI contract, or is required by a security, safety, platform, certification, or errata
+constraint; otherwise the implementor retains the choice.
+
+A path that proves one consequence cannot be silently coerced into another. CPU release/acquire
+does not persist data, a scheduler wake does not publish ordinary memory, submission does not prove
+completion, local network completion does not prove remote application processing, and storage I/O
+completion is not durable completion unless the selected storage profile says so. Likewise, an
+`io_uring` ring-index release/acquire pair can publish an SQE or CQE without giving every operation
+represented by that entry the same execution, delivery, or durability guarantee.
+
+“Happens-after” is therefore the inverse of a **named** relation, never a primitive universal fence.
+A derived `causallyBefore` relation may project proved dependencies into observable traces, but its
+only generic consequence is causal ordering; the path's source labels and witnesses remain
+available. Relation-specific reachability may be cached only where that relation's composition law
+is transitive. For example, Vulkan happens-before is non-transitive even though its fixed-storage-
+class inter-thread-happens-before relations are transitive; visibility also requires
+availability/visibility reasoning. A transitive vector clock therefore cannot represent Vulkan
+happens-before directly. A Vulkan execution must retain its own relations and prove a separate
+causal projection.
+
+This gives heterogeneous programs a common composition surface without erasing their differences:
+CPU threads, GPU queues and invocations, kernel/device queues, NICs, remote processes, and storage
+devices can share stable event identities and typed cross-domain handoffs while their architecture,
+API, transport, failure, and persistence profiles remain authoritative.
+
+The explicit labelled edge graph is authoritative. In the first CPU profiles, vector clocks may
+cache reachability only after relations 2 and 3 are established. More generally, a clock may cache
+only a separately proved transitive causal projection, using distinct relation-aware clocks or
+retaining the source-label/path witness on every edge. Comparing one clock over an unlabeled union
+cannot recover whether an edge came from program synchronization, scheduler control, device
+completion, delivery, persistence, or several of them, and may never synthesize such a label.
+Clocks do not replace relation 1 or any target consistency relation. Plain reads-from is not
+automatically synchronizes-with, and futex wake is not automatically synchronizes-with.
 
 Concurrent canonical traces require stable origin-local event identities and equality of labelled
 partial orders modulo schedule-independent event-key renaming/poset isomorphism, not equality of
@@ -803,10 +973,15 @@ The model is complete enough for use only when the following theorem families ex
 | Architecture consistency | Every admitted x86/AArch64 execution satisfies its architecture model |
 | Emission/decoding fidelity | Emitted synchronization programs decode to the modeled instructions with relocation and layout preservation; the residual hardware-semantics boundary is cited and differentially tested |
 | Atomic fidelity | Approved aligned atomic loads/stores and x86 RMW/AArch64 exclusive actions match target single-copy-atomicity, width, alignment, memory-type, success, and failure premises |
-| Protocol synchronization | Every synchronizes-with edge has an instance/generation-matched witness tied to concrete release/acquire event keys, reads-from/RMW evidence, and a target realization proof |
+| CPU protocol synchronization | Every claimed first-profile CPU release/acquire edge has an instance/generation-matched witness tied to concrete event keys, reads-from/RMW evidence, and a target realization proof |
+| Target relation refinement | Every non-CPU profile retains its native relation/scope semantics and proves any projection into the common event envelope; no target synchronizes-with, visibility, completion, delivery, or persistence relation is manufactured through the CPU witness type |
+| Consequence separation | A relation/path witness yields only consequences admitted by its labels and target profile; negative theorems reject wake-as-visibility, submit-as-completion, completion-as-delivery/durability, authority-from-raw-bytes, and analogous cross-kind coercions |
 | Lifecycle transfer | Spawn/donate, sealed termination, detach, and one-shot join preserve every authority, loan, grant, and obligation |
 | Lock safety | At most one live guard owns a protected region; successful acquire/release transfer it correctly |
 | Lock visibility | A new guard observes writes promised by the prior release under the target model |
+| Multi-lock/deadlock claims | Every demanded acquisition-order or no-deadlock trait is backed by a well-founded lock order, acyclic wait-for proof, or another explicit protocol proof; per-lock mutual exclusion alone cannot discharge it |
+| Mutex implementation refinement | Every admitted implementation's reachable representation states, initialization/destruction inverse, atomic transitions, linearization events, packed payload, and progress claims refine the representation-independent mutex contract; erasing an enriched implementation yields the same ordinary guard and release-obligation theorems |
+| Parking-plan refinement | Every implementation claiming a park/wake adapter supplies a stable wait object, exact comparison value and retry rule, notification policy, release-before-notify order, and lost-wakeup proof for each claimed platform adapter; a spin-only implementation instead declares no parking trait and proves progress under its own explicit fairness assumptions |
 | Futex refinement | Linux wait/wake refines atomic park-if-equal/wake without adding memory-order edges |
 | Platform lifecycle | Windows, Linux, x86 bare metal, and AArch64 bare metal refine generic thread/PE transitions |
 | Device/domain fidelity | Effective attributes select Normal versus Device/port-I/O semantics correctly; device values/side effects and ordering/completion barriers refine the selected device specification |
@@ -826,8 +1001,8 @@ protocol, not hand-copied expected tables.
 
 | Target | Model-side | Emitted/native | Bare metal |
 |---|---|---|---|
-| x86-64 | TSO outcome enumeration; locked/fenced variants | Windows and Linux x86-64 binaries on native or hardware-virtualized CPUs | AP bring-up, lock/counter, RAM litmus when accelerator is credible |
-| AArch64 | Weak-memory outcome enumeration; plain, acquire/release, barrier, exclusive variants | Linux AArch64 binaries on native or KVM-backed systems | PE bring-up, lock/counter, RAM litmus when backend is credible |
+| x86-64 | TSO outcome enumeration; locked/fenced variants | Windows and Linux x86-64 binaries on native or hardware-virtualized CPUs | AP bring-up, `ParkedMutex32` lock/counter, RAM litmus when accelerator is credible |
+| AArch64 | Weak-memory outcome enumeration; plain, acquire/release, barrier, exclusive variants | Linux AArch64 binaries on native or KVM-backed systems | PE bring-up, `ParkedMutex32` lock/counter, RAM litmus when backend is credible |
 
 Validation rules:
 
@@ -844,8 +1019,10 @@ Validation rules:
 - harness correctness is verified independently enough that a stale result or serialized worker
   protocol cannot silently pass the model.
 
-The portable lock counter is run on all supported targets, but its instruction sequence is target-
-specific. Litmus expected outcomes are also target-specific.
+The standard-library `ParkedMutex32` lock counter is the baseline run on all supported targets, but
+its instruction sequence is target-specific. A specialized mutex adds its own representation and
+adapter validation matrix without changing the portable lock theorem. Litmus expected outcomes are
+also target-specific.
 
 ---
 
@@ -856,31 +1033,34 @@ tasks, but its dependency and exit criteria remain here.
 
 | Stage | Deliverable | Depends on | Exit criterion |
 |---|---|---|---|
-| M0 | Common well-formed dynamic event/graph vocabulary and target projection interfaces | current memory hooks | Existing x86 and AArch64 ordinary accesses project only to well-formed events; malformed-combination and omission controls fail |
+| M0 | Common well-formed dynamic event/graph vocabulary and target projection interfaces, with target-indexed agent/location/reference/relation extension points | current memory hooks | Existing x86 and AArch64 ordinary accesses project only to well-formed events; no public common type equates every agent with a CPU thread, every location with a numeric CPU address, or every target relation with transitive CPU happens-before; malformed-combination, omission, label-forgery, and consequence-escalation controls fail |
 | M1 | Provenanced regions, typed views, indexed authority/obligation transitions, and canonical state normal forms plus simplification support | M0 | Unauthorized, stale, or byte-reloaded pointers without a live typed-view binding cannot be dereferenced; hierarchical allocation composes through the canonical normal forms; automation discharges representative indexed binds; representative real programs stay within a pinned elaboration time/memory budget and regression threshold |
 | M2-X | x86 WB/TSO machine, atomics, fences, enumeration | M0 | x86 litmus theorems, one-thread theorem, decode/emission and relocation fidelity, and silicon validation |
 | M2-A | AArch64 Normal-memory model, acquire/release, barriers, exclusives | M0 | Arm litmus theorems, one-PE theorem, decode/emission and relocation fidelity, and native validation |
 | M3 | Generic process/thread scheduler, lifecycle, and park/wake contract | M0 | Two-thread stepping, park-if-equal/wake, spawn/join, and execution-agent state preservation |
 | M4 | Cross-thread authority partition and lifecycle transfer | M1, M3 | Global access-mode/no-race theorems plus exact loan return, sealed terminal bundle, detach, and one-shot join conservation |
-| M5-S | Portable lock invariant, selected abstract 32-bit parked-mutex state machine, result-indexed guards, and typed release obligations | M4 | The state encoding, transitions, linearization points, wait values, and wake policy are pinned; fresh-instance init, acquire/release witness, failing try-acquire, and full resource-preserving destruction inverse—including stale-handle/grant rejection—satisfy the target-independent lock theorem |
-| M5-X | x86 lock realization and visibility theorem | M2-X, M5-S | 32-bit mutex protocol implements M5-S under x86 TSO |
-| M5-A | AArch64 lock realization and visibility theorem | M2-A, M5-S | 32-bit exclusive protocol implements M5-S under the AArch64 model; LSE requires a later profile extension |
+| M5-S | Representation-independent portable mutex contract, result-indexed guards, typed release obligations, and implementation-refinement interface | M4 | Fresh-instance init, result-indexed try/blocking acquire, release visibility, full resource-preserving destruction inverse, and stale-handle/grant rejection are stated without fixing a word width, encoding, parking API, or algorithm; a concrete implementation can discharge the contract only through checked representation, target-event, and lifecycle proofs |
+| M5-L | Standard-library `ParkedMutex32` abstract protocol and portable refinement | M3, M5-S | One reusable 32-bit state encoding, its fast/slow transitions, linearization points, waiter projection, exact wait values, release transition, wake policy, retry behavior, and no-auxiliary-payload invariant are pinned and proved to refine M5-S; no theorem exports those representation constants as generic mutex facts |
+| M5-X | x86 `ParkedMutex32` realization and visibility theorem | M2-X, M5-L | The standard 32-bit library protocol implements M5-S under x86 TSO; specialized implementations use the same refinement interface and prove their own target realization |
+| M5-A | AArch64 `ParkedMutex32` realization and visibility theorem | M2-A, M5-L | The standard 32-bit library protocol implements M5-S under the AArch64 model; specialized implementations use the same refinement interface, and LSE requires a later profile extension |
 | M6-P | Hosted Linux and Windows lifecycle/wait refinements | M4 | Spawn failure/success, lifecycle visibility, real one-shot join, blocked/runnable state, handle/TID lifetime, terminal bundles, platform authority for registered lifecycle/parking atomic words, and API outcomes refine the generic contracts |
 | M6-X | Linux x86-64 futex and Windows x86-64 lifecycle/parking adapters | M2-X, M6-P | Thread lifecycle, join, wait, and wake paths execute independently of mutex integration; child-TID set/clear and park-if-equal comparisons satisfy atomic-mode, alignment, and x86 single-copy-atomicity obligations |
 | M6-A | Linux AArch64 futex and lifecycle adapter | M2-A, M6-P | Thread lifecycle, join, wait, and wake paths execute independently of mutex integration; child-TID set/clear and park-if-equal comparisons satisfy atomic-mode, alignment, and AArch64 single-copy-atomicity obligations |
-| M6-LX | Linux/Windows x86 blocking-lock integration | M5-X, M6-X | The selected 32-bit parked-mutex state machine separately refines Linux futex and Windows `WaitOnAddress`/`WakeByAddress*`, including release-before-notify, lost-wakeup, and spurious-return cases |
-| M6-LA | AArch64 blocking-lock integration | M5-A, M6-A | The same selected abstract state machine, through AArch64-specific atomics, including release-before-notify, lost-wakeup, and spurious-return cases, refines the portable lock and parking contracts |
-| M7-X | x86 bare-metal SMP and device-memory extension | M2-X, M3, M5-X | Two CPUs prove boot-mailbox handoff, run lock/counter, refine the selected wait strategy, and validate one device order/completion protocol plus barrier/attribute negative control; backend honesty reported |
-| M7-A | AArch64 bare-metal SMP and device-memory extension | M2-A, M3, M5-A | Two PEs prove boot-mailbox handoff, run lock/counter, refine the selected wait strategy, and validate one device order/completion protocol plus barrier/attribute negative control; backend honesty reported |
+| M6-LX | Linux/Windows x86 standard-library blocking-lock integration | M5-X, M6-X | `ParkedMutex32` separately refines Linux futex and Windows `WaitOnAddress`/`WakeByAddress*`, including release-before-notify, lost-wakeup, and spurious-return cases; the adapter interface remains open to other proved mutex libraries |
+| M6-LA | AArch64 standard-library blocking-lock integration | M5-A, M6-A | `ParkedMutex32`, through AArch64-specific atomics, including release-before-notify, lost-wakeup, and spurious-return cases, refines the portable mutex and parking contracts; the adapter interface remains open to other proved mutex libraries |
+| M7-X | x86 bare-metal SMP and device-memory extension | M2-X, M3, M5-X | Two CPUs prove boot-mailbox handoff, run the `ParkedMutex32` lock/counter, refine the selected wait strategy, and validate one device order/completion protocol plus barrier/attribute negative control; backend honesty reported |
+| M7-A | AArch64 bare-metal SMP and device-memory extension | M2-A, M3, M5-A | Two PEs prove boot-mailbox handoff, run the `ParkedMutex32` lock/counter, refine the selected wait strategy, and validate one device order/completion protocol plus barrier/attribute negative control; backend honesty reported |
 | M8 | Concurrent causal trace projection and equivalence integration | M3, M5-S | Total/non-inventing observable-node quotient plus bidirectional labelled-edge fidelity modulo event-key renaming |
 | M9 | Full cross-target Spike 8 validation matrix | M6-LX, M6-LA, M7-X, M7-A, M8 | Model, emitted binaries, OS adapters, and both bare-metal paths satisfy §13 |
 
 M2-X and M2-A should proceed in parallel after M0 and their respective §15 entry gates. M1 can also
 proceed in parallel after its entry gate, but no lock or thread-safety claim lands until the three
-paths meet at M4/M5-S and the relevant M5-X/M5-A realization. The selected 32-bit parked-mutex
-protocol is fixed as an entry condition for M5-S, before the portable lock proof or either
-architecture realization begins; M5-X and M5-A do not independently choose state encodings or
-linearization points.
+paths meet at M4/M5-S and a relevant implementation realization. The portable contract lands before
+any library chooses a representation. The standard 32-bit `ParkedMutex32` protocol is fixed only as
+an entry condition for M5-L, before its M5-X/M5-A realizations; those two target proofs do not
+independently choose the library's state encoding or linearization points. A specialized mutex may
+choose another encoding—including proved packed state—without changing M5-S, but it must supply the
+same class of abstract, target, parking, lifecycle, and validation proofs before use.
 
 Execution discipline:
 
@@ -904,8 +1084,13 @@ The following are deliberate stop-and-design gates:
    profile, shareability assumptions, applicable errata and the disposition of each, the matching
    official A-profile `aarch64.cat` revision and content hash, and the herd7 release/commit and hash
    used to run it.
-2. **Common event representation:** concrete Lean types and whether bounded enumeration uses one
-   graph engine or per-architecture engines connected to the graph.
+2. **Common event representation:** concrete Lean types for stable target-indexed agent identities,
+   memory objects/references and location sets, generative asynchronous-operation/completion and
+   reusable-slot generations, decomposed memory kind/address space/scope fields, typed relation
+   labels and consequence-aware path witnesses; plus whether bounded enumeration
+   uses one graph engine or per-target engines connected to the common envelope. The first CPU
+   implementation may instantiate only byte-addressed x86/AArch64 projections, but the public seam
+   must not make CPU thread identity, numeric addresses, or transitive CPU happens-before universal.
 3. **Indexed authoring surface:** how `BlockM` prevents arbitrary permission/obligation replacement
    while retaining usable errors; the canonical state normal forms and simplification/automation
    interface; and the representative-program elaboration time/memory budget and regression threshold.
@@ -916,10 +1101,12 @@ The following are deliberate stop-and-design gates:
 6. **AArch64 secondary startup:** PSCI conduit and QEMU/real-platform profile.
 7. **Futex v1 errors:** exact supported return codes and explicit behavior for unsupported timeout,
    signal, and shared-process cases.
-8. **Parked-mutex protocol:** pin the 32-bit state values and transitions, fast/slow-path
-   linearization points, waiter marking, exact wait expected value, release store, wake policy, and
-   retry behavior. A 0/1 always-wake protocol and a 0/1/2 contended protocol are not proof-
-   interchangeable.
+8. **Standard `ParkedMutex32` library protocol:** pin this library's 32-bit state values and
+   transitions, fast/slow-path linearization points, waiter marking, exact wait expected value,
+   release store, wake policy, and retry behavior. A 0/1 always-wake protocol and a 0/1/2 contended
+   protocol are not proof-interchangeable. This decision gates the standard library only;
+   specialized mutex libraries record an equally explicit representation decision and discharge the
+   open M5-S refinement interface rather than silently inheriting these values.
 9. **x86 vendor profile:** choose Intel 64 only or a common Intel/AMD64 subset and state the
    eligible CPU/vendor test matrix. AMD hardware is not covered by an Intel-only citation.
 
@@ -931,7 +1118,7 @@ These decisions are hard stage-entry gates for normative implementation and theo
 | M1 | Indexed authoring surface, normal forms, automation, and elaboration budget (3) |
 | M2-X | x86 vendor profile (9) and the x86-64 §15.1 reference intake |
 | M2-A | AArch64 formal profile (1) and the complete AArch64 §15.1 reference intake |
-| M5-S (inherited by M5-X and M5-A) | One shared parked-mutex protocol (8), before the portable lock proof or either architecture realization starts |
+| M5-L (inherited by the standard-library M5-X and M5-A realizations) | The `ParkedMutex32` protocol (8), after the portable M5-S contract is fixed and before either standard-library architecture realization starts |
 | M6-P, M6-X, M6-A | Applicable Windows wait (4), futex error (7), and hosted-platform §15.1 intake decisions |
 | M7-X | x86 AP startup (5) and the x86 bare-metal §15.1 reference intake |
 | M7-A | AArch64 secondary startup (6) and the AArch64 bare-metal §15.1 reference intake |
@@ -955,6 +1142,11 @@ stage starts, `references.json` must pin and hash authoritative material for:
 | Windows | Microsoft documentation for thread creation/exit, thread-object waits, handle lifetime, and the selected address-wait primitive |
 | x86 bare metal | Intel startup/APIC material and selected platform/device specifications |
 | AArch64 bare metal | Arm PSCI, exception-level, GIC, translation/memory-attribute, and selected platform/device specifications |
+| SPIR-V/Vulkan future profile | Exact Vulkan/SPIR-V editions and feature profile, immutable Vulkan-Docs/SPIRV-Headers revisions, matching Khronos memory-model/formal-artifact revision, validator/tool hashes, and applicable errata |
+| WGSL/WebGPU future profile | Exact W3C specification snapshots, browser/host execution environment and import surface, validation implementation/profile, and device-loss/resource-timeline semantics |
+| Linux `io_uring` future profile | Exact Linux UAPI/kernel and liburing revisions, shared-ring memory-order protocol, selected setup/opcode/flag semantics, cancellation and completion rules, and filesystem/network profiles for operation-specific consequences |
+| libverbs/RDMA future profile | Exact rdma-core/libibverbs and provider revisions, selected transport/QP reliability and ordering profile, DMA-coherency premises, registered-memory/access-key rules, completion semantics, and any persistence extension |
+| Network/IPC/storage future profiles | Selected protocol and OS IPC specifications, shared-object identity rules, filesystem/mount/device-cache persistence contract, and explicit loss, failure, crash, and recovery assumptions |
 
 Each Lean declaration cites the narrowest applicable registered anchor. A hardware observation or
 QEMU behavior is validation evidence, not a substitute for the architecture/OS contract.
@@ -971,7 +1163,7 @@ QEMU behavior is validation evidence, not a substitute for the architecture/OS c
 | Provenanced pointers and borrowing | §6, M1/M4 |
 | Pointer-valued fields and hierarchical allocation | §§6.1.1–6.2, M1 |
 | Cross-thread donation and join | §6.4, M3/M4 |
-| Lock invariants | §7, M5-S/M5-X/M5-A |
+| Lock invariants and implementation freedom | §7, M5-S/M5-L/M5-X/M5-A |
 | Must-unlock obligations | §7.3, M5-S |
 | Linux futex | §9, M6-P/M6-X/M6-A |
 | Windows threads/waits | §§8–9, M6-P/M6-X |
