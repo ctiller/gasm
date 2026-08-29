@@ -59,17 +59,22 @@ def requestRuntimeEvent (phase : UInt64) (hasRequest : Bool)
   else if phase = 4 then some (AnyEvent.of (NetEvent.close 101))
   else none
 
+/-- Physical post-state for one Windows request-lifecycle boundary. -/
+def windowsAfterPhase (phase : UInt64) (s : X86_64MachineState) : X86_64MachineState :=
+  let parsed := parserInput s.incomingRequests
+  let popped := popReturnAddress s
+  let requests := if phase = 4 then parsed.2.2 else s.incomingRequests
+  { (popped.setGpr64 .rax (routeCode parsed.1)) with incomingRequests := requests }
+
 /-- Candidate Windows x64 ABI adapter for the staged request runtime. The intended ABI is
 `(socket, scratch, scratchCapacity, retainedBudget) -> RuntimeRoute`. This executable hook models
 the calling convention and lifecycle events, but no theorem here yet relates its machine-state
 transition to `parserRealization`'s abstract boundary semantics. -/
 def windowsParserHook (s : X86_64MachineState) : X86_64MachineState × Option AnyEvent :=
-  let parsed := parserInput s.incomingRequests
-  let popped := popReturnAddress s
   let phase := s.gprs .r9
-  let requests := if phase = 4 then parsed.2.2 else s.incomingRequests
-  let after := { (popped.setGpr64 .rax (routeCode parsed.1)) with incomingRequests := requests }
-  (after, requestRuntimeEvent phase (!s.incomingRequests.isEmpty) parsed)
+  let parsed := parserInput s.incomingRequests
+  (windowsAfterPhase phase s,
+    requestRuntimeEvent phase (!s.incomingRequests.isEmpty) parsed)
 
 /-- Candidate composed Windows runtime binding. Provider support below proves dispatch at the
 linked import slot; it does not by itself prove refinement to the parser component contract. -/
@@ -78,16 +83,21 @@ def spike4WindowsRuntime : ExternalCallInterceptor X86_64 AnyEvent where
     if findIatIndex state addr = some 0 then some (windowsParserHook state)
     else win32Intercept addr state
 
+/-- Physical post-state for one Linux request-lifecycle boundary. -/
+def linuxAfterPhase (phase : UInt64) (s : X86_64MachineState) : X86_64MachineState :=
+  let parsed := parserInput s.incomingRequests
+  let requests := if phase = 4 then parsed.2.2 else s.incomingRequests
+  { (s.setGpr64 .rax (routeCode parsed.1)) with
+    rip := s.gprs .rcx, incomingRequests := requests }
+
 /-- Candidate Linux x86-64 ABI adapter. `gasmHttpLinuxSyscall` is deliberately not represented as
 a Linux kernel syscall; it is a required import of the OS + Gasm-runtime profile. The adapter is
 executable, but its refinement to `parserRealization` remains a separate proof obligation. -/
 def linuxParserHook (s : X86_64MachineState) : X86_64MachineState × Option AnyEvent :=
-  let parsed := parserInput s.incomingRequests
   let phase := s.gprs .r10
-  let requests := if phase = 4 then parsed.2.2 else s.incomingRequests
-  let after := { (s.setGpr64 .rax (routeCode parsed.1)) with
-    rip := s.gprs .rcx, incomingRequests := requests }
-  (after, requestRuntimeEvent phase (!s.incomingRequests.isEmpty) parsed)
+  let parsed := parserInput s.incomingRequests
+  (linuxAfterPhase phase s,
+    requestRuntimeEvent phase (!s.incomingRequests.isEmpty) parsed)
 
 /-- Candidate composed Linux runtime binding, with linked-call support but no claimed semantic
 bridge from the machine transition to the abstract parser boundary. -/
@@ -101,6 +111,23 @@ def appendRuntimeEvent (events : List AnyEvent) : Option AnyEvent → List AnyEv
   | some emitted => events ++ [emitted]
   | none => events
 
+/-- One explicit WASI boundary post-state. Whole-program proofs compose these five boundary
+edges and do not unfold the streaming parser at each call site. -/
+def wasiAfterPhase (phase : UInt32) (state : WasmMachineState) : WasmMachineState :=
+  let parsed := parserInput state.incomingRequests
+  let event := requestRuntimeEvent phase.toUInt64 (!state.incomingRequests.isEmpty) parsed
+  let requests := if phase = 4 then state.incomingRequests.drop 1 else state.incomingRequests
+  { state with incomingRequests := requests, events := appendRuntimeEvent state.events event }
+
+def wasiPhaseResult (state : WasmMachineState) : UInt32 :=
+  (routeCode (parserInput state.incomingRequests).1).toUInt32
+
+@[simp] theorem wasiAfterPhase_trapped (phase : UInt32) (state : WasmMachineState) :
+    (wasiAfterPhase phase state).trapped = state.trapped := rfl
+
+@[simp] theorem wasiAfterPhase_exitCode (phase : UInt32) (state : WasmMachineState) :
+    (wasiAfterPhase phase state).exitCode = state.exitCode := rfl
+
 /-- Candidate Wasm canonical-import adapter for the staged request runtime. Its stack/event
 behavior is executable; equivalence to `parserRealization` is not established in this file. -/
 def spike4WasiRuntime : WasiHostRuntime := fun imports idx state =>
@@ -109,12 +136,7 @@ def spike4WasiRuntime : WasiHostRuntime := fun imports idx state =>
     let (_scratchCapacity, s2) := popI32 s1
     let (_scratch, s3) := popI32 s2
     let (_socket, s4) := popI32 s3
-    let parsed := parserInput s4.incomingRequests
-    let event := requestRuntimeEvent phase.toUInt64 (!s4.incomingRequests.isEmpty) parsed
-    let requests := if phase = 4 then s4.incomingRequests.drop 1 else s4.incomingRequests
-    let withRequests := { s4 with incomingRequests := requests }
-    let withEvent := { withRequests with events := appendRuntimeEvent s4.events event }
-    (pushVal (.i32 (routeCode parsed.1).toUInt32) withEvent, .next)
+    (pushVal (.i32 (wasiPhaseResult s4)) (wasiAfterPhase phase s4), .next)
   else
     wasiHostCall imports idx state
 

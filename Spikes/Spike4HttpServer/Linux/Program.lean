@@ -92,7 +92,7 @@ def rdataPayload : ByteArray :=
     routing, and request-scope recovery are supplied by that selected runtime profile. -/
 def spike4SymbolicProgram : List SymbolicInstr := [
   -- Five explicit request-scope phases provided by the selected Gasm runtime.
-  instr (xor_r32 .r10d .r10d),
+  instr (mov_r32 .r10d 0),
   instr (mov_r32 .eax gasmHttpLinuxSyscall.toUInt32), instr syscall_op,
   instr (mov_r32 .r10d 1),
   instr (mov_r32 .eax gasmHttpLinuxSyscall.toUInt32), instr syscall_op,
@@ -111,10 +111,19 @@ def spike4Linked : LinkedLinuxProgram :=
     ("rdata_base", rdataPayload)
   ]
 
+/-- One typed external-boundary edge of the request lifecycle. -/
+def lifecyclePhaseInstructions (phase : Nat) : List X86_64Instr :=
+  [ mov_r32 .r10d phase.toUInt32,
+    mov_r32 .eax gasmHttpLinuxSyscall.toUInt32,
+    syscall_op ]
+
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
 /-- Lowered concrete machine instruction sequence for Linux Spike 4. -/
 def spike4Instructions : List X86_64Instr :=
   spike4Linked.instructions
+
+theorem spike4Instructions_phases :
+    spike4Instructions = (List.range 5).flatMap lifecyclePhaseInstructions := rfl
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
 /-- Standard executable layout descriptor for Linux Spike 4. -/
