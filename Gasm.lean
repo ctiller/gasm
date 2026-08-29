@@ -55,6 +55,7 @@ import Gasm.Targets.X86_64.Disassembler
 import Gasm.Targets.X86_64.Roundtrip
 import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.X86_64.MacroAssembler
+import Gasm.Targets.X86_64.MacroAssembler.PlatformBridge
 import Gasm.Targets.X86_64.HardwareHarness
 import Gasm.Targets.X86_64.SemanticsFuzzer
 -- Imported for its two elaboration-time `run_cmd` audits (memory-hook seal lint; frame-theorem
@@ -74,6 +75,7 @@ import Gasm.Targets.AArch64.QEMU
 
 import Gasm.Compiler.Word
 import Gasm.Compiler.Word.MicrosoftX64
+import Gasm.Compiler.Word.MicrosoftX64Platform
 import Gasm.Compiler.Word.Examples
 
 import Gasm.Targets.Windows.ABI

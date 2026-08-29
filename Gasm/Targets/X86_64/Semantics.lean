@@ -198,6 +198,24 @@ def runProgramOutcomeLoop {Event : Type}
       | some .divideError => .faulted nextEventsRevAndState.1 nextEventsRevAndState.2.reverse
       | some (.memFault _ _ _) => .faulted nextEventsRevAndState.1 nextEventsRevAndState.2.reverse
 
+/- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
+/-- One production runner step when exact lookup succeeds, the runtime does not intercept, and the
+    ordinary instruction remains nonfaulted. This is shared target semantics, not a frontend-local
+    replay of the evaluator. -/
+theorem runProgramOutcomeLoop_step_none {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (indexed : List (UInt64 × X86_64Instr)) (fuel : Nat)
+    (state : X86_64MachineState) (eventsRev : List Event) (instruction : X86_64Instr)
+    (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+    (silent : interceptor.interceptCall
+      (X86_64Instruction.step instruction state).rip
+      (X86_64Instruction.step instruction state) = none)
+    (safe : (X86_64Instruction.step instruction state).fault = none) :
+    runProgramOutcomeLoop indexed (fuel + 1) state eventsRev =
+      runProgramOutcomeLoop indexed fuel
+        (X86_64Instruction.step instruction state) eventsRev := by
+  simp [runProgramOutcomeLoop, lookup, nativeOutcomeTransition, silent, safe]
+
 /-- The indexed native evaluator used by platform verification.  It executes exactly the same
     instruction/interceptor transition as `runAsmTrace`, but carries an explicit, non-silent
     termination reason. -/

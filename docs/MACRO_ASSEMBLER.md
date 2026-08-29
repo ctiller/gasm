@@ -109,6 +109,36 @@ would be forgeable. Extraction, placement, artifact identity, and the final conn
 be target-owned and must discharge the corresponding field of the sole platform-parameterized core
 `VerifiedProgram`. That core remains the final composition and emission authority.
 
+## Platform execution bridge
+
+`ContextualStraightLinePlacement` connects every locally executed body prefix to production x86
+indexed lookup inside a larger instruction stream. Along with an initially fault-free state and
+`RuntimeSilentOn` evidence for the selected runtime, `runProgramOutcomeLoop_prefix` proves
+that the production explicit-outcome evaluator consumes exactly the body's instruction count and
+then resumes a caller-provided continuation from the same fallthrough state as `runLocalSteps`.
+
+This theorem deliberately does not turn falling off an isolated body into successful function
+termination: the current body has no `RET`. Placement and runtime silence are artifact/platform
+facts, while instruction fault preservation and successful sequential advancement are proved once
+for the target-owned `ControlFlowFree` constructors. Future selected control forms use typed-edge
+certificates instead of this straight-line bridge. Native platform profiles still have empty public
+boundary semantics, so publication as a real `PublishedBoundary` remains staged on target-owned
+callable export manifests and entry semantics.
+
+## Microsoft x64 staged platform adapter
+
+`MicrosoftX64StraightLinePlacement` indexes the compiler's `LocalCertificate` by an exact Windows
+x86-64 artifact, runtime, initial state, and body base. Its lookup law is stated against the artifact's
+production index, while initial safety and runtime silence remain outside the compiler certificate.
+`LocalCertificate.runProgramOutcomeLoop_prefix` instantiates the contextual runner theorem;
+`fallthroughResult` and the fallthrough frame corollaries reuse the compiler's generic result,
+GPR, memory, and input-preservation proofs at the reached state. Final byte connection remains the
+separate target-owned `Platform.artifactConnected` premise used by core composition.
+
+This is intentionally an adapter input, not a `ProgramBehaviorCertificate`, `VerifiedExportSet`, or
+`VerifiedProgram`. Once native target profiles acquire real callable export manifests and boundary
+semantics, the same staged evidence can feed `ContextBoundaryRealization` and `PublishedBoundary`.
+
 This initial straight-line slice therefore supplies instruction realization, local ABI realization,
 and an exact byte boundary, but does not claim whole-function callability merely from its RAX theorem.
 A platform composition must still establish the core entry/exit, stack, obligation-world, placement,
@@ -149,3 +179,37 @@ is the first proved reference backend. An AArch64 backend should independently d
 segments and footprints (including NZCV rather than x86 RFLAGS), map arguments to X0-X3, return in
 X0, and prove its lowering against `AArch64Instruction.step`. This keeps the portable compiler shared
 without weakening target-specific contracts into a misleading lowest common denominator.
+
+## Next control-flow slice
+
+Symbolic control flow will use scoped nominal `BlockRef` values tied to entries in the existing
+`TypedControlFlowGraph`, never text labels or raw instruction offsets. A graph builder will intern a
+supplied `BasicBlock` definition into a finite closed block table and return a reference carrying the
+destination entry contract and ghost-world expectation. Composition must inject or remap identities
+without collision and distinguish sharing a reference from cloning/inlining a block. Recursive and
+mutually recursive components require a finite fixpoint-style builder rather than infinitely nested
+block values.
+
+CALL/JMP authoring may accept a target `BasicBlock` value through that interning operation. The
+linker later chooses an injective aligned layout and proves that each encoded displacement resolves
+to the referenced block. An authoring form such as “back five instructions” is local syntax only: it
+must resolve immediately to a typed instruction-boundary/control-point identity in the closed CFG.
+Insertion or composition therefore cannot silently retarget it, and a raw `Nat` never authorizes a
+jump into a block interior. JMP transfers the current obligation world into the destination entry;
+CALL additionally carries return-continuation, ABI, obligation-transfer, and exceptional/cancellation
+contracts.
+
+## Differential certificate transport
+
+Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,
+a certified delta relating it to `Y`, and a theorem that the delta preserves selected dimensions of a
+certificate together derive those dimensions for `Y`. A delta records changed and unchanged blocks,
+entry/exit and observable refinement, clobber/frame changes, ghost obligations, control and exceptional
+edges, symbolic-block correspondence, and final relocation/byte correspondence. Consumers explicitly
+select the dimensions they transport; functional equivalence alone says nothing about timing, memory
+ordering, ABI preservation, cancellation, or target closure.
+
+The baseline-to-transformed block mapping must preserve nominal identity and state whether each block
+is shared or cloned. Symbolic CFG proofs can then survive layout changes while displacement and exact
+byte proofs are regenerated. Differential transport derives ordinary certificates only; it is neither
+an emission path nor an authority parallel to `VerifiedExportSet` and `VerifiedProgram`.
