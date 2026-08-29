@@ -51,7 +51,7 @@ def spike3WasiReadWriteExitCapability : Capability Spike3WasiPreview1Platform wh
 
 def spike3WasiCapabilities : CapabilityComposition Spike3WasiPreview1Platform where
   root := spike3WasiReadWriteExitCapability
-  realize := fun _ => wasiHostCall
+  realize := fun _ _ => wasiHostCall
   realizeSupports := by
     intro context artifact provider hprovider hlinked
     simp only [spike3WasiReadWriteExitCapability, List.mem_map] at hprovider

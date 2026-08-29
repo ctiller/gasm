@@ -160,13 +160,14 @@ structure CapabilityComposition (P : Type) [Platform P] where
   /-- Target lowering of the composed logical context. This is the only
       runtime value passed to platform execution; capabilities therefore
       cannot be decorative import claims. -/
-  realize : root.Context → Platform.RuntimeContext (P := P)
+  realize : Platform.Artifact (P := P) → root.Context →
+    Platform.RuntimeContext (P := P)
   /-- Runtime support is proved once for every selected provider at any final
       artifact to which that provider is validly linked. Consumers reuse this
       certificate rather than replaying target/link reasoning per program. -/
   realizeSupports : ∀ context artifact provider, provider ∈ root.providers →
     Platform.providerLinked artifact provider →
-    Platform.runtimeSupports (realize context) artifact provider
+    Platform.runtimeSupports (realize artifact context) artifact provider
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- The sole whole-program verification authority.  It is parameterized by an
@@ -195,10 +196,10 @@ structure VerifiedProgram (P : Type) [Platform P] (capabilities : CapabilityComp
     capabilities.root.establishes artifact environment
       (Platform.load artifact environment) (entryContext environment)
   platformAdmissible : ∀ environment,
-    Platform.admissible (capabilities.realize (entryContext environment))
+    Platform.admissible (capabilities.realize artifact (entryContext environment))
       artifact (Platform.load artifact environment)
   traceEquivalence : ∀ environment,
-    Platform.run (capabilities.realize (entryContext environment))
+    Platform.run (capabilities.realize artifact (entryContext environment))
       artifact (Platform.load artifact environment) = spec environment
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/

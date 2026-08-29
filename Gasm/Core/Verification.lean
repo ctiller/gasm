@@ -156,7 +156,9 @@ instance {Event : Type} : Platform (WindowsX86_64 Event) where
     let executable := artifact.executable
     let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
     match (executable.iatFunctionSlots layout.idataRva)[provider.importIndex]? with
-    | some address => ∀ state, (runtime.interceptCall address state).isSome
+    | some address => ∀ state,
+        Gasm.Targets.Windows.findIatIndex state address = some provider.iatIndex →
+        (runtime.interceptCall address state).isSome
     | none => False
   boundaryArtifact := fun _ => ()
   artifactConnected := fun artifact =>
@@ -267,7 +269,7 @@ def windowsHostCapabilities (Event : Type) (providers : List WindowsX86_64Provid
       Platform.runtimeSupports (P := WindowsX86_64 Event) runtime artifact provider) :
     CapabilityComposition (WindowsX86_64 Event) where
   root := windowsHostCapability Event providers
-  realize := fun _ => by
+  realize := fun _ _ => by
     change Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
     exact runtime
   realizeSupports := by
@@ -278,7 +280,7 @@ def linuxHostCapabilities (Event : Type)
     [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
     CapabilityComposition (LinuxX86_64 Event) where
   root := Capability.empty _
-  realize := fun _ => by
+  realize := fun _ _ => by
     change Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
     exact runtime
   realizeSupports := by simp [Capability.empty]
@@ -287,7 +289,7 @@ def aarch64LinuxHostCapabilities (Event : Type)
     [runtime : Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event] :
     CapabilityComposition (LinuxAArch64 Event) where
   root := Capability.empty _
-  realize := fun _ => by
+  realize := fun _ _ => by
     change Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event
     exact runtime
   realizeSupports := by simp [Capability.empty]

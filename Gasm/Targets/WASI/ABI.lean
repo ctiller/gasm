@@ -594,7 +594,7 @@ def wasiHostCapability : Capability WasiPlatform where
 
 def wasiHostCapabilities : CapabilityComposition WasiPlatform where
   root := wasiHostCapability
-  realize := fun _ => wasiHostCall
+  realize := fun _ _ => wasiHostCall
   realizeSupports := by
     intro context artifact provider hprovider hlinked
     simp only [wasiHostCapability, List.mem_cons, List.not_mem_nil, or_false] at hprovider
