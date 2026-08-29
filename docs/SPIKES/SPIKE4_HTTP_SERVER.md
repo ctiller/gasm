@@ -110,8 +110,8 @@ Windows x86_64 (`spike4_windows_canonical_trace_equivalence`) and WebAssembly
 `native_decide`, establishing that both distinct physical binaries execute identical verified
 protocol semantics." **Neither of those two theorem names has ever existed in the tree**, and the
 property the sentence asserted is not established — `scripts/gate_allowlist.txt` records, in the
-six `spike4_*_trace_equivalence` entries, PA17's finding that widening these theorems to the real
-per-request domain **"would be FALSE"**. What follows is what is actually proved.
+six `spike4_*_trace_equivalence` entries, the 2026-08-28 domain-honesty finding that widening these
+theorems to the real per-request domain **"would be FALSE"**. What follows is what is actually proved.
 
 What exists, in `Spikes/Spike4HttpServer/Equivalence.lean`:
 
@@ -128,7 +128,7 @@ What exists, in `Spikes/Spike4HttpServer/Equivalence.lean`:
   instead of hiding it behind the `HttpRoute` case split — the shape
   the domain-honesty review requires.
 - **`spike4WindowsVerifiedProgram` / `spike4LinuxVerifiedProgram` / `spike4WasmVerifiedProgram`**
-  (`:451`, `:460`, `:472`), each carrying a `NOTE (PA17 domain-honesty finding)` recording in the
+  (`:451`, `:460`, `:472`), each carrying a `NOTE (domain-honesty finding)` recording in the
   source that this is **not** a Law-9-compliant universal claim despite `VerifiedProgram`'s type
   signature.
 
@@ -145,8 +145,9 @@ The falsity survives the fix for an independent reason, recorded in the same fil
 returns `none` (400 Bad Request) for any request line that is not exactly three space-separated
 tokens, and **no lowering can emit that response class at all**. A fully universal
 `∀ (request : ByteArray)` equivalence is therefore false on malformed request lines regardless of
-routing correctness. Reaching a genuine universal statement needs PA6's read-binder contract and
-PA7's reactive-program contract first, per PA17's sequencing.
+routing correctness. Reaching a genuine universal statement needs
+`docs/READ_BINDER_CONTRACT.md`'s read-binder contract and
+`docs/EQUIVALENCE_PROOFS.md`'s reactive-program contract first.
 
 So: three distinct physical binaries are checked to execute identical protocol semantics **on three
 literal requests each**, plus the broader concrete witness set `spike4RouteFixedOnAllTargets`

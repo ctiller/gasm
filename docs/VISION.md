@@ -61,6 +61,15 @@ must also preserve the contract's progress, performance, failure, and observable
 The specification should make unsafe realizations unrepresentable or mechanically rejectable
 while leaving everything inside the proved envelope open to creative implementation.
 
+Synchronization and communication preserve that freedom through three proof levels. A high-level
+program states the demand and required consequences. A domain plan chooses an ISA-independent
+architecture—such as a lock protocol, Vulkan/WebGPU dependency plan, asynchronous-I/O queue,
+libverbs transport, network acknowledgement scheme, or durability protocol—and proves it satisfies
+the demand. Target realizations then prove that plan against each concrete ISA, OS, device, provider,
+and transport. This lets one domain architecture be reused across targets and lets agents explore
+different domain plans, while preventing either an attractive ISA instruction or a convenient API
+event from being credited with a consequence its owning profile does not guarantee.
+
 ### The Target Systems
 
 The systems gasm exists to build are: **game engines, operating systems, web/gRPC

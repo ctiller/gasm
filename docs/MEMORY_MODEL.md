@@ -34,13 +34,15 @@ The completed system must provide all of the following:
 4. **Lock invariants and linear cleanup:** an implementation-defined atomic synchronization
    representation can guard a different region; successful acquisition creates a guard and a
    must-release obligation, and release consumes both.
-5. **Blocking synchronization:** Linux futex wait/wake, Windows waiting, and bare-metal parking
-   refine a common scheduler-level parking contract without pretending they have identical APIs.
+5. **Blocking synchronization:** Linux `FUTEX_WAIT`/`FUTEX_WAKE` and Windows `WaitOnAddress`
+   wrappers refine the narrow address-parking contract. Composite waits, bare-metal notification
+   loops, interrupts, and other waits use separately proved scheduler/target adapters.
 6. **Two bare-metal SMP stories:** x86 application-processor bring-up and AArch64 processing-
    element bring-up satisfy one lifecycle contract through architecture-specific mechanisms.
-7. **Honest causal traces:** effect traces faithfully project labelled program happens-before and
-   scheduler causality without conflating them; vector clocks do not stand in for an ISA
-   memory-consistency model.
+7. **Honest causal traces:** effect traces faithfully project the selected admitted labelled source
+   paths—including program, scheduler, API/GPU, device, transport, and persistence causality—while
+   retaining their witnesses; vector clocks stand in for neither a target consistency model nor
+   profile-native relation labels.
 8. **Differential validation:** bounded model outcomes, emitted binaries, native silicon, and
    architecture-appropriate negative controls remain linked.
 
@@ -48,6 +50,8 @@ The first supported concurrent profile is deliberately bounded:
 
 - naturally aligned 32-bit and 64-bit shared words;
 - cacheable normal memory (x86 WB; AArch64 Normal, coherent, shareable memory);
+- target-proved single-copy atomicity for each admitted atomic object, with no common assumption that
+  every supported CPU or system is multi-copy atomic;
 - no mixed-size atomic overlap, self-modifying code, persistent memory, or non-temporal access;
 - explicit Device/MMIO operations, kept out of ordinary RAM reasoning;
 - process-private futex wait/wake first, with other futex operations deferred explicitly;
@@ -57,8 +61,9 @@ These restrictions are acceptance boundaries, not silent assumptions. Widening a
 new validation demand and an update here before implementation.
 
 This first profile is CPU concurrency, not a claim that CPU-shaped event fields are universal.
-SPIR-V/Vulkan, WGSL/WebGPU, DMA submission/completion interfaces, network and IPC protocols, and
-durable storage need additional execution agents, locations, scopes, relations, and consequences.
+WebAssembly shared-memory threads, SPIR-V/Vulkan, WGSL/WebGPU, DMA submission/completion
+interfaces, network and IPC protocols, and durable storage need additional execution agents,
+locations, scopes, relations, and consequences.
 They may reuse the common authority, obligation, event-identity, and causal-projection framework,
 but must not be encoded as x86/AArch64 threads or as opaque “device fences.” Before M0 fixes public
 types, §15 decision 2 must preserve target-indexed extension points for those domains.
@@ -88,21 +93,46 @@ concurrent memory model.
 
 ## 3. Layering and Ownership of Semantics
 
-The implementation is divided into linked semantic surfaces:
+The implementation is organized through a three-level synchronization lens:
 
 ```mermaid
 flowchart TD
-    A[Provenance and authority<br/>regions, bounds, borrows] --> E[Dynamic memory events<br/>access, order, domain, identity]
-    I[Instruction semantics<br/>x86-64 or AArch64] --> E
-    E --> M[ISA consistency model<br/>x86 TSO or AArch64]
-    T[Thread and scheduler machine<br/>run, block, wake, spawn, join] --> M
-    A --> S[Synchronization contracts<br/>atomics, locks, guards, obligations]
-    M --> S
-    T --> S
-    S --> P[Platform refinements<br/>Windows, Linux futex, bare metal]
-    M --> C[Causal trace projection<br/>labelled program and scheduler causality]
-    S --> C
+    H[1. High-level demand contract<br/>communication, authority, consequences, bounds]
+    D[2. Domain architecture plan<br/>CPU locks, Vulkan, WebGPU, io_uring, verbs, protocols]
+    R[3. Target realization<br/>ISA, platform, device and transport witnesses]
+    A[Provenance and authority<br/>regions, bindings, borrows, obligations]
+    I[Instruction semantics<br/>x86-64, AArch64, future targets]
+    E[Dynamic events and labelled relations]
+    M[Target consistency and execution model]
+    T[Scheduler, OS, device and network transitions]
+    C[Causal trace projection<br/>typed consequences and path witnesses]
+    A --> H --> D --> R --> C
+    I --> E --> M --> R
+    T --> R
+    A --> R
 ```
+
+At level 1, a program says **what must be communicated or synchronized**: the source and
+destination operations/agents, resource and location footprint, authority/lifetime transfer,
+required visibility, completion, delivery, persistence, failure and progress consequences, and
+observable performance/security bounds. It does not choose an instruction, API, queue topology, or
+lock algorithm.
+
+At level 2, a concrete domain plan chooses the relevant architecture independently of the host ISA:
+for example a mutex protocol, Vulkan queue/semaphore/barrier plan, WebGPU submission plan,
+`io_uring` ring/resource protocol, libverbs QP/CQ/MR plan, network acknowledgement protocol, or
+storage durability protocol. Its proof refines every level-1 demand into domain-native agents,
+scopes, relations, bindings, consequences, failure modes, and composition laws. Several demands may
+share a mechanism, or one demand may require several mechanisms, when the refinement proves the
+exact requested envelope.
+
+At level 3, each supported realization proves that the selected domain plan is implemented by the
+actual ISA, platform, device, provider, and transport behavior: instructions and barriers, cache and
+DMA ownership, syscalls, doorbells, interrupts, queue transitions, packet/acknowledgement paths, and
+persistence operations. A domain proof is therefore reusable across x86-64, AArch64, and future
+ISAs, but no end-to-end claim exists until the applicable level-3 witnesses are composed. Conversely,
+an ISA fence theorem cannot choose or justify a Vulkan, RDMA, network, or storage architecture by
+itself.
 
 The connection theorems between layers are mandatory:
 
@@ -121,9 +151,12 @@ The connection theorems between layers are mandatory:
 - every first-profile CPU release/acquire synchronizes-with edge is backed by the atomic read-from
   or lifecycle event that creates it; every other target relation has its own profile-indexed
   witness and connection theorem rather than being forced into the CPU witness shape;
-- every observable causal edge is backed by the corresponding labelled program-happens-before or
-  scheduler-causality edge, and every projected source edge is retained;
-- every platform wait/wake operation refines the scheduler parking contract.
+- every observable trace order carries a target/profile-indexed `TraceProjectionWitness` from an
+  admitted labelled source path, and every source path declared trace-observable by that projection
+  is retained; fidelity is to induced reachability, not to a chosen primitive-edge set or transitive
+  reduction;
+- every address-wait operation refines the narrow scheduler address-parking contract, while a
+  composite wait, notification instruction, interrupt, or device signal uses its own proved adapter.
 
 Without these the layers are parallel descriptions, not a verified system.
 
@@ -142,6 +175,38 @@ agent, memory-object/reference, location-set, scope, semantics, and relation int
 DMA, or storage profile adds its own required information through those interfaces rather than
 pretending every operation has a CPU `ThreadId` and numeric `AddressRange`, or by filling a common
 record with meaningless optional fields.
+
+M0 fixes only the thin interchange boundary: generative event identity, profile-indexed agent,
+reference, location, event/transition payload, relation, and consequence families, well-formed
+target projections, labelled path witnesses, and trace-projection laws. Concrete relation and
+consequence constructors for a future target remain owned by that target's hash-pinned reference
+intake. This prevents a CPU-first
+implementation from closing the extension seam without prematurely guessing Vulkan, WebGPU,
+`io_uring`, libverbs, or storage semantics.
+
+Reference resolution at that boundary is time-indexed rather than a timeless
+`reference -> location set` function. The common interfaces must be able to instantiate equivalents
+of a generative `ObjectInstanceId`, target-indexed `BindingKey`, `BindingGeneration`, and a resolved
+`BindingRef` carrying the key and generation, object instance, rights, and covered logical and
+backing footprints. A backing footprint need not be a numeric physical address. Profile-owned
+`Bind`, `Unbind`, and `Rebind` transitions create or retire those witnesses; explicit
+alias/overlap relations say when distinct references resolve to the same object or backing
+locations. Raw numeric equality across different namespaces does not establish aliasing, while
+different raw keys may alias one object.
+
+Each asynchronous resource operand resolves and captures its binding generation at that profile's
+declared snapshot/consumption event. Some profiles capture at operation acceptance; others select a
+provided buffer or consume an update-after-bind descriptor later. Once captured, later effects,
+results, resource returns, and cleanup refer to that generation rather than re-resolving a reused
+file descriptor, handle, registered-resource index, `rkey`, IOVA, descriptor, or address. M0 includes
+the generic negative control `capture K -> A/g; rebind K -> B/(g+1); later effect`: that effect may
+affect or return only `A/g`. A dynamic-binding
+profile states precisely what a transition invalidates. For example, sparse-resource rebinding can
+invalidate a cached backing-footprint witness without itself destroying the logical resource or
+descriptor; destruction and freed-backing misuse have separate lifetime rules. A Vulkan profile
+therefore uses distinct generative logical-resource/view, backing-allocation, range-binding,
+descriptor-slot, and device-instance identities, while another target instantiates only the
+distinctions it actually has.
 
 The CPU projection should carry information equivalent to:
 
@@ -216,10 +281,18 @@ exclusive-store success, forwarding, and litmus final states are expressible.
 
 The concrete spelling is an implementation decision; the information content is not. Barrier
 events are separate from accesses because a barrier orders events but does not access a fake empty
-range. A normalized barrier records its target kind, before/after access classes, memory domain,
-shareability/scope, whether it imposes ordering or completion, and whether it synchronizes the
-instruction stream. Architecture-specific semantics interpret those fields; they are not collapsed
-into one architecture-neutral notion of “full fence.”
+range. A normalized barrier records its target kind, source and destination access-class sets,
+source and destination memory-domain sets, shareability/scope, whether it imposes ordering or
+completion, and whether it synchronizes the instruction stream. Architecture-specific semantics
+interpret those fields; they are not collapsed into one architecture-neutral notion of “full
+fence.” Target projections retain any finer encoding needed by the ISA—for example asymmetric
+RISC-V `FENCE` predecessor/successor `I`, `O`, `R`, and `W` sets—rather than forcing it through a
+lossy architecture-neutral `MemoryOrder` value.
+
+Cache clean/invalidate/flush operations, address-translation or IOMMU maintenance, and similar
+target operations are likewise first-class profile transitions over explicit location/cache-granule
+sets with completion and ownership consequences. They are not encoded as fake loads/stores or
+generic barriers, and partial-range/alias rules remain available to the target proof.
 
 CPU mutex protocol synchronization is a proof-produced layer over concrete event keys, not another
 ISA order tag. A `SyncWitness` (or equivalent) names the protocol/lock instance and generation, the release
@@ -247,16 +320,18 @@ An execution graph contains at least:
 - atomic-RMW and exclusive-pair/reservation relations where the target requires them;
 - lifecycle events such as spawn and join;
 - target device-transition/value relations for Device and port-I/O events, including destructive
-  reads, request/completion, and device-local order, without inventing Normal-memory initial writes
-  or coherence edges.
+  reads, request acceptance, effect completion, result/notification delivery, and device-local order
+  as distinct profile events where applicable, without inventing Normal-memory initial writes or
+  coherence edges.
 
 Origin and domain are orthogonal: for example, every concurrent kernel child-TID set/clear in the
 pinned clone profile is a platform-origin `atomicStore` to a registered, stable, aligned 32-bit
 Normal-memory object. It participates in the same `rf`/`co` relations and requires the target's
 single-copy-atomicity proof; it is not an unclassified write that bypasses the atomic/plain mode
 invariant. An MMIO register access instead uses the device relation. Invocation/return and device
-request/completion edges keep those events linked to the program that caused or observed them,
-making release-before-notify and API refinement statable in the graph.
+request/result/notification edges keep those events linked to the program that caused or observed
+them, making release-before-notify and API refinement statable in the graph without collapsing their
+consequences.
 
 The graph's `rf` relation, not a duplicate single-source field in `MemoryEvent`, is authoritative.
 Byte/range granularity permits a read to be assembled from multiple writes and avoids baking a
@@ -346,7 +421,11 @@ encoded as one indivisible `.atomicRmw` descriptor.
 
 The v1 model covers aligned 32-bit and 64-bit operations in coherent shareable Normal memory. LSE
 atomics, RCpc forms, mixed-size overlap, and non-shareable memory remain deferred until a consumer
-requires them.
+requires them. A verified executable instruction surface containing an `LDAPR`-family instruction
+is outside v1. Its event may not inherit `LDAR`-specific RCsc, ordering, or realization facts solely
+because both project to a generic acquire label. A later FEAT_LRCPC profile must retain RCsc and RCpc
+as distinct target semantics and add distinguishing litmus, decoding, emission, and connection
+tests; genuinely common acquire theorems remain reusable only through that refinement.
 
 Required AArch64 connection theorems mirror x86 but are architecture-specific:
 
@@ -415,6 +494,32 @@ Generic recursive or existential heap structures that recover ownership-carrying
 outside v1. A consumer such as the line-sort descriptor table must use a purpose-built typed view
 and prove preservation of its slot map, or wait for that later extension.
 
+Deferred-reclamation schemes do not weaken this boundary. Future RCU, hazard-pointer, and epoch
+profiles use different protection and reclamation protocols, but each must associate an observed
+typed published pointer/reference with a live `RegionId` through an explicit protect/dereference
+operation. That operation yields a protection-guard-bound provenance and lifetime witness, not
+general read/write authority over mutable node fields; field access still requires the profile's
+separate access and ordering authority. RCU read-side sections and ordered grace periods, hazard
+publication plus source revalidation and an ordered scan, and epoch entry/retirement/quiescence are
+not interchangeable witnesses; none converts arbitrary address bytes into a pointer or authority.
+
+#### 6.1.2 Indirect resources, bindings, and aliases
+
+A logical API reference or device address is not automatically a provenanced CPU pointer and need
+not identify its backing allocation. A profile with indirect resources supplies the generative
+object/backing/binding types described in §4 and an event-time resolution witness covering the exact
+resource and backing generations, device/namespace instance, rights, and range. Authority to name a
+resource, modify its binding, access its contents, or reclaim its backing are separate capabilities.
+
+Unbind, rebind, backing free, object/view destruction, descriptor update, and external-memory import
+have profile-specific invalidation rules. Sparse unbound access follows the selected target's
+explicit nonresident result—such as rejected, zero/discard, or undefined—rather than one universal
+CPU dereference rule. Overlap/hazard checks use resolved backing footprints, while relation scope and
+visibility retain the logical reference identity required by the target. Incompatible alias
+interpretations can create target-defined undefined contents as well as ordinary race obligations.
+An external-memory import is an explicit trust-boundary grant associating local generative handles
+with the selected underlying object; raw handle/address/key bytes never create that association.
+
 ### 6.2 Authority States
 
 The canonical authority algebra distinguishes:
@@ -470,6 +575,21 @@ accesses from distinct threads cannot occur and that a registered atomic object 
 through a plain instruction. Atomic accesses are not waved away as “synchronized”; their safety and
 ordering are discharged by the atomic-object and architecture models.
 
+This is the first **data-race-free CPU authority profile**, not a claim that every lower-level
+concurrency protocol is expressible through its three modes. A future seqcount/seqlock profile may
+authorize race-tolerant reads only through a separate speculative access protocol. Such reads
+produce an `UnvalidatedSnapshot` (or equivalent quarantined value), not ordinary read authority:
+its contents cannot affect a committed architectural result, contract-visible output, authority
+transition, pointer dereference, or irreversible external effect until a sequence-generation and
+ordering witness commits the permitted scalar/copied snapshot. A pointer dereference additionally
+requires an independent pointee-lifetime witness; a Linux seqcount-only profile forbids pointer-
+bearing protected data. The profile must also pin writer serialization, sequence wrap/generation
+rules, width and tearing assumptions, and its scheduling, preemption/interruption, and
+retry/progress premises. Linux's profile requires a writer to be non-preemptible and non-
+interruptible wherever a reader that can interrupt it could otherwise spin indefinitely. Failed
+validation yields only the specified failure/retry outcome and no snapshot-content-derived
+consequence. This exception is profile-local and does not relax the ordinary no-race theorem above.
+
 ### 6.4 Spawn, Join, and Termination
 
 Spawn accepts an explicit capability partition. Donated regions disappear from the parent before
@@ -493,7 +613,10 @@ obligation-free exclusive capability left in a dead thread is still invalid. Det
 `JoinRight` only when the child contract returns no join-owned linear resource, or atomically
 redirects the declared terminal bundle to a process-owned sink. Process termination is separate,
 checks every thread context and sealed terminal bundle, and may discharge only resources explicitly
-declared process-scoped.
+declared process-scoped. A graceful process-exit theorem requires that accounting. Forced process
+termination with live threads is instead an explicit abort/world-invalidation outcome: the host may
+reclaim process resources, but that does not prove that thread-owned guards or protocol obligations
+were normally discharged, nor may it be used as the clean inverse of initialization.
 
 Spawn and join contribute program-happens-before only through a proved lifecycle-visibility
 refinement. Parent-to-child spawn must make the promised pre-spawn writes visible before the child
@@ -506,45 +629,101 @@ explicit release/acquire publication word alongside its lifecycle mechanism.
 
 ## 7. Lock Invariants and Unlock Obligations
 
-The portable v1 mutex contract is nonrecursive and connects an opaque, implementation-owned atomic
-representation footprint `r` and a disjoint protected region `p`. It deliberately does not fix the
-number or width of atomic objects, bit layout, parking strategy, or concrete acquisition algorithm.
-Initialization consumes raw exclusive authority for `r` and `p`, establishes an
+The portable v1 mutex contract is nonrecursive and connects an opaque, implementation-owned stable
+atomic core footprint `rCore`, a disjoint protected region `p`, and an implementation-declared class
+of auxiliary resources that may be contributed by a contender or borrowed from scoped scheduler,
+per-agent, or library infrastructure. It deliberately does not fix the number or width of core
+atomic objects, bit layout, parking strategy, concrete acquisition algorithm, or whether an admitted
+implementation uses auxiliary queue nodes.
+
+Initialization consumes raw exclusive authority for `rCore` and `p`, establishes an
 implementation-defined unlocked representation (including any admitted initial payload), registers
-each declared atomic object in `r`, and creates a fresh `LockInstanceId`. That instance identity is
-distinct from the fresh acquisition generation created on every success:
+each declared core atomic object, and creates a fresh `LockInstanceId`. It need not pre-own every
+resource that a future acquisition will contribute. That instance identity is distinct from the
+fresh acquisition generation created on every ownership-granting acquisition result:
 
 ```lean
 structure LockInv
     (implementation : MutexImplementationId)
     (lockInstance : LockInstanceId)
-    (representation : MutexRepresentationId)
-    (protected : RegionId) where
-  -- When unlocked, the invariant owns protected.
-  -- When locked, exactly one live guard owns protected.
-  invariant : LockStateRelation implementation representation protected
+    (representationCore : MutexRepresentationId)
+    (protectedRegion : RegionId) where
+  -- When unlocked, the invariant owns protectedRegion.
+  -- When locked, exactly one live guard owns protectedRegion.
+  invariant : LockStateRelation implementation representationCore protectedRegion
 ```
 
 The synchronization representation's physical state does not by itself prove ownership. The ghost
-invariant relates its implementation-defined state, current owner identity and acquisition
-generation, protected authority, wait state, lifecycle, and any additional packed payload.
-Contenders receive only the implementation-declared atomic grants for `r`; mixed atomic/plain access
-or separately claimed authority for overlapping fields of any object in `r` is rejected. The
-invariant owns `p` while available, and exactly one live guard owns `p` while held.
+invariant relates its implementation-defined state, profile-owned logical owner identity and
+acquisition generation, protected authority, wait state, lifecycle, live auxiliary-resource loans,
+and any additional packed payload. Contenders receive only the implementation-declared atomic grants
+for `rCore`; mixed atomic/plain access or separately claimed authority for overlapping fields of any
+core object is rejected. The invariant owns `p` while available, and exactly one live guard owns `p`
+while held.
+
+Auxiliary resources remain owned by their contributor or infrastructure until a checked acquisition
+transition lends them to the lock protocol. A queue-node implementation such as MCS may therefore
+take one generative contender node per acquisition; a qspinlock-like profile may use a compact core
+word plus generation- and nesting-tracked per-agent nodes. Publication, predecessor/successor
+handoff, cancellation, withdrawal, and reuse each carry typed obligations, and the node's storage
+remains live while any
+published reference can reach it. Returning or reusing a node requires proof that the exact loan and
+all such references are retired. These implementations are not in the first library profile, but the
+portable contract must not exclude them by pretending initialization owns their nodes.
+The two-CPU/PE M7 acceptance path still uses `ParkedMutex32`; queued locks are a future scalability
+profile, not an unstated prerequisite for that baseline.
 
 ### 7.1 Acquire
 
-Try-acquire has a result-dependent postcondition:
+Acquire has an extensible, result-dependent postcondition. The common result surface leaves room for:
 
-- failure leaves authority and obligations unchanged;
-- success at the target's acquisition linearization point atomically creates a
-  `LockGuard lock thread generation protected`, transfers exclusive authority for the protected
-  region to that guard, and adds a matching `MustRelease lock thread generation`.
+- `notAcquired reason`: no guard or protected authority is transferred; every acquisition-scoped
+  auxiliary loan is returned, although proved implementation-internal contention metadata may have
+  changed;
+- `acquiredHealthy`: at the target's acquisition linearization point, atomically create
+  `LockGuard lock owner generation protectedRegion`, transfer exclusive protected authority, and add
+  the matching `MustRelease lock owner generation`;
+- `acquiredNeedsRecovery`: transfer exceptional ownership plus a profile-specific typed
+  recovery/repair obligation. A POSIX robust profile can require `pthread_mutex_consistent` to
+  promote the guard and make unlock-before-consistent poison the mutex; a Windows abandoned-mutex
+  profile grants ownership while reporting the protected application state potentially inconsistent
+  and must not import POSIX's kernel-level consistent/not-recoverable state machine. Each profile
+  states what evidence restores its application invariant and what release is permitted; and
+- `notRecoverable reason`: report the permanent protocol state without granting ownership.
 
-A blocking acquire returns only the success case but carries a liveness theorem conditional on the
-implementation's declared progress assumptions. These may include scheduler and wakeup fairness for
-a parked implementation or interference and execution fairness for a spin-only implementation.
-Mutual exclusion is a safety theorem and does not depend on fairness.
+The first `ParkedMutex32` profile exposes only `notAcquired` and `acquiredHealthy`. Robust and
+abandoned hosted profiles require their own reference intake and refinement; the M5-S type shape must
+not force an ownership-granting exceptional result into either ordinary success or unchanged-state
+failure.
+
+A blocking acquire returns one of its declared acquired or terminal non-acquisition outcomes and
+carries a liveness theorem only at the progress class it advertises. The common taxonomy is:
+
+- **safety only**: mutual exclusion and resource preservation, with no termination claim;
+- **system progress under named fairness**: while eligible work remains, some contender makes
+  progress;
+- **starvation-free under named fairness**: every continuously eligible contender eventually makes
+  progress; and
+- **bounded wait**: a profile-specific finite bound on overtaking, steps, or time under stated
+  scheduling and interference premises.
+
+A barging mutex may claim system progress without starvation freedom. A caller demanding a stronger
+class admits only an implementation proving that class. Mutual exclusion itself never depends on
+fairness. Per-lock system progress also does not prove §7.5's multi-lock no-deadlock property.
+
+`owner` is a profile-owned logical identity, not universally a native thread ID. The first CPU
+mutex profile is thread-affine; migration of that same logical `ThreadId` between execution agents
+does not change the owner and needs no guard reindexing. A task/fiber or async profile may instead
+provide a checked guard-handoff/reindex transition: it consumes the old guard and release
+obligation, causally moves the protected authority, and creates the matching new-owner guard and
+obligation while preserving the lock instance and acquisition generation. A profile without that
+theorem rejects acquisition on
+one worker followed by release on another.
+
+A pending asynchronous acquire holds only a generative `PendingAcquire` protocol resource. It
+creates no guard, protected authority, or must-release obligation until the profile-designated
+successful completion transition; cancellation, timeout, or failure creates none and returns every
+pending/acquisition-scoped resource exactly once.
 
 An acquire synchronizes with the particular prior release it observes only when the architecture
 model proves the required release/acquire relation. The proof cannot be generated merely because
@@ -552,10 +731,11 @@ both events mention the same address.
 
 ### 7.2 Release
 
-Release requires the current thread’s instance- and generation-matched guard, protected-region
-authority, and must-release obligation. At the target's physical release linearization point it
-atomically returns the capability to the lock invariant and consumes the guard and obligation. It
-also proves prior protected writes become visible before another acquire can receive the capability;
+Release requires the current logical owner’s instance- and generation-matched guard,
+protected-region authority, and must-release obligation. At the target's physical release
+linearization point it atomically returns the capability to the lock invariant and consumes the
+guard and obligation. It also proves prior protected writes become visible before another acquire
+can receive the capability;
 the ghost transfer may not occur before or after an unrelated physical event.
 
 Target realizations differ:
@@ -576,6 +756,8 @@ Target realizations differ:
 The obligation model must replace string-only protocol knowledge with typed resources including:
 
 - `MustRelease lock owner generation`;
+- `MustRecover lock owner generation` for a selected robust/abandoned profile;
+- `MustWithdrawQueueNode lock acquisition node` or the implementation's equivalent auxiliary loan;
 - `MustJoin child` or explicit detachment;
 - `MustUnregisterWait queueEntry`;
 - `MustKeepAliveWhileWaiters region`;
@@ -591,26 +773,30 @@ must remove them through scheduler transitions. Mutex destruction requires autho
 control, an unlocked state, and proof that no guard, waiter, in-flight access, reservation, or
 scheduler registration remains. It revokes and consumes every instance-scoped atomic grant,
 consumes the `LockInv` and `LockInstanceId`, invalidates stale handles by generation, and returns raw
-exclusive authority for every region in `r` and for `p`. The implementation's complete atomic
-representation has stable lifetime until that transition completes. Forced thread termination while
-holding a guard is unsupported in v1 rather than silently discarding the guard or poisoning the
-invariant.
+exclusive authority for every region in `rCore` and for `p`. It also proves that every contributed
+or infrastructure-owned auxiliary loan has been withdrawn and returned; destruction never absorbs a
+contender node. The implementation's complete core representation has stable lifetime until that
+transition completes. Forced thread termination while holding a guard is unsupported in v1 rather
+than silently discarding the guard or poisoning the invariant. A later robust profile must model
+abandonment and recovery explicitly rather than treating termination as an unlock.
 
 ### 7.4 Implementations and Library Selection
 
 Higher-level checked code targets the portable mutex contract above. A concrete
-`MutexImplementation` (or equivalent refinement record) supplies the atomic representation, valid
-states, initialization and destruction rules, acquire/release linearization points, target event
-witnesses, declared progress properties, and any parking adapter. The proof, rather than a hard-coded
-word layout, makes that implementation eligible wherever its advertised traits satisfy the mutex
-demand.
+`MutexImplementation` (or equivalent refinement record) supplies the stable core representation,
+any acquisition- or infrastructure-scoped auxiliary resource family, valid states, initialization
+and destruction rules, acquire/recovery/release linearization points and results, owner/handoff
+policy, target event witnesses, declared progress properties, and any parking adapter. The proof,
+rather than a hard-coded word layout, makes that implementation eligible wherever its advertised
+traits satisfy the mutex demand.
 
 `ParkedMutex32` is the planned standard verified library implementation and preferred default for
 ordinary hosted and bare-metal mutex requests. It will own a dedicated, naturally aligned 32-bit
 atomic word, use one pinned simple/contended state machine, and supply reusable x86-64, AArch64,
 Linux futex, Windows address-wait, and bare-metal refinements. Spike 8 validates this implementation
 as the portable baseline. Pinning its state values is necessary before proving this library; it does
-not freeze the representation of every future mutex.
+not freeze the representation of every future mutex. It contributes no external queue nodes and
+therefore proves the no-auxiliary-resource specialization of the portable contract.
 
 Specialized libraries may implement the same mutex contract with a different state machine or with
 additional state packed into the atomic representation—for example a version, waiter count, owner
@@ -618,15 +804,19 @@ metadata, or application-specific bits. Such an implementation must prove all of
 
 - every declared object has a target-supported width, alignment, memory type, and scope. Packed
   fields within one overlapping word form one registered atomic object; a companion parking word is
-  a separate disjoint object accounted for by the same implementation footprint;
+  a separate disjoint core object accounted for by the same implementation footprint. Any auxiliary
+  node family separately declares contribution, publication, cancellation, handoff, lifetime, and
+  exact-return rules;
 - every transition uses approved atomic operations and preserves the encoding and packed-payload
   invariant; no client obtains plain or independently writable authority to a bit field inside it;
 - every reachable physical value has a defined simulation to abstract lock state and auxiliary ghost
   state; reserved encodings are unreachable or explicitly handled, and field updates cannot overflow,
   carry into, or silently overwrite neighboring fields. Several concrete values may refine one
   abstract lock state when the simulation and retry proofs account for them;
-- the physical transitions have the claimed acquire/release linearization points and refine the same
-  `LockGuard` transfer and `MustRelease` discipline;
+- the physical transitions have the claimed acquire/recovery/release linearization points and refine
+  the exact result-indexed `LockGuard`, recovery, owner-handoff, and `MustRelease` discipline. A
+  simple implementation proves the healthy-only specialization; it does not invent exceptional
+  outcomes;
 - its parking projection supplies an exact observed wait value, retry rule, release-before-notify
   order, and lost-wakeup proof. Linux futex comparison is over the full aligned 32-bit word, so a
   wider representation needs a separate 32-bit parking word or another proved adapter. Auxiliary
@@ -649,6 +839,14 @@ only clients of an explicitly richer library see its packed-state operations. Se
 trait-directed: a caller may demand blocking support, a platform profile, a progress class, a
 footprint or ABI, or enriched payload operations without prescribing an algorithm, and only an
 implementation proving those traits is admissible.
+
+M5-S initially contracts over CPU threads with the scheduler and progress premises in §§8–10. It is
+not automatically eligible for shader invocations, device agents, or another execution topology
+that lacks those premises. Such a target needs a separate refinement proving participation,
+visibility, safety, no-deadlock, and progress for the exact agent topology. In particular, a
+spinning or blocking lock whose release may depend on an invocation or workgroup without an
+independent-forward-progress guarantee is rejected; collective/barrier plans instead carry their
+target's convergent or dynamically uniform participation proof.
 
 ### 7.5 Multi-lock ordering and deadlock demands
 
@@ -720,16 +918,86 @@ Scheduling nondeterminism is universally quantified in safety theorems. Progress
 their fairness hypotheses explicitly. Fuel-bounded execution remains a test runner, not a proof of
 termination or absence of deadlock.
 
+### 8.1 Restartable Sequences
+
+Linux restartable sequences are a valuable future CPU/scheduler profile, but they are not a mutex or
+a transaction that rolls memory back. An attempt is tied to one registered logical thread, the
+profile's observed CPU or memory-concurrency-domain identity, and a declared critical PC range,
+commit instruction, and abort target. On the exact pinned preemption, migration, signal, or other
+kernel event, the platform transition updates the registration state and redirects the saved user PC
+to the abort path before returning to user mode. Only the designated final instruction creates the
+protocol's commit consequence.
+
+Earlier loads, stores, and external effects are not undone. The program must prove every pre-commit
+effect restart-safe, idempotent, quarantined, or explicitly compensatable, and authority cannot be
+transferred irreversibly before commit. Repeated aborts require named scheduler/interference
+assumptions or a proved fallback path. Registration ownership, nesting prohibition, signal behavior,
+migration/CPU-ID validation, libc or `librseq` integration, code layout, and architecture-specific
+compiler barriers/instructions are all profile inputs. An rseq commit or abort supplies neither a
+mutex guard nor a memory-visibility edge unless a separate target synchronization witness proves it.
+
+### 8.2 Direct User-Scheduling Handoffs
+
+Google's published `SwitchTo` work and the later proposed `FUTEX_SWAP` operation are useful prior art
+for a separate user-directed scheduling profile, not a current upstream Linux primitive and not an
+alias for rseq. Such a profile models a fused scheduler transition that selects/resumes a target
+logical thread and blocks or yields the caller, while preserving the two logical thread identities.
+It must state races with timeout, signal, exit, cancellation and competing wakeups, exact result and
+runtime-accounting consequences, agent rebinding, and the generation/lifetime of every wait record.
+
+The scheduling handoff creates only the proved control-causality edge. It does not itself hand off a
+thread-affine mutex guard or publish ordinary memory; those require separate typed authority and
+memory-order transitions. Because the public `SwitchTo` material describes non-upstream/private or
+proposed interfaces, no implementation claim may depend on it until an exact available ABI and
+authoritative reference set pass their own intake gate. A different upstream user-scheduling design
+receives its own profile rather than inheriting guessed `SwitchTo` semantics.
+
+### 8.3 Interrupt, Exception, Signal, and Trap Contexts
+
+An interrupt-driven profile models handler contexts as a stack on an execution agent, not as
+migratable logical threads. Synchronous CPU exceptions, asynchronous device interrupts, hosted OS
+signals, Wasm traps, and embedding cancellation are different transitions with separate outcome and
+cleanup rules. The selected profile pins entry/return event keys and control edges, masks and
+priorities, nesting/reentrancy, save/restore state, stack authority, and architecture-local effects
+such as exclusive-reservation invalidation.
+
+The interrupted thread's authority and obligations are suspended, not silently transferred to the
+handler. A handler receives only explicitly registered handler/device authority, and return restores
+the suspended context exactly as the profile permits. A handler cannot block or spin on a lock that
+the interrupted context may hold unless masking, lock rank, reentrancy, or another interrupt-safe
+protocol proves self-deadlock impossible. Fatal exception/process termination accounts for every
+linear resource through a declared unrecoverable abort outcome; it is not normal obligation
+discharge. §10.4 separately models signal routing and the path from handler work to any later driver
+unblock or scheduler wake.
+
 ---
 
-## 9. Linux Futexes and Platform Parking
+## 9. Address Parking and Composite Platform Waits
 
-Parking is separate from memory ordering:
+The first parking contract is a narrow **address-wait adapter**, separate from memory ordering:
 
 ```text
 park-if-equal(key, expected) -> blocked | value-changed | error
-wake(key, maximum)           -> number-woken
+notify(key, policy)          -> profile-specific NotificationResult
 ```
+
+It captures Linux `FUTEX_WAIT`/`FUTEX_WAKE` and the comparison/recheck wrapper around Windows
+`WaitOnAddress`. It is not the universal scheduler wait interface. `PAUSE`, `WFE`/`SEV`, monitor/wait
+instructions, and IPIs are target notification or stuttering mechanisms that can participate in a
+proved wrapper, but they are not silently reclassified as atomic compare-and-enqueue operations.
+Linux `FUTEX_WAKE` exposes a count of woken waiters; Windows `WakeByAddress*` exposes no such count.
+The common result therefore records only profile-supported observations rather than fabricating a
+portable `number-woken`.
+
+The scheduler separately needs a **composite wait-set** interface for profiles such as Linux
+`futex_waitv` and Windows multiple-object waits. A selected profile supplies typed heterogeneous
+entries, stable lifetime/generation rules, one atomic validation-and-registration transition,
+wait-any and/or wait-all semantics, and result-indexed effects. Those effects can include the index
+or set that became ready, timeout, interruption/APC delivery, failure, or exceptional ownership such
+as an abandoned mutex. Wait-all authority transfers occur only when the selected platform theorem
+establishes their joint result; repeated unary address waits cannot simulate that atomicity. The
+first mutex library depends only on the narrow address adapter, so this wider scheduler seam does not
+inflate `ParkedMutex32`.
 
 A mutex slow path consumes the state machine supplied by its selected implementation: its fast and
 slow transitions, waiter mark or projection, exact expected value passed to wait, unlock transition,
@@ -764,13 +1032,16 @@ The v1 profile may require a null timeout and no signal model, returning an expl
 result for other operations rather than inventing semantics. Timed waits, shared futexes, requeue,
 PI futexes, robust lists, and signal interruption are follow-on profiles.
 
-`FUTEX_WAKE` is not a release fence and waking is not, by itself, a synchronizes-with edge. The
+An address-wait notification such as `FUTEX_WAKE` is not a release fence and waking is not, by
+itself, a synchronizes-with edge. The
 user-space atomic protocol performs release/acquire publication; futex supplies blocking and
 wakeup. Wake-to-resume is a scheduler-causality edge, not a memory synchronizes-with edge. The lock
 proof composes the two. It must nevertheless prove that the lock-state release publication is
-ordered before the notification side effect (`FUTEX_WAKE`, `WakeByAddress*`, `SEV`, or IPI), adding
-a target barrier when required. That ordering prevents a resumed waiter from re-enqueuing after the
-only wake; it is a lost-wakeup theorem, not a claim that wake itself publishes protected data.
+ordered before the implementation's notification side effect (`FUTEX_WAKE`, `WakeByAddress*`,
+`SEV`, or IPI), adding a target barrier when required. That ordering prevents a resumed waiter from
+re-enqueuing after the only wake; it is a lost-wakeup theorem, not a claim that scheduler/address
+wake itself publishes protected data. Device interrupt delivery uses §11's distinct target-control
+relation and may carry a profile-specific ordering witness; it is not governed by this negative rule.
 
 ### 9.1 Linux Thread Exit and Join
 
@@ -815,7 +1086,8 @@ The Windows refinement models these facts explicitly:
 
 Bare metal has no futex or Win32 wait API: its parking adapter may begin with a proved
 spin/`PAUSE` or spin/`WFE` loop and later use interrupts/IPIs, while preserving the same lock
-contract.
+contract. In such a wrapper the explicit atomic recheck supplies the comparison; `WFE`, `PAUSE`, or
+interrupt wait supplies only stuttering/notification behavior.
 
 ---
 
@@ -865,7 +1137,61 @@ The AArch64 design must choose and verify:
   barrier;
 - Device-memory and barrier semantics for GIC and PL011 MMIO.
 
-### 10.3 Emulation Honesty
+### 10.3 DMA Coherency and Cache Ownership
+
+Neither coherent Normal memory nor MMIO ordering is a complete DMA contract. Before a hosted or
+bare-metal target claims DMA safety, its profile pins the CPU/device coherency domain, CPU virtual,
+physical, IOMMU, and device-address mapping, transfer direction, cache-maintenance granule and
+partial-line isolation, CPU/device ownership transitions, target cache operations and completion
+point, barrier scopes, doorbell order, and the event that proves device completion.
+
+The contract states consequences rather than one universal instruction recipe. A coherent mapping
+may need ordering without explicit cache maintenance; a streaming or non-coherent mapping may need
+direction-specific clean, invalidate, or combined transitions supplied by an OS DMA API or an exact
+bare-metal architecture/platform refinement. Before device reads, the proof makes CPU-produced data
+available to the device; before CPU reads device-written data, it separately proves device
+completion and makes stale CPU cache state unable to hide those writes. CPU access while a streaming
+buffer is device-owned is rejected unless the selected profile explicitly permits it. Dirty
+partial-cache-line aliases are accounted for rather than invalidated into data loss.
+
+A CPU memory barrier alone is not cache maintenance, cache maintenance alone is not proof that DMA
+completed, and a doorbell or interrupt observation grants neither consequence without the selected
+device/interconnect delivery witness. These
+distinctions apply whenever a selected device, `io_uring`, or libverbs/RDMA refinement exposes or
+claims its DMA implementation layer. An API-level refinement may instead rely on a pinned kernel or
+provider completion-and-visibility contract without pretending to prove an unmodeled driver DMA
+implementation.
+
+### 10.4 Interrupt and Control Delivery
+
+Interrupt delivery is a target/platform control relation, not scheduler wake and not generic memory
+synchronization. A complete selected path may contain distinct events and edges for:
+
+```text
+device signal/assertion
+  -> interrupt-controller pending and routing
+  -> CPU/PE acceptance
+  -> handler entry
+  -> device status or completion observation
+  -> device acknowledgement and controller EOI
+  -> optional driver unblock
+  -> optional scheduler wake and resumed thread
+```
+
+A device or DMA operation may complete without an interrupt. An interrupt may be shared, coalesced,
+spurious, or observed before software has identified which operation—if any—completed. Handler entry
+therefore proves neither effect completion nor DMA visibility, and it becomes scheduler causality
+only through the explicit driver-unblock adapter. Conversely, an interrupt path can carry a
+profile-specific ordered-delivery witness. For example, a pinned PCI/MSI profile may use its rule
+that the interrupt message cannot pass prior device data writes; a different pin/legacy-interrupt
+profile may require a status read or other bus-specific completion operation. Neither fact is
+universalized as “interrupts are acquire fences.”
+
+Required bare-metal negative controls include interrupt-as-completion, handler-entry-as-DMA-visible,
+and handler-entry-as-scheduler-wake. Each must fail unless the exact selected relation path supplies
+the missing consequence.
+
+### 10.5 Emulation Honesty
 
 QEMU is valuable for boot protocol, encoding, lifecycle, and deterministic functional negative
 controls. In particular, a TCG run is not weak-memory evidence. A
@@ -877,16 +1203,24 @@ than manufacturing a pass when required witness outcomes are unavailable.
 
 ## 11. Causality and Observable Traces
 
-Four relations must remain distinct:
+The first CPU profile needs the first three relation classes below; heterogeneous profiles add the
+fourth. The fifth is a checked projection, not another source consistency model:
 
-1. **ISA execution consistency** determines which memory executions are allowed using `po`, `rf`,
-   `co`, dependencies, barriers, and architecture rules.
-2. **Program happens-before** is generated by same-thread order plus genuine synchronization:
-   spawn, successful join, and release/acquire pairs linked by the relevant read-from relation.
-3. **Scheduler control causality** includes edges such as wake-to-resume without implying memory
-   visibility.
-4. **Observable causal order** is the projection of labelled program and scheduler causality onto
-   effect events without conflating their edge kinds.
+1. **Target execution consistency** determines which executions are allowed. For a CPU ISA this uses
+   `po`, `rf`, `co`, dependencies, barriers, and architecture rules; shaders, APIs, transports, and
+   storage retain their own native consistency/execution relations rather than inheriting CPU rules.
+2. **Program happens-before** in the first CPU profile is generated by same-thread order plus genuine
+   synchronization: spawn, successful join, and release/acquire pairs linked by the relevant
+   read-from or lifecycle relation.
+3. **Scheduler control causality** includes edges such as address-wake-to-resume without implying
+   memory visibility.
+4. **Target/platform/domain causality** includes such distinct relations as API execution
+   dependencies, GPU availability/visibility, asynchronous result publication, device and interrupt
+   delivery, transport delivery/acknowledgement, and persistence. Each profile declares its labels,
+   scopes, path laws, and consequences.
+5. **Observable causal order** is selected by a target/profile `TraceProjection`. Each projected edge
+   retains a `TraceProjectionWitness` to an admitted labelled source path; source labels are not
+   collapsed into “program” or “scheduler” causality.
 
 ### 11.1 Global and heterogeneous order
 
@@ -896,18 +1230,34 @@ relation or the consequence being proved. A target execution profile contributes
 relations, scopes, and legal path-composition rules. Consumers then ask for typed consequences such
 as:
 
+- request publication, acceptance, and consumption;
 - execution of one operation before another;
 - visibility of a particular write to a particular agent/reference and location set;
 - transfer or return of authority over a resource;
-- operation completion and permission to reuse an in-flight buffer;
+- effect completion and operation terminality, as separate facts;
+- result/completion-record publication and observation or reap;
+- notification emission and observation;
+- permission to reuse an in-flight buffer or registration;
+- submission-queue and completion-queue slot reclamation;
 - remote delivery or application-level acknowledgement;
 - persistence across a declared crash boundary; or
 - observable causal dependence in the contract trace.
 
+For each generative operation, a selected profile permits zero, one, or many events of each relevant
+kind and states their correlation. A suppressed notification can yield zero notification events; a
+multishot operation can publish several nonterminal result records; a zero-copy send can publish the
+send result before a later lease-return notification; an `io_uring` SQ head can reclaim a submission
+slot before effect completion, while CQ-head advance reclaims a result slot only after observation;
+and a libverbs CQ notification can be acknowledged without itself being a retrieved work completion.
+No constructor or shared operation ID supplies another consequence absent a profile theorem.
+Negative controls must reject notification-as-completion, completion-as-terminal,
+completion-as-resource-return, resource-return-as-slot-return, and local-completion-as-delivery.
+
 A high-level synchronization demand states the required source/destination agents and operations,
 resource footprint, scopes, consequences, progress/failure assumptions, and performance envelope —
-not a preferred instruction or API call. A target-specific synchronization plan may fuse compatible
-demands into one mechanism or discharge them separately. Fusion is accepted only with a proof that
+not a preferred instruction or API call. A level-2 domain synchronization plan may fuse compatible
+demands into one mechanism or discharge them separately; each level-3 target realization then proves
+that plan. Fusion is accepted only with a proof that
 the one plan entails every demand without widening ownership, violating participation/scope rules,
 or breaking progress, failure, observability, or cost bounds. A specification requires a particular
 fusion or primitive count only when that choice is itself observable, is an explicit
@@ -921,15 +1271,22 @@ completion is not durable completion unless the selected storage profile says so
 `io_uring` ring-index release/acquire pair can publish an SQE or CQE without giving every operation
 represented by that entry the same execution, delivery, or durability guarantee.
 
+The scheduler/address-wake rule does not forbid a device profile from proving ordered interrupt
+delivery. When an exact interconnect/device witness orders prior DMA writes before a particular
+signal and software performs the required completion/cache transition, that labelled path may prove
+the stated visibility consequence. The witness is retained as device/control causality; it is not
+relabelled as CPU release/acquire or generalized to unrelated interrupts.
+
 “Happens-after” is therefore the inverse of a **named** relation, never a primitive universal fence.
 A derived `causallyBefore` relation may project proved dependencies into observable traces, but its
 only generic consequence is causal ordering; the path's source labels and witnesses remain
 available. Relation-specific reachability may be cached only where that relation's composition law
-is transitive. For example, Vulkan happens-before is non-transitive even though its fixed-storage-
-class inter-thread-happens-before relations are transitive; visibility also requires
-availability/visibility reasoning. A transitive vector clock therefore cannot represent Vulkan
-happens-before directly. A Vulkan execution must retain its own relations and prove a separate
-causal projection.
+is transitive. For example, the SPIR-V/Vulkan **shader memory-model** happens-before relation is
+non-transitive even though its fixed-storage-class inter-thread-happens-before relations are
+transitive; visibility also requires availability/visibility reasoning. That shader relation is not
+the Vulkan API's separate execution-dependency order. A transitive vector clock therefore cannot
+represent the shader relation directly. A Vulkan execution must retain its own relations and prove a
+separate causal projection.
 
 This gives heterogeneous programs a common composition surface without erasing their differences:
 CPU threads, GPU queues and invocations, kernel/device queues, NICs, remote processes, and storage
@@ -945,16 +1302,25 @@ completion, delivery, persistence, or several of them, and may never synthesize 
 Clocks do not replace relation 1 or any target consistency relation. Plain reads-from is not
 automatically synchronizes-with, and futex wake is not automatically synchronizes-with.
 
+A target-indexed `ProjectedCausalEdge` (or equivalent) identifies its source and destination
+canonical nodes, retains the original relation-labelled source path and scopes, and carries the
+profile proof that this path is trace-observable with its exact causal consequence. It is not limited
+to CPU program or scheduler edges. Audit-only/internal relations may remain unprojected when the
+selected contract says they are unobservable.
+
 Concurrent canonical traces require stable origin-local event identities and equality of labelled
 partial orders modulo schedule-independent event-key renaming/poset isomorphism, not equality of
 arbitrary list linearizations or raw vector-clock numbers. The trace theorem is bidirectional on
 observable events through an explicit node quotient. Every raw observable maps to exactly one
 canonical node; a node has a nonempty raw-event fiber and therefore cannot be invented. A fiber may
 contain multiple events only under a named per-effect coalescing rule, with stream, label, payload
-fold, and causal-barrier preservation proved. Between distinct quotient nodes, a projected causal
-edge appears in the trace if and only if the corresponding labelled program/scheduler causal edge
-exists. One-way edge soundness alone would permit canonicalization to drop isolated events or
-required edges.
+fold, and causal-barrier preservation proved. For distinct quotient nodes `A` and `B`, `A < B` in the
+trace if and only if the selected `TraceProjection` accepts an admitted labelled source path between
+members of their quotient fibers. Thus fidelity is to the induced reachable partial order, not to
+whether the source graph stores `A -> C` explicitly, only stores `A -> B -> C`, or chooses another
+transitive reduction. Every source path declared trace-observable is retained; every trace order has
+its path witness. One-way soundness alone would permit canonicalization to drop isolated events or
+required order.
 
 ---
 
@@ -966,6 +1332,7 @@ The model is complete enough for use only when the following theorem families ex
 |---|---|
 | Instruction descriptor fidelity | Every program access/barrier is well formed and agrees with its static descriptor, target order/domain constraints, and actual step |
 | Origin fidelity | Initial, instruction, platform, and device events have disjoint well-formed keys and refine only their owning transition rules and authority domains |
+| Binding-generation fidelity | Bind/unbind/rebind transitions are generative and alias/overlap is explicit; every access uses an event-time, generation-matched live resolution or the profile's explicit nonresident behavior; stale resolution cannot revive after rebind/free/destroy or redirect a later effect/return; resolved backing overlap induces target alias/hazard obligations without erasing logical-reference scope/visibility |
 | Bounds/provenance | Every emitted access is in bounds, non-wrapping, aligned as required, and retains its region identity |
 | Authority preservation | Every step preserves the per-thread contexts and global access-mode invariant |
 | No ordinary data race | Distinct threads cannot perform authorized conflicting ordinary accesses |
@@ -975,19 +1342,20 @@ The model is complete enough for use only when the following theorem families ex
 | Atomic fidelity | Approved aligned atomic loads/stores and x86 RMW/AArch64 exclusive actions match target single-copy-atomicity, width, alignment, memory-type, success, and failure premises |
 | CPU protocol synchronization | Every claimed first-profile CPU release/acquire edge has an instance/generation-matched witness tied to concrete event keys, reads-from/RMW evidence, and a target realization proof |
 | Target relation refinement | Every non-CPU profile retains its native relation/scope semantics and proves any projection into the common event envelope; no target synchronizes-with, visibility, completion, delivery, or persistence relation is manufactured through the CPU witness type |
-| Consequence separation | A relation/path witness yields only consequences admitted by its labels and target profile; negative theorems reject wake-as-visibility, submit-as-completion, completion-as-delivery/durability, authority-from-raw-bytes, and analogous cross-kind coercions |
+| Consequence separation | A relation/path witness yields only consequences admitted by its labels and target profile; publication, acceptance, consumption, completion, terminality, result observation, notification, resource return, slot reclamation, delivery/acknowledgement, and persistence remain independent unless a profile theorem connects them; corresponding cross-kind negative controls fail |
 | Lifecycle transfer | Spawn/donate, sealed termination, detach, and one-shot join preserve every authority, loan, grant, and obligation |
-| Lock safety | At most one live guard owns a protected region; successful acquire/release transfer it correctly |
+| Lock safety | At most one live healthy or exceptional guard owns a protected region; every result transfers exactly its declared authority/obligations, recovery promotes or poisons only as the selected profile permits, checked owner handoff is linear, and contributed auxiliary resources remain accounted for |
 | Lock visibility | A new guard observes writes promised by the prior release under the target model |
 | Multi-lock/deadlock claims | Every demanded acquisition-order or no-deadlock trait is backed by a well-founded lock order, acyclic wait-for proof, or another explicit protocol proof; per-lock mutual exclusion alone cannot discharge it |
-| Mutex implementation refinement | Every admitted implementation's reachable representation states, initialization/destruction inverse, atomic transitions, linearization events, packed payload, and progress claims refine the representation-independent mutex contract; erasing an enriched implementation yields the same ordinary guard and release-obligation theorems |
-| Parking-plan refinement | Every implementation claiming a park/wake adapter supplies a stable wait object, exact comparison value and retry rule, notification policy, release-before-notify order, and lost-wakeup proof for each claimed platform adapter; a spin-only implementation instead declares no parking trait and proves progress under its own explicit fairness assumptions |
-| Futex refinement | Linux wait/wake refines atomic park-if-equal/wake without adding memory-order edges |
+| Mutex implementation refinement | Every admitted implementation's reachable core and auxiliary-resource states, initialization/destruction inverse, result-indexed atomic transitions, linearization events, packed payload, owner policy, and precisely classified progress claims refine the representation-independent mutex contract; erasing an enriched implementation yields the same applicable guard and release-obligation theorems |
+| Parking-plan refinement | Every implementation claiming an address-park adapter supplies a stable wait object, exact comparison value and retry rule, profile-observable notification result, release-before-notify order, and lost-wakeup proof; a composite-wait profile separately proves atomic registration, any/all semantics and result-indexed authority; a spin-only implementation proves progress under explicit assumptions |
+| Futex refinement | Linux `FUTEX_WAIT`/`FUTEX_WAKE` refines the narrow atomic address-park/notify contract without adding memory-order edges |
 | Platform lifecycle | Windows, Linux, x86 bare metal, and AArch64 bare metal refine generic thread/PE transitions |
-| Device/domain fidelity | Effective attributes select Normal versus Device/port-I/O semantics correctly; device values/side effects and ordering/completion barriers refine the selected device specification |
-| Trace fidelity | The explicit observable-node quotient is total and non-inventing, preserves labels/payloads under named coalescing, and carries labelled causal edges iff their projected source edges exist, modulo event-key renaming |
+| Interrupt/exception context safety | Entry, nesting, return and fatal outcomes preserve or explicitly abort suspended-thread obligations, grant only registered handler authority, account for architecture-local state invalidation, and reject handler lock self-deadlock without a masking/rank/reentrancy proof |
+| Device/domain fidelity | Effective attributes select Normal versus Device/port-I/O semantics correctly; device values/side effects and ordering/completion barriers refine the selected device specification; interrupt/control delivery does not imply completion, visibility, or scheduler wake without the exact adapter witness |
+| Trace fidelity | The explicit observable-node quotient is total and non-inventing, preserves labels/payloads under named coalescing, and orders quotient nodes iff the selected projection accepts an admitted labelled source path between their fibers, modulo event-key renaming and independent of transitive reduction |
 | One-thread preservation | Existing sequential proofs survive as the one-thread/one-PE specialization |
-| Progress | Under named fairness and platform assumptions, blocking acquire/join eventually returns when its protocol permits |
+| Progress | Every implementation advertises only its proved safety-only, system-progress, starvation-free, or bounded-wait class under named fairness/platform premises; no terminating test is promoted into a stronger liveness class |
 
 Safety and liveness remain separate. A safety theorem must not silently assume a fair scheduler, and
 a terminating test run is not a liveness proof.
@@ -1009,8 +1377,9 @@ Validation rules:
 - every hardware-observed outcome must be model-allowed;
 - reliably observable allowed outcomes are witness floors in scheduled stress runs, not flaky
   per-commit assumptions;
-- histograms, seeds, architecture profile, CPU identifier, hypervisor/backend, and iteration budget
-  are recorded;
+- histograms, seeds, architecture profile, per-execution-agent CPU/PE identity and feature set,
+  topology, firmware/microcode where observable, hypervisor/backend, migration or affinity policy,
+  and iteration budget are recorded; heterogeneous systems are not summarized by one CPU identifier;
 - native validation runs only on CPUs covered by the pinned vendor/profile sources; other vendors
   report functional execution separately as `not-validated` for memory consistency;
 - harness timeouts distinguish deadlock/hang from a forbidden memory outcome;
@@ -1033,14 +1402,14 @@ tasks, but its dependency and exit criteria remain here.
 
 | Stage | Deliverable | Depends on | Exit criterion |
 |---|---|---|---|
-| M0 | Common well-formed dynamic event/graph vocabulary and target projection interfaces, with target-indexed agent/location/reference/relation extension points | current memory hooks | Existing x86 and AArch64 ordinary accesses project only to well-formed events; no public common type equates every agent with a CPU thread, every location with a numeric CPU address, or every target relation with transitive CPU happens-before; malformed-combination, omission, label-forgery, and consequence-escalation controls fail |
+| M0 | Thin well-formed event/graph envelope and target projection interfaces: generative identities, dynamic binding generations/aliasing, profile-indexed agent/reference/location/event/relation/consequence families, labelled path and trace-projection witnesses | current memory hooks | Existing x86/AArch64 accesses plus a synthetic asynchronous-queue sentinel instantiate the envelope; the sentinel preserves submission, consumption, result publication/observation, independent notification/resource return, and separate SQ/CQ slot reclamation through round trips; identities, captured bindings, locations, labels, path witnesses, and exact consequences are preserved; malformed combinations, omissions, stale-rebind redirection, label forgery, and consequence escalation fail without predefining real future-domain semantics |
 | M1 | Provenanced regions, typed views, indexed authority/obligation transitions, and canonical state normal forms plus simplification support | M0 | Unauthorized, stale, or byte-reloaded pointers without a live typed-view binding cannot be dereferenced; hierarchical allocation composes through the canonical normal forms; automation discharges representative indexed binds; representative real programs stay within a pinned elaboration time/memory budget and regression threshold |
 | M2-X | x86 WB/TSO machine, atomics, fences, enumeration | M0 | x86 litmus theorems, one-thread theorem, decode/emission and relocation fidelity, and silicon validation |
 | M2-A | AArch64 Normal-memory model, acquire/release, barriers, exclusives | M0 | Arm litmus theorems, one-PE theorem, decode/emission and relocation fidelity, and native validation |
-| M3 | Generic process/thread scheduler, lifecycle, and park/wake contract | M0 | Two-thread stepping, park-if-equal/wake, spawn/join, and execution-agent state preservation |
+| M3 | Generic process/thread scheduler, lifecycle, narrow address-parking contract, and extension seams for composite waits and target-control delivery | M0 | Two-thread stepping, park-if-equal/notify, spawn/join, and execution-agent state preservation; notification results remain platform-indexed, composite waits cannot be faked by repeated unary waits, and interrupt delivery cannot masquerade as scheduler wake |
 | M4 | Cross-thread authority partition and lifecycle transfer | M1, M3 | Global access-mode/no-race theorems plus exact loan return, sealed terminal bundle, detach, and one-shot join conservation |
-| M5-S | Representation-independent portable mutex contract, result-indexed guards, typed release obligations, and implementation-refinement interface | M4 | Fresh-instance init, result-indexed try/blocking acquire, release visibility, full resource-preserving destruction inverse, and stale-handle/grant rejection are stated without fixing a word width, encoding, parking API, or algorithm; a concrete implementation can discharge the contract only through checked representation, target-event, and lifecycle proofs |
-| M5-L | Standard-library `ParkedMutex32` abstract protocol and portable refinement | M3, M5-S | One reusable 32-bit state encoding, its fast/slow transitions, linearization points, waiter projection, exact wait values, release transition, wake policy, retry behavior, and no-auxiliary-payload invariant are pinned and proved to refine M5-S; no theorem exports those representation constants as generic mutex facts |
+| M5-S | Representation-independent portable mutex contract with stable core plus contributed auxiliary resources, extensible acquisition/recovery results, profile-owned owner identity, typed obligations, pinned progress taxonomy, and implementation-refinement interface | M4 | Fresh-instance init, result-indexed try/blocking acquire, healthy/exceptional guard boundary, optional checked owner handoff, release visibility, exact auxiliary-node return, full destruction inverse, and stale-handle/grant rejection are stated without fixing a word width, encoding, parking API, algorithm, or queue-node policy; a concrete implementation discharges the contract only through checked representation, target-event, lifecycle, and claimed-progress proofs |
+| M5-L | Standard-library `ParkedMutex32` abstract protocol and portable refinement | M3, M5-S | One reusable 32-bit state encoding, its fast/slow transitions, linearization points, waiter projection, exact wait values, release transition, wake policy, retry behavior, healthy-only results, thread affinity, and no-auxiliary-resource/payload invariant are pinned and proved to refine M5-S; no theorem exports those representation constants as generic mutex facts |
 | M5-X | x86 `ParkedMutex32` realization and visibility theorem | M2-X, M5-L | The standard 32-bit library protocol implements M5-S under x86 TSO; specialized implementations use the same refinement interface and prove their own target realization |
 | M5-A | AArch64 `ParkedMutex32` realization and visibility theorem | M2-A, M5-L | The standard 32-bit library protocol implements M5-S under the AArch64 model; specialized implementations use the same refinement interface, and LSE requires a later profile extension |
 | M6-P | Hosted Linux and Windows lifecycle/wait refinements | M4 | Spawn failure/success, lifecycle visibility, real one-shot join, blocked/runnable state, handle/TID lifetime, terminal bundles, platform authority for registered lifecycle/parking atomic words, and API outcomes refine the generic contracts |
@@ -1048,9 +1417,9 @@ tasks, but its dependency and exit criteria remain here.
 | M6-A | Linux AArch64 futex and lifecycle adapter | M2-A, M6-P | Thread lifecycle, join, wait, and wake paths execute independently of mutex integration; child-TID set/clear and park-if-equal comparisons satisfy atomic-mode, alignment, and AArch64 single-copy-atomicity obligations |
 | M6-LX | Linux/Windows x86 standard-library blocking-lock integration | M5-X, M6-X | `ParkedMutex32` separately refines Linux futex and Windows `WaitOnAddress`/`WakeByAddress*`, including release-before-notify, lost-wakeup, and spurious-return cases; the adapter interface remains open to other proved mutex libraries |
 | M6-LA | AArch64 standard-library blocking-lock integration | M5-A, M6-A | `ParkedMutex32`, through AArch64-specific atomics, including release-before-notify, lost-wakeup, and spurious-return cases, refines the portable mutex and parking contracts; the adapter interface remains open to other proved mutex libraries |
-| M7-X | x86 bare-metal SMP and device-memory extension | M2-X, M3, M5-X | Two CPUs prove boot-mailbox handoff, run the `ParkedMutex32` lock/counter, refine the selected wait strategy, and validate one device order/completion protocol plus barrier/attribute negative control; backend honesty reported |
-| M7-A | AArch64 bare-metal SMP and device-memory extension | M2-A, M3, M5-A | Two PEs prove boot-mailbox handoff, run the `ParkedMutex32` lock/counter, refine the selected wait strategy, and validate one device order/completion protocol plus barrier/attribute negative control; backend honesty reported |
-| M8 | Concurrent causal trace projection and equivalence integration | M3, M5-S | Total/non-inventing observable-node quotient plus bidirectional labelled-edge fidelity modulo event-key renaming |
+| M7-X | x86 bare-metal SMP and device-memory extension | M2-X, M3, M5-X | Two CPUs prove boot-mailbox handoff, run the `ParkedMutex32` lock/counter, refine the selected wait strategy, and validate one device order/completion protocol plus barrier/attribute negative control; any selected DMA path additionally satisfies §10.3, and any interrupt-driven path satisfies §§8.3/10.4; backend honesty reported |
+| M7-A | AArch64 bare-metal SMP and device-memory extension | M2-A, M3, M5-A | Two PEs prove boot-mailbox handoff, run the `ParkedMutex32` lock/counter, refine the selected wait strategy, and validate one device order/completion protocol plus barrier/attribute negative control; any selected DMA path additionally satisfies §10.3, and any interrupt-driven path satisfies §§8.3/10.4; backend honesty reported |
+| M8 | Concurrent causal trace projection and equivalence integration | M3, M5-S | Total/non-inventing observable-node quotient plus bidirectional fidelity to profile-selected labelled source-path reachability, retaining each `ProjectedCausalEdge` witness modulo event-key renaming and independent of primitive-edge/transitive-reduction representation |
 | M9 | Full cross-target Spike 8 validation matrix | M6-LX, M6-LA, M7-X, M7-A, M8 | Model, emitted binaries, OS adapters, and both bare-metal paths satisfy §13 |
 
 M2-X and M2-A should proceed in parallel after M0 and their respective §15 entry gates. M1 can also
@@ -1084,13 +1453,18 @@ The following are deliberate stop-and-design gates:
    profile, shareability assumptions, applicable errata and the disposition of each, the matching
    official A-profile `aarch64.cat` revision and content hash, and the herd7 release/commit and hash
    used to run it.
-2. **Common event representation:** concrete Lean types for stable target-indexed agent identities,
-   memory objects/references and location sets, generative asynchronous-operation/completion and
-   reusable-slot generations, decomposed memory kind/address space/scope fields, typed relation
-   labels and consequence-aware path witnesses; plus whether bounded enumeration
-   uses one graph engine or per-target engines connected to the common envelope. The first CPU
-   implementation may instantiate only byte-addressed x86/AArch64 projections, but the public seam
-   must not make CPU thread identity, numeric addresses, or transitive CPU happens-before universal.
+2. **Common event representation:** concrete Lean types only for the stable interchange boundary:
+   target/profile and generative event/object identities; profile-indexed agent, reference, location,
+   event/transition payload, relation and consequence families; target-indexed binding keys, binding
+   generations, resolved binding witnesses and bind/unbind/rebind/alias laws; well-formed
+   projections; labelled path and
+   `TraceProjection` witnesses; and whether bounded enumeration uses one graph engine or per-target
+   engines connected to the envelope. Real asynchronous, GPU, RDMA, network, or storage relation and
+   consequence constructors are introduced only after that profile's reference intake. Existing CPU
+   projections and a synthetic asynchronous-queue sentinel must nevertheless instantiate the public
+   seam before M0 exits, so it cannot silently equate every agent with a CPU thread, every location
+   with a numeric address, every binding with a timeless lookup, or every causal order with
+   transitive CPU happens-before.
 3. **Indexed authoring surface:** how `BlockM` prevents arbitrary permission/obligation replacement
    while retaining usable errors; the canonical state normal forms and simplification/automation
    interface; and the representative-program elaboration time/memory budget and regression threshold.
@@ -1109,6 +1483,16 @@ The following are deliberate stop-and-design gates:
    open M5-S refinement interface rather than silently inheriting these values.
 9. **x86 vendor profile:** choose Intel 64 only or a common Intel/AMD64 subset and state the
    eligible CPU/vendor test matrix. AMD hardware is not covered by an Intel-only citation.
+10. **Scheduler wait/control seams:** pin the Lean boundary between unary address parking,
+    composite wait sets, target notification, interrupt/control delivery, and scheduler wake;
+    platform-indexed observable results and typed result-dependent authority; registration lifetime,
+    generation and cancellation rules; and which seams the first M3 profile instantiates versus only
+    keeps open. No common type may require a visible wake count or manufacture memory visibility.
+11. **Portable mutex refinement seam:** pin the stable-core/auxiliary-resource split, logical-owner
+    parameter and first-profile thread affinity, healthy and exceptional result extension mechanism,
+    recovery/poison and optional owner-handoff interfaces, the progress taxonomy and fairness fields,
+    and destruction's exact resource inverse. The first profile may omit robust outcomes, handoff,
+    and queue-node implementations only as explicit specializations, not by closing their type seams.
 
 These decisions are hard stage-entry gates for normative implementation and theorem statements:
 
@@ -1118,6 +1502,8 @@ These decisions are hard stage-entry gates for normative implementation and theo
 | M1 | Indexed authoring surface, normal forms, automation, and elaboration budget (3) |
 | M2-X | x86 vendor profile (9) and the x86-64 §15.1 reference intake |
 | M2-A | AArch64 formal profile (1) and the complete AArch64 §15.1 reference intake |
+| M3 | Scheduler wait/control seams (10) |
+| M5-S | Portable mutex refinement seam (11), after the M4 ownership/obligation surface is fixed |
 | M5-L (inherited by the standard-library M5-X and M5-A realizations) | The `ParkedMutex32` protocol (8), after the portable M5-S contract is fixed and before either standard-library architecture realization starts |
 | M6-P, M6-X, M6-A | Applicable Windows wait (4), futex error (7), and hosted-platform §15.1 intake decisions |
 | M7-X | x86 AP startup (5) and the x86 bare-metal §15.1 reference intake |
@@ -1142,11 +1528,18 @@ stage starts, `references.json` must pin and hash authoritative material for:
 | Windows | Microsoft documentation for thread creation/exit, thread-object waits, handle lifetime, and the selected address-wait primitive |
 | x86 bare metal | Intel startup/APIC material and selected platform/device specifications |
 | AArch64 bare metal | Arm PSCI, exception-level, GIC, translation/memory-attribute, and selected platform/device specifications |
-| SPIR-V/Vulkan future profile | Exact Vulkan/SPIR-V editions and feature profile, immutable Vulkan-Docs/SPIRV-Headers revisions, matching Khronos memory-model/formal-artifact revision, validator/tool hashes, and applicable errata |
+| RISC-V future profile | Exact unprivileged ISA, platform and extension profile; matching formal RVWMO artifact/tool hashes; preserved-program-order and dependency rules; `FENCE` predecessor/successor domain sets; AMO and LR/SC `.aq`/`.rl` semantics; and any separately selected Ztso profile |
+| DMA and interrupt future profiles | Exact OS DMA API or bare-metal architecture, interconnect, IOMMU, interrupt controller and device revisions; coherent versus streaming rules, directions, cache-maintenance and barrier contracts, cache granules, binding/I/O-address generations, ownership handoffs, doorbells, signal routing/acknowledgement, and distinct completion/visibility evidence |
+| Optimistic-concurrency and reclamation future profiles | Exact seqcount/seqlock contract and memory/compiler profile; separately, exact RCU, hazard-pointer, or epoch scheme with typed publication/protection, grace/quiescence, retirement, reclamation, and progress rules |
+| WebAssembly threads future profile | Separate exact Core Wasm threads/atomics snapshot plus embedding profile; sequentially consistent atomic rules; full-defined-racy versus proved-DRF-subset choice and tearing; `memory.atomic.wait32`/`wait64` and notify outcomes, traps and non-spurious/queue-order rules; multi-memory identity; shared-memory/agent lifecycle; host-call reentrancy; trap/termination and embedding interruption/cancellation; blocking eligibility, asynchronous embedding APIs, and engine-validation matrix |
+| SPIR-V/Vulkan future profile | Exact Vulkan/SPIR-V editions and feature profile, immutable Vulkan-Docs/SPIRV-Headers revisions, matching Khronos memory-model/formal-artifact revision, validator/tool hashes and errata; Resource Memory Association, Sparse Resources, Memory Aliasing, descriptor consumption/update-after-bind/partially-bound rules, device-group binding and external-memory identity; and the separation between API execution dependencies and shader memory-model relations |
 | WGSL/WebGPU future profile | Exact W3C specification snapshots, browser/host execution environment and import surface, validation implementation/profile, and device-loss/resource-timeline semantics |
-| Linux `io_uring` future profile | Exact Linux UAPI/kernel and liburing revisions, shared-ring memory-order protocol, selected setup/opcode/flag semantics, cancellation and completion rules, and filesystem/network profiles for operation-specific consequences |
-| libverbs/RDMA future profile | Exact rdma-core/libibverbs and provider revisions, selected transport/QP reliability and ordering profile, DMA-coherency premises, registered-memory/access-key rules, completion semantics, and any persistence extension |
+| Linux `io_uring` future profile | Exact Linux UAPI/kernel and liburing revisions, shared-ring memory-order protocol, selected setup/opcode/flag semantics, acceptance/consumption, multishot/zero-copy and suppressed-result behavior, independent notification/resource return/SQ-CQ reclamation, registered-resource replacement generations, cancellation, and filesystem/network operation consequences |
+| libverbs/RDMA future profile | Exact rdma-core/libibverbs and provider revisions, selected transport/QP reliability and ordering profile, DMA-coherency premises, MR/MW registration and `rkey` generations, alias/lifetime rules, CQ notification/event acknowledgement versus retrieved work completion, buffer-return rules, remote observation, and any persistence extension |
 | Network/IPC/storage future profiles | Selected protocol and OS IPC specifications, shared-object identity rules, filesystem/mount/device-cache persistence contract, and explicit loss, failure, crash, and recovery assumptions |
+| Hosted synchronization extensions | Exact selected POSIX robust-mutex and Windows abandoned-mutex contracts kept as distinct recovery profiles; Linux futex2/`futex_waitv` and Windows multiple-object wait rules; result-indexed ownership, interruption and cancellation; and exact MCS/qspinlock sources plus node provenance, affinity, nesting and progress assumptions before those implementations are admitted |
+| Linux restartable-sequence future profile | Exact kernel UAPI and implementation, libc/`librseq` ownership and ABI, architecture code-generation rules, registered CPU/memory-concurrency IDs, migration/preemption/signal and `membarrier` behavior, commit/abort layout, restart-safety obligations, validation, and fallback progress |
+| Direct user-scheduling future profile | Exact available implementation and ABI for any user-directed switch/handoff mechanism, including timeout/signal/exit races, generation and accounting rules, control causality and separate publication; historical Google `SwitchTo` and unmerged `FUTEX_SWAP` material is prior art only, not an implementable Linux contract |
 
 Each Lean declaration cites the narrowest applicable registered anchor. A hardware observation or
 QEMU behavior is validation evidence, not a substitute for the architecture/OS contract.

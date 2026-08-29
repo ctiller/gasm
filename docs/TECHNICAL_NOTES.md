@@ -35,9 +35,10 @@ This document consolidates genuine technical insights, open architectural debts,
 ## 3. Graphics & GPU Architectural Notes
 - **Observation Standard**: GPU rendering output (`readbackPixels`) must carry actual pixel data, not just an audit trace of a readback event.
 - **Synchronization Model**: Must retain Vulkan's scoped execution, synchronization,
-  availability, visibility, and memory-domain relations rather than a resource-layout FSM. Vulkan
-  happens-before is non-transitive and insufficient by itself for visibility, so it cannot be
-  identified with `VectorClock`; clocks may cache only a proved causal projection. RAW
+  availability, visibility, and memory-domain relations rather than a resource-layout FSM. The
+  SPIR-V/Vulkan shader memory-model happens-before relation is non-transitive and insufficient by
+  itself for visibility, and remains distinct from Vulkan API execution dependencies, so it cannot
+  be identified with `VectorClock`; clocks may cache only a proved causal projection. RAW
   (Read-After-Write) hazards must be actively modeled.
 - **Floating-Point Determinism**: Cross-driver bit-exact equality is impossible. Requires a "Deterministic Shader Profile" (integer/basic FP, NoContraction) where equality holds, utilizing ULP-tolerance refinement everywhere else.
 - **Read-Binder**: Graphics proofs must quantify over all valid input buffer contents and interleavings, rather than asserting pointwise correctness on a fixed gradient.

@@ -32,6 +32,11 @@ This document consolidates the genuine technical and architectural decisions for
 The detailed normative design and staged exit criteria are in `docs/MEMORY_MODEL.md`. These are the
 durable decisions future implementations must preserve:
 
+- **Three proof levels keep demands reusable**: high-level code states communication,
+  synchronization, resource and consequence demands; an ISA-independent domain plan chooses the
+  mutex, graphics, async-I/O, RDMA, protocol or storage architecture; target realizations finally
+  prove that plan against each ISA, OS, device, provider and transport. No level may silently assume
+  a guarantee owned by a lower or different level.
 - **One common event graph, separate ISA consistency models**: x86-64 uses a WB/TSO operational
   model; AArch64 uses a pinned official Arm weak-memory profile. Neither architecture is the
   other's fallback semantics.
@@ -39,6 +44,11 @@ durable decisions future implementations must preserve:
   domain, and explicit atomic class; reads-from is byte/range-granular for Normal memory, initial
   writes are explicit, platform/device events are owned by their transition rules, and barrier
   semantics retain ordering/completion/scope information.
+- **Bindings are dynamic and generational**: a resolved reference carries its target key and
+  generation, logical object, rights and location/backing footprint. Bind/unbind/rebind and alias
+  transitions invalidate stale resolution witnesses; each asynchronous resource operand captures
+  its generation at the profile-declared snapshot/consumption event and never reinterprets a reused
+  fd, handle, slot, `rkey`, IOVA, descriptor or address afterward.
 - **Authority precedes ordering**: provenance and the resource algebra decide whether an access is
   authorized; the architecture model then decides which authorized concurrent executions are
   allowed. Vector clocks replace neither layer.
@@ -46,19 +56,32 @@ durable decisions future implementations must preserve:
   exact-token read loans, instance-scoped atomic grants, causal donation, and result-indexed join
   returns are tracked by closed indexed transitions rather than duplicable token values. In v1,
   pointer bytes recover a registered typed view, not provenance or authority by themselves.
-- **Locks separate contract from representation**: contenders share atomic authority for an
-  implementation-defined synchronization representation; one fresh lock instance owns the
-  disjoint protected region; and each successful generation carries a matched guard and must-release
-  obligation. The planned verified `ParkedMutex32` library is the preferred cross-platform default,
-  not the definition of a mutex. Specialized libraries may use another protocol or pack additional
-  state into the atomic object only by proving their encoding, atomic transitions, parking behavior,
-  and refinement to the same contract. Synchronization is justified by an explicit release/acquire
-  witness tied to concrete event keys, not by relabelling generic loads or stores. Failed acquire
-  transfers nothing, and destruction is the checked inverse of initialization.
-- **Parking is not publication**: Linux futex and Windows `WaitOnAddress`/`WakeByAddress*`
-  operations refine park-if-equal/wake and create scheduler causality only. Release publication
-  precedes notification; memory visibility comes from the target-proved atomic release/acquire
-  protocol rather than from wake itself.
+- **Locks separate contract from representation**: contenders share atomic authority for a stable
+  implementation-defined core while admitted queue locks may borrow generative contender/per-agent
+  auxiliary nodes; one fresh lock instance owns the disjoint protected region; and each acquired
+  generation carries result- and owner-indexed guards and obligations. The planned verified
+  `ParkedMutex32` library is the preferred healthy-only, thread-affine, no-auxiliary default, not the
+  definition of a mutex. Specialized libraries prove their core/auxiliary resources, encoding,
+  results/recovery, owner policy, atomic transitions, parking and exact progress class. First-profile
+  CPU synchronization is justified by an explicit release/acquire witness tied to concrete event
+  keys, not by relabelling generic loads or stores; non-CPU profiles keep their native relations.
+  Destruction is the checked inverse of initialization and returns every auxiliary loan.
+- **Address parking is not publication**: Linux futex and Windows
+  `WaitOnAddress`/`WakeByAddress*` operations refine a narrow park-if-equal/notification adapter and
+  create scheduler causality only. Composite wait sets and interrupts use separate result-indexed
+  seams. Release publication precedes address notification; memory visibility comes from the
+  target-proved atomic protocol rather than scheduler wake itself. A selected device/interconnect
+  profile may prove ordered interrupt delivery, but handler entry is not universally completion,
+  visibility, or scheduler wake.
+- **Consequences do not collapse**: acceptance, consumption, effect completion, terminality, result
+  publication/observation, notification, resource return, queue-slot reclamation, remote delivery,
+  acknowledgement and persistence are independently typed. A profile theorem may relate them; a
+  shared operation ID or event name may not.
+- **Observable causality retains its source**: every projected trace order carries a profile-selected
+  labelled source-path witness, whether it came from CPU program order, scheduler control, GPU/API
+  execution, device/interrupt delivery, a transport acknowledgement, or persistence. Equivalence is
+  over induced reachability between observable quotient nodes, not one primitive-edge encoding or a
+  CPU-only vector clock.
 - **Lifecycle is explicit**: spawn commits donated authority and a release publication before the
   child becomes runnable; a fresh one-shot `JoinRight` observes actual termination through an
   acquire publication and returns only the child's sealed terminal bundle. Detach requires an empty

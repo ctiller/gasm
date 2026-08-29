@@ -226,8 +226,11 @@ encoded as vector-clock edges.
 Equivalence is independent of arbitrary scheduler linearization. An explicit quotient maps every
 raw observable to exactly one canonical node, invents none, and merges nodes only under the named
 per-effect coalescing rules while preserving stream, label, payload fold, and barriers. Between
-distinct quotient nodes, an observable labelled edge appears if and only if it is in the projected
-program/scheduler causal order, modulo event-key renaming and partial-order isomorphism.
+distinct quotient nodes, trace order appears if and only if the CPU profile selects an admitted
+labelled program/scheduler source path between their fibers. The projected edge retains that path
+witness; equivalence is modulo event-key renaming and partial-order isomorphism and independent of a
+particular primitive-edge/transitive-reduction representation. Future non-CPU profiles use the same
+interface with their own labelled source paths.
 
 ---
 
@@ -274,13 +277,15 @@ Spike 8 is complete only when:
 7. x86 and AArch64 bare-metal targets start at least two CPUs/PEs, prove the boot-mailbox handoff,
    run the `ParkedMutex32` lock counter, refine their selected wait strategy, and validate one device
    order/completion protocol with a barrier/attribute negative control;
-8. the causal trace node quotient is total/non-inventing and its labelled edge order is connected in
-   both directions to projected program and scheduler causality;
+8. the causal trace node quotient is total/non-inventing and its order is connected in both
+   directions to the CPU profile's selected labelled program/scheduler source-path reachability,
+   retaining each path witness independently of transitive reduction;
 9. negative controls fail for missing barriers, broken atomicity, unauthorized access, stale harness
    results, lost wakeups, omitted obligation discharge, and lock destruction with a stale atomic
    grant or waiter;
-10. every run records enough environment information to distinguish silicon validation from emulator
-    execution.
+10. every run records enough per-execution-agent CPU/feature/topology, affinity/migration and backend
+    information to distinguish covered silicon validation from emulator execution and heterogeneous
+    host ambiguity.
 
 The implementation order is `docs/MEMORY_MODEL.md` §14. This spike does not maintain a parallel task
 DAG.
