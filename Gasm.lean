@@ -29,6 +29,7 @@ import Gasm.Core.Platform
 import Gasm.Core.Verification
 
 import Gasm.MemoryModel.CpuGraph
+import Gasm.MemoryModel.ProgramOrder
 import Gasm.MemoryModel.FiniteSearch
 
 import Gasm.Effects.Inject
