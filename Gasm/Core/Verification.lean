@@ -229,22 +229,36 @@ instance {Event : Type} : Platform (LinuxAArch64 Event) where
   emit := fun artifact => .ok artifact.executable.emit
 
 /- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
-/-- Windows host services form an explicit typed capability row. -/
-def windowsHostCapability (Event : Type)
+def windowsProvider (imported : Win32Function) (iatIndex : Nat) : WindowsX86_64Provider where
+  protocol :=
+    { protocolNamespace := imported.moduleName
+      operation := imported.symbolName
+      version := 0 }
+  imported := imported
+  iatIndex := iatIndex
+
+/-- Windows host services form an explicit typed capability row. Provider
+    selection is artifact-specific; an empty or catch-all helper cannot cover a
+    PE import table soundly. -/
+def windowsHostCapability (Event : Type) (providers : List WindowsX86_64Provider)
     [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
     Capability (WindowsX86_64 Event) where
   Context := Unit
-  providers := []
+  providers := providers
   establishes := fun _ _ _ _ => True
 
-def windowsHostCapabilities (Event : Type)
-    [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
+def windowsHostCapabilities (Event : Type) (providers : List WindowsX86_64Provider)
+    [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event]
+    (supports : ∀ provider, provider ∈ providers →
+      Platform.runtimeSupports (P := WindowsX86_64 Event) runtime provider) :
     CapabilityComposition (WindowsX86_64 Event) where
-  root := windowsHostCapability Event
+  root := windowsHostCapability Event providers
   realize := fun _ => by
     change Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
     exact runtime
-  realizeSupports := by simp [windowsHostCapability]
+  realizeSupports := by
+    intro context provider membership
+    exact supports provider membership
 
 def linuxHostCapabilities (Event : Type)
     [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
