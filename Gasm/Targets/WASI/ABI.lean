@@ -490,6 +490,10 @@ instance : Platform WasiPlatform where
   Export := String
   imports := fun artifact => artifact.imports
   artifactExports := fun artifact => artifact.module.exports.map (fun exported => exported.name)
+  artifactConnected := fun artifact =>
+    artifact.module.functions.head?.map (fun fn => fn.body) = some artifact.instructions ∧
+    artifact.module.dataSegments = artifact.dataSegments ∧
+    artifact.module.imports.map (fun imported => imported.name) = artifact.imports
   load := fun _ environment => environment
   run := fun artifact environment =>
     (runWasiOutcome artifact.instructions artifact.dataSegments environment.stdin

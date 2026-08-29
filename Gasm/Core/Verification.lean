@@ -20,6 +20,7 @@ import Gasm.Effects.Trace
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Instructions.Base
 import Gasm.Targets.X86_64.Semantics
+import Gasm.Targets.X86_64.Assembler
 import Gasm.Targets.Dispatcher
 import Gasm.Targets.Linux.Linker
 import Gasm.Targets.AArch64.Semantics
@@ -68,6 +69,9 @@ instance {Event : Type} [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Even
   Export := String
   imports := fun artifact => artifact.executable.imports
   artifactExports := fun _ => []
+  artifactConnected := fun artifact =>
+    artifact.executable.textBytes =
+      Gasm.Targets.X86_64.Assembler.serializeInstructions artifact.instructions
   load := fun artifact environment =>
     let state := artifact.executable.loadWithStdin environment.stdin
     { state with incomingRequests := environment.incomingRequests }
@@ -85,6 +89,9 @@ instance {Event : Type} [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Even
   Export := String
   imports := fun _ => []
   artifactExports := fun _ => []
+  artifactConnected := fun artifact =>
+    artifact.executable.textBytes =
+      Gasm.Targets.X86_64.Assembler.serializeInstructions artifact.instructions
   load := fun artifact environment =>
     let state := artifact.executable.loadWithStdin environment.stdin
     { state with incomingRequests := environment.incomingRequests }
@@ -102,6 +109,9 @@ instance {Event : Type} [Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Ev
   Export := String
   imports := fun _ => []
   artifactExports := fun _ => []
+  artifactConnected := fun artifact =>
+    artifact.executable.textBytes =
+      Gasm.Targets.AArch64.Linux.serializeInstructions artifact.instructions
   load := fun artifact environment =>
     let state := artifact.executable.loadWithStdin environment.stdin
     { state with incomingRequests := environment.incomingRequests }

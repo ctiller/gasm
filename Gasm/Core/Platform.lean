@@ -54,6 +54,7 @@ class Platform (P : Type u) where
   Export : Type
   imports : Artifact → List Import
   artifactExports : Artifact → List Export
+  artifactConnected : Artifact → Prop
   load : Artifact → Environment → State
   run : Artifact → State → Observation
   admissible : Artifact → State → Prop
@@ -137,6 +138,7 @@ structure VerifiedProgram (P : Type) [Platform P] (capabilities : CapabilityComp
   artifact : Platform.Artifact (P := P)
   exports : List (Platform.Export (P := P))
   exportsMatch : exports = Platform.artifactExports artifact
+  artifactConnection : Platform.artifactConnected artifact
   spec : Environment → Platform.Observation (P := P)
   importsCovered : ∀ imported, imported ∈ Platform.imports artifact →
     capabilities.root.provides imported
