@@ -198,6 +198,17 @@ without weakening target-specific contracts into a misleading lowest common deno
 
 ## Next control-flow slice
 
+## Operational CFG realization
+
+`EmittedBasicBlock` binds a `BasicBlock` to an exact contiguous instruction slice in one final
+artifact index. Its ordinary prefix is refined through the shared macro runner, while the emitted
+terminator is looked up and executed by the production evaluator. `RealizesAt` connects that exact
+host-aware transition to the dependent body result and excludes divide/memory faults.
+
+`OperationalCFGRealization` owns the artifact-global layout law and a realization for every graph
+block once. Logical `Step.fromBody` remains useful for local contract composition, but cannot by
+itself establish production reachability; final behavior proofs consume the operational realization.
+
 Symbolic control flow will use scoped nominal `BlockRef` values tied to entries in the existing
 `TypedControlFlowGraph`, never text labels or raw instruction offsets. A graph builder will intern a
 supplied `BasicBlock` definition into a finite closed block table and return a reference carrying the

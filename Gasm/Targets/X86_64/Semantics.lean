@@ -429,7 +429,7 @@ structure SelectedTerminationCertificate {Event : Type}
     (indexInstructions baseRip instructions)
     fuel initial = true
 
-private theorem nativeOutcomeTransition_fst_independent_events {Event : Type}
+theorem nativeOutcomeTransition_fst_independent_events {Event : Type}
     [interceptor : ExternalCallInterceptor X86_64 Event]
     (instr : X86_64Instr) (state : X86_64MachineState) (left right : List Event) :
     (nativeOutcomeTransition instr state left).1 =
