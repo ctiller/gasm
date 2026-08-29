@@ -276,6 +276,12 @@ for realistically sized programs. It **is** tractable as a composition:
    with reusable certificates living at their owning layer and the spike proving only its local
    deltas. A green but monolithic spike is unfinished proof infrastructure, because it teaches the
    next implementation the wrong proof shape.
+   Calls and jumps are both proof boundaries under this rule. A typed jump establishes the target
+   basic block's entry relation—including its ghost authority/obligation world—just as a caller
+   establishes a callee contract. A general CFG theorem composes those small edge certificates into
+   routine preservation; loops reuse an invariant at the back-edge instead of expanding paths.
+   Indirect control flow additionally proves that the resolved destination belongs to a closed set
+   whose member contracts are all satisfied.
 4. **Agents write the proof with the code.** The unit of generated work is the triple
    (contract, assembly, proof). Agents iterate against the checker until it accepts;
    humans review contracts, not implementations. This is what makes universal

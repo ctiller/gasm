@@ -378,6 +378,13 @@ that re-proves link, ISA, provider, or library facts is an undue burden finding 
 certificate with no applicability key is speculative burden; a reachable key without a certificate
 is a soundness gap.
 
+For reachable internal control flow, reviewers MUST require typed target establishment. A string
+label, displacement, target index, or stack-depth equality is not a block contract. Each edge proves
+the selected destination's complete entry relation, including ghost world transfer; indirect edges
+also prove closed-set resolution. Reviewers should demand only these local edge obligations plus the
+generic CFG composition theorem—not duplicated whole-path executions or a separate proof for each
+unrolling of a loop.
+
 The implemented spikes are normative exemplars for proof authors. The trust-repair exit gate MUST
 inspect every implemented spike and establish that it uses the general composition rule, shares
 certificates at their proper ownership boundary, and retains only a minimal spike-local refinement

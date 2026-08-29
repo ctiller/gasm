@@ -1,11 +1,13 @@
 # Stack Discipline & Local Jump Obligations
 
-**Status (2026-08-29): required design with a partial substrate.** `ComposedState.stackDepth`, CFG
-terminators and a minimal stack-clean predicate exist, but `BlockM` currently has unrestricted state
-replacement and no checked stack-instruction authoring surface. The selected M1/M2-B profile must
-complete the rules below. `AbiDiscipline` vocabulary and a stack-restoration fact are necessary but
-not sufficient for relational entry/exit, target admissibility, artifact/link identity or boundary
-certification.
+**Status (2026-08-29): required design with an unsoundly weak partial substrate.**
+`ComposedState.stackDepth`, CFG terminators and a minimal stack-clean predicate exist, but current
+`jmp`/`jcc` constructors carry only string labels and depth equality: they do not establish the
+destination block's entry contract or transfer its ghost world. `BlockM` also has unrestricted state
+replacement and no checked stack-instruction authoring surface. The trust-repair milestone must
+complete the typed-edge and composition rules below before treating spike proofs as exemplars.
+`AbiDiscipline` vocabulary and a stack-restoration fact are necessary but not sufficient for
+relational entry/exit, target admissibility, artifact/link identity or boundary certification.
 
 Completed function-local stack manipulation must be strictly checked to guarantee that:
 1. Every allocated byte on the stack is restored before a return instruction (`ret`).
@@ -92,6 +94,20 @@ class AbiDiscipline (Arch : Type) (ABI : Type) where
 
 The completed basic-block authoring surface must check CFG transitions against `expectedDepth` and
 `s_exit.stackDepth`; current structures provide only part of that substrate:
+
+A jump is a local call-like proof boundary. Its source proves the destination entry relation over
+the complete logical state, not merely representation compatibility or stack depth. That relation is
+the ghost-world transfer point for permissions, ownership, outstanding obligations, cancellation,
+request accounting, and other erased context. The target may demand exactly the property its body
+needs; unrelated resources are carried by the frame law without being mentioned at every edge.
+
+The implementation must provide one generic CFG composition theorem: if the entry block is
+established, every reachable direct edge establishes its typed target, every indirect edge resolves
+within a proved closed target set and establishes the selected member contract, and every return
+establishes the routine exit contract, then the whole routine preserves its contract. Loops close by
+proving the header relation on each back-edge. This theorem is the routine-level certificate consumed
+by `VerifiedProgram`; path enumeration or restating target-block proofs at whole-program level is not
+an acceptable substitute.
 
 ```lean
 structure BasicBlock (Arch : Type) [TargetArch Arch] (InState : Type) where

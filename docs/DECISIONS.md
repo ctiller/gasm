@@ -134,6 +134,12 @@ durable decisions future implementations must preserve:
   their owning reusable layers and indexed by the same final artifact/platform/capability selection.
   One general composition rule constructs `VerifiedProgram` exactly when every applicable key is
   present and coherent. Optional unselected features add no key; reachable features cannot evade one.
+- **Jumps and calls are equally typed proof boundaries**: every reachable jump establishes its
+  destination basic block's entry relation over concrete state and the ghost authority/obligation
+  world. Direct edges carry a typed target certificate; indirect edges additionally prove closed-set
+  resolution. A reusable CFG theorem composes edge-local proofs and loop invariants into routine
+  preservation, which is then one applicability-derived leaf of `VerifiedProgram`; whole-path replay
+  is neither required nor accepted as the architecture.
 - **Bare metal is a first-class two-architecture target**: x86 AP/LAPIC and AArch64
   PSCI-or-spin-table/GIC paths implement the same lifecycle/lock contracts through distinct startup
   and device-order rules. Startup notification alone is not RAM synchronization.
