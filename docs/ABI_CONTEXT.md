@@ -275,6 +275,18 @@ Before ABI contexts may participate in `VerifiedProgram`, the implementation mus
 - ghost erasure and zero runtime work for omitted runtime requirements; and
 - correct root-context establishment for every admitted entry environment.
 
+These are ownership-scoped obligations, not a checklist replayed at every call or program.
+Target-profile validation proves classification and physical admissibility once; provider
+certificates prove protocol realization and runtime support once; final-link certificates prove
+layout, relocation, resolution, and joint admissibility once; and library boundary proofs prove
+their transition laws once. Reusable certificates carry those facts to consumers. An ordinary
+caller proves only facts that genuinely vary at that call site: the selected boundary, its entry
+arguments and binding, the related logical world, and the callee precondition. A proof interface is
+misdesigned if it repeatedly asks consumers for an invariant owned by one of the earlier layers, or
+if it demands a fact on a path where the corresponding feature is absent. Proof economy never
+permits omitting a necessary boundary fact; it determines where that fact is established and how it
+is reused.
+
 `VerifiedProgram` must carry universal connection proofs for every admitted initial state and
 environment behavior. No legacy constructor, compatibility API, allowlist, axiom, `sorry`, or
 narrowed input domain may bypass them.
