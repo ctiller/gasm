@@ -96,6 +96,7 @@ lake exe test_spike4
 ## Documentation
 
 * **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: System design, memory models, and compilation pipeline.
+* **[docs/MACRO_ASSEMBLER.md](docs/MACRO_ASSEMBLER.md)**: Composable proved fragments and the portable word-function compiler.
 * **[docs/GRAPHICS_ARCHITECTURE.md](docs/GRAPHICS_ARCHITECTURE.md)**: Multi-target Vulkan/DX12/WebGPU architecture.
 * **[docs/DECISIONS.md](docs/DECISIONS.md)**: Ratified architectural decisions and principles.
 * **[docs/TECHNICAL_NOTES.md](docs/TECHNICAL_NOTES.md)**: Formal verification notes, TCB boundaries, and model debts.
