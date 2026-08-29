@@ -484,7 +484,7 @@ inductive WasiObservable (Event : Type) where
   | trapped (events : List Event) : WasiObservable Event
   | fuelExhausted : WasiObservable Event
   | memoryExhausted (requestedPages availablePages : Nat) : WasiObservable Event
-  deriving BEq
+  deriving BEq, DecidableEq
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Maps the event payload without changing completion or resource semantics. -/
