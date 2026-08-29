@@ -69,6 +69,21 @@ def instructionAtRipIndexed : List (UInt64 × X86_64Instr) → UInt64 → Option
     if rip == targetRip then some instr
     else instructionAtRipIndexed rest targetRip
 
+/-- A successful indexed lookup returns an instruction stored in the index. -/
+theorem instructionAtRipIndexed_some_mem_snd
+    {indexed : List (UInt64 × X86_64Instr)} {targetRip : UInt64} {instr : X86_64Instr}
+    (h : instructionAtRipIndexed indexed targetRip = some instr) :
+    instr ∈ indexed.map Prod.snd := by
+  induction indexed with
+  | nil => simp [instructionAtRipIndexed] at h
+  | cons head rest ih =>
+    rcases head with ⟨rip, candidate⟩
+    simp only [instructionAtRipIndexed] at h
+    split at h
+    · cases h
+      simp
+    · simp [ih h]
+
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Proves that recursive indexing loop matches the linear instruction search loop. -/
 theorem instructionAtRipIndexed_loop_eq (curRip : UInt64) (instructions : List X86_64Instr) (targetRip : UInt64) :
@@ -121,43 +136,275 @@ def runAsmTrace {Event : Type} [ExternalCallInterceptor X86_64 Event]
   runProgramTraceWithLoops s.rip instructions fuel s
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Fuel- and fault-honest native execution outcome.  The historical trace-only evaluator cannot
-    distinguish a normal stop from exhausting its recursion budget after the last emitted event;
-    verified platform admissibility uses this outcome instead. -/
+/-- The reason a fuel-bounded native execution stopped.  In particular, a target's deliberate
+    process halt is not conflated with either a CPU/memory fault or exhaustion of the proof
+    evaluator's fuel.  Whether `.halted` is an admissible process exit is a platform-profile
+    decision (Linux syscall profiles accept it; Windows profiles do not). -/
 inductive NativeRunOutcome (Event : Type) where
-  | completed (state : X86_64MachineState) (events : List Event)
+  | returned (state : X86_64MachineState) (events : List Event)
+  | halted (state : X86_64MachineState) (events : List Event)
   | faulted (state : X86_64MachineState) (events : List Event)
   | fuelExhausted (state : X86_64MachineState) (events : List Event)
 
-/-- Executes exactly the same indexed instruction/interceptor transition as `runAsmTrace`, while
-    preserving why evaluation stopped. -/
-def runProgramOutcomeWithLoops {Event : Type}
+namespace NativeRunOutcome
+
+/-- Events are projected only after the stop reason has been retained. -/
+def events : NativeRunOutcome Event → List Event
+  | .returned _ emitted | .halted _ emitted | .faulted _ emitted |
+      .fuelExhausted _ emitted => emitted
+
+/-- Profile-sensitive native admissibility.  `allowHalted` is true only for profiles whose
+    operational exit convention deliberately uses `X86_64Fault.halted`. -/
+def isAdmissible (allowHalted : Bool) : NativeRunOutcome Event → Prop
+  | .returned _ _ => True
+  | .halted _ _ => allowHalted = true
+  | .faulted _ _ | .fuelExhausted _ _ => False
+
+end NativeRunOutcome
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- One production native transition, including selected host interception and event accumulation. -/
+def nativeOutcomeTransition {Event : Type}
     [interceptor : ExternalCallInterceptor X86_64 Event]
+    (instr : X86_64Instr) (state : X86_64MachineState) (eventsRev : List Event) :
+    X86_64MachineState × List Event :=
+  let stepped := X86_64Instruction.step instr state
+  match interceptor.interceptCall stepped.rip stepped with
+  | some (hooked, event) =>
+    (hooked, event.elim eventsRev (fun emitted => emitted :: eventsRev))
+  | none => (stepped, eventsRev)
+
+/-- Recursive core of the indexed native outcome evaluator.  Keeping this as a named definition
+    makes induction over an execution certificate use the exact production transition rather than
+    a parallel proof-only interpreter. -/
+def runProgramOutcomeLoop {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (indexed : List (UInt64 × X86_64Instr)) (fuel : Nat)
+    (state : X86_64MachineState) (eventsRev : List Event) : NativeRunOutcome Event :=
+  match fuel with
+  | 0 => .fuelExhausted state eventsRev.reverse
+  | fuel + 1 =>
+    match instructionAtRipIndexed indexed state.rip with
+    | none => .returned state eventsRev.reverse
+    | some instr =>
+      let nextEventsRevAndState := nativeOutcomeTransition instr state eventsRev
+      match nextEventsRevAndState.1.fault with
+      | none => runProgramOutcomeLoop indexed fuel nextEventsRevAndState.1 nextEventsRevAndState.2
+      | some .halted => .halted nextEventsRevAndState.1 nextEventsRevAndState.2.reverse
+      | some .divideError => .faulted nextEventsRevAndState.1 nextEventsRevAndState.2.reverse
+      | some (.memFault _ _ _) => .faulted nextEventsRevAndState.1 nextEventsRevAndState.2.reverse
+
+/-- The indexed native evaluator used by platform verification.  It executes exactly the same
+    instruction/interceptor transition as `runAsmTrace`, but carries an explicit, non-silent
+    termination reason. -/
+def runProgramOutcomeWithLoops {Event : Type}
+    [ExternalCallInterceptor X86_64 Event]
     (baseRip : UInt64) (instructions : List X86_64Instr) (fuel : Nat)
     (initial : X86_64MachineState) : NativeRunOutcome Event :=
-  let indexed := indexInstructions baseRip instructions
-  let rec loop (fuel : Nat) (state : X86_64MachineState) (eventsRev : List Event) :
-      NativeRunOutcome Event :=
-    match fuel with
-    | 0 => .fuelExhausted state eventsRev.reverse
-    | fuel + 1 =>
-      match instructionAtRipIndexed indexed state.rip with
-      | none => .completed state eventsRev.reverse
-      | some instr =>
-        let stepped := X86_64Instruction.step instr state
-        match interceptor.interceptCall stepped.rip stepped with
-        | some (hooked, event) =>
-          let eventsRev' := match event with | some emitted => emitted :: eventsRev | none => eventsRev
-          if hooked.faulted then .faulted hooked eventsRev'.reverse
-          else loop fuel hooked eventsRev'
-        | none =>
-          if stepped.faulted then .faulted stepped eventsRev.reverse
-          else loop fuel stepped eventsRev
-  loop fuel initial []
+  runProgramOutcomeLoop (indexInstructions baseRip instructions) fuel initial []
 
-def NativeRunOutcome.isAdmissible : NativeRunOutcome Event → Prop
-  | .completed _ _ => True
-  | .faulted _ _ | .fuelExhausted _ _ => False
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- A native artifact's explicit termination certificate states the exact non-exhausted outcome
+    reached within a declared budget.  This is evidence consumed by `VerifiedProgram`, not a
+    trace-only check from which fuel exhaustion could be erased. -/
+structure NativeTerminationCertificate {Event : Type}
+    [ExternalCallInterceptor X86_64 Event]
+    (baseRip : UInt64) (instructions : List X86_64Instr)
+    (initial : X86_64MachineState) where
+  fuel : Nat
+  outcome : NativeRunOutcome Event
+  verifies : runProgramOutcomeWithLoops baseRip instructions fuel initial = outcome
+  terminated : match outcome with
+    | .returned _ _ | .halted _ _ => True
+    | .faulted _ _ | .fuelExhausted _ _ => False
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Replaces only the two external input queues while preserving every observational machine
+    component: RIP, registers, flags, memory, and the terminal/fault reason. -/
+def X86_64MachineState.withExternalInputs (state : X86_64MachineState)
+    (stdin : ByteArray) (requests : List ByteArray) : X86_64MachineState :=
+  { state with stdinBuffer := stdin, incomingRequests := requests }
+
+@[simp] theorem X86_64MachineState.withExternalInputs_rip
+    (state : X86_64MachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    (state.withExternalInputs stdin requests).rip = state.rip := rfl
+
+@[simp] theorem X86_64MachineState.withExternalInputs_fault
+    (state : X86_64MachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    (state.withExternalInputs stdin requests).fault = state.fault := rfl
+
+@[simp] theorem X86_64MachineState.withExternalInputs_gprs
+    (state : X86_64MachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    (state.withExternalInputs stdin requests).gprs = state.gprs := rfl
+
+@[simp] theorem X86_64MachineState.withExternalInputs_flags
+    (state : X86_64MachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    (state.withExternalInputs stdin requests).flags = state.flags := rfl
+
+@[simp] theorem X86_64MachineState.withExternalInputs_memory
+    (state : X86_64MachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    (state.withExternalInputs stdin requests).memory = state.memory := rfl
+
+@[simp] theorem X86_64MachineState.withExternalInputs_rsp
+    (state : X86_64MachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    (state.withExternalInputs stdin requests).rsp = state.rsp := rfl
+
+@[simp] theorem X86_64MachineState.withExternalInputs_read64
+    (state : X86_64MachineState) (stdin : ByteArray) (requests : List ByteArray) (address : Address) :
+    (state.withExternalInputs stdin requests).read64 address = state.read64 address := rfl
+
+@[simp] theorem X86_64MachineState.withExternalInputs_readString
+    (state : X86_64MachineState) (stdin : ByteArray) (requests : List ByteArray)
+    (address : Address) (length : Nat) :
+    (state.withExternalInputs stdin requests).readString address length =
+      state.readString address length := rfl
+
+/-- Ordinary-instruction frame law used by input-independent artifacts.  It is deliberately an
+    artifact obligation: the open existential instruction interface permits future instruction
+    semantics, so the core cannot unsoundly assert this for arbitrary instances. -/
+def InstructionPreservesExternalInputFrame (instr : X86_64Instr) : Prop :=
+  ∀ state stdin requests,
+    X86_64Instruction.step instr (state.withExternalInputs stdin requests) =
+      (X86_64Instruction.step instr state).withExternalInputs stdin requests
+
+/-- Every packaged x86-64 instruction satisfies the host-input frame law by the architectural
+    boundary enforced in `AnyX86_64Instruction`'s step instance. -/
+theorem instruction_preserves_external_input_frame (instr : X86_64Instr) :
+    InstructionPreservesExternalInputFrame instr := by
+  intro state stdin requests
+  cases instr
+  rfl
+
+/-- Selected host-interceptor frame law.  The boolean selector is checked at every reached call
+    boundary by `SelectedTerminationCertificate`; input-taking calls are therefore excluded rather
+    than hidden under a false global congruence claim. -/
+def InterceptorPreservesExternalInputFrame {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Address → X86_64MachineState → Bool) : Prop :=
+  ∀ address state stdin requests, selected address state = true →
+    interceptor.interceptCall address (state.withExternalInputs stdin requests) =
+      (interceptor.interceptCall address state).map
+        (fun result => (result.1.withExternalInputs stdin requests, result.2))
+
+/-- Applies an external-input frame to the terminal machine state without changing the explicit
+    stop reason or emitted observations. -/
+def NativeRunOutcome.withExternalInputs (stdin : ByteArray) (requests : List ByteArray) :
+    NativeRunOutcome Event → NativeRunOutcome Event
+  | .returned state emitted => .returned (state.withExternalInputs stdin requests) emitted
+  | .halted state emitted => .halted (state.withExternalInputs stdin requests) emitted
+  | .faulted state emitted => .faulted (state.withExternalInputs stdin requests) emitted
+  | .fuelExhausted state emitted => .fuelExhausted (state.withExternalInputs stdin requests) emitted
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Executable checker for the two facts a native universal proof needs from its closed reference
+    run: every reached host boundary is in the selected congruent subset, and execution reaches a
+    returned/halted terminal state before fuel is exhausted and without a CPU/memory fault. -/
+def selectedExecutionTerminates {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr)) (fuel : Nat)
+    (state : X86_64MachineState) : Bool :=
+  match fuel with
+  | 0 => false
+  | fuel + 1 =>
+    match instructionAtRipIndexed indexed state.rip with
+    | none => true
+    | some instr =>
+      let stepped := X86_64Instruction.step instr state
+      if !selected stepped.rip stepped then false
+      else
+        let next := (nativeOutcomeTransition (Event := Event) instr state []).1
+        match next.fault with
+        | none => selectedExecutionTerminates (Event := Event) selected indexed fuel next
+        | some .halted => true
+        | some .divideError | some (.memFault _ _ _) => false
+
+/-- First-class selected-call and termination certificate for a concrete native artifact. -/
+structure SelectedTerminationCertificate {Event : Type}
+    [ExternalCallInterceptor X86_64 Event]
+    (selected : Address → X86_64MachineState → Bool)
+    (baseRip : UInt64) (instructions : List X86_64Instr)
+    (initial : X86_64MachineState) where
+  fuel : Nat
+  verifies : selectedExecutionTerminates (Event := Event) selected (indexInstructions baseRip instructions)
+    fuel initial = true
+
+private theorem nativeOutcomeTransition_external_input_frame {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Address → X86_64MachineState → Bool)
+    (instr : X86_64Instr) (state : X86_64MachineState) (eventsRev : List Event)
+    (hinstr : InstructionPreservesExternalInputFrame instr)
+    (hinterceptor : InterceptorPreservesExternalInputFrame (Event := Event) selected)
+    (hselected : selected (X86_64Instruction.step instr state).rip
+      (X86_64Instruction.step instr state) = true)
+    (stdin : ByteArray) (requests : List ByteArray) :
+    nativeOutcomeTransition instr (state.withExternalInputs stdin requests) eventsRev =
+      ((nativeOutcomeTransition instr state eventsRev).1.withExternalInputs stdin requests,
+        (nativeOutcomeTransition instr state eventsRev).2) := by
+  unfold nativeOutcomeTransition
+  rw [hinstr state stdin requests]
+  simp only [X86_64MachineState.withExternalInputs_rip]
+  rw [hinterceptor _ _ stdin requests hselected]
+  cases h : interceptor.interceptCall (X86_64Instruction.step instr state).rip
+      (X86_64Instruction.step instr state) <;> simp [h]
+
+private theorem nativeOutcomeTransition_fst_independent_events {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (instr : X86_64Instr) (state : X86_64MachineState) (left right : List Event) :
+    (nativeOutcomeTransition instr state left).1 =
+      (nativeOutcomeTransition instr state right).1 := by
+  unfold nativeOutcomeTransition
+  cases h : interceptor.interceptCall (X86_64Instruction.step instr state).rip
+      (X86_64Instruction.step instr state) <;> simp [h]
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- A selected-call termination certificate transports the exact production outcome across
+    arbitrary stdin/request queues.  This is the structural congruence result missing from the
+    former closed evaluators. -/
+theorem runProgramOutcomeLoop_external_input_frame {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr))
+    (hinstructions : ∀ instr, instr ∈ indexed.map Prod.snd →
+      InstructionPreservesExternalInputFrame instr)
+    (hinterceptor : InterceptorPreservesExternalInputFrame (Event := Event) selected)
+    (fuel : Nat) (state : X86_64MachineState) (eventsRev : List Event)
+    (hcertificate : selectedExecutionTerminates (Event := Event) selected indexed fuel state = true)
+    (stdin : ByteArray) (requests : List ByteArray) :
+    runProgramOutcomeLoop indexed fuel (state.withExternalInputs stdin requests) eventsRev =
+      (runProgramOutcomeLoop indexed fuel state eventsRev).withExternalInputs stdin requests := by
+  induction fuel generalizing state eventsRev with
+  | zero => simp [selectedExecutionTerminates] at hcertificate
+  | succ fuel ih =>
+    cases hlookup : instructionAtRipIndexed indexed state.rip with
+    | none =>
+      simp [runProgramOutcomeLoop, hlookup, NativeRunOutcome.withExternalInputs]
+    | some instr =>
+      have hmem : instr ∈ indexed.map Prod.snd := instructionAtRipIndexed_some_mem_snd hlookup
+      have hinstr := hinstructions instr hmem
+      have hcert := hcertificate
+      simp only [selectedExecutionTerminates, hlookup] at hcert
+      by_cases hselected : selected (X86_64Instruction.step instr state).rip
+          (X86_64Instruction.step instr state) = true
+      · simp [hselected] at hcert
+        have htransition := nativeOutcomeTransition_external_input_frame
+          selected instr state eventsRev hinstr hinterceptor hselected stdin requests
+        have hfst := nativeOutcomeTransition_fst_independent_events
+          (Event := Event) instr state eventsRev []
+        rw [← hfst] at hcert
+        simp only [runProgramOutcomeLoop, X86_64MachineState.withExternalInputs_rip, hlookup]
+        rw [htransition]
+        cases hfault : (nativeOutcomeTransition instr state eventsRev).1.fault with
+        | none =>
+          simp [hfault] at hcert
+          simp only [X86_64MachineState.withExternalInputs_fault, hfault]
+          rw [ih _ _ hcert]
+        | some fault =>
+          cases fault with
+          | halted => simp [hfault, NativeRunOutcome.withExternalInputs]
+          | divideError => simp [hfault] at hcert
+          | memFault kind width address => simp [hfault] at hcert
+      · simp [hselected] at hcert
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Executes an x86-64 instruction sequence supporting branches and loops with fuel-based termination. -/

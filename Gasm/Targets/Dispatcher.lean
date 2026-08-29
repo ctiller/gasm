@@ -47,6 +47,35 @@ instance [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEven
     else
       win32Intercept addr s
 
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Selected input-independent boundary predicate for the unified native dispatcher. -/
+def selectedNonInputPlatformCall (address : Address) (state : X86_64MachineState) : Bool :=
+  if address == linuxSyscallEntry then selectedNonInputLinuxCall address state
+  else selectedNonInputWin32Call address state
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Congruence of the actual unified native interceptor, restricted by the selected-call predicate
+    checked in each artifact's termination certificate. -/
+theorem platformCallInterceptor_preserves_selected_external_input_frame
+    [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
+    InterceptorPreservesExternalInputFrame (Event := Event) selectedNonInputPlatformCall := by
+  intro address state stdin requests hselected
+  change (if address == linuxSyscallEntry then
+      linuxSyscallIntercept address (state.withExternalInputs stdin requests)
+    else win32Intercept address (state.withExternalInputs stdin requests)) =
+      (if address == linuxSyscallEntry then linuxSyscallIntercept address state
+       else win32Intercept address state).map
+        (fun result => (result.1.withExternalInputs stdin requests, result.2))
+  by_cases haddress : address == linuxSyscallEntry
+  · simp [selectedNonInputPlatformCall, haddress] at hselected
+    simp [haddress]
+    exact linuxCallIntercept_preserves_selected_external_input_frame (Event := Event)
+      address state stdin requests hselected
+  · simp [selectedNonInputPlatformCall, haddress] at hselected
+    simp [haddress]
+    exact win32CallIntercept_preserves_selected_external_input_frame (Event := Event)
+      address state stdin requests hselected
+
 /- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Platform call interceptor for AArch64 routing Linux syscalls. -/
 instance [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :

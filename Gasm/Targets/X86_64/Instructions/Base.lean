@@ -75,7 +75,14 @@ structure AnyX86_64Instruction where
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 instance : X86_64Instruction AnyX86_64Instruction where
   encode pkg := @X86_64Instruction.encode pkg.α pkg.inst pkg.instr
-  step pkg s := @X86_64Instruction.step pkg.α pkg.inst pkg.instr s
+  -- Architectural instructions cannot inspect or mutate host-owned stdin/request queues.  Those
+  -- fields exist solely for explicit syscall/API interceptors.  Enforce that boundary at the open
+  -- existential wrapper so a future instruction instance cannot accidentally make ordinary CPU
+  -- execution depend on host input state.
+  step pkg s :=
+    let coreInput := { s with stdinBuffer := ByteArray.empty, incomingRequests := [] }
+    let stepped := @X86_64Instruction.step pkg.α pkg.inst pkg.instr coreInput
+    { stepped with stdinBuffer := s.stdinBuffer, incomingRequests := s.incomingRequests }
   toUops pkg := @X86_64Instruction.toUops pkg.α pkg.inst pkg.instr
   toNASM pkg := @X86_64Instruction.toNASM pkg.α pkg.inst pkg.instr
   toLean pkg := @X86_64Instruction.toLean pkg.α pkg.inst pkg.instr

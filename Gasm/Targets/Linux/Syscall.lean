@@ -248,4 +248,59 @@ def linuxCallIntercept {Event : Type} [Inject ConsoleEvent Event] [Inject Proces
     (addr : Address) (s : X86_64MachineState) : Option (X86_64MachineState × Option Event) :=
   linuxSyscallIntercept addr s
 
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Ordinary addresses plus the write/exit syscall subset used by input-independent CLI
+    artifacts.  `read` and `accept` are deliberately not selected. -/
+def selectedNonInputLinuxCall (address : Address) (state : X86_64MachineState) : Bool :=
+  if address == linuxSyscallEntry then
+    state.gprs .rax == SYS_write || state.gprs .rax == SYS_exit || state.gprs .rax == SYS_exit_group
+  else true
+
+private theorem sysWriteHook_external_input_frame {Event : Type}
+    [Inject ConsoleEvent Event] [Inject NetEvent Event]
+    (state : X86_64MachineState) (stdin : ByteArray) (requests : List String) :
+    sysWriteHook (Event := Event) (state.withExternalInputs stdin requests) =
+      let result := sysWriteHook (Event := Event) state
+      (result.1.withExternalInputs stdin requests, result.2) := by
+  unfold sysWriteHook
+  simp only [X86_64MachineState.withExternalInputs_gprs,
+    X86_64MachineState.withExternalInputs_readString]
+  by_cases hout : state.gprs .rdi == 1
+  · simp [hout, X86_64MachineState.setGpr64] <;> rfl
+  · by_cases herr : state.gprs .rdi == 2
+    · simp [hout, herr, X86_64MachineState.setGpr64] <;> rfl
+    · by_cases hsocket : state.gprs .rdi >= 100
+      · simp [hout, herr, hsocket, X86_64MachineState.setGpr64] <;> rfl
+      · simp [hout, herr, hsocket, X86_64MachineState.setGpr64] <;> rfl
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- The production Linux interceptor preserves the external-input observational frame for exactly
+    the selected write/exit subset. -/
+theorem linuxCallIntercept_preserves_selected_external_input_frame {Event : Type}
+    [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
+    ∀ address state stdin requests, selectedNonInputLinuxCall address state = true →
+      linuxCallIntercept (Event := Event) address (state.withExternalInputs stdin requests) =
+        (linuxCallIntercept (Event := Event) address state).map
+          (fun result => (result.1.withExternalInputs stdin requests, result.2)) := by
+  intro address state stdin requests hselected
+  change linuxSyscallIntercept address (state.withExternalInputs stdin requests) =
+    (linuxSyscallIntercept address state).map
+      (fun result => (result.1.withExternalInputs stdin requests, result.2))
+  by_cases haddress : address = linuxSyscallEntry
+  · subst address
+    by_cases hwrite : state.gprs .rax = SYS_write
+    · have hentry : (linuxSyscallEntry == linuxSyscallEntry) = true := by decide
+      simp [linuxSyscallIntercept, hentry, hwrite, SYS_write,
+        sysWriteHook_external_input_frame]
+    · by_cases hexit : state.gprs .rax = SYS_exit
+      · simp [linuxSyscallIntercept, hexit, SYS_exit, sysExitHook,
+        X86_64MachineState.setGpr64] <;> rfl
+      · have hexitGroup : state.gprs .rax = SYS_exit_group := by
+          simpa [selectedNonInputLinuxCall, hwrite, hexit] using hselected
+        simp [linuxSyscallIntercept, hexitGroup, SYS_exit_group, sysExitHook,
+        X86_64MachineState.setGpr64] <;> rfl
+  · have hbeq : (address == linuxSyscallEntry) = false := by
+      simp [haddress]
+    simp [linuxSyscallIntercept, hbeq]
+
 end Gasm.Targets.Linux
