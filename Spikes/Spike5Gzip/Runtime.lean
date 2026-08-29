@@ -145,6 +145,17 @@ def windowsStreamProviders (direction : CodecDirection) :
     { protocol := nativeProviderProtocol direction index
       imported, importIndex := index, iatIndex := index }
 
+def windowsArtifactCallTarget (artifact : WindowsX86_64Artifact) (index : Nat) : Address :=
+  let executable := artifact.executable
+  let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+  (executable.iatFunctionSlots layout.idataRva)[index]?.getD 0
+
+def windowsProviderCallTarget (artifact : WindowsX86_64Artifact)
+    (provider : WindowsX86_64Provider) : Option Address :=
+  let executable := artifact.executable
+  let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+  (executable.iatFunctionSlots layout.idataRva)[provider.importIndex]?
+
 def linuxCallDisplacements : List Int32 := [0x10000, 0x20000, 0x30000, 0x40000]
 
 def linuxStreamInstructions : List X86_64Instr :=
@@ -263,7 +274,8 @@ def streamingNativeInterceptorWith
         some (state, some (Inject.inject (ProcessEvent.exit 3)))
     | _ => none
 
-def windowsStreamingInterceptor (context : StreamingInvocationContext) :
+def windowsStreamingInterceptor (_artifact : WindowsX86_64Artifact)
+    (context : StreamingInvocationContext) :
     ExternalCallInterceptor X86_64 AnyEvent :=
   streamingNativeInterceptorWith (fun address state =>
     match Gasm.Targets.Windows.findIatIndex state address with
@@ -279,50 +291,60 @@ def windowsStreamingCapability (direction : CodecDirection) :
     Capability (WindowsX86_64 AnyEvent) where
   Context := StreamingInvocationContext
   providers := windowsStreamProviders direction
-  establishes := fun _ environment state context =>
-    context = StreamingInvocationContext.mk direction environment.stdin
-      spike5AllocationScope state.rip
+  establishes := fun artifact environment state context =>
+    artifact = windowsStreamArtifact direction ∧
+      context = StreamingInvocationContext.mk direction environment.stdin
+        spike5AllocationScope state.rip
 
 def windowsStreamingCapabilities (direction : CodecDirection) :
     CapabilityComposition (WindowsX86_64 AnyEvent) where
   root := windowsStreamingCapability direction
   realize := windowsStreamingInterceptor
   realizeSupports := by
-    intro context provider hprovider state address hindex
+    intro context artifact provider hprovider hlinked
     change StreamingInvocationContext at context
+    change (match windowsProviderCallTarget artifact provider with
+      | some address => ∀ state, _
+      | none => False)
+    rcases hlinked with ⟨himport, hphysical⟩
     cases direction <;>
       simp [windowsStreamingCapability, windowsStreamProviders, streamWindowsImports,
         streamImportNames, nativeProviderProtocol] at hprovider
     all_goals
-      rcases hprovider with rfl | rfl | rfl | rfl <;>
-        unfold windowsStreamingInterceptor streamingNativeInterceptorWith <;>
-        simp [hindex] <;> try split <;> simp
+      rcases hprovider with rfl | rfl | rfl | rfl
     all_goals
-      by_cases hphase : state.gprs .r15 = 2
-      · simp [hphase]
-        cases hcontinue : (streamResultEvent context).snd <;> simp [hcontinue]
-      · simp [hphase]
+      simp only [windowsProviderCallTarget]
+      split
+      · intro state hindex
+        unfold windowsStreamingInterceptor streamingNativeInterceptorWith
+        by_cases hphaseOne : state.gprs .r15 = 1 <;>
+          by_cases hphaseTwo : state.gprs .r15 = 2 <;>
+          by_cases hphaseThree : state.gprs .r15 = 3 <;>
+          by_cases hcontinue : (streamResultEvent context).snd <;>
+          simp [hindex, hphaseOne, hphaseTwo, hphaseThree, hcontinue]
+      · simp_all [windowsProviderCallTarget]
 
 def linuxStreamingCapability (direction : CodecDirection) :
     Capability (LinuxX86_64 AnyEvent) where
   Context := StreamingInvocationContext
   providers := linuxStreamProviders direction
-  establishes := fun _ environment state context =>
-    context = StreamingInvocationContext.mk direction environment.stdin
-      spike5AllocationScope state.rip
+  establishes := fun artifact environment state context =>
+    artifact = linuxStreamArtifact direction ∧
+      context = StreamingInvocationContext.mk direction environment.stdin
+        spike5AllocationScope state.rip
 
 def linuxStreamingCapabilities (direction : CodecDirection) :
     CapabilityComposition (LinuxX86_64 AnyEvent) where
   root := linuxStreamingCapability direction
-  realize := linuxStreamingInterceptor
+  realize := fun _ => linuxStreamingInterceptor
   realizeSupports := by
-    intro context provider hprovider state
+    intro context artifact provider hprovider hlinked
     change StreamingInvocationContext at context
     cases direction <;>
       simp [linuxStreamingCapability, linuxStreamProviders, linuxStreamRequirements,
         streamImportNames, nativeProviderProtocol] at hprovider
     all_goals
-      rcases hprovider with rfl | rfl | rfl | rfl <;>
+      rcases hprovider with rfl | rfl | rfl | rfl <;> intro state <;>
         unfold linuxStreamingInterceptor streamingNativeInterceptorWith <;>
         simp [linux_find_call_zero, linux_find_call_one, linux_find_call_two,
           linux_find_call_three] <;> try split <;> simp
@@ -424,15 +446,16 @@ def wasiStreamingCapability (direction : CodecDirection) :
     { protocol := .library (nativeProviderProtocol direction index)
       imports := streamImportNames direction
       importIndex := index }
-  establishes := fun _ environment _ context =>
-    context = WasiStreamingContext.mk direction environment.stdin spike5AllocationScope
+  establishes := fun artifact environment _ context =>
+    artifact = wasiStreamArtifact direction ∧
+      context = WasiStreamingContext.mk direction environment.stdin spike5AllocationScope
 
 def wasiStreamingCapabilities (direction : CodecDirection) :
     CapabilityComposition WasiPlatform where
   root := wasiStreamingCapability direction
-  realize := wasiStreamingHost
+  realize := fun _ => wasiStreamingHost
   realizeSupports := by
-    intro context provider hprovider
+    intro context artifact provider hprovider hlinked
     change WasiStreamingContext at context
     cases direction <;>
       simp [wasiStreamingCapability, streamImportNames, nativeProviderProtocol] at hprovider
@@ -613,7 +636,7 @@ def wasiStreamingVerifiedProgram (direction : CodecDirection) :
     all_goals
       rcases hprovider with rfl | rfl | rfl | rfl <;> rfl
   entryContext := wasiStreamingEntryContext direction
-  entryEstablished := by intro environment; rfl
+  entryEstablished := by intro environment; exact ⟨rfl, rfl⟩
   platformAdmissible := by
     intro environment
     exact wasi_stream_artifact_emits direction
