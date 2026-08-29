@@ -18,7 +18,7 @@ import Lean
 
 namespace Gasm.Core
 
-/- REF: docs/ABI_CONTEXT.md#1-requirements-and-placements -/
+/- REF: docs/ABI_CONTEXT.md#4-concrete-placements -/
 /-- Concrete placements available to a boundary-local context requirement. -/
 inductive AbiContextPlacement where
   | erasedGhost
@@ -28,14 +28,14 @@ inductive AbiContextPlacement where
   | capabilityTableSlot (index : Nat)
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#1-requirements-and-placements -/
+/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
 /-- Lifetime of a context binding. -/
 inductive AbiContextLifecycle where
   | perCall
   | requestScoped
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#1-requirements-and-placements -/
+/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
 /-- A typed boundary-local resource demand.  `resourceKey` is the link-time identity used to
     compare independently compiled requirements; the Lean parameter keeps the binding itself
     statically typed. -/
@@ -45,7 +45,7 @@ structure AbiContextRequirement (Resource : Type) where
   lifecycle : AbiContextLifecycle
   deriving Repr
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
 /-- Origin evidence for a concrete context binding. -/
 structure AbiContextProvenance where
   establishedBy : String
@@ -53,7 +53,7 @@ structure AbiContextProvenance where
   resourceKey : String
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
 /-- A typed binding.  Ghost bindings are erased protocol witnesses; every other constructor is a
     concrete runtime binding at the declared placement. -/
 inductive AbiContextBinding (Resource : Type) where
@@ -63,7 +63,7 @@ inductive AbiContextBinding (Resource : Type) where
   | dedicatedRegister (name : String) (value : Resource) (provenance : AbiContextProvenance) : AbiContextBinding Resource
   | capabilityTableSlot (index : Nat) (value : Resource) (provenance : AbiContextProvenance) : AbiContextBinding Resource
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
 /-- A binding satisfies a requirement exactly when its placement and lifecycle-visible provenance
     are established at the call boundary.  Ghost requirements have no runtime setup path. -/
 def AbiContextBinding.Satisfies (requirement : AbiContextRequirement Resource) :
@@ -78,19 +78,19 @@ def AbiContextBinding.Satisfies (requirement : AbiContextRequirement Resource) :
   | .capabilityTableSlot index _ provenance =>
       requirement.placement = .capabilityTableSlot index ∧ provenance.resourceKey = requirement.resourceKey
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
 /-- Callability evidence for a boundary using a typed context capability. -/
 structure AbiContextCallable (requirement : AbiContextRequirement Resource)
     (binding : AbiContextBinding Resource) : Prop where
   satisfied : binding.Satisfies requirement
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#3-ghost-and-concrete-context -/
 /-- Erased ghost requirements impose no concrete calling convention setup. -/
 theorem AbiContextCallable.ghost_erases (requirement : AbiContextRequirement Resource) (value : Resource)
     (h : requirement.placement = .erasedGhost) :
     AbiContextCallable requirement (.ghost value) := ⟨h⟩
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
 /-- Untyped link-time descriptor used only to detect physical-placement conflicts across different
     resource types. -/
 structure AbiContextDescriptor where
@@ -99,11 +99,11 @@ structure AbiContextDescriptor where
   lifecycle : AbiContextLifecycle
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
 def AbiContextRequirement.descriptor (requirement : AbiContextRequirement Resource) : AbiContextDescriptor :=
   { resourceKey := requirement.resourceKey, placement := requirement.placement, lifecycle := requirement.lifecycle }
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
 /-- Whether two requirements use the same concrete physical placement.  Ghost requirements never
     conflict because they carry no runtime representation. -/
 def AbiContextDescriptor.overlaps (left right : AbiContextDescriptor) : Bool :=
@@ -116,18 +116,18 @@ def AbiContextDescriptor.overlaps (left right : AbiContextDescriptor) : Bool :=
   | .capabilityTableSlot a, .capabilityTableSlot b => a == b
   | _, _ => false
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
 /-- A concrete overlap is compatible only when resource identity and lifecycle agree. -/
 def AbiContextDescriptor.compatible (left right : AbiContextDescriptor) : Bool :=
   !left.overlaps right || (left.resourceKey == right.resourceKey && left.lifecycle == right.lifecycle)
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
 structure AbiContextConflict where
   left : AbiContextDescriptor
   right : AbiContextDescriptor
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#2-binding-provenance-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
 /-- Detects a composition conflict.  An adapter must resolve any returned conflict; composition
     cannot silently choose one resource for a shared slot/register. -/
 def AbiContextDescriptor.firstConflict (left : List AbiContextDescriptor)
@@ -135,49 +135,49 @@ def AbiContextDescriptor.firstConflict (left : List AbiContextDescriptor)
   left.findSome? fun l => right.findSome? fun r =>
     if l.compatible r then none else some { left := l, right := r }
 
-/- REF: docs/ABI_CONTEXT.md#3-scoped-tls-and-recovery -/
+/- REF: docs/ABI_CONTEXT.md#6-dynamic-scopes-and-tls -/
 /-- Typed TLS state for one resource family.  Different resource families are composed through
     their descriptors at the ABI boundary, not stored in an untyped global map. -/
 abbrev AbiTls (Resource : Type) := Nat → Option Resource
 
-/- REF: docs/ABI_CONTEXT.md#3-scoped-tls-and-recovery -/
+/- REF: docs/ABI_CONTEXT.md#6-dynamic-scopes-and-tls -/
 structure AbiTlsScope (Resource : Type) where
   slot : Nat
   prior : Option Resource
   active : AbiTls Resource
 
-/- REF: docs/ABI_CONTEXT.md#3-scoped-tls-and-recovery -/
+/- REF: docs/ABI_CONTEXT.md#6-dynamic-scopes-and-tls -/
 /-- Enters a TLS-bound context, saving the immediately prior binding for nesting. -/
 def AbiTlsScope.enter (tls : AbiTls Resource) (slot : Nat) (value : Resource) : AbiTlsScope Resource :=
   { slot := slot, prior := tls slot, active := fun index => if index = slot then some value else tls index }
 
-/- REF: docs/ABI_CONTEXT.md#3-scoped-tls-and-recovery -/
+/- REF: docs/ABI_CONTEXT.md#6-dynamic-scopes-and-tls -/
 /-- Restores the saved TLS binding.  The same operation is used for success, failure, and
     cancellation exits. -/
 def AbiTlsScope.restore (scope : AbiTlsScope Resource) (tls : AbiTls Resource) : AbiTls Resource :=
   fun index => if index = scope.slot then scope.prior else tls index
 
-/- REF: docs/ABI_CONTEXT.md#3-scoped-tls-and-recovery -/
+/- REF: docs/ABI_CONTEXT.md#6-dynamic-scopes-and-tls -/
 theorem AbiTlsScope.restore_slot (scope : AbiTlsScope Resource) (tls : AbiTls Resource) :
     scope.restore tls scope.slot = scope.prior := by simp [AbiTlsScope.restore]
 
-/- REF: docs/ABI_CONTEXT.md#4-cancellation -/
+/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
 /-- Caller-owned monotonic cancellation state. -/
 inductive CancellationToken where
   | active
   | cancelled
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#4-cancellation -/
+/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
 def CancellationToken.cancel : CancellationToken → CancellationToken
   | .active => .cancelled
   | .cancelled => .cancelled
 
-/- REF: docs/ABI_CONTEXT.md#4-cancellation -/
+/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
 theorem CancellationToken.cannotClearParent (token : CancellationToken) :
     token.cancel = .cancelled := by cases token <;> rfl
 
-/- REF: docs/ABI_CONTEXT.md#4-cancellation -/
+/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
 /-- Explicit cooperative-call result.  A callee can return cancellation only at its declared
     safe point; non-cancellable functions simply do not carry this context requirement. -/
 inductive CooperativeOutcome (Result : Type) where
@@ -185,27 +185,27 @@ inductive CooperativeOutcome (Result : Type) where
   | cancelled
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#4-cancellation -/
+/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
 /-- Checks a declared cancellation safe point without changing the caller-owned token. -/
 def cancellationSafePoint (token : CancellationToken) (value : Result) : CooperativeOutcome Result :=
   match token with
   | .active => .completed value
   | .cancelled => .cancelled
 
-/- REF: docs/ABI_CONTEXT.md#4-cancellation -/
+/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
 theorem cancellationSafePoint_preserves_token (token : CancellationToken) (value : Result) :
     (match cancellationSafePoint token value with
       | .completed _ => token
       | .cancelled => token) = token := by cases token <;> rfl
 
-/- REF: docs/ABI_CONTEXT.md#4-cancellation -/
+/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
 /-- Leaves a TLS-scoped cooperative boundary.  Cleanup is unconditional: cancellation changes the
     returned request outcome, never the restoration obligation. -/
 def finishCooperativeScope (scope : AbiTlsScope Resource) (tls : AbiTls Resource)
     (token : CancellationToken) (value : Result) : CooperativeOutcome Result × AbiTls Resource :=
   (cancellationSafePoint token value, scope.restore tls)
 
-/- REF: docs/ABI_CONTEXT.md#4-cancellation -/
+/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
 theorem finishCooperativeScope_restores_tls (scope : AbiTlsScope Resource) (tls : AbiTls Resource)
     (token : CancellationToken) (value : Result) :
     (finishCooperativeScope scope tls token value).2 scope.slot = scope.prior := by

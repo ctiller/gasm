@@ -16,6 +16,11 @@ The Microsoft x64 calling convention is strictly defined and differs significant
   *(Note: Unlike System V AMD64 where `RSI` and `RDI` are scratch, on Windows x64 `RSI` and `RDI` MUST be preserved by the callee).*
 - **Caller-Saved Scratch**: `RAX`, `RCX`, `RDX`, `R8`–`R11`, `XMM0`–`XMM5`.
 
+The Microsoft x64 convention below specifies machine call layout. Allocator, request, cancellation,
+Winsock, Vulkan, and other library context requirements use
+[Composable Boundary ABI Contexts](../ABI_CONTEXT.md); a Windows realization must separately prove
+their explicit-argument, reserved-register, or TLS placement.
+
 ### 1.2 Mandatory 32-Byte Shadow Space & 16-Byte Stack Alignment
 
 The Microsoft x64 ABI requires:

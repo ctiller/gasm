@@ -153,6 +153,12 @@ This model is completely independent of operating system, CPU architecture, or b
 
 To translate a high-level effectful program into verified `gasm` assembly:
 
+The seam's effect capability requirements compose through the canonical typed row in
+[Composable Boundary ABI Contexts](ABI_CONTEXT.md). The diagrams below show semantic operations
+and machine calling conventions; they do not imply a global allocator, cancellation token, or
+OS-owned context. Each concrete binding must be established at the boundary using a proved target
+placement.
+
 ```
 +---------------------------------------------------------------------------------------------------+
 | Stage 1 & 2: Pure Domain Model: greetAndExit [MonadConsole m] [MonadProcess m]                   |

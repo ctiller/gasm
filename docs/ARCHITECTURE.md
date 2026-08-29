@@ -19,7 +19,7 @@ gasm/
 │   ├── X86_64/                  # Self-contained x86-64 vertical slice
 │   │   ├── Machine.lean         # Machine state & step semantics
 │   │   ├── DSL.lean             # Proof-carrying assembly builder
-│   │   ├── ABI.lean             # SysV & Windows x64 caller/callee disciplines
+│   │   ├── ABI.lean             # Calling convention and context-placement realization
 │   │   └── Emit.lean            # Bytecode, ELF, PE serializers
 │   │
 │   ├── X86_32/                  # Self-contained x86-32 vertical slice
@@ -57,5 +57,6 @@ graph LR
 2. **Hand-Written Assembly Routine**: Authored in the target's DSL, requiring explicit proof witnesses for all memory permissions, ABI obligations, and API transitions.
 3. **Split Proofs for Independent Consumers**:
    - **Equivalence Theorem**: Proves functional correctness against the spec.
-   - **Callability Theorem**: Proves ABI preservation (stack pointer, callee-saved registers) for callers.
+   - **Callability Theorem**: Proves machine-ABI preservation and satisfaction of the callee's
+     composable boundary-context requirements. See [Composable Boundary ABI Contexts](ABI_CONTEXT.md).
 4. **Binary Emission**: Pure deterministic serialization from verified AST to machine bytes with zero runtime overhead.

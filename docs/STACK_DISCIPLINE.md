@@ -43,6 +43,11 @@ Every instruction in `BlockM` that manipulates the stack pointer must satisfy ex
 
 Different operating systems and architectures mandate distinct calling conventions. Rather than hardcoding one global convention into the architecture, `gasm` models calling conventions as **ABI Disciplines** parameterized over `Arch` and `ABI`:
 
+This document uses *ABI* narrowly for the machine calling convention: registers, stack layout,
+preservation, and return. Logical allocator, request, cancellation, or library capabilities are
+defined by [Composable Boundary ABI Contexts](ABI_CONTEXT.md). A call must satisfy both layers;
+neither an OS nor this stack discipline implicitly supplies the contextual layer.
+
 ```lean
 class AbiDiscipline (Arch : Type) (ABI : Type) where
   callerSavedRegs     : List (Register Arch (TargetArch.wordWidth Arch))

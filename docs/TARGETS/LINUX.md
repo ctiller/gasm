@@ -6,6 +6,10 @@ This document defines the calling conventions, system call ABIs, kernel interfac
 
 ## 1. ABIs & Calling Conventions
 
+This section specifies machine and kernel calling conventions. Allocator, request, cancellation,
+and library contexts use [Composable Boundary ABI Contexts](../ABI_CONTEXT.md); a Linux realization
+must separately prove their explicit-argument, reserved-register, or TLS placement.
+
 ### 1.1 System V AMD64 Function Calling Convention
 For standard subroutine execution, `gasm` models the System V AMD64 ABI discipline (`AbiDiscipline X86_64 SystemVAMD64`):
 - **Argument Registers (1 to 6)**: `RDI, RSI, RDX, RCX, R8, R9`

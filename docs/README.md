@@ -121,6 +121,7 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**API State Models**](API_STATE_MODELS.md): Formal protocol modeling, capability tokens, and the universal `Callable` typeclass.
 - [**Linear Obligations & Causality**](OBLIGATIONS_AND_CAUSALITY.md): Obligation ledgers, cleanup invariants, and `assertHappensBefore`/`After`.
 - [**Stack Discipline & Jump Typing**](STACK_DISCIPLINE.md): Stack-indexed basic blocks and local jump obligations automating stack preservation.
+- [**Composable Boundary ABI Contexts**](ABI_CONTEXT.md): Per-boundary ghost and runtime capabilities, placement, composition, scoped allocation accounting, cancellation, and zero-overhead erasure.
 - [**Proof-Carrying Assembly DSL**](PROOF_CARRYING_ASSEMBLY.md): Discrete memory permissions, architecture-defined memory disciplines, and decoder soundness.
 - [**Equivalence Proofs**](EQUIVALENCE_PROOFS.md): Split Theorem Principle (`Functional Equivalence`, `Callability & ABI`, `Memory Safety`) and layered function proof composition.
 - [**Target Specifications**](TARGETS/TARGET_MODEL.md): Target models, calling conventions, and platform specifics.
