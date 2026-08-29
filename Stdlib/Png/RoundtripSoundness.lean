@@ -1585,4 +1585,34 @@ theorem unpack_rgba (img : ImageRGBA8)
     rw [byteArray_forIn_push_except]
 
 
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- **L10/L11 PNG roundtrip soundness**: decoding an encoded RGBA8 image recovers the
+    image exactly, for any per-row filter choice (explicit or adaptive), provided the
+    pixel buffer has the exact `width * height * 4` size, the dimensions are nonzero
+    and fit the 4-byte IHDR fields, and the compressed IDAT payload fits its 4-byte
+    chunk-length field. -/
+theorem png_roundtrip_soundness (img : ImageRGBA8) (ftOpt : Option FilterType)
+    (hpix : img.pixels.size = img.width * img.height * 4)
+    (hw : 0 < img.width) (hh : 0 < img.height)
+    (hw32 : img.width < 2 ^ 32) (hh32 : img.height < 2 ^ 32)
+    (hzc32 : (zlibCompress (rawStreamOf img ftOpt img.height)).size < 2 ^ 32) :
+    decodeImageRGBA8 (encodeImageRGBA8 img ftOpt) = .ok img := by
+  rw [encodeImageRGBA8_eq]
+  show decodeImageRGBA8
+    (pngLayout (rgbaHeader img) (zlibCompress (rawStreamOf img ftOpt img.height))) = _
+  unfold decodeImageRGBA8
+  simp only [Bind.bind, Except.bind, pure, Except.pure]
+  rw [readPngStream_layout img ftOpt hpix hw hh hw32 hh32 hzc32]
+  dsimp only
+  rw [show (sinkAt img img.height).header = some (rgbaHeader img) from rfl]
+  dsimp only
+  rw [show (sinkAt img img.height).pixels = pixelsUpTo img img.height from rfl,
+    show (sinkAt img img.height).palette = #[] from rfl,
+    show (sinkAt img img.height).transparency = none from rfl,
+    pixelsUpTo_full img hpix]
+  rw [unpack_rgba img hpix]
+  rfl
+
 end Stdlib.Png
