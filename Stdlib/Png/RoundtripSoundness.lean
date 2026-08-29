@@ -1085,4 +1085,330 @@ theorem parsePngChunks_layout (hdr : PngHeader) (zc : ByteArray)
   rw [if_neg (show ¬ (decide (57 + zc.size < (pngLayout hdr zc).size) && !true) = true from by
     simp)]
 
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- `get!` inside an `extract` with in-range bounds. -/
+theorem byteArray_extract_size (a : ByteArray) (s e : Nat) (he : e ≤ a.size) :
+    (a.extract s e).size = e - s := by
+  rw [ByteArray.size_extract, Nat.min_eq_left he]
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- `get!` inside an `extract` with in-range bounds. -/
+theorem byteArray_get!_extract (a : ByteArray) (s e i : Nat) (hi : i < e - s)
+    (he : e ≤ a.size) :
+    (a.extract s e).get! i = a.get! (s + i) := by
+  have hsz : (a.extract s e).size = e - s := byteArray_extract_size a s e he
+  have hi' : i < (a.extract s e).size := by rw [hsz]; omega
+  have hsi : s + i < a.size := by omega
+  rw [_root_.ByteArray.get!_eq_getElem _ i hi', _root_.ByteArray.get!_eq_getElem _ _ hsi,
+    ByteArray.getElem_extract]
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- Adjacent extracts concatenate. -/
+theorem byteArray_extract_append (a : ByteArray) (i j k : Nat)
+    (hij : i ≤ j) (hjk : j ≤ k) (hk : k ≤ a.size) :
+    a.extract i j ++ a.extract j k = a.extract i k := by
+  refine _root_.ByteArray.ext_get! ?_ ?_
+  · rw [ByteArray.size_append, byteArray_extract_size a i j (by omega),
+      byteArray_extract_size a j k hk, byteArray_extract_size a i k hk]
+    omega
+  · intro x hx
+    have hx' : x < k - i := by
+      rw [ByteArray.size_append, byteArray_extract_size a i j (by omega),
+        byteArray_extract_size a j k hk] at hx
+      omega
+    rw [byteArray_get!_extract a i k x (by omega) hk]
+    rcases Nat.lt_or_ge x (j - i) with h1 | h1
+    · rw [ByteArray.get!_append_left _ _ x
+        (by rw [byteArray_extract_size a i j (by omega)]; omega),
+        byteArray_get!_extract a i j x h1 (by omega)]
+    · rw [ByteArray.get!_append_right _ _ x
+        (by rw [byteArray_extract_size a i j (by omega)]; omega)
+        (by rw [byteArray_extract_size a i j (by omega),
+          byteArray_extract_size a j k hk]; omega)]
+      rw [byteArray_extract_size a i j (by omega)]
+      rw [byteArray_get!_extract a j k (x - (j - i)) (by omega) hk]
+      rw [show j + (x - (j - i)) = i + x from by omega]
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- Extracting the whole array is the identity. -/
+theorem byteArray_extract_all (a : ByteArray) : a.extract 0 a.size = a := by
+  refine _root_.ByteArray.ext_get! ?_ ?_
+  · rw [byteArray_extract_size a 0 a.size (Nat.le_refl _)]
+    omega
+  · intro i hi
+    have hi' : i < a.size := by
+      rw [byteArray_extract_size a 0 a.size (Nat.le_refl _)] at hi; omega
+    rw [byteArray_get!_extract a 0 a.size i (by omega) (Nat.le_refl _), Nat.zero_add]
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- The empty extract. -/
+theorem byteArray_extract_zero (a : ByteArray) : a.extract 0 0 = ByteArray.empty := by
+  refine _root_.ByteArray.ext_get! ?_ ?_
+  · rw [byteArray_extract_size a 0 0 (Nat.zero_le _),
+      show ByteArray.empty.size = 0 from rfl]
+  · intro i hi
+    rw [byteArray_extract_size a 0 0 (Nat.zero_le _)] at hi
+    exact absurd hi (by omega)
+
+/- REF: docs/STDLIB_PNG.md#21-pngscanlinesink-typeclass -/
+/-- The in-memory sink's header callback, reduced. -/
+theorem memSink_onHeader (h : PngHeader) (sk : MemoryImageSink) :
+    PngScanlineSink.onHeader (m := Except PngError) h sk =
+      Except.ok (Except.ok { sk with header := some h }) := rfl
+
+/- REF: docs/STDLIB_PNG.md#21-pngscanlinesink-typeclass -/
+/-- The in-memory sink's scanline callback, reduced. -/
+theorem memSink_onScanline (i : Nat) (row : ByteArray) (sk : MemoryImageSink) :
+    PngScanlineSink.onScanline (m := Except PngError) i row sk =
+      Except.ok (Except.ok { sk with pixels := sk.pixels ++ row }) := rfl
+
+/- REF: docs/STDLIB_PNG.md#21-pngscanlinesink-typeclass -/
+/-- The in-memory sink's end callback, reduced. -/
+theorem memSink_onEnd (sk : MemoryImageSink) :
+    PngScanlineSink.onEnd (m := Except PngError) sk = Except.ok (Except.ok sk) := rfl
+
+/- REF: docs/STDLIB_PNG.md#41-the-five-standard-filter-types -/
+/-- The filter byte written by `writeScanline` decodes back to its filter type. -/
+theorem filterType_byte_roundtrip (ft : FilterType) :
+    FilterType.fromNat? ((ft.toNat.toUInt8).toNat) = some ft := by
+  cases ft <;> rfl
+
+/- REF: docs/STDLIB_PNG.md#32-color-types-bit-depth-matrix -/
+/-- Bytes per pixel of the standard RGBA8 header. -/
+theorem bytesPerPixel_rgba (img : ImageRGBA8) : bytesPerPixel (rgbaHeader img) = 4 := by
+  simp [bytesPerPixel, rgbaHeader, PngColorType.channels]
+
+/- REF: docs/STDLIB_PNG.md#32-color-types-bit-depth-matrix -/
+/-- Scanline byte length of the standard RGBA8 header. -/
+theorem scanlineByteLength_rgba (img : ImageRGBA8) :
+    scanlineByteLength (rgbaHeader img) = img.width * 4 := by
+  simp only [scanlineByteLength, rgbaHeader, PngColorType.channels]
+  omega
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- A `forIn` over `Except` whose body always yields is a `foldl`. -/
+theorem forIn_yield_eq_foldl_except {ε α σ : Type} (B : α → σ → Except ε (ForInStep σ))
+    (g : σ → α → σ) (hB : ∀ a s, B a s = Except.ok (ForInStep.yield (g s a))) :
+    ∀ (l : List α) (s : σ), forIn (m := Except ε) l s B = Except.ok (l.foldl g s) := by
+  have idb : ∀ {α' β' : Type} (x : α') (f : α' → Except ε β'),
+      (Except.ok x >>= f) = f x := fun _ _ => rfl
+  intro l
+  induction l with
+  | nil => intro s; rfl
+  | cons a l ih =>
+    intro s
+    rw [List.forIn_cons, hB, idb]
+    exact ih (g s a)
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- The pixel prefix accumulated by the sink after `y` reconstructed scanlines. -/
+def pixelsUpTo (img : ImageRGBA8) : Nat → ByteArray
+  | 0 => ByteArray.empty
+  | y + 1 => pixelsUpTo img y ++ rowSliceOf img y
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- Row-count times stride is bounded by the pixel buffer size. -/
+theorem row_mul_bound (img : ImageRGBA8)
+    (hpix : img.pixels.size = img.width * img.height * 4) (n : Nat) (hn : n ≤ img.height) :
+    n * (img.width * 4) ≤ img.pixels.size := by
+  have h1 : n * (img.width * 4) ≤ img.height * (img.width * 4) :=
+    Nat.mul_le_mul hn (Nat.le_refl _)
+  have h2 : img.height * (img.width * 4) = img.width * img.height * 4 := by
+    rw [← Nat.mul_assoc, Nat.mul_comm img.height img.width]
+  omega
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- Each row slice of an exact-size RGBA8 buffer has the full stride. -/
+theorem rowSliceOf_size (img : ImageRGBA8)
+    (hpix : img.pixels.size = img.width * img.height * 4) (y : Nat) (hy : y < img.height) :
+    (rowSliceOf img y).size = img.width * 4 := by
+  unfold rowSliceOf
+  rw [byteArray_extract_size _ _ _ (row_mul_bound img hpix (y + 1) (by omega)),
+    Nat.succ_mul]
+  omega
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- The accumulated pixel prefix is an initial extract of the pixel buffer. -/
+theorem pixelsUpTo_eq (img : ImageRGBA8)
+    (hpix : img.pixels.size = img.width * img.height * 4) :
+    ∀ n, n ≤ img.height → pixelsUpTo img n = img.pixels.extract 0 (n * (img.width * 4)) := by
+  intro n
+  induction n with
+  | zero =>
+    intro _
+    rw [Nat.zero_mul, byteArray_extract_zero]
+    rfl
+  | succ n ih =>
+    intro hle
+    show pixelsUpTo img n ++ rowSliceOf img n = _
+    rw [ih (by omega)]
+    unfold rowSliceOf
+    exact byteArray_extract_append img.pixels 0 (n * (img.width * 4))
+      ((n + 1) * (img.width * 4)) (Nat.zero_le _)
+      (by rw [Nat.succ_mul]; omega)
+      (row_mul_bound img hpix (n + 1) (by omega))
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- After all rows the sink holds exactly the image's pixel buffer. -/
+theorem pixelsUpTo_full (img : ImageRGBA8)
+    (hpix : img.pixels.size = img.width * img.height * 4) :
+    pixelsUpTo img img.height = img.pixels := by
+  rw [pixelsUpTo_eq img hpix img.height (Nat.le_refl _)]
+  have h2 : img.height * (img.width * 4) = img.pixels.size := by
+    rw [hpix, ← Nat.mul_assoc, Nat.mul_comm img.height img.width]
+  rw [h2, byteArray_extract_all]
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- Each encoded row occupies exactly one stride (filter byte plus filtered bytes). -/
+theorem encRowOf_size (img : ImageRGBA8) (ftOpt : Option FilterType)
+    (hpix : img.pixels.size = img.width * img.height * 4) (y : Nat) (hy : y < img.height) :
+    (encRowOf img ftOpt y).size = img.width * 4 + 1 := by
+  unfold encRowOf
+  rw [ByteArray.size_append, filterScanline_size,
+    show (ByteArray.empty.push (chosenFtOf img ftOpt y).toNat.toUInt8).size = 1 from rfl,
+    rowSliceOf_size img hpix y hy]
+  omega
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- The raw stream after `n` rows has `n` strides. -/
+theorem rawStreamOf_size (img : ImageRGBA8) (ftOpt : Option FilterType)
+    (hpix : img.pixels.size = img.width * img.height * 4) :
+    ∀ n, n ≤ img.height → (rawStreamOf img ftOpt n).size = n * (img.width * 4 + 1) := by
+  intro n
+  induction n with
+  | zero => intro _; rw [Nat.zero_mul]; rfl
+  | succ n ih =>
+    intro hle
+    show (rawStreamOf img ftOpt n ++ encRowOf img ftOpt n).size = _
+    rw [ByteArray.size_append, ih (by omega), encRowOf_size img ftOpt hpix n (by omega),
+      Nat.succ_mul]
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- Raw-stream sizes are monotone in the row count. -/
+theorem rawStreamOf_size_le (img : ImageRGBA8) (ftOpt : Option FilterType) :
+    ∀ n m, n ≤ m → (rawStreamOf img ftOpt n).size ≤ (rawStreamOf img ftOpt m).size := by
+  intro n m
+  induction m with
+  | zero =>
+    intro h
+    rw [Nat.le_zero.mp h]
+    exact Nat.le_refl _
+  | succ m ih =>
+    intro h
+    rcases Nat.lt_or_ge n (m + 1) with h1 | h1
+    · have := ih (by omega)
+      show _ ≤ (rawStreamOf img ftOpt m ++ encRowOf img ftOpt m).size
+      rw [ByteArray.size_append]
+      omega
+    · have hnm : n = m + 1 := by omega
+      rw [hnm]
+      exact Nat.le_refl _
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- Bytes already emitted are unchanged by later rows. -/
+theorem rawStreamOf_get!_stable (img : ImageRGBA8) (ftOpt : Option FilterType) :
+    ∀ m n, n ≤ m → ∀ j, j < (rawStreamOf img ftOpt n).size →
+      (rawStreamOf img ftOpt m).get! j = (rawStreamOf img ftOpt n).get! j := by
+  intro m
+  induction m with
+  | zero =>
+    intro n h j hj
+    rw [Nat.le_zero.mp h] at hj ⊢
+  | succ m ih =>
+    intro n h j hj
+    rcases Nat.lt_or_ge n (m + 1) with h1 | h1
+    · have hn : n ≤ m := by omega
+      show (rawStreamOf img ftOpt m ++ encRowOf img ftOpt m).get! j = _
+      rw [ByteArray.get!_append_left _ _ j
+        (by have := rawStreamOf_size_le img ftOpt n m hn; omega)]
+      exact ih n hn j hj
+    · have hnm : n = m + 1 := by omega
+      rw [hnm]
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- The first byte of an encoded row is its filter byte. -/
+theorem encRowOf_get!_zero (img : ImageRGBA8) (ftOpt : Option FilterType) (y : Nat) :
+    (encRowOf img ftOpt y).get! 0 = (chosenFtOf img ftOpt y).toNat.toUInt8 := by
+  unfold encRowOf
+  rw [ByteArray.get!_append_left _ _ 0
+    (by rw [show (ByteArray.empty.push (chosenFtOf img ftOpt y).toNat.toUInt8).size = 1
+      from rfl]; omega)]
+  exact _root_.ByteArray.get!_push_eq _ _ 0 rfl
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- The tail bytes of an encoded row are the filtered scanline. -/
+theorem encRowOf_get!_succ (img : ImageRGBA8) (ftOpt : Option FilterType) (y i : Nat)
+    (hi : i < (filterScanline (chosenFtOf img ftOpt y) (rowSliceOf img y)
+      (prevRowOf img y) 4).size) :
+    (encRowOf img ftOpt y).get! (1 + i) =
+      (filterScanline (chosenFtOf img ftOpt y) (rowSliceOf img y)
+        (prevRowOf img y) 4).get! i := by
+  unfold encRowOf
+  rw [ByteArray.get!_append_right _ _ (1 + i)
+    (by rw [show (ByteArray.empty.push (chosenFtOf img ftOpt y).toNat.toUInt8).size = 1
+      from rfl]; omega)
+    (by rw [show (ByteArray.empty.push (chosenFtOf img ftOpt y).toNat.toUInt8).size = 1
+      from rfl]; omega)]
+  rw [show (ByteArray.empty.push (chosenFtOf img ftOpt y).toNat.toUInt8).size = 1 from rfl]
+  rw [show 1 + i - 1 = i from by omega]
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- The filter byte the decoder reads at each row boundary. -/
+theorem raw_filter_byte (img : ImageRGBA8) (ftOpt : Option FilterType)
+    (hpix : img.pixels.size = img.width * img.height * 4) (N y : Nat)
+    (hy : y < N) (hN : N ≤ img.height) :
+    (rawStreamOf img ftOpt N).get! (y * (img.width * 4 + 1)) =
+      (chosenFtOf img ftOpt y).toNat.toUInt8 := by
+  have hs := rawStreamOf_size img ftOpt hpix
+  rw [rawStreamOf_get!_stable img ftOpt N (y + 1) (by omega) _
+    (by rw [hs (y + 1) (by omega), Nat.succ_mul]; omega)]
+  show (rawStreamOf img ftOpt y ++ encRowOf img ftOpt y).get! _ = _
+  rw [ByteArray.get!_append_right _ _ _
+    (by rw [hs y (by omega)]; omega)
+    (by rw [hs y (by omega), encRowOf_size img ftOpt hpix y (by omega)]; omega)]
+  rw [hs y (by omega), Nat.sub_self]
+  exact encRowOf_get!_zero img ftOpt y
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- The filtered slice the decoder reads for each row. -/
+theorem raw_row_slice (img : ImageRGBA8) (ftOpt : Option FilterType)
+    (hpix : img.pixels.size = img.width * img.height * 4) (N y : Nat)
+    (hy : y < N) (hN : N ≤ img.height) :
+    (rawStreamOf img ftOpt N).extract (y * (img.width * 4 + 1) + 1)
+        (y * (img.width * 4 + 1) + 1 + img.width * 4) =
+      filterScanline (chosenFtOf img ftOpt y) (rowSliceOf img y) (prevRowOf img y) 4 := by
+  have hs := rawStreamOf_size img ftOpt hpix
+  have hfs : (filterScanline (chosenFtOf img ftOpt y) (rowSliceOf img y)
+      (prevRowOf img y) 4).size = img.width * 4 := by
+    rw [filterScanline_size, rowSliceOf_size img hpix y (by omega)]
+  have hbound : y * (img.width * 4 + 1) + 1 + img.width * 4 ≤
+      (rawStreamOf img ftOpt N).size := by
+    rw [hs N hN]
+    have h1 : (y + 1) * (img.width * 4 + 1) ≤ N * (img.width * 4 + 1) :=
+      Nat.mul_le_mul (by omega) (Nat.le_refl _)
+    rw [Nat.succ_mul] at h1
+    omega
+  refine _root_.ByteArray.ext_get! ?_ ?_
+  · rw [byteArray_extract_size _ _ _ hbound, hfs]
+    omega
+  · intro i hi
+    have hi' : i < img.width * 4 := by
+      rw [byteArray_extract_size _ _ _ hbound] at hi
+      omega
+    rw [byteArray_get!_extract _ _ _ i (by omega) hbound]
+    rw [rawStreamOf_get!_stable img ftOpt N (y + 1) (by omega) _
+      (by rw [hs (y + 1) (by omega), Nat.succ_mul]; omega)]
+    show (rawStreamOf img ftOpt y ++ encRowOf img ftOpt y).get! _ = _
+    rw [ByteArray.get!_append_right _ _ _
+      (by rw [hs y (by omega)]; omega)
+      (by rw [hs y (by omega), encRowOf_size img ftOpt hpix y (by omega)]; omega)]
+    rw [hs y (by omega)]
+    rw [show y * (img.width * 4 + 1) + 1 + i - y * (img.width * 4 + 1) = 1 + i from by omega]
+    rw [encRowOf_get!_succ img ftOpt y i (by rw [hfs]; omega)]
+
 end Stdlib.Png
