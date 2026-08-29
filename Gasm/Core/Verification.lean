@@ -152,9 +152,12 @@ instance {Event : Type} : Platform (WindowsX86_64 Event) where
       match (executable.iatFunctionSlots layout.idataRva)[provider.importIndex]? with
       | some address => ((address - iatBase) / 8).toNat = provider.iatIndex
       | none => False
-  runtimeSupports := fun runtime provider =>
-    ∀ state address, Gasm.Targets.Windows.findIatIndex state address = some provider.iatIndex →
-      (runtime.interceptCall address state).isSome
+  runtimeSupports := fun runtime artifact provider =>
+    let executable := artifact.executable
+    let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+    match (executable.iatFunctionSlots layout.idataRva)[provider.importIndex]? with
+    | some address => ∀ state, (runtime.interceptCall address state).isSome
+    | none => False
   boundaryArtifact := fun _ => ()
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
@@ -187,7 +190,7 @@ instance {Event : Type} : Platform (LinuxX86_64 Event) where
   providerLinked := fun artifact provider =>
     provider.requirement ∈ artifact.imports ∧
       linuxProviderCallTarget artifact provider.instructionIndex = some provider.callTarget
-  runtimeSupports := fun runtime provider =>
+  runtimeSupports := fun runtime _ provider =>
     ∀ state, (runtime.interceptCall provider.callTarget state).isSome
   boundaryArtifact := fun _ => ()
   artifactConnected := fun artifact =>
@@ -219,7 +222,7 @@ instance {Event : Type} : Platform (LinuxAArch64 Event) where
   imports := fun _ => []
   providerProvides := fun provider => nomatch provider
   providerLinked := fun _ provider => nomatch provider
-  runtimeSupports := fun _ provider => nomatch provider
+  runtimeSupports := fun _ _ provider => nomatch provider
   boundaryArtifact := fun _ => ()
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
@@ -259,16 +262,17 @@ def windowsHostCapability (Event : Type) (providers : List WindowsX86_64Provider
 
 def windowsHostCapabilities (Event : Type) (providers : List WindowsX86_64Provider)
     [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event]
-    (supports : ∀ provider, provider ∈ providers →
-      Platform.runtimeSupports (P := WindowsX86_64 Event) runtime provider) :
+    (supports : ∀ artifact provider, provider ∈ providers →
+      Platform.providerLinked (P := WindowsX86_64 Event) artifact provider →
+      Platform.runtimeSupports (P := WindowsX86_64 Event) runtime artifact provider) :
     CapabilityComposition (WindowsX86_64 Event) where
   root := windowsHostCapability Event providers
   realize := fun _ => by
     change Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
     exact runtime
   realizeSupports := by
-    intro context provider membership
-    exact supports provider membership
+    intro context artifact provider membership linked
+    exact supports artifact provider membership linked
 
 def linuxHostCapabilities (Event : Type)
     [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :

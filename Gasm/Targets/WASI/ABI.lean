@@ -565,7 +565,7 @@ instance : Platform WasiPlatform where
   providerProvides := fun provider imported =>
     provider.imports[provider.importIndex]? = some imported
   providerLinked := fun artifact provider => provider.imports = artifact.imports
-  runtimeSupports := fun runtime provider =>
+  runtimeSupports := fun runtime _ provider =>
     match provider.protocol with
     | .preview1 => ∀ state,
         runtime provider.imports provider.importIndex state =
@@ -596,7 +596,7 @@ def wasiHostCapabilities : CapabilityComposition WasiPlatform where
   root := wasiHostCapability
   realize := fun _ => wasiHostCall
   realizeSupports := by
-    intro context provider hprovider
+    intro context artifact provider hprovider hlinked
     simp only [wasiHostCapability, List.mem_cons, List.not_mem_nil, or_false] at hprovider
     rcases hprovider with rfl | rfl <;> intro state <;> rfl
 

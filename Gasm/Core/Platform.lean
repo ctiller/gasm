@@ -75,8 +75,11 @@ class Platform (P : Type u) where
   providerProvides : Provider → Import → Prop
   /-- The final emitted artifact is linked to this provider. -/
   providerLinked : Artifact → Provider → Prop
-  /-- The concrete runtime context executes calls to this provider. -/
-  runtimeSupports : RuntimeContext → Provider → Prop
+  /-- The concrete runtime context executes this provider as linked in the
+      selected final artifact. Runtime support is artifact-indexed so targets
+      can state it at realized call targets instead of imposing unrelated
+      global-state obligations on every consumer. -/
+  runtimeSupports : RuntimeContext → Artifact → Provider → Prop
   boundaryArtifact : Artifact → boundarySemantics.Artifact
   artifactConnected : Artifact → Prop
   load : Artifact → Environment → State
@@ -158,10 +161,12 @@ structure CapabilityComposition (P : Type) [Platform P] where
       runtime value passed to platform execution; capabilities therefore
       cannot be decorative import claims. -/
   realize : root.Context → Platform.RuntimeContext (P := P)
-  /-- Runtime support is proved for every selected provider; it is not a claim
-      supplied by the logical capability. -/
-  realizeSupports : ∀ context provider, provider ∈ root.providers →
-    Platform.runtimeSupports (realize context) provider
+  /-- Runtime support is proved once for every selected provider at any final
+      artifact to which that provider is validly linked. Consumers reuse this
+      certificate rather than replaying target/link reasoning per program. -/
+  realizeSupports : ∀ context artifact provider, provider ∈ root.providers →
+    Platform.providerLinked artifact provider →
+    Platform.runtimeSupports (realize context) artifact provider
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- The sole whole-program verification authority.  It is parameterized by an
