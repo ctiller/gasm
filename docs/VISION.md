@@ -271,6 +271,11 @@ for realistically sized programs. It **is** tractable as a composition:
    certificates are indexed by the same final artifact and composed by one general rule. A program
    author proves only missing leaves and local refinement deltas. The root theorem contains no
    bespoke replay of a certificate already established by an ISA, platform, linker, or library.
+   The implemented spikes are required exemplars of this factoring. Trust repair exits only when
+   every implemented spike obtains its sole universal `VerifiedProgram` through the general rule,
+   with reusable certificates living at their owning layer and the spike proving only its local
+   deltas. A green but monolithic spike is unfinished proof infrastructure, because it teaches the
+   next implementation the wrong proof shape.
 4. **Agents write the proof with the code.** The unit of generated work is the triple
    (contract, assembly, proof). Agents iterate against the checker until it accepts;
    humans review contracts, not implementations. This is what makes universal

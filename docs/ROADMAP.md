@@ -215,4 +215,10 @@ end-to-end validation vehicle in `docs/SPIKES/SPIKE8_MULTITHREADING.md`.
 * **Codec Soundness:** Driving universal roundtrip soundness proofs for foundational codecs (Zlib, PNG, Gzip).
 * **Continuous Fuzzing:** Establishing a checked-in, deterministic continuous fuzzing corpus alongside mutation coverage tooling.
 * **Verification Infrastructure:** Expanding axiom gate closure coverage, TCB (Trusted Computing Base) ledgers, and trust/fail-open auditing.
+* **Trust-repair exit gate:** The build is green, allowlist debt is removed, every implemented spike
+  has one universal `VerifiedProgram`, and those proofs are factored as reference examples of the
+  general certificate-composition law. Reusable artifact, export/link, provider/runtime, entry,
+  admissibility, ABI-context, and behavior certificates live at their owning layers; spike modules
+  prove only applicability-derived local deltas. A monolithic or target-duplicated proof does not
+  satisfy this milestone even if it typechecks.
 * **Task Automation:** Future implementation of dependency tooling for work sequencing.

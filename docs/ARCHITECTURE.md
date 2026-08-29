@@ -91,6 +91,13 @@ applicable key is present and those indices agree, their composition is the whol
 Programs do not restate certificate internals, and an unselected optional feature contributes no
 key. Adding a reachable feature extends the required key set instead of weakening an existing proof.
 
+The implemented spikes are the executable reference architecture for this rule, not disposable
+integration tests. The trust-repair milestone is not complete merely because each spike happens to
+construct a `VerifiedProgram`: every implemented spike must expose the same ownership-scoped
+certificate factoring, reuse the general composition rule, and leave only its genuinely local
+refinement deltas at the spike layer. A spike that reaches the theorem through a monolithic replay,
+target-specific glue, or duplicated platform/library reasoning keeps the architecture unvalidated.
+
 Non-total libraries use `Gasm.Core.VerifiedComponent`: the complete physical public manifest is
 checked, every callable entry has an assume/guarantee `ContextBoundaryRealization` tied to the same
 final artifact, lookup keys are unique, and the target proves the set jointly admissible. Callers

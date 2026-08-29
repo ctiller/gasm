@@ -378,6 +378,14 @@ that re-proves link, ISA, provider, or library facts is an undue burden finding 
 certificate with no applicability key is speculative burden; a reachable key without a certificate
 is a soundness gap.
 
+The implemented spikes are normative exemplars for proof authors. The trust-repair exit gate MUST
+inspect every implemented spike and establish that it uses the general composition rule, shares
+certificates at their proper ownership boundary, and retains only a minimal spike-local refinement
+delta. Compilation and possession of a `VerifiedProgram` do not pass this gate when the proof is
+monolithic, duplicated across targets, or depends on stronger hypotheses than the advertised
+contract. Review must report exemplar factoring separately from semantic correctness so a green
+build cannot conceal a proof-economy regression.
+
 Reviewers MUST include a **Proof Applicability Table**:
 
 | Requested proof / gate | Unsafe behavior, platform rule, or selected claim that triggers it | Reusable base vs. implementation delta | Status (`Required` / `Already discharged` / `Undue burden` / `Missing`) |
@@ -387,6 +395,12 @@ For whole-program changes, append a **VerifiedProgram Composition Table**:
 
 | Applicable certificate key | Owning/reused theorem | Artifact/platform/capability indices | Local delta | Composition status |
 | :--- | :--- | :--- | :--- | :--- |
+
+For a trust-repair completion review, append an **Exemplar Factoring Table** covering every
+implemented spike:
+
+| Spike / target family | General composer used | Reused certificate owners | Spike-local delta only | Duplicated or undue obligations | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
 
 #### D. Citation Adequacy Audit
 
