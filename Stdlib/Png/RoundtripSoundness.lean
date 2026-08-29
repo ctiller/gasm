@@ -681,4 +681,192 @@ theorem parseIhdr_ihdrPayload (h : PngHeader)
   rw [if_neg (show ¬ (wd == 0 || htt == 0) = true from by simp; omega)]
   rfl
 
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- ByteArray append is associative. -/
+theorem byteArray_append_assoc (a b c : ByteArray) : a ++ b ++ c = a ++ (b ++ c) := by
+  refine _root_.ByteArray.ext_get! (by simp only [ByteArray.size_append]; omega) ?_
+  intro i hi
+  have hi' : i < a.size + b.size + c.size := by
+    simp only [ByteArray.size_append] at hi; omega
+  rcases Nat.lt_or_ge i a.size with h1 | h1
+  · rw [ByteArray.get!_append_left (a ++ b) c i (by rw [ByteArray.size_append]; omega),
+      ByteArray.get!_append_left a b i h1,
+      ByteArray.get!_append_left a (b ++ c) i h1]
+  · rcases Nat.lt_or_ge i (a.size + b.size) with h2 | h2
+    · rw [ByteArray.get!_append_left (a ++ b) c i (by rw [ByteArray.size_append]; omega),
+        ByteArray.get!_append_right a b i h1 (by omega),
+        ByteArray.get!_append_right a (b ++ c) i h1
+          (by rw [ByteArray.size_append]; omega),
+        ByteArray.get!_append_left b c (i - a.size) (by omega)]
+    · rw [ByteArray.get!_append_right (a ++ b) c i
+          (by rw [ByteArray.size_append]; omega)
+          (by rw [ByteArray.size_append]; omega),
+        ByteArray.get!_append_right a (b ++ c) i h1
+          (by rw [ByteArray.size_append]; omega),
+        ByteArray.get!_append_right b c (i - a.size) (by omega)
+          (by omega),
+        ByteArray.size_append,
+        show i - (a.size + b.size) = i - a.size - b.size from by omega]
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- `push` is append of a singleton. -/
+theorem byteArray_push_eq_append (a : ByteArray) (x : UInt8) :
+    a.push x = a ++ ByteArray.empty.push x := by
+  refine _root_.ByteArray.ext_get!
+    (by simp only [ByteArray.size_push, ByteArray.size_append, ByteArray.size_empty] <;> omega) ?_
+  intro i hi
+  have hi' : i < a.size + 1 := by simp only [ByteArray.size_push] at hi; omega
+  rcases Nat.lt_or_ge i a.size with h1 | h1
+  · rw [_root_.ByteArray.get!_push_lt a x i h1, ByteArray.get!_append_left a _ i h1]
+  · have hieq : i = a.size := by omega
+    subst hieq
+    rw [_root_.ByteArray.get!_push_eq a x a.size rfl,
+      ByteArray.get!_append_right a _ a.size (Nat.le_refl _)
+        (by simp only [ByteArray.size_push, ByteArray.size_empty] <;> omega),
+      Nat.sub_self]
+    exact (_root_.ByteArray.get!_push_eq ByteArray.empty x 0 rfl).symm
+
+/- REF: docs/STDLIB_PNG.md#41-the-five-standard-filter-types -/
+/-- Filtering preserves the scanline length. -/
+theorem filterScanline_size (ft : FilterType) (raw prior : ByteArray) (bpp : Nat) :
+    (filterScanline ft raw prior bpp).size = raw.size := by
+  rw [filterScanline_eq_fold, filterFold_size]
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- The RGBA8 header `encodeImageRGBA8` builds for an image. -/
+def rgbaHeader (img : ImageRGBA8) : PngHeader :=
+  { width := img.width, height := img.height, bitDepth := 8,
+    colorType := PngColorType.truecolorRgba }
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- Row `y` of the image's pixel buffer (RGBA8, stride `width * 4`). -/
+def rowSliceOf (img : ImageRGBA8) (y : Nat) : ByteArray :=
+  img.pixels.extract (y * (img.width * 4)) ((y + 1) * (img.width * 4))
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- The writer's `prevRow` after `y` scanlines have been written. -/
+def prevRowOf (img : ImageRGBA8) : Nat → ByteArray
+  | 0 => ByteArray.empty
+  | y + 1 => rowSliceOf img y
+
+/- REF: docs/STDLIB_PNG.md#41-the-five-standard-filter-types -/
+/-- The filter `encodeImageRGBA8` selects for row `y` (explicit or adaptive). -/
+def chosenFtOf (img : ImageRGBA8) (ftOpt : Option FilterType) (y : Nat) : FilterType :=
+  match ftOpt with
+  | some f => f
+  | none => chooseBestFilter (rowSliceOf img y) (prevRowOf img y) 4
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- The filter-byte-prefixed filtered bytes `writeScanline` appends for row `y`. -/
+def encRowOf (img : ImageRGBA8) (ftOpt : Option FilterType) (y : Nat) : ByteArray :=
+  ByteArray.empty.push (chosenFtOf img ftOpt y).toNat.toUInt8 ++
+    filterScanline (chosenFtOf img ftOpt y) (rowSliceOf img y) (prevRowOf img y) 4
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- The writer's raw (pre-compression) stream after `n` scanlines. -/
+def rawStreamOf (img : ImageRGBA8) (ftOpt : Option FilterType) : Nat → ByteArray
+  | 0 => ByteArray.empty
+  | n + 1 => rawStreamOf img ftOpt n ++ encRowOf img ftOpt n
+
+/- REF: docs/STDLIB_PNG.md#22-pngwriter-push-state-machine -/
+/-- `writeScanline` on an unfinished writer with rows remaining: appends the filter byte
+    and the filtered scanline to the raw stream. -/
+theorem writeScanline_ok (w : PngWriter) (row : ByteArray) (ft : FilterType)
+    (hfin : w.isFinished = false) (hrow : w.currentRow < w.header.height) :
+    writeScanline w row ft = .ok ⟨w.header, w.currentRow + 1, row,
+      w.rawStream.push ft.toNat.toUInt8 ++
+        filterScanline ft row w.prevRow (bytesPerPixel w.header), w.isFinished⟩ := by
+  unfold writeScanline
+  simp only [Bind.bind, Except.bind, pure, Except.pure]
+  rw [hfin]
+  rw [if_neg (show ¬ (false = true) from by simp)]
+  rw [if_neg (show ¬ (w.currentRow ≥ w.header.height) from by omega)]
+  rw [byteArray_forIn_push_except (filterScanline ft row w.prevRow (bytesPerPixel w.header))
+    (w.rawStream.push ft.toNat.toUInt8)]
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- The writer state after `encodeImageRGBA8`'s scanline fold over the first `n` rows. -/
+theorem encode_fold (img : ImageRGBA8) (ftOpt : Option FilterType) :
+    ∀ n, n ≤ img.height →
+    List.foldl (fun (__s : PngWriter) (y : Nat) =>
+        match writeScanline __s
+            (img.pixels.extract (y * (img.width * 4)) ((y + 1) * (img.width * 4)))
+            (match ftOpt with
+             | some filter => filter
+             | none => chooseBestFilter
+                 (img.pixels.extract (y * (img.width * 4)) ((y + 1) * (img.width * 4)))
+                 __s.prevRow 4) with
+        | Except.ok nextWriter => nextWriter
+        | Except.error _ => __s)
+      (beginPng ⟨img.width, img.height, 8, PngColorType.truecolorRgba, 0, 0, 0⟩)
+      (List.range' 0 n) =
+    ⟨rgbaHeader img, n, prevRowOf img n, rawStreamOf img ftOpt n, false⟩ := by
+  intro n
+  induction n with
+  | zero => intro _; rfl
+  | succ n ih =>
+    intro hle
+    rw [List.range'_1_concat, List.foldl_append, ih (by omega)]
+    simp only [Nat.zero_add, List.foldl_cons, List.foldl_nil]
+    clear ih
+    rw [show img.pixels.extract (n * (img.width * 4)) ((n + 1) * (img.width * 4)) =
+      rowSliceOf img n from rfl]
+    have hft : (match ftOpt with
+        | some filter => filter
+        | none => chooseBestFilter (rowSliceOf img n) (prevRowOf img n) 4) =
+        chosenFtOf img ftOpt n := by
+      cases ftOpt <;> rfl
+    rw [hft]
+    have hrow' : (⟨rgbaHeader img, n, prevRowOf img n, rawStreamOf img ftOpt n, false⟩ :
+        PngWriter).currentRow <
+        (⟨rgbaHeader img, n, prevRowOf img n, rawStreamOf img ftOpt n, false⟩ :
+        PngWriter).header.height := by
+      show n < img.height
+      omega
+    rw [writeScanline_ok _ _ _ rfl hrow']
+    dsimp only
+    rw [show bytesPerPixel (rgbaHeader img) = 4 from by
+      simp [bytesPerPixel, rgbaHeader, PngColorType.channels]]
+    rw [byteArray_push_eq_append, byteArray_append_assoc]
+    rfl
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- **Encoder characterization**: `encodeImageRGBA8` emits exactly the PNG signature
+    followed by the IHDR, IDAT (zlib-compressed filtered raw stream), and IEND chunks. -/
+theorem encodeImageRGBA8_eq (img : ImageRGBA8) (ftOpt : Option FilterType) :
+    encodeImageRGBA8 img ftOpt =
+      ((pngSignature ++ mkChunk "IHDR" (ihdrPayload (rgbaHeader img))) ++
+        mkChunk "IDAT" (Stdlib.Zlib.zlibCompress (rawStreamOf img ftOpt img.height))) ++
+        mkChunk "IEND" ByteArray.empty := by
+  have idb : ∀ {α β : Type} (x : Id α) (f : α → Id β), (x >>= f) = f x := fun _ _ => rfl
+  unfold encodeImageRGBA8
+  simp only [Id.run, idb, Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size]
+  rw [Stdlib.Zlib.forIn_yield_eq_foldl _
+    (fun (__s : PngWriter) (y : Nat) =>
+      match writeScanline __s
+          (img.pixels.extract (y * (img.width * 4)) ((y + 1) * (img.width * 4)))
+          (match ftOpt with
+           | some filter => filter
+           | none => chooseBestFilter
+               (img.pixels.extract (y * (img.width * 4)) ((y + 1) * (img.width * 4)))
+               __s.prevRow 4) with
+      | Except.ok nextWriter => nextWriter
+      | Except.error _ => __s)
+    (by
+      intro a s
+      cases writeScanline s
+        (img.pixels.extract (a * (img.width * 4)) ((a + 1) * (img.width * 4)))
+        (match ftOpt with
+         | some filter => filter
+         | none => chooseBestFilter
+             (img.pixels.extract (a * (img.width * 4)) ((a + 1) * (img.width * 4)))
+             s.prevRow 4) <;> rfl)]
+  simp only [Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one]
+  rw [encode_fold img ftOpt img.height (Nat.le_refl _)]
+  rw [endPng_eq _ rfl]
+  rfl
+
 end Stdlib.Png
