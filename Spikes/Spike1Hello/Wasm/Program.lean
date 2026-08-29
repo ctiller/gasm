@@ -73,6 +73,46 @@ def spike1DataSegments : List WasmDataSegment := [
   { offset := 0x10, data := helloMessage }
 ]
 
+/-- The exact memory image installed for the Spike 1 root artifact. -/
+def spike1InitialMemory : WasmMemory := initWasmMemory spike1DataSegments
+
+/-- Loader-owned payload realization. -/
+theorem spike1InitialMemory_payload :
+    WasmMem.readBytes spike1InitialMemory 16 helloMessage.size = some helloMessage := by
+  unfold spike1InitialMemory initWasmMemory spike1DataSegments
+  dsimp only [List.foldl]
+  apply readBytes_installWasmDataSegment_self
+  · simp
+  · rw [installWasmDataSegment_size, initialWasmPage_size]
+    decide
+
+/-- Loader-owned ciovec realization, preserved across the later payload segment. -/
+theorem spike1InitialMemory_ciovec_bytes :
+    WasmMem.readBytes spike1InitialMemory 0 8 = some helloCiovec := by
+  unfold spike1InitialMemory initWasmMemory spike1DataSegments
+  dsimp only [List.foldl]
+  rw [readBytes_installWasmDataSegment_prefix]
+  · apply readBytes_installWasmDataSegment_self
+    · simp
+    · rw [initialWasmPage_size]
+      decide
+  · simp
+  · rw [installWasmDataSegment_size, initialWasmPage_size]
+    decide
+
+theorem spike1InitialMemory_ciovec :
+    readCiovec spike1InitialMemory 0 = some (16, helloMessage.size.toUInt32) := by
+  exact readCiovec_encode _ _ _ _ spike1InitialMemory_ciovec_bytes
+
+/-- The host's `nwritten` result slot is writable in the exact loaded image. -/
+theorem spike1InitialMemory_nwritten : ∃ writtenMemory,
+    WasmMem.write32 spike1InitialMemory 8 helloMessage.size.toUInt32 = some writtenMemory := by
+  unfold WasmMem.write32
+  change ∃ writtenMemory,
+    (if 8 + 4 ≤ WasmMem.size spike1InitialMemory then some _ else none) = some writtenMemory
+  rw [if_pos (by simp [spike1InitialMemory])]
+  exact ⟨_, rfl⟩
+
 /- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
 /-- Complete WebAssembly WASI module definition for Spike 1. -/
 def spike1WasmModule : WasmModule :=

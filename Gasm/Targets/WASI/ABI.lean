@@ -55,14 +55,14 @@ def procExitType : FuncType :=
 /- REF: docs/TARGETS/WASI.md#31-wasiciovect-structure -/
 /-- Serializes a single __wasi_ciovec_t (buffer pointer + buffer length) into 8 little-endian bytes. -/
 def encodeCiovec (bufPtr : UInt32) (bufLen : UInt32) : ByteArray :=
-  let b0 := (bufPtr &&& 0xFF).toUInt8
-  let b1 := ((bufPtr >>> 8) &&& 0xFF).toUInt8
-  let b2 := ((bufPtr >>> 16) &&& 0xFF).toUInt8
-  let b3 := ((bufPtr >>> 24) &&& 0xFF).toUInt8
-  let l0 := (bufLen &&& 0xFF).toUInt8
-  let l1 := ((bufLen >>> 8) &&& 0xFF).toUInt8
-  let l2 := ((bufLen >>> 16) &&& 0xFF).toUInt8
-  let l3 := ((bufLen >>> 24) &&& 0xFF).toUInt8
+  let b0 := bufPtr.toUInt8
+  let b1 := (bufPtr >>> 8).toUInt8
+  let b2 := (bufPtr >>> 16).toUInt8
+  let b3 := (bufPtr >>> 24).toUInt8
+  let l0 := bufLen.toUInt8
+  let l1 := (bufLen >>> 8).toUInt8
+  let l2 := (bufLen >>> 16).toUInt8
+  let l3 := (bufLen >>> 24).toUInt8
   ByteArray.mk #[b0, b1, b2, b3, l0, l1, l2, l3]
 
 /- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
@@ -100,19 +100,146 @@ def buildWasiStdinModule (startFn : WasmFunction) (extraFuncs : List WasmFunctio
     dataSegments := dataSegments, exports := exports }
 
 /- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
+/-- Installs one active data segment into an already allocated memory image.  The three slices are
+    the bytes before the segment, the in-bounds part of its payload, and the untouched suffix.
+    Keeping installation in this compositional form exposes the loader's read-after-install laws;
+    it is extensionally the same clipped overwrite as the former per-byte `set!` loop, without
+    forcing proof reduction to replay one step per byte of a generated payload. -/
+def installWasmDataSegment (memory : ByteArray) (segment : WasmDataSegment) : ByteArray :=
+  let offset := segment.offset.toNat
+  let written := segment.data.extract 0 (memory.size - offset)
+  memory.extract 0 offset ++ written ++
+    memory.extract (offset + written.size) memory.size
+
+/-- Bulk data installation preserves the declared linear-memory extent. -/
+@[simp] theorem installWasmDataSegment_size (memory : ByteArray) (segment : WasmDataSegment) :
+    (installWasmDataSegment memory segment).size = memory.size := by
+  simp only [installWasmDataSegment, ByteArray.size_append, ByteArray.size_extract]
+  omega
+
+/-- Reading the complete in-bounds payload immediately after its loader boundary returns that
+    payload exactly; callers do not replay the install loop. -/
+theorem readBytes_installWasmDataSegment_self (memory : ByteArray) (segment : WasmDataSegment)
+    (hoffset : segment.offset.toNat ≤ memory.size)
+    (hfits : segment.offset.toNat + segment.data.size ≤ memory.size) :
+    WasmMem.readBytes (WasmMem.ofBytes (installWasmDataSegment memory segment))
+      segment.offset.toNat segment.data.size = some segment.data := by
+  unfold WasmMem.readBytes
+  change (if segment.offset.toNat + segment.data.size ≤
+      (installWasmDataSegment memory segment).size then
+    some ((installWasmDataSegment memory segment).extract segment.offset.toNat
+      (segment.offset.toNat + segment.data.size)) else none) = some segment.data
+  rw [installWasmDataSegment_size]
+  rw [if_pos hfits]
+  simp only [Option.some.injEq]
+  simp only [installWasmDataSegment]
+  have hcapacity : segment.data.size ≤ memory.size - segment.offset.toNat := by omega
+  rw [show segment.data.extract 0 (memory.size - segment.offset.toNat) = segment.data by
+    rw [← Nat.max_eq_left hcapacity]
+    exact ByteArray.extract_zero_max_size]
+  rw [ByteArray.extract_append]
+  have hprefix : (memory.extract 0 segment.offset.toNat).extract segment.offset.toNat
+      (segment.offset.toNat + segment.data.size) = ByteArray.empty := by
+    rw [ByteArray.extract_eq_empty_iff]
+    simp [ByteArray.size_extract, hoffset]
+  rw [ByteArray.extract_append]
+  rw [hprefix, ByteArray.empty_append]
+  simp [ByteArray.size_extract, hoffset]
+
+/-- A later segment cannot change a proved prefix. -/
+theorem readBytes_installWasmDataSegment_prefix (memory : ByteArray)
+    (segment : WasmDataSegment) (len : Nat)
+    (hlen : len ≤ segment.offset.toNat) (hoffset : segment.offset.toNat ≤ memory.size) :
+    WasmMem.readBytes (WasmMem.ofBytes (installWasmDataSegment memory segment)) 0 len =
+      WasmMem.readBytes (WasmMem.ofBytes memory) 0 len := by
+  unfold WasmMem.readBytes
+  simp only [WasmMem.ofBytes, Nat.zero_add]
+  change (if len ≤ (installWasmDataSegment memory segment).size then
+      some ((installWasmDataSegment memory segment).extract 0 len) else none) =
+    (if len ≤ memory.size then some (memory.extract 0 len) else none)
+  rw [installWasmDataSegment_size]
+  have hbound : len ≤ memory.size := Nat.le_trans hlen hoffset
+  rw [if_pos hbound, if_pos hbound]
+  simp only [Option.some.injEq, installWasmDataSegment]
+  rw [ByteArray.extract_append, ByteArray.extract_append]
+  have hprefixSize : (memory.extract 0 segment.offset.toNat).size = segment.offset.toNat := by
+    simp [ByteArray.size_extract, hoffset]
+  have hafter : len ≤ segment.offset.toNat +
+      min (memory.size - segment.offset.toNat) segment.data.size := by omega
+  simp [hprefixSize, hlen, hafter, ByteArray.extract_extract]
+
+/-- One zero-filled Wasm page owned by the loader. -/
+def initialWasmPage : ByteArray := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+
+@[simp] theorem initialWasmPage_size : initialWasmPage.size = 65536 := by
+  simp [initialWasmPage, ByteArray.size]
+
 /-- Initializes linear memory with all active data segments, returning the sealed `WasmMemory`
-    cell (`MemoryCell.lean`). The data-segment install loop below builds an ordinary, freely
-    mutable local `ByteArray` and wraps it via `WasmMem.ofBytes` only once at the end -- exactly
-    the pattern `docs/MEMORY_HOOK.md`'s x86-64 seal establishes for loaders (`X86_64Mem.initRegion`):
-    computing a fresh image with unrestricted operations is legitimate bulk construction, and the
-    seal's job is to prevent touching an *already-installed* cell's bytes from outside this module,
-    not to restrict how a brand-new one gets built. -/
-def initWasmMemory (segments : List WasmDataSegment) : WasmMemory := Id.run do
-  let mut mem := ByteArray.mk (Array.mk (List.replicate 65536 (0 : UInt8)))
-  for seg in segments do
-    for i in [0:seg.data.size] do
-      mem := mem.set! (seg.offset.toNat + i) (seg.data.get! i)
-  return WasmMem.ofBytes mem
+    cell (`MemoryCell.lean`).  Segment installation is a fold over typed bulk-overwrite boundaries,
+    so loader refinements can reason about an arbitrary payload symbolically rather than replaying
+    a 64-KiB zero-fill and every payload byte. -/
+def initWasmMemory (segments : List WasmDataSegment) : WasmMemory :=
+  WasmMem.ofBytes (segments.foldl installWasmDataSegment initialWasmPage)
+
+/-- The one-page WASI loader always constructs exactly one page; segment writes cannot silently
+    grow memory beyond the module's declared page. -/
+@[simp] theorem initWasmMemory_size (segments : List WasmDataSegment) :
+    WasmMem.size (initWasmMemory segments) = 65536 := by
+  simp only [initWasmMemory, WasmMem.size, WasmMem.ofBytes]
+  have hfold : ∀ (memory : ByteArray) (rest : List WasmDataSegment),
+      (rest.foldl installWasmDataSegment memory).size = memory.size := by
+    intro memory rest
+    induction rest generalizing memory with
+    | nil => rfl
+    | cons segment rest ih =>
+        simp only [List.foldl_cons]
+        rw [ih, installWasmDataSegment_size]
+  rw [hfold, initialWasmPage_size]
+
+/-- UTF-8 decoding an existing string's byte representation recovers that string.  WASI output
+    contracts use this owner-level inverse law so callers never replay byte-by-byte validation of
+    generated static payloads. -/
+@[simp] theorem fromUTF8?_toUTF8 (text : String) :
+    String.fromUTF8? text.toUTF8 = some text := by
+  rcases text with ⟨bytes, hvalid⟩
+  change (if h : bytes.IsValidUTF8 then some (String.fromUTF8 bytes h) else none) =
+    some ⟨bytes, hvalid⟩
+  split
+  · rfl
+  · contradiction
+
+@[simp] theorem fromUTF8?_toByteArray (text : String) :
+    String.fromUTF8? text.toByteArray = some text := by
+  simpa only [String.toUTF8_eq_toByteArray] using fromUTF8?_toUTF8 text
+
+/- REF: docs/TARGETS/WASI.md#31-wasiciovect-structure -/
+/-- Reads one complete WASI ciovec as a typed ABI boundary instead of making each host operation
+    separately prove two correlated 32-bit loads. -/
+def readCiovec (memory : WasmMemory) (address : Nat) : Option (UInt32 × UInt32) :=
+  match WasmMem.readBytes memory address 8 with
+  | none => none
+  | some bytes =>
+      let ptr := UInt32.ofBitVec
+        (((bytes.get! 3).toBitVec ++ (bytes.get! 2).toBitVec) ++
+          (bytes.get! 1).toBitVec ++ (bytes.get! 0).toBitVec)
+      let len := UInt32.ofBitVec
+        (((bytes.get! 7).toBitVec ++ (bytes.get! 6).toBitVec) ++
+          (bytes.get! 5).toBitVec ++ (bytes.get! 4).toBitVec)
+      some (ptr, len)
+
+/-- `encodeCiovec` and the host's typed reader are exact inverses. -/
+theorem readCiovec_encode (memory : WasmMemory) (address : Nat) (ptr len : UInt32)
+    (hread : WasmMem.readBytes memory address 8 = some (encodeCiovec ptr len)) :
+    readCiovec memory address = some (ptr, len) := by
+  simp [readCiovec, hread, encodeCiovec, ByteArray.get!]
+  constructor <;>
+    apply UInt32.toBitVec_inj.1 <;>
+    simp only [BitVec.setWidth_ushiftRight_eq_extractLsb] <;>
+    rw [BitVec.setWidth_eq_extractLsb' (by omega)] <;>
+    rw [BitVec.extractLsb'_append_extractLsb'_eq_extractLsb' (by omega)] <;>
+    rw [BitVec.extractLsb'_append_extractLsb'_eq_extractLsb' (by omega)] <;>
+    rw [BitVec.extractLsb'_append_extractLsb'_eq_extractLsb' (by omega)] <;>
+    simp
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Raw operational host-call dispatcher.  The public dispatcher below applies the target-owned
@@ -174,8 +301,8 @@ private def wasiHostCallRaw (imports : List String) (idx : Nat)
         pure ()
       else
         let entryAddr := iovs_ptr.toNat + i * 8
-        match WasmMem.read32 s4.memory entryAddr, WasmMem.read32 s4.memory (entryAddr + 4) with
-        | some bufPtr, some bufLen =>
+        match readCiovec s4.memory entryAddr with
+        | some (bufPtr, bufLen) =>
           match WasmMem.readBytes s4.memory bufPtr.toNat bufLen.toNat with
           | some bytes =>
             let str := match String.fromUTF8? bytes with
@@ -184,7 +311,7 @@ private def wasiHostCallRaw (imports : List String) (idx : Nat)
             newEvents := newEvents ++ [Inject.inject (ConsoleEvent.out str)]
             totalWritten := totalWritten + bufLen
           | none => trapped := true
-        | _, _ => trapped := true
+        | none => trapped := true
     if trapped then
       return ({ s4 with trapped := true }, .next)
     match WasmMem.write32 s4.memory nwritten_ptr.toNat totalWritten with
@@ -278,6 +405,70 @@ def wasiHostCall (imports : List String) (idx : Nat)
     let result := wasiHostCallRaw imports idx
       (s.withExternalInputs ByteArray.empty [])
     (result.1.withExternalInputs s.stdin s.incomingRequests, result.2)
+
+/- REF: docs/TARGETS/WASI.md#21-fdwrite -/
+/-- Typed single-iovec `fd_write` boundary contract.  The host layer owns the stack convention and
+    memory effects; artifact proofs supply only the three loader read facts and the checked
+    `nwritten` write returned by the memory owner. -/
+theorem wasiHostCall_fd_write_single
+    (memory writtenMemory : WasmMemory) (memMax : Option UInt32) (text : String) (len : UInt32)
+    (hciovec : readCiovec memory 0 = some (16, len))
+    (hsize : len.toNat = text.toUTF8.size)
+    (hpayload : WasmMem.readBytes memory 16 len.toNat = some text.toUTF8)
+    (hwritten : WasmMem.write32 memory 8 len = some writtenMemory) :
+    wasiHostCall ["fd_write", "proc_exit"] 0
+        { stack := [.i32 8, .i32 1, .i32 0, .i32 1], memory := memory, memMax := memMax } =
+      ({ stack := [.i32 0], memory := writtenMemory, memMax := memMax,
+          events := [Inject.inject (ConsoleEvent.out text)] }, .next) := by
+  have hpayload' : WasmMem.readBytes memory 16 text.toUTF8.size = some text.toUTF8 := by
+    simpa [hsize] using hpayload
+  have hpayload'' : WasmMem.readBytes memory 16 text.utf8ByteSize = some text.toUTF8 := by
+    simpa [String.toUTF8_eq_toByteArray, String.size_toByteArray] using hpayload'
+  simp [wasiHostCall, wasiHostCallRaw, popI32, hciovec, hpayload'', hwritten,
+    hsize, pushVal, WasmMachineState.withExternalInputs]
+
+/- REF: docs/TARGETS/WASI.md#22-procexit -/
+/-- Typed clean `proc_exit(0)` boundary contract. -/
+@[simp] theorem wasiHostCall_proc_exit_zero (state : WasmMachineState) :
+    wasiHostCall ["fd_write", "proc_exit"] 1 { state with stack := [.i32 0] } =
+      ({ stack := [], locals := state.locals, memory := state.memory, memMax := state.memMax,
+          resourceFailure := state.resourceFailure, stdin := state.stdin, stdinPos := state.stdinPos,
+          incomingRequests := state.incomingRequests, trapped := state.trapped,
+          exitCode := some 0, events := state.events ++ [Inject.inject (ProcessEvent.exit 0)],
+          fuelExhausted := state.fuelExhausted }, .ret) := by
+  simp [wasiHostCall, wasiHostCallRaw, popI32, WasmMachineState.withExternalInputs]
+
+/- REF: docs/TARGETS/WASI.md#21-fdwrite -/
+/- REF: docs/TARGETS/WASI.md#22-procexit -/
+/-- Reusable symbolic contract for the conventional single-iovec write followed by clean exit.
+    The artifact supplies only its `fd_write` realization; the WASI owner composes the instruction
+    sequence and `proc_exit` contract without inspecting the artifact's memory representation. -/
+theorem evalWasiWriteThenExit
+    (memory writtenMemory : WasmMemory) (memMax : Option UInt32) (text : String)
+    (hwrite :
+      wasiHostCall ["fd_write", "proc_exit"] 0
+          { stack := [.i32 8, .i32 1, .i32 0, .i32 1], memory := memory, memMax := memMax } =
+        ({ stack := [.i32 0], memory := writtenMemory, memMax := memMax,
+            events := [Inject.inject (ConsoleEvent.out text)] }, .next)) :
+    evalInstrs 100
+        [.i32_const 1, .i32_const 0, .i32_const 1, .i32_const 8,
+         .call 0, .drop, .i32_const 0, .call 1]
+        { memory := memory, memMax := memMax }
+        (wasiHostCall ["fd_write", "proc_exit"]) =
+      .ok ({ memory := writtenMemory, memMax := memMax, exitCode := some 0,
+              events := [Inject.inject (ConsoleEvent.out text),
+                Inject.inject (ProcessEvent.exit 0)] }, .ret) := by
+  have hproc :
+      wasiHostCall ["fd_write", "proc_exit"] 1
+          { stack := [.i32 0], memory := writtenMemory, memMax := memMax,
+            events := [Inject.inject (ConsoleEvent.out text)] } =
+        ({ stack := [], memory := writtenMemory, memMax := memMax, exitCode := some 0,
+            events := [Inject.inject (ConsoleEvent.out text),
+              Inject.inject (ProcessEvent.exit 0)] }, .ret) := by
+    simpa using wasiHostCall_proc_exit_zero
+      ({ memory := writtenMemory, memMax := memMax,
+         events := [Inject.inject (ConsoleEvent.out text)] } : WasmMachineState)
+  simp [evalInstrs, evalInstrMatch, pushVal, hwrite, hproc]
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- Every import not designated as an input provider satisfies the external-input frame law. -/

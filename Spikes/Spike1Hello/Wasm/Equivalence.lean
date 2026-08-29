@@ -34,57 +34,42 @@ open Gasm.Effects
 open Gasm.Targets.Wasm
 open Gasm.Targets.WASI
 
+set_option maxRecDepth 10000 in
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Constructive proof of semantic trace equivalence between high-level spec and lowered Wasm WASI
-    execution.
-
-    **Oracle-debt retirement (2026-08-27): `native_decide` -> `decide +kernel`, fuel conversion.**
-    Spike 1 takes no input, so this is a closed-term claim with no `∀` to discharge -- exactly the
-    shape the Windows and BareMetal siblings of this theorem already close with plain `decide`.
-    This one previously could not: `runWasiTrace` bottomed out in
-    `evalInstrs`/`evalLoop`/`evalInstrMatch` (`Gasm/Targets/Wasm/Semantics.lean`), a `mutual
-    partial` group Lean compiled to a genuine `opaque` constant with no defining equations at all
-    for any tactic, on any input -- not "kernel reduction gets stuck partway through a real term,"
-    but literally no term to reduce (confirmed via `#print evalInstrs` and `unfold
-    evalInstrs`/`rfl` both failing on the trivial base case). That group has now been converted to
-    fuel-based structural recursion on an explicit `Nat` (`defaultWasmFuel`, following
-    `Gasm/Targets/X86_64/Semantics.lean`'s `runProgramTraceWithLoops` shape exactly), so it is an
-    ordinary total `def` with real kernel-unfoldable equations (confirmed: `#print evalInstrs` now
-    shows a `Nat.brecOn`-based definition, not `opaque`).
-
-    **Why `+kernel`, not plain `decide`.** Plain `decide` (and `rfl`) still fail here -- not with
-    the old "no term to reduce" opacity, but because the ELABORATOR's own `whnf` (a different
-    reduction engine from the kernel's, used by `decide`/`isDefEq` by default) gets stuck on the
-    `Nat.brecOn`-compiled matcher applications the fuel conversion introduces, reporting "reduction
-    got stuck" at the top-level `Bool` equality regardless of `maxHeartbeats` (confirmed empirically:
-    still stuck at 40 million heartbeats, ruling out "just needs more budget"). `#reduce` on the
-    same expression, and `native_decide` (the tactic this replaces), both fully evaluate it to
-    `true` -- proving the claim genuinely holds and the elaborator-`whnf` path is an incompleteness
-    in that specific reduction strategy, not a defect in this proof or the interpreter. `decide
-    +kernel` (Lean's flag for routing the same `Decidable` reduction through the KERNEL's `whnf`
-    instead, which has direct, GMP-accelerated support for `Nat.rec`/`Nat.brecOn` on literals) finds
-    the same answer directly -- confirmed to complete in ~13s with no `set_option` tuning needed at
-    all, faster and simpler than the Windows/BareMetal siblings' plain `decide` (BareMetal still
-    needs `set_option maxRecDepth 4000`; this one needs nothing beyond `+kernel`). Still zero
-    oracle, zero allowlist entry: `+kernel` selects a reduction STRATEGY, not a different axiom or
-    trust boundary -- the produced proof term is still independently re-checked by the kernel like
-    any other, exactly as plain `decide`'s is. -/
+/-- Structural clean-exit and trace certificate for the exact Spike 1 artifact budget.  Loader,
+    host-call, and instruction-sequence facts are composed at their owning layers; no whole-page
+    evaluation or native proof oracle is involved. -/
 theorem spike1_wasm_canonical_effect_trace_equivalence :
-    (runWasiTrace spike1WasmInstructions spike1DataSegments ==
-     runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)) = true := by
-  decide +kernel
-
--- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witness for
--- `spike1_wasm_canonical_effect_trace_equivalence` above: proves `runWasiTraceState` (the
--- un-collapsed `WasmRunResult` this theorem's `runWasiTrace` is built on -- see its own
--- docstring in `Gasm/Targets/WASI/ABI.lean`) genuinely reaches a stopping point for Spike 1's
--- actual program, rather than merely assuming `defaultWasmFuel` (100 million) is enough. Spike
--- 1's Wasm program contains no `.loop` at all (`grep -c '\.loop' Program.lean` returns 0), so
--- this is not a close call, but the check is a real, executed proof rather than an assumption --
--- exactly the anti-vacuity discipline docs/REVIEW.md's "Fuel exhaustion indistinguishable from clean
--- termination" finding asks for.
-#guard !Gasm.Targets.Wasm.WasmRunResult.isError
-  (Gasm.Targets.WASI.runWasiTraceState spike1WasmInstructions spike1DataSegments)
+    (runWasiOutcome spike1WasmInstructions spike1DataSegments ByteArray.empty
+      ["fd_write", "proc_exit"] [] { fuel := 100, memoryPages := 65536 }).observable =
+        .exited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)) := by
+  obtain ⟨writtenMemory, hwritten⟩ := spike1InitialMemory_nwritten
+  have hwrite := wasiHostCall_fd_write_single
+    (memory := spike1InitialMemory) (writtenMemory := writtenMemory)
+    (memMax := some 65536) (text := "Hello, World!\n")
+    (len := helloMessage.size.toUInt32)
+    spike1InitialMemory_ciovec (by decide) (by exact spike1InitialMemory_payload) hwritten
+  have hwrite' :
+      wasiHostCall ["fd_write", "proc_exit"] 0
+          { stack := [.i32 8, .i32 1, .i32 0, .i32 1],
+            memory := initWasmMemory spike1DataSegments, memMax := some 65536 } =
+        ({ stack := [.i32 0], memory := writtenMemory, memMax := some 65536,
+            events := [Inject.inject (ConsoleEvent.out "Hello, World!\n")] }, .next) := by
+    simpa [spike1InitialMemory] using hwrite
+  have hmodel : runModelTrace (helloWorldSpec : TraceM AnyEvent Unit) =
+      [Inject.inject (ConsoleEvent.out "Hello, World!\n"),
+       Inject.inject (ProcessEvent.exit 0)] := by
+    rfl
+  unfold runWasiOutcome runWasiOutcomeWithHost
+  dsimp only
+  simp only [initWasmMemory_size]
+  simp
+  rw [show spike1WasmInstructions =
+    [.i32_const 1, .i32_const 0, .i32_const 1, .i32_const 8,
+     .call 0, .drop, .i32_const 0, .call 1] from rfl]
+  rw [evalWasiWriteThenExit (initWasmMemory spike1DataSegments) writtenMemory
+    (some 65536) "Hello, World!\n" hwrite']
+  simp [hmodel, WasiRunOutcome.ofResult, WasiRunOutcome.observable]
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
 /-- The exact emitted module, operational program, import layout, and finite runtime resources. -/
@@ -94,7 +79,7 @@ def spike1WasiArtifact : WasiArtifact where
   instructions := spike1WasmInstructions
   dataSegments := spike1DataSegments
   imports := ["fd_write", "proc_exit"]
-  resources := { fuel := defaultWasmFuel, memoryPages := 65536 }
+  resources := { fuel := 100, memoryPages := 65536 }
 
 def spike1WasiExports : VerifiedExportSet Unit Unit WasiPlatform
     wasiBoundarySpec wasiBoundarySemantics :=
@@ -113,9 +98,9 @@ def spike1WasiExports : VerifiedExportSet Unit Unit WasiPlatform
 theorem spike1_wasi_reference_outcome :
     (runWasiOutcome spike1WasmInstructions spike1DataSegments ByteArray.empty
       ["fd_write", "proc_exit"] []
-      { fuel := defaultWasmFuel, memoryPages := 65536 }).observable =
+      { fuel := 100, memoryPages := 65536 }).observable =
         .exited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)) := by
-  native_decide
+  exact spike1_wasm_canonical_effect_trace_equivalence
 
 private def spike1WasiEmittedBytes : ByteArray :=
   match spike1WasmBinary with
@@ -188,7 +173,7 @@ def spike1WasiBehaviorCertificate :
     intro environment
     change (runWasiOutcome spike1WasmInstructions spike1DataSegments environment.stdin
       ["fd_write", "proc_exit"] environment.incomingRequests
-      { fuel := defaultWasmFuel, memoryPages := 65536 }).observable = _
+      { fuel := 100, memoryPages := 65536 }).observable = _
     rw [runWasiOutcome_output_only_observable_external_input_frame]
     exact spike1_wasi_reference_outcome
 

@@ -36,6 +36,12 @@ open Spikes.Spike2Fibonacci
 def fibFormattedBytes : ByteArray :=
   formattedFibonacciWasmOutput.toUTF8
 
+/-- The generated output payload fits in the single declared Wasm memory page.  This finite
+    artifact-owned fact is discharged once here; loader and host-boundary proofs consume the bound
+    symbolically and never normalize the 90-line payload again. -/
+theorem fibFormattedBytes_fits_page : fibFormattedBytes.size ≤ 65520 := by
+  decide +kernel
+
 /- REF: docs/TARGETS/WASI.md#31-wasiciovect-structure -/
 /-- WASI ciovec buffer pointing to offset 0x10 with total formatted length. -/
 def fibCiovec : ByteArray :=
@@ -132,6 +138,71 @@ def spike2DataSegments : List WasmDataSegment := [
   { offset := 0x00, data := fibCiovec },
   { offset := 0x10, data := fibFormattedBytes }
 ]
+
+/-- The exact memory image installed for the Spike 2 root artifact. -/
+def spike2InitialMemory : WasmMemory := initWasmMemory spike2DataSegments
+
+set_option maxRecDepth 10000 in
+/-- Loader-owned payload realization: the formatted output remains symbolic after installation. -/
+theorem spike2InitialMemory_payload :
+    WasmMem.readBytes spike2InitialMemory 16 fibFormattedBytes.size =
+      some fibFormattedBytes := by
+  unfold spike2InitialMemory initWasmMemory spike2DataSegments
+  dsimp only [List.foldl]
+  apply readBytes_installWasmDataSegment_self
+  · simp
+  · rw [installWasmDataSegment_size]
+    change 16 + fibFormattedBytes.size ≤ initialWasmPage.size
+    rw [initialWasmPage_size]
+    have h := fibFormattedBytes_fits_page
+    omega
+
+/-- The payload theorem projected through the public formatted-output name used by the spec. -/
+theorem spike2InitialMemory_formatted_payload :
+    WasmMem.readBytes spike2InitialMemory 16 formattedFibonacciWasmOutput.toUTF8.size =
+      some formattedFibonacciWasmOutput.toUTF8 := by
+  change WasmMem.readBytes spike2InitialMemory 16 fibFormattedBytes.size =
+    some fibFormattedBytes
+  exact spike2InitialMemory_payload
+
+/-- The artifact length survives the WASI `UInt32` ABI conversion without truncation. -/
+theorem fibFormattedBytes_length_roundtrip :
+    fibFormattedBytes.size.toUInt32.toNat = formattedFibonacciWasmOutput.toUTF8.size := by
+  change fibFormattedBytes.size % 2 ^ 32 = fibFormattedBytes.size
+  apply Nat.mod_eq_of_lt
+  have hfits := fibFormattedBytes_fits_page
+  omega
+
+set_option maxRecDepth 10000 in
+/-- Loader-owned ciovec realization, preserved across the later payload segment. -/
+theorem spike2InitialMemory_ciovec_bytes :
+    WasmMem.readBytes spike2InitialMemory 0 8 = some fibCiovec := by
+  unfold spike2InitialMemory initWasmMemory spike2DataSegments
+  dsimp only [List.foldl]
+  rw [readBytes_installWasmDataSegment_prefix]
+  · apply readBytes_installWasmDataSegment_self
+    · simp
+    · change fibCiovec.size ≤ initialWasmPage.size
+      rw [initialWasmPage_size]
+      decide
+  · simp
+  · rw [installWasmDataSegment_size, initialWasmPage_size]
+    decide
+
+theorem spike2InitialMemory_ciovec :
+    readCiovec spike2InitialMemory 0 =
+      some (16, fibFormattedBytes.size.toUInt32) := by
+  exact readCiovec_encode _ _ _ _ spike2InitialMemory_ciovec_bytes
+
+/-- The host's `nwritten` result slot is writable in the exact loaded image. -/
+theorem spike2InitialMemory_nwritten : ∃ writtenMemory,
+    WasmMem.write32 spike2InitialMemory 8 fibFormattedBytes.size.toUInt32 =
+      some writtenMemory := by
+  unfold WasmMem.write32
+  change ∃ writtenMemory,
+    (if 8 + 4 ≤ WasmMem.size spike2InitialMemory then some _ else none) = some writtenMemory
+  rw [if_pos (by simp [spike2InitialMemory])]
+  exact ⟨_, rfl⟩
 
 /- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
 /-- Complete WebAssembly WASI module definition for Spike 2. -/

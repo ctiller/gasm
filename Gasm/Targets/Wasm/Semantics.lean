@@ -529,6 +529,32 @@ def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
       let result := evalLeafInstrRaw other sanitized hostCall
       (result.1.withExternalInputs s.stdin s.incomingRequests, result.2)
 
+/-- Public typed leaf contract for a 32-bit constant.  Sequence proofs consume this equation
+    without unfolding the private interpreter dispatcher. -/
+@[simp] theorem evalLeafInstr_i32_const (value : UInt32) (state : WasmMachineState)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) :
+    evalLeafInstr (.i32_const value) state hostCall =
+      (pushVal (.i32 value) state, .next) := by
+  rfl
+
+/-- Public typed leaf contract for stack drop. -/
+@[simp] theorem evalLeafInstr_drop (state : WasmMachineState)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) :
+    evalLeafInstr .drop state hostCall =
+      (match state.stack with
+       | _ :: rest => ({ state with stack := rest }, .next)
+       | [] => (state, .next)) := by
+  cases hstack : state.stack <;>
+    simp [evalLeafInstr, evalLeafInstrRaw, WasmMachineState.withExternalInputs, hstack] <;>
+    cases state <;> simp_all
+
+/-- Imported calls are already the common call/jump boundary and delegate exactly to the selected
+    host realization. -/
+@[simp] theorem evalLeafInstr_call (index : Nat) (state : WasmMachineState)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) :
+    evalLeafInstr (.call index) state hostCall = hostCall index state := by
+  rfl
+
 def WasmHostPreservesExternalInputFrame
     (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : Prop :=
   ∀ index state stdin requests,
