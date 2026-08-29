@@ -34,7 +34,7 @@ abbrev Spike3WasiPreview1Platform := WasiPlatform
 /-- Spike 3 uses the repository's sole WASI artifact and execution profile. -/
 abbrev Spike3WasiArtifact := WasiArtifact
 
-/- REF: docs/SYSTEM_EFFECTS.md#101-capability-composition-and-abi-boundaries -/
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- The composition preserves every canonical environment field at load time.  This is the
     capability premise a future `VerifiedProgram` proof must use; it cannot narrow stdin to a
     Bool or a finite test enumeration. -/
