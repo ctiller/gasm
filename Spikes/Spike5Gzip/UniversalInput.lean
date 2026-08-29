@@ -20,23 +20,16 @@ import Gasm.Targets.Windows.Win32API
 import Gasm.Targets.WASI.ABI
 import Stdlib.Zlib.ContainerRoundtrip
 import Spikes.Spike5Gzip.Spec
-import Spikes.Spike5Gzip.Windows.Program
-import Spikes.Spike5Gzip.Linux.Program
-import Spikes.Spike5Gzip.Wasm.Program
+import Spikes.Spike5Gzip.Runtime
 
 /-!
 The first universal-input boundary for Spike 5.
 
-The old Spike 5 contracts selected `canonicalSampleData` through a one-element
-operation type.  That does not describe a CLI program: its input is the byte
-stream supplied by the external environment.  This module names that boundary,
-records the concrete target injection points, and connects the resulting
-arbitrary byte stream to the library's universal GZIP container theorem.
-
-It intentionally does *not* assert machine-code trace equivalence.  The current
-target artifacts still embed the canonical stream and therefore do not yet read
-stdin.  A future `VerifiedProgram` migration must change the target programs to
-consume these injection points and prove the corresponding trace theorem.
+Spike 5's streaming contracts consume the byte stream supplied by the external
+environment.  This module names that boundary, records the concrete target
+injection points, and connects the resulting arbitrary byte stream to the
+library's universal GZIP container theorem.  The universal target trace proofs
+live in `Runtime` and `NativeProofs`.
 -/
 
 namespace Spikes.Spike5Gzip
@@ -69,13 +62,13 @@ def gunzipEnvironmentTrace (env : Environment) : List AnyEvent :=
 /-- Windows's concrete Spike 5 input injection point.  `ReadFile` consumes this
     state's `stdinBuffer`; target-level proofs must start from this state. -/
 def spike5WindowsInitialState (env : Environment) :=
-  Windows.spike5Executable.loadWithStdin (gzipInput env)
+  (windowsStreamArtifact .compress).executable.loadWithStdin (gzipInput env)
 
 /- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
 /-- Linux's concrete Spike 5 input injection point.  `read(2)` consumes this
     state's `stdinBuffer`; target-level proofs must start from this state. -/
 def spike5LinuxInitialState (env : Environment) :=
-  Linux.spike5Executable.loadWithStdin (gzipInput env)
+  (linuxStreamArtifact .compress).executable.loadWithStdin (gzipInput env)
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- WASI's concrete Spike 5 input injection point.  `fd_read` consumes the first

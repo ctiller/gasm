@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Spikes.Spike5Gzip.Runtime
+import Spikes.Spike3SortLines.Windows.IATLemmas
 
 namespace Spikes.Spike5Gzip
 
@@ -26,6 +27,7 @@ open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.Windows
 open Stdlib.Zlib
+open Spikes.Spike3SortLines.Windows
 
 set_option maxHeartbeats 2000000
 set_option maxRecDepth 100000
@@ -42,7 +44,7 @@ theorem trace_step_event {Event : Type}
     (hfault : hooked.faulted = false) :
     runProgramTraceWithLoops baseRip instructions (fuel + 1) state =
       event :: runProgramTraceWithLoops baseRip instructions fuel hooked := by
-  simp [runProgramTraceWithLoops, runProgramTraceWithLoops.loop, hlookup,
+  simp [runProgramTraceWithLoops, runProgramTraceLoop, hlookup,
     hintercept, hfault]
 
 theorem trace_step_silent {Event : Type}
@@ -57,7 +59,7 @@ theorem trace_step_silent {Event : Type}
     (hfault : hooked.faulted = false) :
     runProgramTraceWithLoops (Event := Event) baseRip instructions (fuel + 1) state =
       runProgramTraceWithLoops (Event := Event) baseRip instructions fuel hooked := by
-  simp [runProgramTraceWithLoops, runProgramTraceWithLoops.loop, hlookup,
+  simp [runProgramTraceWithLoops, runProgramTraceLoop, hlookup,
     hintercept, hfault]
 
 theorem trace_complete {Event : Type}
@@ -66,7 +68,7 @@ theorem trace_complete {Event : Type}
     (state : X86_64MachineState)
     (hlookup : instructionAtRipIndexed (indexInstructions baseRip instructions) state.rip = none) :
     runProgramTraceWithLoops (Event := Event) baseRip instructions (fuel + 1) state = [] := by
-  simp [runProgramTraceWithLoops, runProgramTraceWithLoops.loop, hlookup]
+  simp [runProgramTraceWithLoops, runProgramTraceLoop, hlookup]
 
 theorem outcome_step_event {Event : Type}
     [interceptor : ExternalCallInterceptor X86_64 Event]
@@ -78,9 +80,11 @@ theorem outcome_step_event {Event : Type}
       (X86_64Instruction.step instruction state).rip
       (X86_64Instruction.step instruction state) = some (hooked, some event))
     (hfault : hooked.faulted = false) :
-    runProgramOutcomeWithLoops.loop indexed (fuel + 1) state eventsRev =
-      runProgramOutcomeWithLoops.loop indexed fuel hooked (event :: eventsRev) := by
-  simp [runProgramOutcomeWithLoops.loop, hlookup, hintercept, hfault]
+    runProgramOutcomeLoop indexed (fuel + 1) state eventsRev =
+      runProgramOutcomeLoop indexed fuel hooked (event :: eventsRev) := by
+  have hfault' : hooked.fault = none := by
+    cases h : hooked.fault <;> simp [X86_64MachineState.faulted, h] at hfault ⊢
+  simp [runProgramOutcomeLoop, nativeOutcomeTransition, hlookup, hintercept, hfault']
 
 theorem outcome_step_silent {Event : Type}
     [interceptor : ExternalCallInterceptor X86_64 Event]
@@ -92,18 +96,78 @@ theorem outcome_step_silent {Event : Type}
       (X86_64Instruction.step instruction state).rip
       (X86_64Instruction.step instruction state) = some (hooked, none))
     (hfault : hooked.faulted = false) :
-    runProgramOutcomeWithLoops.loop indexed (fuel + 1) state eventsRev =
-      runProgramOutcomeWithLoops.loop indexed fuel hooked eventsRev := by
-  simp [runProgramOutcomeWithLoops.loop, hlookup, hintercept, hfault]
+    runProgramOutcomeLoop indexed (fuel + 1) state eventsRev =
+      runProgramOutcomeLoop indexed fuel hooked eventsRev := by
+  have hfault' : hooked.fault = none := by
+    cases h : hooked.fault <;> simp [X86_64MachineState.faulted, h] at hfault ⊢
+  simp [runProgramOutcomeLoop, nativeOutcomeTransition, hlookup, hintercept, hfault']
 
 theorem outcome_complete {Event : Type}
     [ExternalCallInterceptor X86_64 Event]
     (indexed : List (Address × X86_64Instr)) (fuel : Nat)
     (state : X86_64MachineState) (eventsRev : List Event)
     (hlookup : instructionAtRipIndexed indexed state.rip = none) :
-    runProgramOutcomeWithLoops.loop indexed (fuel + 1) state eventsRev =
-      .completed state eventsRev.reverse := by
-  simp [runProgramOutcomeWithLoops.loop, hlookup]
+    runProgramOutcomeLoop indexed (fuel + 1) state eventsRev =
+      .returned state eventsRev.reverse := by
+  simp [runProgramOutcomeLoop, hlookup]
+
+/- A call writes only its return slot.  This structural read-over-write lemma
+   is the memory-frame leaf used by every later Windows IAT edge. -/
+theorem X86_64Mem.read64_write64_disjoint_before
+    (readAddr writeAddr value : UInt64) (memory : X86_64Memory)
+    (hwrite : writeAddr.toNat + 8 ≤ 2 ^ 64)
+    (hread : readAddr.toNat + 8 ≤ writeAddr.toNat) :
+    X86_64Mem.read .w64 readAddr (X86_64Mem.write .w64 writeAddr value memory) =
+      X86_64Mem.read .w64 readAddr memory := by
+  simp only [X86_64Mem.read]
+  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory readAddr hwrite (by omega)]
+  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 1) hwrite (by
+    left
+    have hbound : readAddr.toNat + 1 < 2 ^ 64 := by omega
+    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
+    omega)]
+  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 2) hwrite (by
+    left
+    have hbound : readAddr.toNat + 2 < 2 ^ 64 := by omega
+    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
+    omega)]
+  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 3) hwrite (by
+    left
+    have hbound : readAddr.toNat + 3 < 2 ^ 64 := by omega
+    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
+    omega)]
+  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 4) hwrite (by
+    left
+    have hbound : readAddr.toNat + 4 < 2 ^ 64 := by omega
+    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
+    omega)]
+  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 5) hwrite (by
+    left
+    have hbound : readAddr.toNat + 5 < 2 ^ 64 := by omega
+    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
+    omega)]
+  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 6) hwrite (by
+    left
+    have hbound : readAddr.toNat + 6 < 2 ^ 64 := by omega
+    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
+    omega)]
+  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 7) hwrite (by
+    left
+    have hbound : readAddr.toNat + 7 < 2 ^ 64 := by omega
+    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
+    omega)]
+
+theorem withPhase_call_rip_read64_preserved
+    (state : X86_64MachineState) (displacement : Int32) (phase : UInt64)
+    (readAddr : Address)
+    (hwrite : (state.rsp - 8).toNat + 8 ≤ 2 ^ 64)
+    (hread : readAddr.toNat + 8 ≤ (state.rsp - 8).toNat) :
+    (withPhase (X86_64Instruction.step (call_rip displacement) state) phase).read64 readAddr =
+      state.read64 readAddr := by
+  change X86_64Mem.read .w64 readAddr
+      (X86_64Mem.write .w64 (state.rsp - 8) (state.rip + 6) state.memory) =
+    X86_64Mem.read .w64 readAddr state.memory
+  exact X86_64Mem.read64_write64_disjoint_before _ _ _ _ hwrite hread
 
 /- Each native call edge is proved once from its source state to its destination
    state.  Whole-program certificates compose these local edges; they do not
@@ -378,18 +442,18 @@ def linuxIndexed (direction : CodecDirection) (environment : Environment) :=
 
 theorem linux_outcome_prefix (direction : CodecDirection) (environment : Environment)
     (eventsRev : List AnyEvent) :
-    @runProgramOutcomeWithLoops.loop AnyEvent
+    @runProgramOutcomeLoop AnyEvent
       (linuxStreamingInterceptor (linuxStreamEntry direction environment))
       (linuxIndexed direction environment) 50000
       (linuxStreamInitial direction environment) eventsRev =
-    @runProgramOutcomeWithLoops.loop AnyEvent
+    @runProgramOutcomeLoop AnyEvent
       (linuxStreamingInterceptor (linuxStreamEntry direction environment))
       (linuxIndexed direction environment) 49998
       (linuxState2 direction environment) eventsRev := by
   let start := linuxStartEdge direction environment
   let push := linuxPushEdge direction environment
   calc
-    _ = @runProgramOutcomeWithLoops.loop AnyEvent
+    _ = @runProgramOutcomeLoop AnyEvent
         (linuxStreamingInterceptor (linuxStreamEntry direction environment))
         (linuxIndexed direction environment) 49999
         (linuxState1 direction environment) eventsRev :=
@@ -411,13 +475,13 @@ theorem linux_outcome_stops_after_result (direction : CodecDirection)
       (linuxStreamingInterceptor (linuxStreamEntry direction environment))
       (linuxStep2 direction environment).rip (linuxStep2 direction environment) =
         some (linuxStep2 direction environment, some event)) :
-    @runProgramOutcomeWithLoops.loop AnyEvent
+    @runProgramOutcomeLoop AnyEvent
       (linuxStreamingInterceptor (linuxStreamEntry direction environment))
       (linuxIndexed direction environment) 49998
       (linuxState2 direction environment) eventsRev =
-        .completed (linuxStep2 direction environment) (event :: eventsRev).reverse := by
+        .returned (linuxStep2 direction environment) (event :: eventsRev).reverse := by
   calc
-    _ = @runProgramOutcomeWithLoops.loop AnyEvent
+    _ = @runProgramOutcomeLoop AnyEvent
         (linuxStreamingInterceptor (linuxStreamEntry direction environment))
         (linuxIndexed direction environment) 49997
         (linuxStep2 direction environment) (event :: eventsRev) :=
@@ -438,14 +502,14 @@ theorem linux_outcome_continues_after_result (direction : CodecDirection)
       (linuxStreamingInterceptor (linuxStreamEntry direction environment))
       (linuxStep2 direction environment).rip (linuxStep2 direction environment) =
         some (linuxState3 direction environment, some event)) :
-    @runProgramOutcomeWithLoops.loop AnyEvent
+    @runProgramOutcomeLoop AnyEvent
       (linuxStreamingInterceptor (linuxStreamEntry direction environment))
       (linuxIndexed direction environment) 49998
       (linuxState2 direction environment) eventsRev =
-        .completed (linuxStep3 direction environment)
+        .returned (linuxStep3 direction environment)
           (Inject.inject (ProcessEvent.exit 0) :: event :: eventsRev).reverse := by
   calc
-    _ = @runProgramOutcomeWithLoops.loop AnyEvent
+    _ = @runProgramOutcomeLoop AnyEvent
         (linuxStreamingInterceptor (linuxStreamEntry direction environment))
         (linuxIndexed direction environment) 49997
         (linuxState3 direction environment) (event :: eventsRev) :=
@@ -455,7 +519,7 @@ theorem linux_outcome_continues_after_result (direction : CodecDirection)
         (linuxState2 direction environment) (linuxState3 direction environment)
         (call_rel32 0x30000) eventsRev event (linux_lookup_two direction environment)
         hhook (linux_state3_safe direction environment)
-    _ = @runProgramOutcomeWithLoops.loop AnyEvent
+    _ = @runProgramOutcomeLoop AnyEvent
         (linuxStreamingInterceptor (linuxStreamEntry direction environment))
         (linuxIndexed direction environment) 49996
         (linuxStep3 direction environment)
@@ -575,13 +639,13 @@ def linuxStreamingSpec (direction : CodecDirection) (environment : Environment) 
 theorem linux_platform_run (runtime : ExternalCallInterceptor X86_64 AnyEvent)
     (artifact : LinuxX86_64Artifact) (state : X86_64MachineState) :
     Platform.run (P := LinuxX86_64 AnyEvent) runtime artifact state =
-      @runAsmTrace AnyEvent runtime artifact.instructions state 50000 := by
+      (@runProgramOutcomeWithLoops AnyEvent runtime state.rip artifact.instructions 50000 state).events := by
   rfl
 
 theorem linux_platform_admissible (runtime : ExternalCallInterceptor X86_64 AnyEvent)
     (artifact : LinuxX86_64Artifact) (state : X86_64MachineState) :
     Platform.admissible (P := LinuxX86_64 AnyEvent) runtime artifact state =
-      (@runProgramOutcomeWithLoops AnyEvent runtime state.rip artifact.instructions 50000 state).isAdmissible := by
+      (@runProgramOutcomeWithLoops AnyEvent runtime state.rip artifact.instructions 50000 state).isAdmissible true := by
   rfl
 
 theorem linux_stream_realize (direction : CodecDirection)
@@ -599,6 +663,8 @@ theorem linux_streaming_trace_equivalence (direction : CodecDirection)
       (Platform.load (P := LinuxX86_64 AnyEvent) (linuxStreamArtifact direction) environment) =
         linuxStreamingSpec direction environment := by
   rw [linux_platform_run, linux_stream_realize]
+  rw [@runProgramOutcomeWithLoops_events AnyEvent
+    (linuxStreamingInterceptor (linuxStreamEntry direction environment))]
   change @runProgramTraceWithLoops AnyEvent
       (linuxStreamingInterceptor (linuxStreamEntry direction environment))
       (linuxStreamInitial direction environment).rip linuxStreamInstructions 50000
@@ -671,10 +737,10 @@ theorem linux_streaming_admissible (direction : CodecDirection) (environment : E
       (Platform.load (P := LinuxX86_64 AnyEvent) (linuxStreamArtifact direction) environment) := by
   rw [linux_platform_admissible, linux_stream_realize]
   unfold runProgramOutcomeWithLoops
-  change (@runProgramOutcomeWithLoops.loop AnyEvent
+  change (@runProgramOutcomeLoop AnyEvent
     (linuxStreamingInterceptor (linuxStreamEntry direction environment))
     (linuxIndexed direction environment) 50000
-    (linuxStreamInitial direction environment) []).isAdmissible
+    (linuxStreamInitial direction environment) []).isAdmissible true
   rw [linux_outcome_prefix]
   cases direction with
   | compress =>
@@ -856,5 +922,1190 @@ def linuxStreamingVerifiedProgram (direction : CodecDirection) :
     (linuxStreamingEntryCertificate direction)
     (linuxStreamingAdmissibilityCertificate direction)
     (linuxStreamingBehaviorCertificate direction)
+
+theorem windows_stream_text_size (direction : CodecDirection) :
+    (windowsStreamArtifact direction).executable.textBytes.size = 24 := by
+  cases direction <;> decide
+
+theorem windows_stream_rdata_size (direction : CodecDirection) :
+    (windowsStreamArtifact direction).executable.rdataBytes.size = 0 := by
+  cases direction <;> decide
+
+theorem windows_stream_layout (direction : CodecDirection) :
+    computeSectionLayout (windowsStreamArtifact direction).executable.textBytes.size
+      (windowsStreamArtifact direction).executable.rdataBytes.size 512 =
+      { textRva := 0x1000, textRawSize := 512, rdataRva := 0x2000, rdataRawSize := 512,
+        idataRva := 0x3000, idataRawSize := 512, sizeOfImage := 0x4000 } := by
+  rw [windows_stream_text_size, windows_stream_rdata_size]
+  decide
+
+theorem windows_stream_imports (direction : CodecDirection) :
+    (windowsStreamArtifact direction).executable.imports = streamWindowsImports direction := by
+  cases direction <;> rfl
+
+theorem windows_stream_image_base (direction : CodecDirection) :
+    (windowsStreamArtifact direction).executable.imageBase = (0x140000000 : Address) := by
+  rfl
+
+theorem windows_stream_iat_slots (direction : CodecDirection) :
+    (windowsStreamArtifact direction).executable.iatFunctionSlots 0x3000 =
+      [(0x140000000 : Address) + 0x3000, (0x140000000 : Address) + 0x3008,
+       (0x140000000 : Address) + 0x3010, (0x140000000 : Address) + 0x3018] := by
+  unfold WindowsExecutable.iatFunctionSlots
+  rw [windows_stream_imports, windows_stream_image_base]
+  cases direction <;> rfl
+
+theorem windows_executable_load_read64_of_layout (executable : WindowsExecutable)
+    (layout : SectionLayout)
+    (hlayout : computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512 =
+      layout)
+    (address : Address) :
+    executable.load.read64 address =
+      X86_64Mem.read .w64 address
+        (X86_64Mem.initRegion (loadMemory executable.imageBase
+          [(layout.textRva, executable.textBytes), (layout.rdataRva, executable.rdataBytes)]
+          executable.imports layout.idataRva)) := by
+  unfold WindowsExecutable.load
+  rw [hlayout]
+  rfl
+
+syntax "prove_spike5_selfref " term " at " term : tactic
+macro_rules
+  | `(tactic| prove_spike5_selfref $direction:term at $addr:term) =>
+    `(tactic|
+      (rw [read64_initRegion_generic]
+       have key0 := loadMemory_excludes_sections
+         (0x1000 : UInt32) (0x2000 : UInt32) (0x3000 : UInt32) (0x140000000 : Address)
+         (windowsStreamArtifact $direction).executable.textBytes
+         (windowsStreamArtifact $direction).executable.rdataBytes
+         (windowsStreamArtifact $direction).executable.imports ($addr)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+       have key1 := loadMemory_excludes_sections
+         (0x1000 : UInt32) (0x2000 : UInt32) (0x3000 : UInt32) (0x140000000 : Address)
+         (windowsStreamArtifact $direction).executable.textBytes
+         (windowsStreamArtifact $direction).executable.rdataBytes
+         (windowsStreamArtifact $direction).executable.imports ($addr + 1)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+       have key2 := loadMemory_excludes_sections
+         (0x1000 : UInt32) (0x2000 : UInt32) (0x3000 : UInt32) (0x140000000 : Address)
+         (windowsStreamArtifact $direction).executable.textBytes
+         (windowsStreamArtifact $direction).executable.rdataBytes
+         (windowsStreamArtifact $direction).executable.imports ($addr + 2)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+       have key3 := loadMemory_excludes_sections
+         (0x1000 : UInt32) (0x2000 : UInt32) (0x3000 : UInt32) (0x140000000 : Address)
+         (windowsStreamArtifact $direction).executable.textBytes
+         (windowsStreamArtifact $direction).executable.rdataBytes
+         (windowsStreamArtifact $direction).executable.imports ($addr + 3)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+       have key4 := loadMemory_excludes_sections
+         (0x1000 : UInt32) (0x2000 : UInt32) (0x3000 : UInt32) (0x140000000 : Address)
+         (windowsStreamArtifact $direction).executable.textBytes
+         (windowsStreamArtifact $direction).executable.rdataBytes
+         (windowsStreamArtifact $direction).executable.imports ($addr + 4)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+       have key5 := loadMemory_excludes_sections
+         (0x1000 : UInt32) (0x2000 : UInt32) (0x3000 : UInt32) (0x140000000 : Address)
+         (windowsStreamArtifact $direction).executable.textBytes
+         (windowsStreamArtifact $direction).executable.rdataBytes
+         (windowsStreamArtifact $direction).executable.imports ($addr + 5)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+       have key6 := loadMemory_excludes_sections
+         (0x1000 : UInt32) (0x2000 : UInt32) (0x3000 : UInt32) (0x140000000 : Address)
+         (windowsStreamArtifact $direction).executable.textBytes
+         (windowsStreamArtifact $direction).executable.rdataBytes
+         (windowsStreamArtifact $direction).executable.imports ($addr + 6)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+       have key7 := loadMemory_excludes_sections
+         (0x1000 : UInt32) (0x2000 : UInt32) (0x3000 : UInt32) (0x140000000 : Address)
+         (windowsStreamArtifact $direction).executable.textBytes
+         (windowsStreamArtifact $direction).executable.rdataBytes
+         (windowsStreamArtifact $direction).executable.imports ($addr + 7)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+         (by rw [windows_stream_text_size]; decide) (by rw [windows_stream_rdata_size]; decide)
+       rw [key0, key1, key2, key3, key4, key5, key6, key7]
+       decide))
+
+set_option maxHeartbeats 8000000 in
+theorem windows_iat0_compress_selfref :
+    X86_64Mem.read .w64 ((0x140000000 : Address) + 0x3000)
+      (X86_64Mem.initRegion (loadMemory (0x140000000 : Address)
+        [((0x1000 : UInt32), (windowsStreamArtifact .compress).executable.textBytes),
+         ((0x2000 : UInt32), (windowsStreamArtifact .compress).executable.rdataBytes)]
+        (windowsStreamArtifact .compress).executable.imports (0x3000 : UInt32))) =
+      (0x140000000 : Address) + 0x3000 := by
+  prove_spike5_selfref .compress at ((0x140000000 : Address) + 0x3000)
+
+set_option maxHeartbeats 8000000 in
+theorem windows_iat1_compress_selfref :
+    X86_64Mem.read .w64 ((0x140000000 : Address) + 0x3008)
+      (X86_64Mem.initRegion (loadMemory (0x140000000 : Address)
+        [((0x1000 : UInt32), (windowsStreamArtifact .compress).executable.textBytes),
+         ((0x2000 : UInt32), (windowsStreamArtifact .compress).executable.rdataBytes)]
+        (windowsStreamArtifact .compress).executable.imports (0x3000 : UInt32))) =
+      (0x140000000 : Address) + 0x3008 := by
+  prove_spike5_selfref .compress at ((0x140000000 : Address) + 0x3008)
+
+set_option maxHeartbeats 8000000 in
+theorem windows_iat2_compress_selfref :
+    X86_64Mem.read .w64 ((0x140000000 : Address) + 0x3010)
+      (X86_64Mem.initRegion (loadMemory (0x140000000 : Address)
+        [((0x1000 : UInt32), (windowsStreamArtifact .compress).executable.textBytes),
+         ((0x2000 : UInt32), (windowsStreamArtifact .compress).executable.rdataBytes)]
+        (windowsStreamArtifact .compress).executable.imports (0x3000 : UInt32))) =
+      (0x140000000 : Address) + 0x3010 := by
+  prove_spike5_selfref .compress at ((0x140000000 : Address) + 0x3010)
+
+set_option maxHeartbeats 8000000 in
+theorem windows_iat3_compress_selfref :
+    X86_64Mem.read .w64 ((0x140000000 : Address) + 0x3018)
+      (X86_64Mem.initRegion (loadMemory (0x140000000 : Address)
+        [((0x1000 : UInt32), (windowsStreamArtifact .compress).executable.textBytes),
+         ((0x2000 : UInt32), (windowsStreamArtifact .compress).executable.rdataBytes)]
+        (windowsStreamArtifact .compress).executable.imports (0x3000 : UInt32))) =
+      (0x140000000 : Address) + 0x3018 := by
+  prove_spike5_selfref .compress at ((0x140000000 : Address) + 0x3018)
+
+set_option maxHeartbeats 8000000 in
+theorem windows_iat0_decompress_selfref :
+    X86_64Mem.read .w64 ((0x140000000 : Address) + 0x3000)
+      (X86_64Mem.initRegion (loadMemory (0x140000000 : Address)
+        [((0x1000 : UInt32), (windowsStreamArtifact .decompress).executable.textBytes),
+         ((0x2000 : UInt32), (windowsStreamArtifact .decompress).executable.rdataBytes)]
+        (windowsStreamArtifact .decompress).executable.imports (0x3000 : UInt32))) =
+      (0x140000000 : Address) + 0x3000 := by
+  prove_spike5_selfref .decompress at ((0x140000000 : Address) + 0x3000)
+
+set_option maxHeartbeats 8000000 in
+theorem windows_iat1_decompress_selfref :
+    X86_64Mem.read .w64 ((0x140000000 : Address) + 0x3008)
+      (X86_64Mem.initRegion (loadMemory (0x140000000 : Address)
+        [((0x1000 : UInt32), (windowsStreamArtifact .decompress).executable.textBytes),
+         ((0x2000 : UInt32), (windowsStreamArtifact .decompress).executable.rdataBytes)]
+        (windowsStreamArtifact .decompress).executable.imports (0x3000 : UInt32))) =
+      (0x140000000 : Address) + 0x3008 := by
+  prove_spike5_selfref .decompress at ((0x140000000 : Address) + 0x3008)
+
+set_option maxHeartbeats 8000000 in
+theorem windows_iat2_decompress_selfref :
+    X86_64Mem.read .w64 ((0x140000000 : Address) + 0x3010)
+      (X86_64Mem.initRegion (loadMemory (0x140000000 : Address)
+        [((0x1000 : UInt32), (windowsStreamArtifact .decompress).executable.textBytes),
+         ((0x2000 : UInt32), (windowsStreamArtifact .decompress).executable.rdataBytes)]
+        (windowsStreamArtifact .decompress).executable.imports (0x3000 : UInt32))) =
+      (0x140000000 : Address) + 0x3010 := by
+  prove_spike5_selfref .decompress at ((0x140000000 : Address) + 0x3010)
+
+set_option maxHeartbeats 8000000 in
+theorem windows_iat3_decompress_selfref :
+    X86_64Mem.read .w64 ((0x140000000 : Address) + 0x3018)
+      (X86_64Mem.initRegion (loadMemory (0x140000000 : Address)
+        [((0x1000 : UInt32), (windowsStreamArtifact .decompress).executable.textBytes),
+         ((0x2000 : UInt32), (windowsStreamArtifact .decompress).executable.rdataBytes)]
+        (windowsStreamArtifact .decompress).executable.imports (0x3000 : UInt32))) =
+      (0x140000000 : Address) + 0x3018 := by
+  prove_spike5_selfref .decompress at ((0x140000000 : Address) + 0x3018)
+
+/- Windows uses the same logical CFG.  Only each call edge's target realization
+   differs: the PE loader supplies the exact artifact IAT slot proven by the
+   provider certificate. -/
+def windowsConcreteStreamInstructions : List X86_64Instr :=
+  [call_rip 8186, call_rip 8188, call_rip 8190, call_rip 8192]
+
+theorem windows_stream_instructions_eq (direction : CodecDirection) :
+    (windowsStreamArtifact direction).instructions = windowsConcreteStreamInstructions := by
+  cases direction <;> rfl
+
+def windowsStreamInitial (direction : CodecDirection) (environment : Environment) :=
+  Platform.load (P := WindowsX86_64 AnyEvent) (windowsStreamArtifact direction) environment
+
+def windowsStreamEntry (direction : CodecDirection) (environment : Environment) :
+    StreamingInvocationContext :=
+  .mk direction environment.stdin spike5AllocationScope (windowsStreamInitial direction environment).rip
+
+def windowsStep0 (direction : CodecDirection) (environment : Environment) :=
+  X86_64Instruction.step (call_rip 8186) (windowsStreamInitial direction environment)
+
+def windowsState1 (direction : CodecDirection) (environment : Environment) :=
+  withPhase (windowsStep0 direction environment) 1
+
+def windowsStep1 (direction : CodecDirection) (environment : Environment) :=
+  X86_64Instruction.step (call_rip 8188) (windowsState1 direction environment)
+
+def windowsState2 (direction : CodecDirection) (environment : Environment) :=
+  withPhase (windowsStep1 direction environment) 2
+
+def windowsStep2 (direction : CodecDirection) (environment : Environment) :=
+  X86_64Instruction.step (call_rip 8190) (windowsState2 direction environment)
+
+def windowsState3 (direction : CodecDirection) (environment : Environment) :=
+  withPhase (windowsStep2 direction environment) 3
+
+def windowsStep3 (direction : CodecDirection) (environment : Environment) :=
+  X86_64Instruction.step (call_rip 8192) (windowsState3 direction environment)
+
+theorem withPhase_call_rip_rip (state : X86_64MachineState)
+    (displacement : Int32) (phase : UInt64) :
+    (withPhase (X86_64Instruction.step (call_rip displacement) state) phase).rip =
+      state.rip + 6 := by
+  change ((state.push64 (state.rip + 6)).pop64).1 = state.rip + 6
+  exact (push64_pop64_roundtrip state (state.rip + 6)).1
+
+theorem withPhase_call_rip_rsp (state : X86_64MachineState)
+    (displacement : Int32) (phase : UInt64) :
+    (withPhase (X86_64Instruction.step (call_rip displacement) state) phase).rsp =
+      state.rsp := by
+  change (state.push64 (state.rip + 6)).pop64.2.rsp = state.rsp
+  exact (push64_pop64_roundtrip state (state.rip + 6)).2.1
+
+@[simp] theorem call_rip_step_rip (state : X86_64MachineState)
+    (displacement : Int32) :
+    (X86_64Instruction.step (call_rip displacement) state).rip =
+      state.read64 (state.rip + 6 + signExtend32To64 displacement) := by
+  rfl
+
+@[simp] theorem call_rip_preserves_r15 (state : X86_64MachineState)
+    (displacement : Int32) :
+    (X86_64Instruction.step (call_rip displacement) state).gprs .r15 =
+      state.gprs .r15 := by
+  rfl
+
+@[simp] theorem call_rip_step_faulted (state : X86_64MachineState)
+    (displacement : Int32) :
+    (X86_64Instruction.step (call_rip displacement) state).faulted = state.faulted := by
+  rfl
+
+theorem windows_initial_rip (direction : CodecDirection) (environment : Environment) :
+    (windowsStreamInitial direction environment).rip =
+      (windowsStreamArtifact direction).executable.load.rip := by
+  rfl
+
+theorem windows_initial_rsp (direction : CodecDirection) (environment : Environment) :
+    (windowsStreamInitial direction environment).rsp =
+      (windowsStreamArtifact direction).executable.load.rsp := by
+  rfl
+
+theorem windows_initial_read64 (direction : CodecDirection) (environment : Environment)
+    (address : Address) :
+    (windowsStreamInitial direction environment).read64 address =
+      (windowsStreamArtifact direction).executable.load.read64 address := by
+  rfl
+
+theorem windows_lookup_zero (direction : CodecDirection) (environment : Environment) :
+    instructionAtRipIndexed
+      (indexInstructions (windowsStreamInitial direction environment).rip
+        windowsConcreteStreamInstructions)
+      (windowsStreamInitial direction environment).rip = some (call_rip 8186) :=
+  lookup_first_instruction _ _ _
+
+theorem windows_step0_resolves (direction : CodecDirection) (environment : Environment) :
+    let executable := (windowsStreamArtifact direction).executable
+    let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+    let iatBase := executable.imageBase + layout.idataRva.toUInt64
+    let index := (((windowsStep0 direction environment).rip - iatBase) / 8).toNat
+    (if index < 4 then some index else none) = some 0 := by
+  cases direction <;>
+    change (let executable := (windowsStreamArtifact _).executable
+      let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+      let iatBase := executable.imageBase + layout.idataRva.toUInt64
+      let stepped := X86_64Instruction.step (call_rip 8186) executable.load
+      let index := ((stepped.rip - iatBase) / 8).toNat
+      if index < 4 then some index else none) = some 0 <;>
+    decide
+
+theorem streamingNativeCall_zero
+    (resolveCall : Address → X86_64MachineState → Option Nat)
+    (context : StreamingInvocationContext) (address : Address)
+    (state : X86_64MachineState) (hresolve : resolveCall address state = some 0) :
+    streamingNativeCall resolveCall context address state =
+      some (withPhase state 1, none) := by
+  simp [streamingNativeCall, hresolve]
+
+theorem windows_intercept_zero (direction : CodecDirection) (environment : Environment) :
+    @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStep0 direction environment).rip (windowsStep0 direction environment) =
+        some (windowsState1 direction environment, none) := by
+  change streamingNativeCall _ _ _ _ = _
+  apply streamingNativeCall_zero
+  exact windows_step0_resolves direction environment
+
+theorem windows_state1_rip (direction : CodecDirection) (environment : Environment) :
+    (windowsState1 direction environment).rip =
+      (windowsStreamInitial direction environment).rip + 6 :=
+  withPhase_call_rip_rip _ _ _
+
+theorem windows_lookup_one (direction : CodecDirection) (environment : Environment) :
+    instructionAtRipIndexed
+      (indexInstructions (windowsStreamInitial direction environment).rip
+        windowsConcreteStreamInstructions)
+      (windowsState1 direction environment).rip = some (call_rip 8188) := by
+  rw [windows_state1_rip, windows_initial_rip]
+  cases direction <;> rfl
+
+theorem windows_state1_rsp (direction : CodecDirection) (environment : Environment) :
+    (windowsState1 direction environment).rsp =
+      (windowsStreamInitial direction environment).rsp :=
+  withPhase_call_rip_rsp _ _ _
+
+theorem windows_step1_target (direction : CodecDirection) (environment : Environment) :
+    let executable := (windowsStreamArtifact direction).executable
+    let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+    let iatBase := executable.imageBase + layout.idataRva.toUInt64
+    (windowsStep1 direction environment).rip = iatBase + 8 := by
+  unfold windowsStep1
+  rw [call_rip_step_rip]
+  have hpreserved := withPhase_call_rip_read64_preserved
+    (windowsStreamInitial direction environment) 8186 1
+    ((windowsState1 direction environment).rip + 6 + signExtend32To64 8188)
+    (by
+      rw [windows_initial_rsp]
+      cases direction <;> decide)
+    (by
+      rw [windows_state1_rip, windows_initial_rip, windows_initial_rsp]
+      cases direction <;> decide)
+  have hpreserved' :
+      (windowsState1 direction environment).read64
+          ((windowsState1 direction environment).rip + 6 + signExtend32To64 8188) =
+        (windowsStreamInitial direction environment).read64
+          ((windowsState1 direction environment).rip + 6 + signExtend32To64 8188) := by
+    simpa only [windowsState1, windowsStep0] using hpreserved
+  rw [hpreserved']
+  rw [windows_initial_read64, windows_state1_rip, windows_initial_rip]
+  simp only
+  rw [windows_stream_layout]
+  rw [windows_executable_load_read64_of_layout _ _ (windows_stream_layout direction)]
+  cases direction
+  · exact windows_iat1_compress_selfref
+  · exact windows_iat1_decompress_selfref
+
+theorem windows_step1_resolves (direction : CodecDirection) (environment : Environment) :
+    let executable := (windowsStreamArtifact direction).executable
+    let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+    let iatBase := executable.imageBase + layout.idataRva.toUInt64
+    let index := (((windowsStep1 direction environment).rip - iatBase) / 8).toNat
+    (if index < 4 then some index else none) = some 1 := by
+  rw [windows_step1_target]
+  cases direction <;> decide
+
+theorem streamingNativeCall_one
+    (resolveCall : Address → X86_64MachineState → Option Nat)
+    (context : StreamingInvocationContext) (address : Address)
+    (state : X86_64MachineState) (hresolve : resolveCall address state = some 1)
+    (hphase : state.gprs .r15 = 1) :
+    streamingNativeCall resolveCall context address state =
+      some (withPhase state 2, none) := by
+  simp [streamingNativeCall, hresolve, hphase]
+
+theorem windows_intercept_one (direction : CodecDirection) (environment : Environment) :
+    @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStep1 direction environment).rip (windowsStep1 direction environment) =
+        some (windowsState2 direction environment, none) := by
+  change streamingNativeCall _ _ _ _ = _
+  apply streamingNativeCall_one
+  · exact windows_step1_resolves direction environment
+  · unfold windowsStep1
+    rw [call_rip_preserves_r15]
+    exact withPhase_r15 _ _
+
+theorem windows_state2_rip (direction : CodecDirection) (environment : Environment) :
+    (windowsState2 direction environment).rip =
+      (windowsStreamInitial direction environment).rip + 12 := by
+  unfold windowsState2 windowsStep1
+  rw [withPhase_call_rip_rip, windows_state1_rip]
+  simp [UInt64.add_assoc]
+
+theorem windows_lookup_two (direction : CodecDirection) (environment : Environment) :
+    instructionAtRipIndexed
+      (indexInstructions (windowsStreamInitial direction environment).rip
+        windowsConcreteStreamInstructions)
+      (windowsState2 direction environment).rip = some (call_rip 8190) := by
+  rw [windows_state2_rip, windows_initial_rip]
+  cases direction <;> rfl
+
+theorem windows_state2_rsp (direction : CodecDirection) (environment : Environment) :
+    (windowsState2 direction environment).rsp =
+      (windowsStreamInitial direction environment).rsp := by
+  unfold windowsState2 windowsStep1
+  rw [withPhase_call_rip_rsp, windows_state1_rsp]
+
+theorem windows_step2_target (direction : CodecDirection) (environment : Environment) :
+    let executable := (windowsStreamArtifact direction).executable
+    let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+    let iatBase := executable.imageBase + layout.idataRva.toUInt64
+    (windowsStep2 direction environment).rip = iatBase + 16 := by
+  unfold windowsStep2
+  rw [call_rip_step_rip]
+  have hpreserved1 := withPhase_call_rip_read64_preserved
+    (windowsState1 direction environment) 8188 2
+    ((windowsState2 direction environment).rip + 6 + signExtend32To64 8190)
+    (by
+      rw [windows_state1_rsp, windows_initial_rsp]
+      cases direction <;> decide)
+    (by
+      rw [windows_state2_rip, windows_initial_rip, windows_state1_rsp, windows_initial_rsp]
+      cases direction <;> decide)
+  have hpreserved1' :
+      (windowsState2 direction environment).read64
+          ((windowsState2 direction environment).rip + 6 + signExtend32To64 8190) =
+        (windowsState1 direction environment).read64
+          ((windowsState2 direction environment).rip + 6 + signExtend32To64 8190) := by
+    simpa only [windowsState2, windowsStep1] using hpreserved1
+  rw [hpreserved1']
+  have hpreserved0 := withPhase_call_rip_read64_preserved
+    (windowsStreamInitial direction environment) 8186 1
+    ((windowsState2 direction environment).rip + 6 + signExtend32To64 8190)
+    (by
+      rw [windows_initial_rsp]
+      cases direction <;> decide)
+    (by
+      rw [windows_state2_rip, windows_initial_rip, windows_initial_rsp]
+      cases direction <;> decide)
+  have hpreserved0' :
+      (windowsState1 direction environment).read64
+          ((windowsState2 direction environment).rip + 6 + signExtend32To64 8190) =
+        (windowsStreamInitial direction environment).read64
+          ((windowsState2 direction environment).rip + 6 + signExtend32To64 8190) := by
+    simpa only [windowsState1, windowsStep0] using hpreserved0
+  rw [hpreserved0']
+  rw [windows_initial_read64, windows_state2_rip, windows_initial_rip]
+  simp only
+  rw [windows_stream_layout]
+  rw [windows_executable_load_read64_of_layout _ _ (windows_stream_layout direction)]
+  cases direction
+  · exact windows_iat2_compress_selfref
+  · exact windows_iat2_decompress_selfref
+
+theorem windows_step2_resolves (direction : CodecDirection) (environment : Environment) :
+    let executable := (windowsStreamArtifact direction).executable
+    let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+    let iatBase := executable.imageBase + layout.idataRva.toUInt64
+    let index := (((windowsStep2 direction environment).rip - iatBase) / 8).toNat
+    (if index < 4 then some index else none) = some 2 := by
+  rw [windows_step2_target]
+  cases direction <;> decide
+
+def windowsResultState (direction : CodecDirection) (environment : Environment) :
+    X86_64MachineState :=
+  if (streamResultEvent (windowsStreamEntry direction environment)).snd then
+    windowsState3 direction environment
+  else
+    windowsStep2 direction environment
+
+theorem streamingNativeCall_two
+    (resolveCall : Address → X86_64MachineState → Option Nat)
+    (context : StreamingInvocationContext) (address : Address)
+    (state : X86_64MachineState) (hresolve : resolveCall address state = some 2)
+    (hphase : state.gprs .r15 = 2) :
+    streamingNativeCall resolveCall context address state =
+      some (if (streamResultEvent context).snd then withPhase state 3 else state,
+        (streamResultEvent context).fst) := by
+  cases hcontinue : (streamResultEvent context).snd <;>
+    simp [streamingNativeCall, hresolve, hphase, hcontinue]
+
+theorem windows_intercept_two (direction : CodecDirection) (environment : Environment) :
+    @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStep2 direction environment).rip (windowsStep2 direction environment) =
+        some (windowsResultState direction environment,
+          (streamResultEvent (windowsStreamEntry direction environment)).fst) := by
+  change streamingNativeCall _ _ _ _ = _
+  rw [streamingNativeCall_two _ _ _ _ (windows_step2_resolves direction environment)]
+  · rfl
+  · unfold windowsStep2
+    rw [call_rip_preserves_r15]
+    exact withPhase_r15 _ _
+
+theorem windows_state3_rip (direction : CodecDirection) (environment : Environment) :
+    (windowsState3 direction environment).rip =
+      (windowsStreamInitial direction environment).rip + 18 := by
+  unfold windowsState3 windowsStep2
+  rw [withPhase_call_rip_rip, windows_state2_rip]
+  simp [UInt64.add_assoc]
+
+theorem windows_lookup_three (direction : CodecDirection) (environment : Environment) :
+    instructionAtRipIndexed
+      (indexInstructions (windowsStreamInitial direction environment).rip
+        windowsConcreteStreamInstructions)
+      (windowsState3 direction environment).rip = some (call_rip 8192) := by
+  rw [windows_state3_rip, windows_initial_rip]
+  cases direction <;> rfl
+
+theorem windows_state3_rsp (direction : CodecDirection) (environment : Environment) :
+    (windowsState3 direction environment).rsp =
+      (windowsStreamInitial direction environment).rsp := by
+  unfold windowsState3 windowsStep2
+  rw [withPhase_call_rip_rsp, windows_state2_rsp]
+
+theorem windows_step3_target (direction : CodecDirection) (environment : Environment) :
+    let executable := (windowsStreamArtifact direction).executable
+    let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+    let iatBase := executable.imageBase + layout.idataRva.toUInt64
+    (windowsStep3 direction environment).rip = iatBase + 24 := by
+  unfold windowsStep3
+  rw [call_rip_step_rip]
+  have hpreserved2 := withPhase_call_rip_read64_preserved
+    (windowsState2 direction environment) 8190 3
+    ((windowsState3 direction environment).rip + 6 + signExtend32To64 8192)
+    (by
+      rw [windows_state2_rsp, windows_initial_rsp]
+      cases direction <;> decide)
+    (by
+      rw [windows_state3_rip, windows_initial_rip, windows_state2_rsp, windows_initial_rsp]
+      cases direction <;> decide)
+  have hpreserved2' :
+      (windowsState3 direction environment).read64
+          ((windowsState3 direction environment).rip + 6 + signExtend32To64 8192) =
+        (windowsState2 direction environment).read64
+          ((windowsState3 direction environment).rip + 6 + signExtend32To64 8192) := by
+    simpa only [windowsState3, windowsStep2] using hpreserved2
+  rw [hpreserved2']
+  have hpreserved1 := withPhase_call_rip_read64_preserved
+    (windowsState1 direction environment) 8188 2
+    ((windowsState3 direction environment).rip + 6 + signExtend32To64 8192)
+    (by
+      rw [windows_state1_rsp, windows_initial_rsp]
+      cases direction <;> decide)
+    (by
+      rw [windows_state3_rip, windows_initial_rip, windows_state1_rsp, windows_initial_rsp]
+      cases direction <;> decide)
+  have hpreserved1' :
+      (windowsState2 direction environment).read64
+          ((windowsState3 direction environment).rip + 6 + signExtend32To64 8192) =
+        (windowsState1 direction environment).read64
+          ((windowsState3 direction environment).rip + 6 + signExtend32To64 8192) := by
+    simpa only [windowsState2, windowsStep1] using hpreserved1
+  rw [hpreserved1']
+  have hpreserved0 := withPhase_call_rip_read64_preserved
+    (windowsStreamInitial direction environment) 8186 1
+    ((windowsState3 direction environment).rip + 6 + signExtend32To64 8192)
+    (by
+      rw [windows_initial_rsp]
+      cases direction <;> decide)
+    (by
+      rw [windows_state3_rip, windows_initial_rip, windows_initial_rsp]
+      cases direction <;> decide)
+  have hpreserved0' :
+      (windowsState1 direction environment).read64
+          ((windowsState3 direction environment).rip + 6 + signExtend32To64 8192) =
+        (windowsStreamInitial direction environment).read64
+          ((windowsState3 direction environment).rip + 6 + signExtend32To64 8192) := by
+    simpa only [windowsState1, windowsStep0] using hpreserved0
+  rw [hpreserved0']
+  rw [windows_initial_read64, windows_state3_rip, windows_initial_rip]
+  simp only
+  rw [windows_stream_layout]
+  rw [windows_executable_load_read64_of_layout _ _ (windows_stream_layout direction)]
+  cases direction
+  · exact windows_iat3_compress_selfref
+  · exact windows_iat3_decompress_selfref
+
+theorem windows_step3_resolves (direction : CodecDirection) (environment : Environment) :
+    let executable := (windowsStreamArtifact direction).executable
+    let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+    let iatBase := executable.imageBase + layout.idataRva.toUInt64
+    let index := (((windowsStep3 direction environment).rip - iatBase) / 8).toNat
+    (if index < 4 then some index else none) = some 3 := by
+  rw [windows_step3_target]
+  cases direction <;> decide
+
+theorem streamingNativeCall_three
+    (resolveCall : Address → X86_64MachineState → Option Nat)
+    (context : StreamingInvocationContext) (address : Address)
+    (state : X86_64MachineState) (hresolve : resolveCall address state = some 3)
+    (hphase : state.gprs .r15 = 3) :
+    streamingNativeCall resolveCall context address state =
+      some (state, some (Inject.inject (ProcessEvent.exit 0))) := by
+  simp [streamingNativeCall, hresolve, hphase]
+
+theorem windows_intercept_three (direction : CodecDirection) (environment : Environment) :
+    @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStep3 direction environment).rip (windowsStep3 direction environment) =
+        some (windowsStep3 direction environment,
+          some (Inject.inject (ProcessEvent.exit 0))) := by
+  change streamingNativeCall _ _ _ _ = _
+  apply streamingNativeCall_three
+  · exact windows_step3_resolves direction environment
+  · unfold windowsStep3
+    rw [call_rip_preserves_r15]
+    exact withPhase_r15 _ _
+
+theorem windows_initial_safe (direction : CodecDirection) (environment : Environment) :
+    (windowsStreamInitial direction environment).faulted = false := by
+  rfl
+
+theorem windows_state1_safe (direction : CodecDirection) (environment : Environment) :
+    (windowsState1 direction environment).faulted = false := by
+  simp [windowsState1, windowsStep0, windows_initial_safe]
+
+theorem windows_state2_safe (direction : CodecDirection) (environment : Environment) :
+    (windowsState2 direction environment).faulted = false := by
+  simp [windowsState2, windowsStep1, windows_state1_safe]
+
+theorem windows_state3_safe (direction : CodecDirection) (environment : Environment) :
+    (windowsState3 direction environment).faulted = false := by
+  simp [windowsState3, windowsStep2, windows_state2_safe]
+
+theorem windows_step2_safe (direction : CodecDirection) (environment : Environment) :
+    (windowsStep2 direction environment).faulted = false := by
+  simp [windowsStep2, windows_state2_safe]
+
+theorem windows_step3_safe (direction : CodecDirection) (environment : Environment) :
+    (windowsStep3 direction environment).faulted = false := by
+  simp [windowsStep3, windows_state3_safe]
+
+theorem windows_lookup_after_two (direction : CodecDirection) (environment : Environment) :
+    instructionAtRipIndexed
+      (indexInstructions (windowsStreamInitial direction environment).rip
+        windowsConcreteStreamInstructions)
+      (windowsStep2 direction environment).rip = none := by
+  rw [windows_step2_target, windows_initial_rip]
+  cases direction <;> rfl
+
+theorem windows_lookup_after_three (direction : CodecDirection) (environment : Environment) :
+    instructionAtRipIndexed
+      (indexInstructions (windowsStreamInitial direction environment).rip
+        windowsConcreteStreamInstructions)
+      (windowsStep3 direction environment).rip = none := by
+  rw [windows_step3_target, windows_initial_rip]
+  cases direction <;> rfl
+
+def windowsStartEdge (direction : CodecDirection) (environment : Environment) :
+    @SilentNativeEdgeCertificate AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions
+      (windowsStreamInitial direction environment) (windowsState1 direction environment) where
+  instruction := call_rip 8186
+  lookup := windows_lookup_zero direction environment
+  intercept := windows_intercept_zero direction environment
+  safe := windows_state1_safe direction environment
+
+def windowsPushEdge (direction : CodecDirection) (environment : Environment) :
+    @SilentNativeEdgeCertificate AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions
+      (windowsState1 direction environment) (windowsState2 direction environment) where
+  instruction := call_rip 8188
+  lookup := windows_lookup_one direction environment
+  intercept := windows_intercept_one direction environment
+  safe := windows_state2_safe direction environment
+
+def windowsIndexed (direction : CodecDirection) (environment : Environment) :=
+  indexInstructions (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions
+
+theorem windows_outcome_prefix (direction : CodecDirection) (environment : Environment)
+    (eventsRev : List AnyEvent) :
+    @runProgramOutcomeLoop AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsIndexed direction environment) 50000
+      (windowsStreamInitial direction environment) eventsRev =
+    @runProgramOutcomeLoop AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsIndexed direction environment) 49998
+      (windowsState2 direction environment) eventsRev := by
+  let start := windowsStartEdge direction environment
+  let push := windowsPushEdge direction environment
+  calc
+    _ = @runProgramOutcomeLoop AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsIndexed direction environment) 49999
+        (windowsState1 direction environment) eventsRev :=
+      @outcome_step_silent AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsIndexed direction environment) 49999
+        (windowsStreamInitial direction environment) (windowsState1 direction environment)
+        start.instruction eventsRev start.lookup start.intercept start.safe
+    _ = _ := @outcome_step_silent AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsIndexed direction environment) 49998
+      (windowsState1 direction environment) (windowsState2 direction environment)
+      push.instruction eventsRev push.lookup push.intercept push.safe
+
+theorem windows_outcome_stops_after_result (direction : CodecDirection)
+    (environment : Environment) (eventsRev : List AnyEvent) (event : AnyEvent)
+    (hhook : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStep2 direction environment).rip (windowsStep2 direction environment) =
+        some (windowsStep2 direction environment, some event)) :
+    @runProgramOutcomeLoop AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsIndexed direction environment) 49998
+      (windowsState2 direction environment) eventsRev =
+        .returned (windowsStep2 direction environment) (event :: eventsRev).reverse := by
+  calc
+    _ = @runProgramOutcomeLoop AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsIndexed direction environment) 49997
+        (windowsStep2 direction environment) (event :: eventsRev) :=
+      @outcome_step_event AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsIndexed direction environment) 49997
+        (windowsState2 direction environment) (windowsStep2 direction environment)
+        (call_rip 8190) eventsRev event
+        (windows_lookup_two direction environment) hhook
+        (windows_step2_safe direction environment)
+    _ = _ := @outcome_complete AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsIndexed direction environment) 49996 (windowsStep2 direction environment)
+      (event :: eventsRev) (windows_lookup_after_two direction environment)
+
+theorem windows_outcome_continues_after_result (direction : CodecDirection)
+    (environment : Environment) (eventsRev : List AnyEvent) (event : AnyEvent)
+    (hhook : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStep2 direction environment).rip (windowsStep2 direction environment) =
+        some (windowsState3 direction environment, some event)) :
+    @runProgramOutcomeLoop AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsIndexed direction environment) 49998
+      (windowsState2 direction environment) eventsRev =
+        .returned (windowsStep3 direction environment)
+          (Inject.inject (ProcessEvent.exit 0) :: event :: eventsRev).reverse := by
+  calc
+    _ = @runProgramOutcomeLoop AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsIndexed direction environment) 49997
+        (windowsState3 direction environment) (event :: eventsRev) :=
+      @outcome_step_event AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsIndexed direction environment) 49997
+        (windowsState2 direction environment) (windowsState3 direction environment)
+        (call_rip 8190) eventsRev event
+        (windows_lookup_two direction environment) hhook
+        (windows_state3_safe direction environment)
+    _ = @runProgramOutcomeLoop AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsIndexed direction environment) 49996
+        (windowsStep3 direction environment)
+        (Inject.inject (ProcessEvent.exit 0) :: event :: eventsRev) :=
+      @outcome_step_event AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsIndexed direction environment) 49996
+        (windowsState3 direction environment) (windowsStep3 direction environment)
+        (call_rip 8192) (event :: eventsRev) (Inject.inject (ProcessEvent.exit 0))
+        (windows_lookup_three direction environment)
+        (windows_intercept_three direction environment) (windows_step3_safe direction environment)
+    _ = _ := @outcome_complete AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsIndexed direction environment) 49995 (windowsStep3 direction environment)
+      (Inject.inject (ProcessEvent.exit 0) :: event :: eventsRev)
+      (windows_lookup_after_three direction environment)
+
+theorem windows_trace_prefix (direction : CodecDirection) (environment : Environment) :
+    @runProgramTraceWithLoops AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 50000
+      (windowsStreamInitial direction environment) =
+    @runProgramTraceWithLoops AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49998
+      (windowsState2 direction environment) := by
+  let start := windowsStartEdge direction environment
+  let push := windowsPushEdge direction environment
+  calc
+    _ = @runProgramTraceWithLoops AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49999
+        (windowsState1 direction environment) :=
+      @trace_step_silent AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49999
+        (windowsStreamInitial direction environment) (windowsState1 direction environment)
+        start.instruction start.lookup start.intercept start.safe
+    _ = _ := @trace_step_silent AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49998
+      (windowsState1 direction environment) (windowsState2 direction environment)
+      push.instruction push.lookup push.intercept push.safe
+
+theorem windows_trace_stops_after_result (direction : CodecDirection)
+    (environment : Environment) (event : AnyEvent)
+    (hhook : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStep2 direction environment).rip (windowsStep2 direction environment) =
+        some (windowsStep2 direction environment, some event)) :
+    @runProgramTraceWithLoops AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49998
+      (windowsState2 direction environment) = [event] := by
+  calc
+    _ = event :: @runProgramTraceWithLoops AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49997
+        (windowsStep2 direction environment) :=
+      @trace_step_event AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49997
+        (windowsState2 direction environment) (windowsStep2 direction environment)
+        (call_rip 8190) event
+        (windows_lookup_two direction environment) hhook (windows_step2_safe direction environment)
+    _ = [event] := by
+      rw [@trace_complete AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49996
+        (windowsStep2 direction environment) (windows_lookup_after_two direction environment)]
+
+theorem windows_trace_continues_after_result (direction : CodecDirection)
+    (environment : Environment) (event : AnyEvent)
+    (hhook : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStep2 direction environment).rip (windowsStep2 direction environment) =
+        some (windowsState3 direction environment, some event)) :
+    @runProgramTraceWithLoops AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49998
+      (windowsState2 direction environment) =
+        [event, Inject.inject (ProcessEvent.exit 0)] := by
+  calc
+    _ = event :: @runProgramTraceWithLoops AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49997
+        (windowsState3 direction environment) :=
+      @trace_step_event AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49997
+        (windowsState2 direction environment) (windowsState3 direction environment)
+        (call_rip 8190) event
+        (windows_lookup_two direction environment) hhook (windows_state3_safe direction environment)
+    _ = event :: Inject.inject (ProcessEvent.exit 0) ::
+        @runProgramTraceWithLoops AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact direction)
+            (windowsStreamEntry direction environment))
+          (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49996
+          (windowsStep3 direction environment) := by
+      rw [@trace_step_event AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49996
+        (windowsState3 direction environment) (windowsStep3 direction environment)
+        (call_rip 8192) (Inject.inject (ProcessEvent.exit 0))
+        (windows_lookup_three direction environment)
+        (windows_intercept_three direction environment) (windows_step3_safe direction environment)]
+    _ = [event, Inject.inject (ProcessEvent.exit 0)] := by
+      rw [@trace_complete AnyEvent
+        (windowsStreamingInterceptor (windowsStreamArtifact direction)
+          (windowsStreamEntry direction environment))
+        (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 49995
+        (windowsStep3 direction environment)
+        (windows_lookup_after_three direction environment)]
+
+def windowsStreamingSpec (direction : CodecDirection) (environment : Environment) :
+    List AnyEvent :=
+  streamingInvocationTrace direction spike5AllocationScope environment.stdin
+
+theorem windows_platform_run (runtime : ExternalCallInterceptor X86_64 AnyEvent)
+    (artifact : WindowsX86_64Artifact) (state : X86_64MachineState) :
+    Platform.run (P := WindowsX86_64 AnyEvent) runtime artifact state =
+      (@runProgramOutcomeWithLoops AnyEvent runtime state.rip artifact.instructions 50000 state).events := by
+  rfl
+
+theorem windows_platform_admissible (runtime : ExternalCallInterceptor X86_64 AnyEvent)
+    (artifact : WindowsX86_64Artifact) (state : X86_64MachineState) :
+    Platform.admissible (P := WindowsX86_64 AnyEvent) runtime artifact state =
+      (@runProgramOutcomeWithLoops AnyEvent runtime state.rip artifact.instructions 50000 state).isAdmissible false := by
+  rfl
+
+theorem windows_stream_realize (direction : CodecDirection)
+    (artifact : WindowsX86_64Artifact) (context : StreamingInvocationContext) :
+    (windowsStreamingCapabilities direction).realize artifact context =
+      windowsStreamingInterceptor artifact context := by
+  rfl
+
+theorem windows_streaming_trace_equivalence (direction : CodecDirection)
+    (environment : Environment) :
+    Platform.run
+      ((windowsStreamingCapabilities direction).realize (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStreamArtifact direction)
+      (Platform.load (P := WindowsX86_64 AnyEvent) (windowsStreamArtifact direction) environment) =
+        windowsStreamingSpec direction environment := by
+  rw [windows_platform_run, windows_stream_realize, windows_stream_instructions_eq]
+  rw [@runProgramOutcomeWithLoops_events AnyEvent
+    (windowsStreamingInterceptor (windowsStreamArtifact direction)
+      (windowsStreamEntry direction environment))]
+  change @runProgramTraceWithLoops AnyEvent
+      (windowsStreamingInterceptor (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 50000
+      (windowsStreamInitial direction environment) = _
+  rw [windows_trace_prefix]
+  cases direction with
+  | compress =>
+    cases hresult : compressAll bufferedStreamingZlibCapability
+      spike5AllocationScope environment.stdin with
+    | rejected error scope => nomatch error
+    | resourceExhausted scope =>
+      have hhook := windows_intercept_two .compress environment
+      have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact .compress)
+            (windowsStreamEntry .compress environment))
+          (windowsStep2 .compress environment).rip (windowsStep2 .compress environment) =
+            some (windowsStep2 .compress environment,
+              some (Inject.inject (ProcessEvent.exit 2))) := by
+        simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
+      rw [windows_trace_stops_after_result .compress environment _ hhook']
+      simp [windowsStreamingSpec, streamingInvocationTrace, hresult, exhaustedStreamTrace]
+    | success output scope =>
+      have hhook := windows_intercept_two .compress environment
+      have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact .compress)
+            (windowsStreamEntry .compress environment))
+          (windowsStep2 .compress environment).rip (windowsStep2 .compress environment) =
+            some (windowsState3 .compress environment,
+              some (Inject.inject (ConsoleEvent.out (bytesAsString output)))) := by
+        simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
+      rw [windows_trace_continues_after_result .compress environment _ hhook']
+      simp [windowsStreamingSpec, streamingInvocationTrace, hresult, successfulStreamTrace]
+  | decompress =>
+    cases hresult : decompressAll bufferedStreamingZlibCapability
+      spike5AllocationScope environment.stdin with
+    | rejected message scope =>
+      have hhook := windows_intercept_two .decompress environment
+      have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact .decompress)
+            (windowsStreamEntry .decompress environment))
+          (windowsStep2 .decompress environment).rip (windowsStep2 .decompress environment) =
+            some (windowsStep2 .decompress environment,
+              some (Inject.inject (ProcessEvent.exit 1))) := by
+        simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
+      rw [windows_trace_stops_after_result .decompress environment _ hhook']
+      simp [windowsStreamingSpec, streamingInvocationTrace, hresult, malformedStreamTrace]
+    | resourceExhausted scope =>
+      have hhook := windows_intercept_two .decompress environment
+      have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact .decompress)
+            (windowsStreamEntry .decompress environment))
+          (windowsStep2 .decompress environment).rip (windowsStep2 .decompress environment) =
+            some (windowsStep2 .decompress environment,
+              some (Inject.inject (ProcessEvent.exit 2))) := by
+        simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
+      rw [windows_trace_stops_after_result .decompress environment _ hhook']
+      simp [windowsStreamingSpec, streamingInvocationTrace, hresult, exhaustedStreamTrace]
+    | success output scope =>
+      have hhook := windows_intercept_two .decompress environment
+      have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact .decompress)
+            (windowsStreamEntry .decompress environment))
+          (windowsStep2 .decompress environment).rip (windowsStep2 .decompress environment) =
+            some (windowsState3 .decompress environment,
+              some (Inject.inject (ConsoleEvent.out (bytesAsString output)))) := by
+        simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
+      rw [windows_trace_continues_after_result .decompress environment _ hhook']
+      simp [windowsStreamingSpec, streamingInvocationTrace, hresult, successfulStreamTrace]
+
+theorem windows_streaming_admissible (direction : CodecDirection) (environment : Environment) :
+    Platform.admissible
+      ((windowsStreamingCapabilities direction).realize (windowsStreamArtifact direction)
+        (windowsStreamEntry direction environment))
+      (windowsStreamArtifact direction)
+      (Platform.load (P := WindowsX86_64 AnyEvent) (windowsStreamArtifact direction) environment) := by
+  rw [windows_platform_admissible, windows_stream_realize, windows_stream_instructions_eq]
+  unfold runProgramOutcomeWithLoops
+  change (@runProgramOutcomeLoop AnyEvent
+    (windowsStreamingInterceptor (windowsStreamArtifact direction)
+      (windowsStreamEntry direction environment))
+    (windowsIndexed direction environment) 50000
+    (windowsStreamInitial direction environment) []).isAdmissible false
+  rw [windows_outcome_prefix]
+  cases direction with
+  | compress =>
+    cases hresult : compressAll bufferedStreamingZlibCapability
+      spike5AllocationScope environment.stdin with
+    | rejected error scope => nomatch error
+    | resourceExhausted scope =>
+      have hhook := windows_intercept_two .compress environment
+      have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact .compress)
+            (windowsStreamEntry .compress environment))
+          (windowsStep2 .compress environment).rip (windowsStep2 .compress environment) =
+            some (windowsStep2 .compress environment,
+              some (Inject.inject (ProcessEvent.exit 2))) := by
+        simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
+      rw [windows_outcome_stops_after_result .compress environment [] _ hhook']
+      simp [NativeRunOutcome.isAdmissible]
+    | success output scope =>
+      have hhook := windows_intercept_two .compress environment
+      have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact .compress)
+            (windowsStreamEntry .compress environment))
+          (windowsStep2 .compress environment).rip (windowsStep2 .compress environment) =
+            some (windowsState3 .compress environment,
+              some (Inject.inject (ConsoleEvent.out (bytesAsString output)))) := by
+        simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
+      rw [windows_outcome_continues_after_result .compress environment [] _ hhook']
+      simp [NativeRunOutcome.isAdmissible]
+  | decompress =>
+    cases hresult : decompressAll bufferedStreamingZlibCapability
+      spike5AllocationScope environment.stdin with
+    | rejected message scope =>
+      have hhook := windows_intercept_two .decompress environment
+      have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact .decompress)
+            (windowsStreamEntry .decompress environment))
+          (windowsStep2 .decompress environment).rip (windowsStep2 .decompress environment) =
+            some (windowsStep2 .decompress environment,
+              some (Inject.inject (ProcessEvent.exit 1))) := by
+        simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
+      rw [windows_outcome_stops_after_result .decompress environment [] _ hhook']
+      simp [NativeRunOutcome.isAdmissible]
+    | resourceExhausted scope =>
+      have hhook := windows_intercept_two .decompress environment
+      have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact .decompress)
+            (windowsStreamEntry .decompress environment))
+          (windowsStep2 .decompress environment).rip (windowsStep2 .decompress environment) =
+            some (windowsStep2 .decompress environment,
+              some (Inject.inject (ProcessEvent.exit 2))) := by
+        simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
+      rw [windows_outcome_stops_after_result .decompress environment [] _ hhook']
+      simp [NativeRunOutcome.isAdmissible]
+    | success output scope =>
+      have hhook := windows_intercept_two .decompress environment
+      have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+          (windowsStreamingInterceptor (windowsStreamArtifact .decompress)
+            (windowsStreamEntry .decompress environment))
+          (windowsStep2 .decompress environment).rip (windowsStep2 .decompress environment) =
+            some (windowsState3 .decompress environment,
+              some (Inject.inject (ConsoleEvent.out (bytesAsString output)))) := by
+        simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
+      rw [windows_outcome_continues_after_result .decompress environment [] _ hhook']
+      simp [NativeRunOutcome.isAdmissible]
+
+def windowsStreamExports (direction : CodecDirection) :=
+  VerifiedExportSet.empty Unit Unit (WindowsX86_64 AnyEvent) emptyBoundarySpec
+    (emptyBoundarySemantics (WindowsX86_64 AnyEvent) X86_64MachineState) ()
+    (by rfl) (by rfl) (by rfl)
+
+theorem windows_stream_artifact_connected (direction : CodecDirection) :
+    Platform.artifactConnected (P := WindowsX86_64 AnyEvent)
+      (windowsStreamArtifact direction) := by
+  rfl
+
+def windowsStreamingArtifactCertificate (direction : CodecDirection) :
+    ProgramArtifactCertificate (WindowsX86_64 AnyEvent) where
+  artifact := windowsStreamArtifact direction
+  exports := windowsStreamExports direction
+  exportsArtifact := rfl
+  artifactConnection := windows_stream_artifact_connected direction
+
+def windowsStreamingProviderCertificate (direction : CodecDirection) :
+    ProgramProviderCertificate (WindowsX86_64 AnyEvent)
+      (windowsStreamingCapabilities direction) (windowsStreamArtifact direction) where
+  importsCovered := by
+    intro imported himport
+    change imported ∈ (windowsStreamArtifact direction).executable.imports at himport
+    rw [windows_stream_imports] at himport
+    cases direction <;> simp [streamWindowsImports, streamImportNames] at himport
+    all_goals
+      rcases himport with rfl | rfl | rfl | rfl <;>
+        simp [windowsStreamingCapabilities, windowsStreamingCapability, windowsStreamProviders,
+          streamWindowsImports, streamImportNames, nativeProviderProtocol,
+          Platform.providerProvides]
+  providersLinked := by
+    intro provider hprovider
+    change provider ∈ windowsStreamProviders direction at hprovider
+    cases direction <;>
+      simp [windowsStreamProviders, streamWindowsImports, streamImportNames,
+        nativeProviderProtocol] at hprovider
+    all_goals rcases hprovider with rfl | rfl | rfl | rfl
+    all_goals
+      change _ ∧ _
+      constructor
+      · rw [windows_stream_imports]
+        decide
+      · simp only
+        rw [windows_stream_layout]
+        rw [windows_stream_iat_slots]
+        rw [windows_stream_image_base]
+        simp
+
+def windowsStreamingEntryCertificate (direction : CodecDirection) :
+    ProgramEntryCertificate (WindowsX86_64 AnyEvent)
+      (windowsStreamingCapabilities direction) (windowsStreamArtifact direction) where
+  entryContext := windowsStreamEntry direction
+  entryEstablished := by intro environment; exact ⟨rfl, rfl⟩
+
+@[simp] theorem windows_streaming_entry_context (direction : CodecDirection)
+    (environment : Environment) :
+    (windowsStreamingEntryCertificate direction).entryContext environment =
+      windowsStreamEntry direction environment := by
+  rfl
+
+def windowsStreamingAdmissibilityCertificate (direction : CodecDirection) :
+    ProgramAdmissibilityCertificate (WindowsX86_64 AnyEvent)
+      (windowsStreamingCapabilities direction) (windowsStreamArtifact direction)
+      (windowsStreamingEntryCertificate direction) where
+  platformAdmissible := by
+    intro environment
+    rw [windows_streaming_entry_context]
+    exact windows_streaming_admissible direction environment
+
+def windowsStreamingBehaviorCertificate (direction : CodecDirection) :
+    ProgramBehaviorCertificate (WindowsX86_64 AnyEvent)
+      (windowsStreamingCapabilities direction) (windowsStreamArtifact direction)
+      (windowsStreamingEntryCertificate direction) where
+  spec := windowsStreamingSpec direction
+  traceEquivalence := by
+    intro environment
+    rw [windows_streaming_entry_context]
+    exact windows_streaming_trace_equivalence direction environment
+
+def windowsStreamingVerifiedProgram (direction : CodecDirection) :
+    VerifiedProgram (WindowsX86_64 AnyEvent) (windowsStreamingCapabilities direction) :=
+  VerifiedProgram.compose
+    (match direction with
+      | .compress => "spike5_gzip_windows"
+      | .decompress => "spike5_gunzip_windows")
+    (windowsStreamingArtifactCertificate direction)
+    (windowsStreamingProviderCertificate direction)
+    (windowsStreamingEntryCertificate direction)
+    (windowsStreamingAdmissibilityCertificate direction)
+    (windowsStreamingBehaviorCertificate direction)
 
 end Spikes.Spike5Gzip

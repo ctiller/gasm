@@ -17,9 +17,9 @@ limitations under the License.
 import Lean
 import Gasm.Core.Verification
 import Gasm.Targets.WASI.ABI
-import Spikes.Spike5Gzip.Wasm.Program
 import Spikes.Spike5Gzip.Equivalence
 
+open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Gasm.Targets.WASI
 open Spikes.Spike5Gzip
@@ -27,7 +27,7 @@ open Spikes.Spike5Gzip
 /- REF: docs/SPIKES/SPIKE5_GZIP.md#42-webassembly-wasi-wasisnapshotpreview1 -/
 /-- CLI Emitter Target: Serializes and writes spike5_gzip.wasm to disk from the verified program contract. -/
 def main : IO UInt32 := do
-  let wasmBytes ← IO.ofExcept (emitVerifiedWasmBinary spike5WasmVerifiedProgram)
+  let wasmBytes ← IO.ofExcept (emitVerifiedProgram spike5WasmVerifiedProgram)
   let outputPath := "spike5_gzip.wasm"
   IO.println s!"[*] Emitting {wasmBytes.size} bytes to {outputPath}..."
   IO.FS.writeBinFile outputPath wasmBytes

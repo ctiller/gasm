@@ -16,16 +16,16 @@ limitations under the License.
 
 import Lean
 import Gasm.Core.Verification
-import Spikes.Spike5Gzip.Linux.Program
 import Spikes.Spike5Gzip.Equivalence
 
+open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Spikes.Spike5Gzip
 
 /- REF: docs/SPIKES/SPIKE5_GZIP.md#2-monadic-specification-cli-state-machine -/
 /-- CLI Emitter Target: Serializes and writes spike5_gunzip_linux to disk from the verified program contract. -/
 def main : IO UInt32 := do
-  let exeBytes := emitVerifiedLinuxExecutable spike5GunzipLinuxVerifiedProgram
+  let exeBytes ← IO.ofExcept (emitVerifiedProgram spike5GunzipLinuxVerifiedProgram)
   let outputPath := "spike5_gunzip_linux"
   IO.println s!"[*] Emitting {exeBytes.size} bytes to {outputPath}..."
   IO.FS.writeBinFile outputPath exeBytes

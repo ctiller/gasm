@@ -16,16 +16,16 @@ limitations under the License.
 
 import Lean
 import Gasm.Core.Verification
-import Spikes.Spike5Gzip.Windows.Program
 import Spikes.Spike5Gzip.Equivalence
 
+open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Spikes.Spike5Gzip
 
 /- REF: docs/SPIKES/SPIKE5_GZIP.md#41-x8664-windows-kernel32dll -/
 /-- CLI Emitter Target: Serializes and writes spike5_gunzip.exe to disk from the verified program contract. -/
 def main : IO UInt32 := do
-  let exeBytes := emitVerifiedExecutable spike5GunzipWindowsVerifiedProgram
+  let exeBytes ← IO.ofExcept (emitVerifiedProgram spike5GunzipWindowsVerifiedProgram)
   let outputPath := "spike5_gunzip.exe"
   IO.println s!"[*] Emitting {exeBytes.size} bytes to {outputPath}..."
   IO.FS.writeBinFile outputPath exeBytes
