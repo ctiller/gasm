@@ -214,9 +214,12 @@ permissions, obligations, causal time, and event history exactly. Authority-chan
 instead receive an ABI/obligation-owned transition certificate in a later extension.
 `TerminatorRealization` is closed over actual x86 instruction families: direct and conditional
 branches bind destinations and flag predicates, RET binds its zero-pop logical form and concrete RSP
-effect, Linux syscall and Windows call exits bind the ABI exit-code register, and HLT is distinct from
-syscall exit. Every constructor carries the exact host-aware production transition and event result;
-divide/memory faults cannot realize typed control flow.
+effect, Linux syscall exit binds the ABI exit-code register, and HLT is distinct from syscall exit.
+Pure JMP/Jcc/RET/HLT transitions additionally require runtime silence, so an interceptor cannot
+smuggle effects through a conservative ghost frame. Every constructor carries the exact host-aware
+production transition and event result; divide/memory faults cannot realize typed control flow.
+Windows `ExitProcess` is intentionally not a constructor yet: its production hook returns normally
+after a linked IAT call, so it needs a profile-owned provider/IAT and returned-outcome realization.
 
 Symbolic control flow will use scoped nominal `BlockRef` values tied to entries in the existing
 `TypedControlFlowGraph`, never text labels or raw instruction offsets. A graph builder will intern a

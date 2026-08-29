@@ -17,7 +17,6 @@ limitations under the License.
 import Gasm.Core.CFG
 import Gasm.Targets.X86_64.MacroAssembler.PlatformBridge
 import Gasm.Targets.X86_64.Instructions.Jcc
-import Gasm.Targets.X86_64.Instructions.Call
 import Gasm.Targets.X86_64.Instructions.Ret
 import Gasm.Targets.X86_64.Instructions.Syscall
 import Gasm.Targets.X86_64.Instructions.Hlt
@@ -77,6 +76,14 @@ structure ConservativeGhostFrame {Before After : Type}
   eventHistory : after.eventHistory = before.eventHistory
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
+/-- The selected runtime does not reinterpret this concrete terminator step as a host call. -/
+def RuntimeSilentAt {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (instruction : X86_64Instr) (before : X86_64MachineState) : Prop :=
+  let after := X86_64Instruction.step instruction before
+  interceptor.interceptCall after.rip after = none
+
+/- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- Exact target-owned realization of a logical terminator by one emitted production transition.
     The constructors bind instruction family, host outcome/events, destination selection, RET stack
     behavior, and the platform ABI register carrying an exit code. There is intentionally no
@@ -89,6 +96,7 @@ inductive TerminatorRealization {Event : Type}
       (encoding : DirectJumpEncoding instruction) (eventsAfter : List Event)
       (transition : nativeOutcomeTransition instruction before eventsRev =
         (exit.machine, eventsAfter))
+      (runtimeSilent : RuntimeSilentAt (Event := Event) instruction before)
       (safe : exit.machine.fault = none)
       (destination : exit.machine.rip = edge.targetState.machine.rip) :
       TerminatorRealization instruction before eventsRev exit (.jmp edge)
@@ -100,6 +108,7 @@ inductive TerminatorRealization {Event : Type}
       (eventsAfter : List Event)
       (transition : nativeOutcomeTransition instruction before eventsRev =
         (exit.machine, eventsAfter))
+      (runtimeSilent : RuntimeSilentAt (Event := Event) instruction before)
       (safe : exit.machine.fault = none)
       (trueDestination : kind.holds before →
         exit.machine.rip = targetTrue.targetState.machine.rip)
@@ -113,6 +122,7 @@ inductive TerminatorRealization {Event : Type}
       (instructionIsRet : instruction = ret_op) (eventsAfter : List Event)
       (transition : nativeOutcomeTransition instruction before eventsRev =
         (exit.machine, eventsAfter))
+      (runtimeSilent : RuntimeSilentAt (Event := Event) instruction before)
       (safe : exit.machine.fault = none)
       (stackEffect : exit.machine.rsp = before.rsp + 8) :
       TerminatorRealization instruction before eventsRev exit
@@ -126,20 +136,12 @@ inductive TerminatorRealization {Event : Type}
         (exit.machine, eventsAfter))
       (halted : exit.machine.fault = some .halted) :
       TerminatorRealization instruction before eventsRev exit (.sysExit exitCode hdroppable)
-  | windowsCallExit {S} {exit : ComposedState X86_64 S} (exitCode : UInt8)
-      (hdroppable : ∀ o ∈ exit.obligations, o.isDroppableOnExit)
-      (disp : Int32) (instructionIsCall : instruction = call_rip disp)
-      (exitCodeArgument : before.gprs .rcx = exitCode.toUInt64)
-      (eventsAfter : List Event)
-      (transition : nativeOutcomeTransition instruction before eventsRev =
-        (exit.machine, eventsAfter))
-      (halted : exit.machine.fault = some .halted) :
-      TerminatorRealization instruction before eventsRev exit (.sysExit exitCode hdroppable)
   | halt {S} {exit : ComposedState X86_64 S}
       (hdroppable : ∀ o ∈ exit.obligations, o.isDroppableOnExit)
       (instructionIsHlt : instruction = hlt_op) (eventsAfter : List Event)
       (transition : nativeOutcomeTransition instruction before eventsRev =
         (exit.machine, eventsAfter))
+      (runtimeSilent : RuntimeSilentAt (Event := Event) instruction before)
       (halted : exit.machine.fault = some .halted) :
       TerminatorRealization instruction before eventsRev exit (.halt hdroppable)
 
