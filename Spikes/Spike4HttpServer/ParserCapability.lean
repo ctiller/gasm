@@ -93,14 +93,25 @@ instance : TargetBoundarySemantics StreamingParserTarget where
   ExitKind := StreamingParserOutcome
   PhysicalState := StreamingParserArgs
   Execution := StreamingRequestLineResult
+  PublicEntry := StreamingParserExport
+  LookupKey := StreamingParserExport
   artifactImplements := fun artifact implementation =>
     artifact = .parser ∧ implementation = .parser
-  runs := fun implementation _ _ before execution exitKind after =>
+  publicEntries := fun _ => [.parseChunk]
+  callableEntries := fun _ => [.parseChunk]
+  lookupKey := id
+  resolvesEntry := fun artifact entry implementation _ _ =>
+    artifact = .parser ∧ entry = .parseChunk ∧ implementation = .parser
+  jointlyAdmissible := fun artifact entries =>
+    artifact = .parser ∧ entries = [(.parseChunk, .parser, (), ())]
+  runs := fun artifact implementation _ _ before execution exitKind after =>
+    artifact = .parser ∧
     implementation = .parser ∧
     after = before ∧
     execution = streamRequestLineChunk before.budget default before.bytes ∧
     exitKind = parserOutcome execution
-  admissible := fun implementation _ _ before execution exitKind after =>
+  admissible := fun artifact implementation _ _ before execution exitKind after =>
+    artifact = .parser ∧
     implementation = .parser ∧
     after = before ∧
     execution = streamRequestLineChunk before.budget default before.bytes ∧
@@ -115,12 +126,17 @@ def parserRealization :
   artifactConnection := ⟨rfl, rfl⟩
   relatesEntry := fun physical args _ world =>
     physical = args ∧ world.requestOpen = true ∧ world.retainedBytes = 0
-  logicalResult := fun _ execution _ => execution
-  logicalOutcome := fun _ _ exitKind _ => exitKind
   relatesWorld := fun _ world => world.retainedBytes = 0 ∨ world.requestOpen = true
+  relatesExit := fun _ execution exitKind _ result outcome world =>
+    result = execution ∧ outcome = exitKind ∧
+      world = { requestOpen := parserNeedsMore exitKind, retainedBytes := 0 }
   entryRelatesWorld := by
     intro physical args binding world related
     exact Or.inr related.2.1
+  exitRelatesWorld := by
+    intro physicalBefore execution exitKind physicalAfter result outcome world related
+    rcases related with ⟨_, _, rfl⟩
+    exact Or.inl rfl
   physicalAdmissibility := by
     intro before execution exitKind after runs
     exact runs
@@ -128,15 +144,15 @@ def parserRealization :
     intro physicalBefore args binding logicalBefore execution exitKind physicalAfter
       related required runs
     rcases related with ⟨hPhysical, hOpen, hRetained⟩
-    rcases runs with ⟨_, hAfter, hExecution, hOutcome⟩
+    rcases runs with ⟨_, _, hAfter, hExecution, hOutcome⟩
     have hExecution' : execution = streamRequestLineChunk args.budget default args.bytes := by
       rw [hPhysical] at hExecution
       exact hExecution
     have hOutcome' : exitKind = parserOutcome execution := hOutcome
     let after : ParserWorld :=
       { requestOpen := parserNeedsMore exitKind, retainedBytes := 0 }
-    refine ⟨after, ?_, ?_⟩
-    · simp [after]
+    refine ⟨execution, exitKind, after, ?_, ?_⟩
+    · exact ⟨rfl, rfl, rfl⟩
     · constructor
       · exact hExecution'
       constructor
@@ -144,19 +160,32 @@ def parserRealization :
       · simp [after, hOpen]
 
 def verifiedStreamingParserComponent :
-    VerifiedComponent ParserWorld StreamingParserKey StreamingParserTarget where
-  Export := StreamingParserExport
-  artifact := .parser
-  exports := [.parseChunk]
-  exportsNonempty := by simp
-  realization := fun _ => parserRealization
-  realizationUsesArtifact := by intro exported; cases exported; rfl
+    VerifiedComponent ParserWorld StreamingParserKey StreamingParserTarget
+      (inferInstance : BoundaryContextSpec ParserWorld StreamingParserKey)
+      (inferInstance : TargetBoundarySemantics StreamingParserTarget) where
+  exportSet := {
+    artifact := .parser
+    publicManifest := [.parseChunk]
+    entries := [{
+      physicalEntry := .parseChunk
+      realization := parserRealization
+      resolves := ⟨rfl, rfl, rfl⟩
+    }]
+    uniqueLookup := by simp
+    exactPublicTable := rfl
+    exactCallableTable := rfl
+    sameArtifact := by simp [parserRealization]
+    jointlyAdmissible := ⟨rfl, rfl⟩
+  }
+  callableNonempty := by simp
 
 /-- Non-vacuous implementation connection consumed by a platform capability.  It names the exact
     component artifact and the exact realization whose `artifactConnection`, `physicalAdmissibility`
     and `refinesContract` fields carry the proof. -/
 structure StreamingParserComponentConnection where
   component : VerifiedComponent ParserWorld StreamingParserKey StreamingParserTarget
+    (inferInstance : BoundaryContextSpec ParserWorld StreamingParserKey)
+    (inferInstance : TargetBoundarySemantics StreamingParserTarget)
   exactComponent : component = verifiedStreamingParserComponent
 
 def streamingParserComponentConnection : StreamingParserComponentConnection :=
