@@ -40,9 +40,9 @@ abbrev Spike3WasiArtifact := WasiArtifact
     capability premise a future `VerifiedProgram` proof must use; it cannot narrow stdin to a
     Bool or a finite test enumeration. -/
 def spike3WasiProvider (index : Nat) : WasiProvider :=
-  { imports := ["fd_read", "fd_write", "proc_exit"]
-    importIndex := index
-    implementation := wasiHostCall ["fd_read", "fd_write", "proc_exit"] index }
+  { protocol := .preview1
+    imports := ["fd_read", "fd_write", "proc_exit"]
+    importIndex := index }
 
 def spike3WasiReadWriteExitCapability : Capability Spike3WasiPreview1Platform where
   Context := Unit
