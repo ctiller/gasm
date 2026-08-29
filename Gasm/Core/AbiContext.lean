@@ -39,23 +39,26 @@ Rows will contain keys, not freely constructed records containing predicates. Th
 implementation must enforce coherent instances for every admitted key.
 -/
 class BoundaryContextSpec (World Key : Type) where
-  Args : Type
-  Binding : Type
-  Result : Type
-  Outcome : Type
-  ObligationFragment : Type
-  requiredObligations : Args → Binding → ObligationFragment
-  emittedObligations : Args → Binding → Result → Outcome → ObligationFragment
-  requires : Args → Binding → World → Prop
-  transitions : Args → Binding → Result → Outcome → World → World → Prop
+  Args : Key → Type
+  Binding : Key → Type
+  Result : Key → Type
+  Outcome : Key → Type
+  ObligationFragment : Key → Type
+  requiredObligations : (key : Key) → Args key → Binding key → ObligationFragment key
+  emittedObligations : (key : Key) →
+    Args key → Binding key → Result key → Outcome key → ObligationFragment key
+  requires : (key : Key) → Args key → Binding key → World → Prop
+  transitions : (key : Key) →
+    Args key → Binding key → Result key → Outcome key → World → World → Prop
 
 /- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
 /-- Proof that one call followed its nominal, value-dependent world transition. -/
 structure ContextBoundaryTransition (World Key : Type) [spec : BoundaryContextSpec World Key]
-    (args : spec.Args) (binding : spec.Binding) (result : spec.Result) (outcome : spec.Outcome)
+    (key : Key) (args : spec.Args key) (binding : spec.Binding key)
+    (result : spec.Result key) (outcome : spec.Outcome key)
     (before after : World) : Prop where
-  requirementsHeld : spec.requires args binding before
-  transitioned : spec.transitions args binding result outcome before after
+  requirementsHeld : spec.requires key args binding before
+  transitioned : spec.transitions key args binding result outcome before after
 
 /- REF: docs/ABI_CONTEXT.md#5-target-realization-interface -/
 /--
@@ -96,16 +99,17 @@ closed target profiles exist.
 structure ContextBoundaryRealization
     (World Key Target : Type)
     [spec : BoundaryContextSpec World Key]
-    [target : TargetBoundarySemantics Target] where
+    [target : TargetBoundarySemantics Target]
+    (key : Key) where
   signature : target.Signature
   entryKind : target.EntryKind
   implementation : target.Implementation
   artifact : target.Artifact
   artifactConnection : target.artifactImplements artifact implementation
-  relatesEntry : target.PhysicalState → spec.Args → spec.Binding → World → Prop
+  relatesEntry : target.PhysicalState → spec.Args key → spec.Binding key → World → Prop
   relatesWorld : target.PhysicalState → World → Prop
   relatesExit : target.PhysicalState → target.Execution → target.ExitKind →
-    target.PhysicalState → spec.Result → spec.Outcome → World → Prop
+    target.PhysicalState → spec.Result key → spec.Outcome key → World → Prop
   entryRelatesWorld : ∀ {physicalState args binding world},
     relatesEntry physicalState args binding world → relatesWorld physicalState world
   exitRelatesWorld : ∀ {physicalBefore execution exitKind physicalAfter result outcome world},
@@ -116,12 +120,12 @@ structure ContextBoundaryRealization
       target.admissible artifact implementation signature entryKind before execution exitKind after
   refinesContract : ∀ {physicalBefore args binding logicalBefore execution exitKind physicalAfter},
     relatesEntry physicalBefore args binding logicalBefore →
-    spec.requires args binding logicalBefore →
+    spec.requires key args binding logicalBefore →
     target.runs artifact implementation signature entryKind
       physicalBefore execution exitKind physicalAfter →
       ∃ result outcome logicalAfter,
         relatesExit physicalBefore execution exitKind physicalAfter result outcome logicalAfter ∧
-        spec.transitions
+        spec.transitions key
           args
           binding
           result
@@ -138,10 +142,11 @@ structure EstablishedBoundaryEntry
     (World Key Target Environment : Type)
     [spec : BoundaryContextSpec World Key]
     [target : TargetBoundarySemantics Target]
-    (realization : ContextBoundaryRealization World Key Target)
+    (key : Key)
+    (realization : ContextBoundaryRealization World Key Target key)
     (load : target.Artifact → Environment → target.PhysicalState) where
-  args : Environment → spec.Args
-  binding : Environment → spec.Binding
+  args : Environment → spec.Args key
+  binding : Environment → spec.Binding key
   world : Environment → World
   related : ∀ environment,
     realization.relatesEntry
@@ -150,7 +155,7 @@ structure EstablishedBoundaryEntry
       (binding environment)
       (world environment)
   requirementsHeld : ∀ environment,
-    spec.requires (args environment) (binding environment) (world environment)
+    spec.requires key (args environment) (binding environment) (world environment)
 
 /- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
 /--
@@ -164,8 +169,9 @@ structure PublishedBoundary
     (World Key Target : Type)
     (spec : BoundaryContextSpec World Key)
     (target : TargetBoundarySemantics Target) where
+  key : Key
   physicalEntry : target.PublicEntry
-  realization : @ContextBoundaryRealization World Key Target spec target
+  realization : @ContextBoundaryRealization World Key Target spec target key
   resolves : target.resolvesEntry realization.artifact physicalEntry
     realization.implementation realization.signature realization.entryKind
 

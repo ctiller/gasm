@@ -35,6 +35,7 @@ structure ParserWorld where
   deriving DecidableEq, Repr
 
 inductive StreamingParserKey
+  | parseChunk
 
 structure StreamingParserArgs where
   budget : Nat
@@ -56,18 +57,18 @@ def parserNeedsMore : StreamingParserOutcome → Bool
   | .completed | .resourceExhausted => false
 
 instance : BoundaryContextSpec ParserWorld StreamingParserKey where
-  Args := StreamingParserArgs
-  Binding := Unit
-  Result := StreamingRequestLineResult
-  Outcome := StreamingParserOutcome
-  ObligationFragment := Nat
-  requiredObligations := fun _ _ => 1
-  emittedObligations := fun _ _ _ outcome =>
+  Args := fun _ => StreamingParserArgs
+  Binding := fun _ => Unit
+  Result := fun _ => StreamingRequestLineResult
+  Outcome := fun _ => StreamingParserOutcome
+  ObligationFragment := fun _ => Nat
+  requiredObligations := fun _ _ _ => 1
+  emittedObligations := fun _ _ _ _ outcome =>
     match outcome with
     | .needMore => 1
     | .completed | .resourceExhausted => 0
-  requires := fun _ _ world => world.requestOpen = true
-  transitions := fun args _ result outcome before after =>
+  requires := fun _ _ _ world => world.requestOpen = true
+  transitions := fun _ args _ result outcome before after =>
     result = streamRequestLineChunk args.budget default args.bytes ∧
     outcome = parserOutcome result ∧
     after.retainedBytes = 0 ∧
@@ -118,7 +119,8 @@ instance : TargetBoundarySemantics StreamingParserTarget where
     exitKind = parserOutcome execution
 
 def parserRealization :
-    ContextBoundaryRealization ParserWorld StreamingParserKey StreamingParserTarget where
+    ContextBoundaryRealization ParserWorld StreamingParserKey StreamingParserTarget
+      .parseChunk where
   signature := ()
   entryKind := ()
   implementation := .parser
@@ -167,6 +169,7 @@ def verifiedStreamingParserComponent :
     artifact := .parser
     publicManifest := [.parseChunk]
     entries := [{
+      key := .parseChunk
       physicalEntry := .parseChunk
       realization := parserRealization
       resolves := ⟨rfl, rfl, rfl⟩

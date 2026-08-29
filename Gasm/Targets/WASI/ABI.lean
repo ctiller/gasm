@@ -623,15 +623,15 @@ def wasiCallableEntries (artifact : WasiArtifact) : List Export :=
     entry.name != "_start" && match entry.desc with | .func _ => true | .mem _ => false
 
 def wasiBoundarySpec : BoundaryContextSpec Unit Unit :=
-  { Args := Unit
-    Binding := Unit
-    Result := Unit
-    Outcome := Unit
-    ObligationFragment := Unit
-    requiredObligations := fun _ _ => ()
-    emittedObligations := fun _ _ _ _ => ()
-    requires := fun _ _ _ => True
-    transitions := fun _ _ _ _ before after => before = after }
+  { Args := fun _ => Unit
+    Binding := fun _ => Unit
+    Result := fun _ => Unit
+    Outcome := fun _ => Unit
+    ObligationFragment := fun _ => Unit
+    requiredObligations := fun _ _ _ => ()
+    emittedObligations := fun _ _ _ _ _ => ()
+    requires := fun _ _ _ _ => True
+    transitions := fun _ _ _ _ _ before after => before = after }
 
 def wasiBoundarySemantics : TargetBoundarySemantics WasiPlatform where
   Implementation := Nat
