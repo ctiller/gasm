@@ -369,10 +369,18 @@ semantic dependency. This proportionality audit never weakens adversarial review
 mechanism: all reachable error, interruption, cancellation, failure and stale-identity paths remain in
 scope, but an unselected mechanism or guarantee does not.
 
-Reviewers MUST include a **Proof Applicability Table**:
+Reviewers MUST include a **Proof Applicability Table** when the change adds or changes an obligation,
+selected profile, reachable effect/failure path, advertised guarantee, or stage dependency. Otherwise
+the review may record `N/A — no applicability change` with one sentence identifying the unchanged
+closure; unrelated existing optional profiles are not copied into the review.
 
 | Requested proof / gate | Unsafe behavior, platform rule, or selected claim that triggers it | Reusable base vs. implementation delta | Status (`Required` / `Already discharged` / `Undue burden` / `Missing`) |
 | :--- | :--- | :--- | :--- |
+
+Many normative clauses may map to one prevention-class entry when one type restriction, kernel
+theorem, build gate or external-oracle control excludes their common defect. Require a new control
+only for a new defect class or materially distinct trust boundary; never demand an emitted-binary
+mutation for a behavior already unrepresentable by construction.
 
 #### D. Citation Adequacy Audit
 

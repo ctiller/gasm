@@ -40,9 +40,6 @@ instance : AbiDiscipline X86_64 SystemVAMD64 where
   stackAlignment       := 16
   argumentRegisters    := [⟨7⟩, ⟨6⟩, ⟨2⟩, ⟨1⟩, ⟨8⟩, ⟨9⟩] -- RDI, RSI, RDX, RCX, R8, R9
   returnRegister       := ⟨0⟩ -- RAX
-  calleePreservesStack := by
-    intro S s_post h_callee
-    exact h_callee.stack_clean
 
 /- REF: docs/TARGETS/LINUX.md#12-system-call-abis-across-architectures -/
 /-- Linux x86-64 System Call ABI descriptor. -/

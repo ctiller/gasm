@@ -64,20 +64,13 @@ below are descriptive workstreams, not a second stage namespace.
   consumption and CQ-head reclamation from operation terminality. A registered-resource update can
   publish a new binding while an accepted operation still holds the captured old generation; any
   later tag CQE/resource-release event retires that old generation rather than re-resolving the slot.
-* **Hosted process lifecycle profiles:** Add the independently gated M6-PL POSIX/Linux and M6-PW
-  Windows refinements of the common M6-P-family system topology for
-  generative process/image/address-space/namespace identities; fork/clone/vfork, exec/spawn or
-  `CreateProcess`; terminality, status observation, POSIX reaping and Windows persistent process
-  objects; PID/handle reuse; parent/reaper/job relations; and resource-specific failure-domain
-  dispositions. Thread `JoinRight` remains a high-level task contract rather than an OS process wait.
-* **IPC and handle/object derivation profiles:** Model shared-memory object identity across address
-  spaces and message IPC. Keep portable process-shared futex/robust owner-death/recovery semantics in
-  optional M6-PS, with independently completed M6-PS-X/A target realizations. Distinguish local descriptor/handle entries,
-  intermediate open descriptions/provider objects, underlying objects, rights and close obligations;
-  prove copy/alias, move, attenuation, inheritance, name import and object-specific transfer with
-  result-indexed source disposition and failure atomicity. `SCM_RIGHTS` normally creates a fresh
-  receiver descriptor alias while retaining the sender entry; equal numeric entries across
-  namespaces prove nothing.
+* **Deferred multiprocess and cross-process IPC (post-M9):** Current targets are one root host
+  process with multiple threads. `fork`/exec/`CreateProcess`, process wait/reap, inheritance,
+  cross-process channels and process-shared robust synchronization have no current M-stage. When a
+  concrete consumer arrives, Decision 12 opens only its capability-indexed platform surface under
+  `docs/FUTURE_PROCESS_MODEL.md`; unselected constructors and resource classes impose no proof or
+  validation work. `JoinRight` remains a task/thread contract and raw process/handle identifiers mint
+  no authority.
 * **Transport profiles:** TCP byte-stream and datagram flow identities, local completion versus
   delivery versus application acknowledgement, connection shutdown and reset, retransmission and
   explicit failure/recovery assumptions.
@@ -104,7 +97,9 @@ below are descriptive workstreams, not a second stage namespace.
   only CPU program/scheduler edges.
 * **Two architecture models:** x86-64 WB/TSO with store buffers and locked operations; AArch64
   weak memory with acquire/release, barriers, and exclusive monitors.
-* **Hosted concurrency:** Keep semantic thread/object lifecycle, native lifecycle/ABI realization,
+* **Hosted concurrency:** Through M9, use one root host process and one host CPU virtual-address
+  domain with multiple logical threads; this does not constrain independent GPU/device/IOMMU/resource
+  address domains or agents. Keep semantic thread/object lifecycle, native lifecycle/ABI realization,
   and optional address parking as independently consumable certificates. Windows thread-object
   lifecycle must not depend on `WaitOnAddress`; Linux native creation/join must not depend on a
   process-private futex unless it uses one. Keep unary address parking narrow; add a
@@ -134,7 +129,8 @@ below are descriptive workstreams, not a second stage namespace.
   it neither changes logical thread identity nor transfers a thread-affine mutex guard by itself.
 * **Two bare-metal SMP paths:** x86 AP/LAPIC startup and AArch64 PE/PSCI-or-spin-table startup,
   each including device-memory ordering and honest emulator/silicon classification.
-* **Interrupt/exception contexts:** Model handler stacks on execution agents, entry and distinct
+* **Interrupt/exception contexts:** Model bare-metal IRQ/NMI stacks on execution agents and hosted
+  signal/APC/trap activations on their logical threads, with entry and distinct
   ordinary-return, resumable-continuation, search/propagation, nonlocal-unwind/cleanup,
   non-returning exec/immediate-exit and fatal outcomes; model masks/priorities/nesting, save/restore
   and reservation invalidation; suspend rather than transfer
@@ -172,18 +168,12 @@ end-to-end validation vehicle in `docs/SPIKES/SPIKE8_MULTITHREADING.md`.
 * **Provenance and indexed authority:** Generative regions, provenanced pointers, temporal read
   loans, causally delivered donation, result-indexed join returns, and a global access-mode
   invariant separating ordinary-exclusive, frozen/read-loan, and registered-atomic regions.
-* **Relational ABI/boundary entry and exit:** Connect physical entry state to exact logical arguments,
-  binding and live authority/obligation world with an entry-origin relation, not a function that
-  reconstructs erased provenance or generations from bits. A caller/link proof establishes ordinary
-  calls; loader/platform transitions establish roots, thread/process starts and handlers. Bind exit
-  results/outcomes relationally whenever fresh erased identity is involved, or prove any functional
-  projection is limited to non-authorizing physical scalars. The selected target proves complete
-  physical admissibility for its entry/exit kind, and artifact identity connects the theorem to
-  emitted bytes. M1 owns only the abstract seam; independently selectable M2-B[p] certificates own
-  exact ordinary-call, syscall, loader-root and handler profiles, and proving one must not burden or
-  certify another. Converge the ABI-context implementation on this split; do not connect it to
-  `Callable` or `VerifiedProgram` until the applicable whole-program caller-or-loader link theorem
-  exists.
+* **Relational ABI/boundary entry and exit:** Consume rather than restate the canonical boundary-
+  profile closure rule in `docs/MEMORY_MODEL.md` §3. M1 owns only the abstract seam; independently
+  selectable M2-B[p] certificates own exact ordinary-call, syscall, loader-root and handler profiles,
+  and proving one must not burden or certify another. Converge the ABI-context implementation on both
+  relational entry and exit; do not connect it to `Callable` or `VerifiedProgram` until the applicable
+  whole-program caller-or-loader link theorem exists.
 * **Lock invariants and obligations:** An implementation-independent mutex contract separates
   atomic synchronization-representation authority from exclusive protected-region ownership;
   result-indexed guards and typed must-release obligations are shared by a preferred verified

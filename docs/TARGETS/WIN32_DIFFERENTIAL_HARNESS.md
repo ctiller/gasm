@@ -152,6 +152,10 @@ exercise is a distinct object from this reporting channel), so there is no inter
 round 1's file-based design was also trying to satisfy, just over a channel that couldn't
 support ordering.
 
+This controller-side `CreateProcess`/inheritance use is differential-harness infrastructure in the
+test TCB, not a claim that gasm implements or verifies a process model. Hosted-process semantics are
+deferred beyond M9 by `docs/MEMORY_MODEL.md` Decision 12.
+
 **Phase protocol**: the probe writes one wire record (§1.4) per meaningful step — e.g.
 `.phaseReady`, `.phaseCallReturned (callIndex) (result)`, `.phaseFinal (allResults)` — and the
 controller reads incrementally, blocking on the next record exactly at the points where it

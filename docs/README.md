@@ -123,6 +123,8 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**Canonical Memory & Concurrency Model**](MEMORY_MODEL.md): Common event graph, x86-TSO and
   AArch64 weak memory, borrowing, locks/obligations, scheduler, futex/Windows parking, and both
   bare-metal SMP paths, with staged exit criteria.
+- [**Deferred Hosted-Process Extension**](FUTURE_PROCESS_MODEL.md): Post-M9 compatibility constraints
+  and consumer-triggered design notes; not a current stage or proof dependency.
 - [**Spikes & Integration Roadmap**](SPIKES.md): Spike progression, continuous testing, and stop-and-design invariant.
 - [**Review Protocol & Citation Laws**](REVIEW.md): `REF:` syntax, repository laws, and automated backlog tool.
 - [**Continuous Integration**](CI.md): the GitHub Actions gate inventory, Windows/Linux platform matrix, caching soundness argument, and cost split.

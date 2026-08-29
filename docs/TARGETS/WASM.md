@@ -25,9 +25,11 @@ eligibility and differential-validation coverage.
 Shared `memory.grow` is also part of the threads intake rather than an ordinary allocator footnote.
 The selected threads snapshot must pin the required maximum, successful sequentially consistent
 length RMW and returned old size, and failed growth's sequentially consistent length read, `-1`
-result and unchanged extent. Concurrent successful grows must return distinct old extents and
-establish nonoverlapping newly zero-initialized ranges; the profile also states the event and bounds
-observation that permit another agent to address each range. The embedding intake separately pins
+result and unchanged extent. Any two successful concurrent grows whose deltas are both nonzero must
+return distinct old extents and establish nonoverlapping newly zero-initialized ranges. A successful
+zero-delta grow allocates no range and may return the same old extent as another concurrent grow. The
+profile also states the event and bounds observation that permit another agent to address each newly
+allocated range. The embedding intake separately pins
 `SharedArrayBuffer` identity/refresh behavior, fixed or resizable buffer lengths, and what existing
 typed views can address after another agent grows the memory. A successful or failed grow result does
 not manufacture exclusive authority; allocation and subdivision still require the checked

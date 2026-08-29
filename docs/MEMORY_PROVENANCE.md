@@ -61,13 +61,13 @@ owning process/address-space lifetime ends. Current code can tag the value-level
 perform a release, identify a process, prove a kernel teardown transition, or justify dropping the
 same resource on thread exit.
 
-The selected M6-PL/M6-PW process model must instead index a private virtual-memory lease by the owning
-`ProcessInstanceId`, address-space/image generation and `FailureDomainId`, then prove the selected
-platform's resource-specific exit disposition. A normal platform teardown may invalidate a private
-mapping without an explicit `VirtualFree`/`munmap` call, but shared mappings, external backing,
-duplicated handles and device/remote effects may survive. Forced termination likewise supplies no
-global discharge theorem. Until that model exists, the marker is legacy bookkeeping rather than
-promotion evidence for provenance or lifecycle safety.
+The current single-process model must instead represent a retained page as a typed root-lifetime
+resource and prove the selected `exit_group`/`ExitProcess`/bare-metal teardown disposition while
+accounting for every thread and terminal bundle. Only resources actually covered by that target
+teardown theorem may be discharged there; shared/external/device/remote resources do not vanish by
+analogy. Multiprocess qualification is deferred to `docs/FUTURE_PROCESS_MODEL.md`. Until the typed
+root rule exists, the marker is legacy bookkeeping rather than promotion evidence for provenance or
+lifecycle safety.
 
 ---
 
@@ -113,4 +113,4 @@ instance that can forge a live identity.
 | **3. Permutation** | Bubble sort swaps descriptor pairs | Permutes descriptor bytes and ghost slot bindings together, preserving region identity |
 | **4. Emission** | Stream sorted lines to `WriteFile` | Uses the typed-view binding plus current read authority for in-bounds payload access |
 | **5. Deallocation** | Free sort table, nodes, and strings via `smol_free` | Consumes each exact child identity/authority and discharges all strict obligations |
-| **6. Termination** | Exit via `ExitProcess(0)` | Current exit predicate accepts the marked token; M6-PW must specify the private mapping's semantic exit disposition and M6-PW-X must prove the native `ExitProcess`/teardown lowering |
+| **6. Termination** | Exit via `ExitProcess(0)` | Current exit predicate accepts the marked token but proves no release; M4/M6-T and M6-NX must replace it with typed root-lifetime accounting plus the native `ExitProcess` teardown theorem |

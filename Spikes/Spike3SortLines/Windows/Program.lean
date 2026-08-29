@@ -514,7 +514,7 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   jmp_near_label "free_nodes_loop",
 
   -- 11. Root-program termination; the current ledger accepts the legacy page exit marker, but
-  --     this instruction stream does not release the arena or prove M6-PW process teardown:
+  --     this instruction stream does not release the arena or prove typed root-lifetime teardown:
   label "cleanup_and_exit",
   instr (xor_r32 .ecx .ecx),
   call_import "ExitProcess"

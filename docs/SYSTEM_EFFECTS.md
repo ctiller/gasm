@@ -122,7 +122,7 @@ class MonadFileSystem (m : Type → Type) [Monad m] where
 
 The checked-in class is the narrow effect surface for one implicit root process. It has no
 `ProcessInstanceId`, process tree, address-space generation, status record, observation grant or
-reap right, so it is not an M6-PL/M6-PW process/system model.
+reap right. Multiprocess extension is post-M9 work under `docs/FUTURE_PROCESS_MODEL.md`.
 
 ```lean
 class MonadProcess (m : Type → Type) [Monad m] where
@@ -135,6 +135,9 @@ class MonadProcess (m : Type → Type) [Monad m] where
 #### Algebraic Laws for `MonadProcess`:
 1. **Exit Divergence Law**:
    $$\forall k, \text{exitProcess } c \gg k \equiv \text{exitProcess } c$$
+
+This algebraic divergence law says nothing about resource cleanup. A verified root lowering must also
+prove the all-thread and terminal-bundle accounting rule in `docs/MEMORY_MODEL.md` §6.4.
 
 ---
 
@@ -187,14 +190,14 @@ To translate a high-level effectful program into verified `gasm` assembly:
 | :--- | :--- | :--- | :--- |
 | `MonadConsole.printStr` | `RCX = GetStdHandle(-11)` $\to$ `WriteFile(RCX, RDX, R8, R9, [RSP+32])` | `RAX = 1` (`sys_write`), `RDI = 1`, `RSI = buf`, `RDX = len`, `syscall` | `OUT DX, AL` polling loop on UART `0x3F8` |
 | `MonadFileSystem.openFile` | `CreateFileA` / `CreateFileW` | `RAX = 2` (`sys_open`), `syscall` | In-memory FAT32 sector walker / RAMDisk |
-| `MonadProcess.exitProcess` | Current root profile: `RCX = exitCode` $\to$ `ExitProcess(RCX)`; M6-PW owns the process semantics and M6-PW-X proves the native process-instance lowering | Current single-thread baseline: `RAX = 60` (`sys_exit`); M6-PL owns whole-process semantics and M6-PL-X/A proves the selected `exit_group` lowering | Bare-metal root-machine profile: `CLI` $\to$ `HLT` infinite loop |
+| `MonadProcess.exitProcess` | Current root profile: `RCX = exitCode` $\to$ `ExitProcess(RCX)`; M6-T[Windows]/M6-NX[Windows] prove all-thread root accounting and native lowering | Current single-thread baseline uses `RAX = 60` (`sys_exit`); the threaded root profile uses selected `exit_group` through M6-T[Linux] plus M6-NX/M6-NA and proves all-thread root accounting | Bare-metal root-machine profile: selected stop loop plus the same applicable root-resource accounting |
 
 These are root-program lowering examples, not a shared lifecycle theorem. Linux `sys_exit` ends the
 calling thread and is equivalent to whole-process termination only in the current single-thread
-baseline; the applicable M6-T profile keeps thread exit separate, M6-PL proves resource-specific
-whole-process semantics, and M6-PL-X/A proves the selected native lowering. M6-PW/M6-PW-X make the
-same semantic/native split for `ExitProcess`, which likewise does not imply that
-process-object observation, status query, handle close, task join or resource cleanup are one event.
+baseline; the applicable M6-T profile keeps thread exit separate and M6-NX/M6-NA proves the selected
+root lowering. Windows uses the same semantic/native split for `ExitProcess`. Neither root primitive
+implies resource cleanup: §6.4's typed accounting theorem is separate. Process creation/observation is
+not a current effect profile.
 
 ---
 
@@ -218,7 +221,7 @@ Equivalence in `gasm` is observational **up to a coalescing congruence** on cont
 | `FileSystemEvent.write` | Consecutive writes to the same descriptor compose by concatenation at the current offset. | Same as console; a reader observes final content and ordering, not syscall counts. |
 | `NetEvent.send` | Sends on the same connection compose by concatenation **only within a protocol message boundary declared by the spec** AND only within an input-free causal segment (§6.4); message boundaries and cross-connection ordering are preserved. | TCP is a byte stream (chunking invisible), but specs at message granularity observe message ordering, and responses must stay causally after the inputs they answer. |
 | `NetEvent.recv` / reads / `accept` | **Never coalesced; input events are causal anchors and coalescing barriers** (§6.4). | Cross-direction causality (read-then-ack vs. ack-then-read) is protocol meaning. |
-| `ProcessEvent.exit` | Never coalesced. In the current implicit-root whole-program trace there is exactly one terminal exit. An M6-PL/M6-PW global trace qualifies each terminal event by generative `ProcessInstanceId` and may contain exits for many process instances. | The per-instance exit code and terminality are observable; status availability, observation, POSIX reaping and lifecycle-object reclamation remain separate events/consequences. |
+| `ProcessEvent.exit` | Never coalesced. In the current implicit-root whole-program trace there is exactly one terminal exit. | The root exit code and terminality are observable; this event neither proves resource cleanup nor supplies future process observation/reaping semantics. |
 | `ClockEvent.queryTime` | Not an equivalence observable (see below). | Timing is excluded from observation entirely. |
 | Cross-stream / cross-effect ordering | Preserved (conservative default). | Relaxation is a per-spec decision requiring explicit justification, not a library default. |
 

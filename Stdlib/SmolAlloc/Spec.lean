@@ -57,7 +57,7 @@ def mkFreeObligation (ptr : Address) : ObligationToken :=
 /- REF: docs/STDLIB_SMOLALLOC.md#4-linear-obligations-memory-invariants -/
 /-- Constructs a retained-page token carrying the legacy exit marker.
 The marker is accepted by the current exit predicate; it does not release the mapping or prove an
-M6-PL/M6-PW process-scoped teardown. -/
+all-thread root-lifetime teardown under `docs/MEMORY_MODEL.md` §6.4. -/
 def mkProcessPageObligation (base : Address) : ObligationToken :=
   ⟨base.toNat, "ProcessPageObligation", true⟩
 

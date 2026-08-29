@@ -94,8 +94,9 @@ When freeing payload pointer $P$:
 - **Payload-Leak Requirement**: A completed allocator client must discharge every payload `free`
   obligation. The current specification also retains value-level page tokens marked
   `isDroppableOnExit`; it does not prove an empty total ledger or automatic page teardown. The
-  selected M6-PL/M6-PW profile must replace that marker with a process/address-space-indexed,
-  platform-proved resource disposition.
+  current root profile must replace that marker with a typed root-lifetime resource and the selected
+  platform teardown proof under `docs/MEMORY_MODEL.md` §6.4. Future multiprocess qualification is
+  deferred to `docs/FUTURE_PROCESS_MODEL.md`.
 
 ### 4.2 FreeList Re-use Theorem
 The formal specification proves that deallocating a block of size $S$ guarantees that a subsequent allocation request of size $S' \le S$ successfully reuses the freed block without requesting new pages from the underlying `PageSource`.
