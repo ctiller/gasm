@@ -54,5 +54,6 @@ import Spikes.Spike5Gzip.Spec
 import Spikes.Spike5Gzip.Windows.Program
 import Spikes.Spike5Gzip.Linux.Program
 import Spikes.Spike5Gzip.Wasm.Program
+import Spikes.Spike5Gzip.UniversalInput
 import Spikes.Spike5Gzip.Equivalence
 
