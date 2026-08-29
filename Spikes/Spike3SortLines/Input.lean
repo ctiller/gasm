@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Core.Platform
+import Gasm.Effects.ReadBinder
 
 /-! Byte-stream input semantics for Spike 3.
 
@@ -118,6 +119,25 @@ theorem ByteLineStream.completedLines_feedChunks_flatten (state : ByteLineStream
     ((state.feedChunks chunks).completedLines) =
       ((state.feed chunks.flatten).completedLines) := by
   rw [ByteLineStream.feedChunks_flatten]
+
+/- REF: docs/READ_BINDER_CONTRACT.md#3-read-continuations-and-fragmentation -/
+/-- A bounded read-binder schedule feeds exactly its source stream to the decoder.  This connects
+    the concrete `ChunksOf` continuation contract to the sorter without choosing a sample stdin,
+    a read count, or a particular placement of chunk boundaries. -/
+theorem ByteLineStream.feedChunks_of_chunksOf (state : ByteLineStream)
+    {stdin : List UInt8} {capacity : Nat} {chunks : List (List UInt8)}
+    (hchunks : Gasm.Effects.ChunksOf stdin capacity chunks) :
+    state.feedChunks chunks = state.feed stdin := by
+  rw [ByteLineStream.feedChunks_flatten, hchunks.flatten_eq_total]
+
+/- REF: docs/READ_BINDER_CONTRACT.md#3-read-continuations-and-fragmentation -/
+/-- Consequently, a bounded read schedule cannot alter the completed-line observation of any
+    finite stdin stream. -/
+theorem ByteLineStream.completedLines_of_chunksOf (state : ByteLineStream)
+    {stdin : List UInt8} {capacity : Nat} {chunks : List (List UInt8)}
+    (hchunks : Gasm.Effects.ChunksOf stdin capacity chunks) :
+    (state.feedChunks chunks).completedLines = (state.feed stdin).completedLines := by
+  rw [ByteLineStream.feedChunks_of_chunksOf state hchunks]
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- The canonical environment's byte oracle is the only Spike 3 input source. -/
