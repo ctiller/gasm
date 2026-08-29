@@ -91,7 +91,7 @@ instance [Inject NetEvent Event] : MonadNetwork (TraceM Event) where
     | _ =>
       let s' := { s with events := s.events ++ [Inject.inject (NetEvent.accept "127.0.0.1")] }
       (some (some 101), s')
-  -- N2 fix (MODEL_DEBT.md §C1): the spec-side model must respect `maxLen` (the syscall's
+  -- Short-read contract fix (`docs/READ_BINDER_CONTRACT.md`): the spec-side model must respect `maxLen` (the syscall's
   -- declared cap) the same way the machine-side hooks now do (`Win32API.lean`'s `recvHook`,
   -- `Syscall.lean`'s `sysReadHook`, `WASI/ABI.lean`'s `sock_recv`) -- otherwise a `∀ env`
   -- equivalence proof could never hold once a machine-side hook's short-read behaviour is

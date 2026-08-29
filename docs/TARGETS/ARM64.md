@@ -852,13 +852,15 @@ gate first.
   coefficient…"` and exactly zero declare `.cited` — measured by grep over
   `Gasm/Targets/X86_64/Instructions/*.lean`, and independently recorded as "0 of 88
   coefficients cite any source" in `docs/X86_ISA_EXPANSION_PREREQUISITES.md`. This
-  is because the RDTSC calibration harness
-  (`docs/CALIBRATION_GOVERNANCE.md`'s "F1") does not exist yet, and that document's §9 rules
-  out third-party tables (Agner Fog, uops.info) as a `.cited` source for any shipped
-  coefficient. The gate (`Tools/CheckX86Obligations.lean`) only requires a non-empty, honest
+  is because the RDTSC/RDTSCP harness and provisional artifacts exist but no governed result is
+  accepted and bound to an instruction coefficient yet (`docs/RDTSC_HARNESS.md`), and
+  `docs/CALIBRATION_GOVERNANCE.md` §9 rules out third-party tables (Agner Fog, uops.info) as a
+  `.cited` source for any shipped coefficient. The gate (`Tools/CheckX86Obligations.lean`) only
+  requires a non-empty, honest
   *reason string* for `.modelInternalUnvalidated` — it does not require the coefficient to be
   measured. An ARM implementor declaring every `costProvenance` as
-  `.modelInternalUnvalidated "no calibration source exists yet"` is not taking a shortcut;
+  `.modelInternalUnvalidated "no accepted architecture-specific calibration binding exists"`
+  is not taking a shortcut;
   it is doing exactly what this project's own x86 side does everywhere today, and the gate
   will accept it. **This does not violate the repository's equal-standards principle**: the standard
   this specific gate enforces is *honest disclosure of provenance*, not *validated
@@ -887,7 +889,7 @@ gate first.
   family, following the existing x86 decoder-modularization pattern) if the ARM ISA subset
   grows large enough for build-time cost to matter the way it already does for x86.
 - **The memory-access declaration convention (`memAccesses : ι → List MemAccessSpec`, also
-  no default) is the newest of these**, landed via `docs/MEMORY_HOOK.md` (D30/D31, approved
+  no default) is the newest of these**, landed via `docs/MEMORY_HOOK.md` (approved
   2026-08-28) as the single chokepoint for Law 11 permission-checking and the performance
   model's latency/cache accounting. *(Updated 2026-08-28: MH1 has landed since this section
   was written — the field is live on the typeclass at
@@ -909,7 +911,7 @@ choices, and an ARM target is not bound by them:
 
 - **`MemRef` (`Gasm/Targets/X86_64/Memory.lean`: `base + index*scale + disp`) is the
   operand shape for x86-64's SIB-byte-derived addressing modes specifically** — approved as
-  "the operand convention for the expansion's new memory forms" in D31/Q2, but that ruling is
+  "the operand convention for the expansion's new memory forms" during memory-hook review, but that ruling is
   scoped to x86-64's own instruction expansion, not stated as a cross-target requirement.
   AArch64 addressing is a substantially different shape: pre/post-indexed writeback
   (`STR X0, [X1], #16`), register-offset with optional extend/shift
@@ -1129,8 +1131,8 @@ no axiom is introduced (`docs/REVIEW.md:106`, Law 10, rungs 2–4).
 Counted at commit `38efb5f`: **81 entries — 34 `grandfathered`, 45 `axiom-only`, 2
 `finite-forall`.** The target the owner has stated is zero; the count is the score.
 The retired oracle-debt audit supplied the historical shape and path-to-zero analysis; its headline
-figures were from 2026-08-27 at 80 entries and are not a current count. The surviving architectural
-summary is `docs/TECHNICAL_NOTES.md` §1.
+figures were from 2026-08-27 at 80 entries and are not a current count. This section preserves the
+architectural summary; `scripts/gate_allowlist.txt` is the authoritative live ledger.
 
 ### 11.2 The debt is minted by the target convention, not by instructions
 

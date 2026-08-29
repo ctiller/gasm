@@ -69,16 +69,15 @@ suites from) and checks, per instance:
 THE COST-PROVENANCE OBLIGATION'S HONEST STATE, reported but not gated red: every one of the 88
 registered forms is `.modelInternalUnvalidated` today (0 are `.cited`), and that is correct, not a
 defect this tool should fail the build over. `docs/CALIBRATION_GOVERNANCE.md` #9 rules out external
-tables (Agner Fog / uops.info) as the SOURCE of a shipped coefficient -- cross-check only -- and F1
-(the RDTSC harness self-measured calibration would need) is `docs/tasks/F1-rdtsc-harness.md`,
-status `ready`, unbuilt. So there is today no legitimate source any of the 88 forms COULD cite; the
-gate's job is to make that debt loud and counted (see the summary table this tool prints), per Law
+tables (Agner Fog / uops.info) as the SOURCE of a shipped coefficient -- cross-check only. The
+RDTSC harness and provisional calibration files now exist, but no governed coefficient binding has
+been accepted for any registered form. The gate's job is to make that debt loud and counted (see
+the summary table this tool prints), per Law
 14's "honesty in output" clause -- not to fail the build over a debt this repository has not yet
 built the infrastructure to pay down. A future `.cited` entry naming a real calibration artifact or
 `references.json` slug is exactly what should start moving this count off zero.
 
-SELF-TEST DESIGN (`--self-test`): unlike `scripts/check_record.py`'s model of planting a defect
-into the REAL tree and re-running the live check, this tool's checking logic is a pure function
+SELF-TEST DESIGN (`--self-test`): this tool's checking logic is a pure function
 (`checkInstrData`) over a small extracted record (`InstrCheckData`), not over the compiled
 environment -- so the fast, repeatable, no-rebuild-required control vector is to construct
 SYNTHETIC good/bad `InstrCheckData` fixtures directly (mirroring `EncodingFuzzer.lean`'s own
@@ -133,7 +132,7 @@ structure InstrCheckData where
   canFuzzHW      : Bool
   fuzzStateCount : Nat
   provenance     : CoefficientProvenance
-  -- MH2 (docs/tasks/MH2-memory-uop-centralization.md, docs/MEMORY_HOOK.md §5.2 item 3): the
+  -- MH2 (`docs/MEMORY_HOOK.md` §5.2 item 3): the
   -- derivation-invariant inputs. `memoryUops` is the instance's ACTUAL memory-class (`.load`/
   -- `.storeAddr`/`.storeData`) uop subset; `derivedMemoryUops` is what `memAccesses` mapped
   -- through `memUops` at the shared `defaultMemCostModel` says it SHOULD be -- checked only when
@@ -376,12 +375,11 @@ def runGate : IO UInt32 := do
   IO.println s!"    .cited (real calibration source)          : {citedCount}"
   IO.println s!"    .modelInternalUnvalidated (honest, uncited) : {unvalidatedCount}"
   if citedCount == 0 then
-    IO.println "    [i] 0 cited: F1 (RDTSC harness, docs/tasks/F1-rdtsc-harness.md) is unbuilt \
-      and docs/CALIBRATION_GOVERNANCE.md #9 rules out external tables (Agner Fog / uops.info) as \
-      a coefficient SOURCE -- this is the honest, expected state, not a gate failure. See this \
-      file's own header comment."
+    IO.println "    [i] 0 cited: the RDTSC harness and provisional artifacts exist, but no governed \
+      coefficient binding has been accepted; docs/CALIBRATION_GOVERNANCE.md #9 rules out external \
+      tables (Agner Fog / uops.info) as a coefficient SOURCE. This is reported debt, not a gate failure."
 
-  -- MH2 (docs/tasks/MH2-memory-uop-centralization.md, docs/MEMORY_HOOK.md §5.3(b)): the memory
+  -- MH2 (`docs/MEMORY_HOOK.md` §5.3(b)): the memory
   -- cost TABLE's own coefficient provenance, distinct from the per-INSTANCE costProvenance
   -- breakdown above -- 6 named coefficients shared by all 1611 registered instances rather than
   -- one mark per instance. Printed every run, per Law 14's honesty-in-output clause.
@@ -391,9 +389,9 @@ def runGate : IO UInt32 := do
   IO.println s!"    {memCalibrated} of {memTotal} memory coefficients calibrated / \
     {memTotal - memCalibrated} model-internal"
   if memCalibrated == 0 then
-    IO.println "    [i] 0 calibrated: same F1/Law-14-#9 reason as the per-instance breakdown \
-      above -- every memory coefficient is honestly modelInternalUnvalidated today \
-      (Gasm/Targets/X86_64/MemCostModel.lean)."
+    IO.println "    [i] 0 calibrated: the harness and provisional artifacts exist, but no \
+      accepted governed coefficient binding exists; every memory coefficient remains honestly \
+      modelInternalUnvalidated (Gasm/Targets/X86_64/MemCostModel.lean)."
 
   let mut failed := false
 
@@ -435,7 +433,7 @@ def runGate : IO UInt32 := do
     check, which must pass vacuously (matching 74 of the 88 real registered forms). -/
 def goodFixture : InstrCheckData :=
   { label := "self_test_good", uopsEmpty := false, oracle := .silicon, canFuzzHW := true,
-    fuzzStateCount := 24, provenance := .modelInternalUnvalidated "no calibration source exists yet",
+    fuzzStateCount := 24, provenance := .modelInternalUnvalidated "synthetic unvalidated fixture",
     memoryUops := [], derivedMemoryUops := [], hasMemAccesses := false }
 
 /- REF: docs/MEMORY_HOOK.md#52-why-this-is-falsifiable-where-todays-numbers-are-not -/

@@ -80,7 +80,7 @@ theorem spike1_wasm_canonical_effect_trace_equivalence :
 -- actual program, rather than merely assuming `defaultWasmFuel` (100 million) is enough. Spike
 -- 1's Wasm program contains no `.loop` at all (`grep -c '\.loop' Program.lean` returns 0), so
 -- this is not a close call, but the check is a real, executed proof rather than an assumption --
--- exactly the anti-vacuity discipline TCB.md's "Fuel exhaustion indistinguishable from clean
+-- exactly the anti-vacuity discipline docs/REVIEW.md's "Fuel exhaustion indistinguishable from clean
 -- termination" finding asks for.
 #guard !Gasm.Targets.Wasm.WasmRunResult.isError
   (Gasm.Targets.WASI.runWasiTraceState spike1WasmInstructions spike1DataSegments)

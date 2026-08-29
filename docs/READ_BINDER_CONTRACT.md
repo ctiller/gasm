@@ -1,50 +1,31 @@
 # READ_BINDER_CONTRACT: the PA6 read-binder contract shape
 
-- REF: docs/REVIEW.md#law-9-universal-quantification--input-completeness-mandate-the-anti-pointwise-law
+- REF: docs/REVIEW.md#law-9-universal-quantification-input-completeness-mandate-the-anti-pointwise-law
 - REF: docs/REVIEW.md#law-11-memory-access-capability-mandate-fail-to-assemble
-- REF: docs/adr/0015-read-as-universal-binder.md
+- REF: docs/DECISIONS.md#2-proof-architecture-and-tractability
 - REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence
 - REF: docs/SYSTEM_EFFECTS.md#64-input-events-are-causal-anchors-and-coalescing-barriers-protocol-causality
-- REF: MODEL_DEBT.md (§C1)
-- REF: docs/tasks/PA6-read-binder-contract.md
+- REF: docs/TECHNICAL_NOTES.md#2-machine-os-model-debts
 
 ## 1. Status and scope
 
-This document is the Law-5-class design doc `docs/tasks/PA6-read-binder-contract.md` requires:
-the **contract shape** that makes Law 9's read-binder clause ("every monadic input operation...
+This document owns the Law-5-class **contract shape** that makes Law 9's read-binder clause
+("every monadic input operation...
 binds an arbitrary result, and the verification contract MUST be parametric in that result")
-a checkable proof obligation rather than a sentence. It is design, not implementation: no
-existing typeclass (`MonadFileSystem`, `MonadNetwork`), hook (`readFileHook`, `recvHook`), or
-spike contract is modified here. `Gasm/Effects/ReadBinder.lean` (new, this task) is a
-self-contained, standalone development that states the contract shape as real Lean
+a checkable proof obligation rather than a sentence. `Gasm/Effects/ReadBinder.lean` states the
+contract shape as real Lean
 declarations and proves — structurally, zero `sorry`, zero new axioms, no `decide`/
 `native_decide` standing in for the universal quantifier — that the shape has the property
-this task exists to deliver: a continuation proof established once, universally, is invariant
+this design requires: a continuation proof established once, universally, is invariant
 to how the environment chunked its input.
 
-**Honest dependency note.** PA6's own frontmatter lists `after: [PA5, N2]`, and its task file
-explains why in detail: PA5 (`canonicalizeTrace`) is not yet in the tree (`grep -rn
-canonicalizeTrace` finds zero hits outside the task/design docs), and N2 (the `ReadFile`/`recv`
-short-read model rebuild) has not landed either — `readFileHook` still computes
-`count := min maxLen avail` and unconditionally sets `RAX := 1`
-(`Gasm/Targets/Windows/Win32API.lean:85-104`), and `recvHook` still delivers one complete
-logical request atomically (`Gasm/Targets/Windows/Win32API.lean` `recvHook`,
-`Gasm/Effects/Trace.lean`'s `MonadNetwork` instance). Precedent for proceeding anyway exists in
-this same tree: PA17 (`docs/tasks/PA17-spike3-spike4-domain-honesty.md`, landed at `b74295d`)
-was itself sequenced `after: [PA7, PA8]`, neither of which had landed, and its own report states
-plainly that full universalization "needs PA6's read-binder contract... neither of which has
-landed" — it shipped an honest partial closure instead of waiting. This document follows the
-same discipline: **the contract shape itself does not depend on PA5's trace representation or
-N2's short-read model existing in the tree today** — it is a mathematical statement about what a
-read's result domain must look like and how a continuation's proof must range over it. What
-*does* depend on PA5/N2 is (a) wiring this shape into the live `VerifiedProgram`/trace machinery
-(§4 below states the interface PA5 must satisfy; it cannot be implemented against PA5 code that
-does not exist), and (b) making any *live* Windows/WASI contract's use of this shape
-non-vacuous, since the model can currently only produce one point of the domain this contract
-quantifies over (`MODEL_DEBT.md` §C1's own words: "a `∀ read-result` contract proven against a
-model that can only produce maximal reads proves nothing about chunk-robustness"). Both (a) and
-(b) are named explicitly as **not done** in §9; claiming otherwise would be exactly the
-"universal in form but vacuous in substance" failure this design is written to avoid.
+**Current implementation boundary.** `Gasm/Effects/CanonicalizeTrace.lean` now supplies causal
+trace canonicalization, `Gasm/Effects/Network.lean` supplies the bounded `splitBytes` primitive
+used by the current Windows/Linux/WASI receive hooks, and
+`Gasm/Effects/ReadBinderWiring.lean` proves that primitive produces a valid read-binder chunk.
+What remains is to make the obligation mandatory in live routine/program contracts and to
+compose it with the capability model's destination-buffer authority (§5 and §9). The standalone
+shape is therefore implemented; repository-wide enforcement is not.
 
 ## 2. The contract shape
 
@@ -94,7 +75,7 @@ that domain is ordinary:
   actually needs it, is carried out-of-band by the syscall's own return-code/error channel
   (`Except FileError ByteArray` is already `MonadFileSystem.readFile`'s codomain in
   `Gasm/Effects/FileSystem.lean:65`; WASI's `errno` channel is the analogous WASI mechanism,
-  `MODEL_DEBT.md` §C8), never by adding a second constructor to the bytes domain itself. Adding
+  `docs/TECHNICAL_NOTES.md` §2), never by adding a second constructor to the bytes domain itself. Adding
   an `EOF` case that is *not* just `bytes = []` reachable through the ordinary quantifier would
   be exactly the special-casing this task's acceptance criteria prohibits.
 - `0 < bytes.length < requested` — a short read. An ordinary domain element like any other; nothing
@@ -114,15 +95,13 @@ instantiations of the same lemma, with no case-specific proof step anywhere.
 `docs/SYSTEM_EFFECTS.md` §6.4 requires that input events are first-class, causally-stamped
 trace events and coalescing barriers — a contract that quantifies over a read's *result* but
 forgets *that a read occurred, and where in the causal order* would silently reintroduce the
-"ack for a read is not ack before a read" confusion §6.4 exists to close. Because PA5's
-`canonicalizeTrace` and its causal-stamp representation do not exist yet, this section states
-the **interface PA5 must satisfy** for this contract shape to attach to it, rather than
-inventing a parallel representation (the exact trap PA6's own task file warns against).
+"ack for a read is not ack before a read" confusion §6.4 exists to close.
+`Gasm/Effects/CanonicalizeTrace.lean` now implements the representation; this section states the
+interface it must continue to preserve rather than inventing a parallel representation.
 
-`Gasm/Core/Types.lean:48` already carries the right primitive dormant in the tree:
-`VectorClock` (`clock : ThreadId → Nat`, with `happensBefore`/`join`/`tick`) is named in
-`MODEL_DEBT.md` §D as "the right hook" for causal position and is currently unused outside
-`Gasm/Core/Callable.lean`/`State.lean`. The interface this document specifies:
+`Gasm/Core/Types.lean:48` carries the relevant primitive:
+`VectorClock` (`clock : ThreadId → Nat`, with `happensBefore`/`join`/`tick`) provides one causal
+position primitive. The interface this document specifies:
 
 - A read event's trace representation must be a pair `(event : Event, stamp : VectorClock)` (or
   whatever concrete wrapper PA5 settles on with equivalent information content) — **not** a bare
@@ -161,16 +140,17 @@ make provable:
   `requested`.
 - In a correct program these two bounds are meant to be equal (the caller is supposed to pass
   its buffer's true capacity as `requested`). **Spike 4's stack-buffer-overflow bug
-  (`docs/tasks/N8-spike4-stack-buffer-overflow.md`) is exactly the case where they are not**: a
+  is exactly the case where they were not in the historical Spike 4 overflow finding**: a
   16-byte stack buffer at `RSP+0x40`, with `requested = 128` passed to `recv`
   (`Spikes/Spike4HttpServer/Windows/Program.lean:130-136`). Today this is invisible to
   `spike4_windows_*_trace_equivalence` for two independent reasons this document is careful to
   keep separate: (a) the *trace-equivalence* theorems are pointwise (one literal 37-byte request
   string), so they never even *ask* what happens for a longer request — this is what §7's
-  chunk-robustness demonstration and PA17's finding are about; (b) even a hypothetical
-  universalized version proven against **today's** `recvHook` would still not catch it, because
-  `recvHook` always delivers its one queued request atomically with no destination-buffer
-  faulting (`MODEL_DEBT.md` §B3: "the memory model has no faults... a proof of a Zlib routine
+  chunk-robustness demonstration is about; (b) before the bounded `splitBytes` wiring, even a
+  hypothetical universalized version would still not catch it because `recvHook` delivered its
+  queued request atomically. The bounded hook now fixes that reachability gap, but destination-
+  buffer faulting remains absent (`docs/TECHNICAL_NOTES.md` §2: the memory model has no reachable
+  destination-buffer or general memory faults, so a proof of a Zlib routine
   cannot distinguish 'correct' from 'scribbles outside its buffer'"), so a memory-safety
   violation from an over-length write is not an event this model can even produce, let alone
   quantify over. That gap is N2's (short reads) and Law 11 migration's (PA4's) to close, not
@@ -197,7 +177,7 @@ make provable:
 
 ## 6. Closing the three evasion shapes
 
-Per `docs/adr/0015-read-as-universal-binder.md` and Law 9, three named evasion shapes must
+Per `docs/DECISIONS.md` §2's read-as-universal-binder decision and Law 9, three named evasion shapes must
 become unrepresentable, not merely discouraged:
 
 - **Hardcoded-output stubs.** A spec whose read-continuation is `Post bytes := (output =
@@ -208,7 +188,7 @@ become unrepresentable, not merely discouraged:
   `ReadBinderObligation`'s proof obligation outright the moment `Post` is instantiated at two
   `bytes` values that would need different constants.
 - **Domain-shrinking via purpose-built input enums.** Spike5's `GzipOp | compress` /
-  `GunzipOp | decompress` single-constructor pattern (`docs/adr/0015`) quantifies over a type
+  `GunzipOp | decompress` single-constructor pattern quantifies over a type
   with one inhabitant dressed up as a real domain. `ReadBinderObligation`'s domain is
   `{bytes : List Byte // bytes.length ≤ requested}` by construction — there is no single-
   constructor stand-in available, because the bound variable's type is fixed to the real
@@ -260,14 +240,14 @@ requirement. `ChunksOf.flatten_eq_total` proves, by structural induction on the 
 `chunk_robustness`, then falls out in one line**: for any two complete chunkings `chunksA`,
 `chunksB` of the same `total`, `chunksA.flatten = chunksB.flatten` — both equal `total`, so they
 equal each other, by `flatten_eq_total` applied twice and `rw`. No separate induction is needed
-for chunk-robustness; it is the same theorem read twice, which is precisely the claim in `docs/
-tasks/PA6-read-binder-contract.md`'s acceptance criteria that "chunking robustness is a
-corollary, not a separate requirement." `continuation_invariant_to_chunking` restates this at
+for chunk-robustness; it is the same theorem read twice, which establishes this document's
+acceptance criterion that "chunking robustness is a corollary, not a separate requirement."
+`continuation_invariant_to_chunking` restates this at
 the level the task cares about most: if a continuation's postcondition `Post` has already been
 established for the reconstruction obtained under *one* chunking, it holds automatically for
 *every* other chunking of the same logical input — a program proven correct for one chunking is
-provably equal, via this composition, to the same program under any other chunking, exactly as
-`docs/tasks/PA6-read-binder-contract.md` asks this task to check rather than merely assert.
+provably equal, via this composition, to the same program under any other chunking, checked
+rather than merely asserted.
 
 `ChunksOf.chunks_are_valid_reads` closes the loop back to §2: every `chunk` appearing in any
 witness of `ChunksOf rem cap chunks` satisfies `chunk.length ≤ cap`, i.e. is drawn from exactly
@@ -290,43 +270,39 @@ witnesses into an obligation already discharged, never a new source of proof wor
   (PA7's `VerifiedReactiveProgram`), independent of the **inner** per-read contract shape this
   document defines. Conflating the two would smuggle a liveness proof into what is supposed to
   be a statement about one read's result domain.
-- No attempt to close any of the nine grandfathered Spike 3/4 allowlist entries PA17 flagged, or
-  any other `scripts/gate_allowlist.txt` entry — `docs/tasks/PA6-read-binder-contract.md` is
-  explicit that this is separate work for PA8/PA17, deliberately excluded from this task's scope
+- No attempt to close any of the nine grandfathered Spike 3/4 allowlist entries or any other
+  `scripts/gate_allowlist.txt` entry — this is deliberately separate work
   so it does not balloon into "PA6 plus nine proofs."
-- No implementation of PA5's `canonicalizeTrace` or N2's short-read model. §4 states the
-  interface contract PA5 must satisfy; it is not PA5's implementation.
+- No replacement or expansion of the landed `canonicalizeTrace` and bounded-read implementations.
+  §4 states the preservation contract those foundations must satisfy as they are integrated into
+  live program contracts.
 
 ## 9. What remains
 
-1. **PA5** must implement `canonicalizeTrace` satisfying §4's two properties (distinguishable
-   read-event position, non-coalescing across reads) before any live `VerifiedProgram`-successor
-   contract can attach a `VectorClock` position to a `ReadBinderObligation` instance.
-2. **N2** must rebuild `readFileHook`/`recvHook` (and their WASI analogues, `MODEL_DEBT.md` §C8)
-   so that the *model* can actually produce more than one point of the domain
-   `ReadBinderObligation` quantifies over — otherwise a live contract stated in this shape is
-   sound but vacuous, exactly the risk this document's §1 names.
-3. **PA9** (`VerifiedProgram`-successor) is where a live routine/program contract first exposes
+1. **Trace integration has landed at the effect layer.** Preserve §4's distinguishable
+   read-event position and non-coalescing properties when attaching a live
+   `VerifiedProgram`-successor contract to a `ReadBinderObligation` instance.
+2. **Bounded receive-hook wiring has landed.** `splitBytes` now supplies the Windows/Linux/WASI
+   receive paths and `splitBytes_isValidReadChunk` proves the connection. File/pipe/console and
+   error-channel fidelity remain target-owned model work (`docs/TECHNICAL_NOTES.md` §2).
+3. **A `VerifiedProgram` successor** must expose
    a field of type `ReadBinderObligation requested Post` (or its PA5-integrated successor from
    §4) as a mandatory struct field, the way `VerifiedProgram.traceEquivalence` is mandatory
    today (`Gasm/Core/Verification.lean`) — this document supplies the shape that field's type
-   must have; PA9 wires it into the struct.
-4. **PA2's composition calculus** (not yet designed as of this writing — `docs/tasks/
-   PA2-step-lemma-composition-design.md`'s `design` field is still empty) must supply the
-   "sequential composition across an input-event coalescing barrier" rule `docs/
-   tasks/PA6-read-binder-contract.md` asks this shape to be compatible with; §7's
+   must have.
+4. **The composition calculus** must supply the
+   "sequential composition across an input-event coalescing barrier" rule this shape needs;
+   §7's
    `continuation_invariant_to_chunking` is offered as a candidate building block for that rule
    (chaining a read's universal obligation into a following computation-then-write step), not a
-   substitute for PA2's own design.
-5. **PA4's capability migration** must land before §5's composed obligation (read-quantifier
+   substitute for that broader design.
+5. **The capability migration in `docs/MEMORY_MODEL.md`** must land before §5's composed obligation (read-quantifier
    inside a Law 11 write-safety proof) can be stated against real `MemoryPerm` tokens in a live
    routine rather than the schematic form given in §5.
-6. **PA17/PA8** (explicitly out of scope here, §8) can attempt the nine grandfathered Spike 3/4
-   entries against this shape once PA5/N2 above land enough of the surrounding machinery for a
-   live instantiation to be non-vacuous; §5's Spike 4 walkthrough is intended as their starting
-   point.
+6. **The nine grandfathered Spike 3/4 entries** remain separate proof work; §5's Spike 4
+   walkthrough is their starting point once a live contract carries the obligation.
 
 This document's own deliverable — the contract shape itself, demonstrated as real,
 zero-`sorry`, zero-axiom Lean declarations with the chunk-robustness property checked rather
-than merely asserted — is complete. Items 1-6 above are the named remaining work, each already
-tracked under its own task id.
+than merely asserted — is complete. Items 1-6 above are the named remaining work and landed
+foundations, owned by the cited current documents and source modules rather than a retired task ledger.

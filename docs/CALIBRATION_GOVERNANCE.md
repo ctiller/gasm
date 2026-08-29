@@ -3,11 +3,13 @@
 > This is `docs/REVIEW.md` **Law 14 (Calibration Data Governance — The Third Reference
 > Class)'s Law-5 design document** — Law 14 has been ratified by the repository owner
 > (quoted in full in §1 and again in §13) and this document is the concrete mechanism
-> `docs/tasks/F2-calibration-data-governance.md`'s `design:` field points at. Status:
-> **design only, nothing implemented yet** — this doc makes no edits to `docs/REVIEW.md`
-> at all; the Pillar-1 registration of `python scripts/check_calibration.py` that Law
-> 14's own text points at ("registered in §4.1 Pillar 1") is left for the owner/
-> coordinator to land centrally, since multiple agents edit that file concurrently.
+> for the performance-calibration work tracked in `docs/ROADMAP.md` §5. Status:
+> **partially implemented** — `HardwareTimingHarness.lean` and
+> `PerfHardwareFuzzer.lean` produce provisional schema-v2 artifacts under
+> `calibration/x86_64/`. The acceptance-grade `scripts/check_calibration.py`
+> binding/staleness gate, generated coefficient binding, and its Pillar-1 registration
+> remain unimplemented; until those land, the checked-in artifacts are measurements,
+> not accepted model coefficients.
 > §13 states, requirement by requirement, which parts of this design are Law 14's own
 > text (must trace to the quoted clause) and which are this document's own elaboration
 > — the concrete field names, mechanisms, and schema that make an intentionally terse
@@ -20,11 +22,11 @@
 
 ## 0. What problem this solves
 
-`docs/REVIEW.md` Law 4 governs *vendored authoritative text* — Intel/AMD manuals, the
-PE/COFF spec, Win32 contracts: things this project did not author and imports verbatim
-so formal models cite genuine ground truth. Law 6 then governs how that vendored corpus
-stays honest: `references/` must be programmatically reproducible from upstream via
-`scripts/regenerate_references.py`, and `--verify` must pass against upstream manifests.
+`docs/REVIEW.md` Law 4 governs *authoritative external text* — Intel/AMD manuals, the
+PE/COFF spec, Win32 contracts: things this project did not author and must cite as
+genuine ground truth. Law 6 keeps those citations honest through hash-pinned entries in
+`references.json` and the local verified cache managed by
+`scripts/check_references.py`; the authoritative prose itself is not committed.
 
 Measured calibration data — an RDTSC median for a specific kernel on a specific CPU
 under a specific turbo policy — is neither of those things. It is not vendored (nobody
@@ -33,8 +35,8 @@ either, or it would be exactly the "massive cheat" Law 4 forbids. It is **measur
 this project, from a harness this project owns, against hardware this project
 possesses.** `docs/VISION.md` §5 states the target end-state plainly: "measured
 calibration data is governed like `references/` — checked in, regenerable, never
-hand-edited." MODEL_DEBT.md §E5 names the reason this needs its own design rather than
-riding on Law 4/6 as written: **wsc, gasm's predecessor, died of exactly this gap** —
+hand-edited." The predecessor's failure explains why this needs its own design rather than
+riding on Law 4/6 as written: **wsc died of exactly this gap** —
 RDTSC medians were hand-transcribed as bare `Nat` literals into `Main.lean` and left to
 rot (visibly stale: scalar and SIMD Mandelbrot both recorded as "8 cycles"), with no
 harness checked in next to them and nothing that could tell a reader the numbers were
@@ -55,29 +57,16 @@ This conclusion is unchanged from the prior draft; the reasoning is corrected be
 
 ### Why not under `references/` — the textual argument
 
-The prior draft justified this by pointing at `regenerate_references.py`'s
-`verify_references()` implementation (directory-exists + non-empty file count, no
-hashing) and arguing calibration would be "exempted" from a check that doesn't
-meaningfully exist yet. That was a live description of one function's implementation
-state, not a durable argument — and implementation state is exactly the wrong thing to
-argue from here: TC16 (`docs/tasks/TC16-references-integrity.md`) has, since the prior
-draft, landed real per-file SHA-256 manifests and a hard-failing `--verify` on the
-integration branch (currently in its own fix cycle for a cross-corpus scope hole), which
-would have flipped an implementation-dependent argument from right to wrong out from
-under this document without anyone touching it. **The durable argument is textual, not
-implementation-dependent, and does not change regardless of `--verify`'s current state
-either way:** Law 6 binds `references/` *by
-name* and requires reproducibility *from an upstream source* — "every external document
-and reference corpus in `references/` MUST be programmatically reproducible via
-`scripts/regenerate_references.py`... against upstream manifests." Calibration data has
-no upstream; there is no manifest entry that could ever specify where "the RDTSC median
-for this kernel on this CPU" is fetched from, because nothing outside this project's own
-hardware and harness produced it. Filing calibration under `references/` would force
-either an exception carved into Law 6's own text (a law with a silent asterisk) or a
-fabricated upstream entry (worse). Keeping calibration data in its own top-level
-directory keeps "reproducible by re-fetching from upstream" (Law 6) and "reproducible by
-re-running a committed local harness" (this document) as textually distinct obligations,
-regardless of how good either tool's current implementation is.
+An earlier draft reasoned from the now-retired vendored-reference pipeline. That mechanism is no
+longer current: external authoritative sources are metadata entries in `references.json`, and
+their bytes live only in a gitignored verified cache. The durable distinction is still the source
+of truth. Law 6 entries name material independently published upstream and reproducible by
+re-fetching exactly those pinned bytes. Calibration data has no upstream publisher: a value such
+as an RDTSC median for one kernel on one CPU is produced by this project's own committed harness
+on stated hardware. Putting it in the reference registry would require a fabricated upstream URL
+or blur two different reproducibility obligations. The top-level `calibration/` directory keeps
+“re-fetch the authoritative source” (Law 6) separate from “re-run the owned harness under recorded
+conditions” (Law 14 and this document).
 
 ### This gap between laws is closed — Law 14, ratified
 
@@ -232,7 +221,7 @@ Two changes from the prior draft's layout, both closing minor findings:
   a second microarchitecture appears organically the day a real calibration file for it
   is first generated, with no placeholder scaffolding required or committed in advance.
 
-## 2. Provenance and run conditions (MODEL_DEBT §E5(a))
+## 2. Provenance and run conditions
 
 Every calibration JSON's `provenance` object is mandatory. Two sub-blocks: **identity**
 (who/what/when produced this file) and **run conditions** (what state the machine was
@@ -247,7 +236,7 @@ entirely).
 | `host_id` | An **opaque, project-assigned** identifier (e.g. `"machine-01"`), not a real hostname — resolving the prior draft's design-review question 1 in favor of anonymity. |
 | `host_fingerprint` | A hash over stable, low-entropy hardware identifiers obtainable without external lookup (CPUID vendor string, family/model/stepping, logical core count). Anonymity is fine; unverifiability is not — `check_calibration.py` flags it when two files share a `host_id` but disagree on `host_fingerprint` (machine swapped without relabeling) or share a `host_fingerprint` under two different `host_id`s (the same machine double-counted as two, silently inflating the §10 validated-microarchitecture count). A mismatch is flagged for human reconciliation, not auto-resolved. |
 | `os_build` | Full OS version string. |
-| `tool_versions` | Every tool whose behavior could shift the numbers (Lean, NASM, Python for CSV-sweep harnesses) — the data-side half of TCB.md T9's oracle-version-pinning fix. |
+| `tool_versions` | Every tool whose behavior could shift the numbers (Lean, NASM, Python for CSV-sweep harnesses) — the data-side half of `scripts/run_gates.py`'s oracle-version recording. |
 | `iso_date` | ISO-8601 timestamp of the run. |
 | `harness_path` | Repo-relative path to the harness's entry-point module (e.g. `Gasm/Targets/X86_64/HardwareHarness.lean`, or F1's `PerfHardwareFuzzer` CLI). |
 | `harness_closure_hash` | See §4 — a hash over the harness's transitive dependency set, **not** a single-file git-log lookup. |
@@ -297,8 +286,8 @@ positive/negative controls.
 
 ### 2.4 Where a profile's clock/frequency provenance actually lives (resolving the F5 tension)
 
-`docs/tasks/F5-composable-cost-views.md` requires "explicit conversions... owned by
-named device profiles (a profile owns its clock/frequency provenance)" for the
+The composable-cost-view work in `docs/ROADMAP.md` §5 requires explicit conversions owned by
+named device profiles (a profile owns its clock/frequency provenance) for the
 cycles→µs architect view. `MicroarchProfile` (`Uop.lean:57-68`) has no clock/frequency
 field today, and §2.2's `run_conditions.observed_clock_mhz_median` is per-run diagnostic
 data — if two kernel measurements for the same profile record two different observed
@@ -326,7 +315,7 @@ kernel measurement's `run_conditions`.**
   source per profile, and every other file's clock observation is explicitly
   non-authoritative.
 
-## 3. Regeneration and measurement identity (MODEL_DEBT §E5(b))
+## 3. Regeneration and measurement identity
 
 A calibration file is either produced directly by, or trivially re-producible by,
 exactly the harness named in `provenance.harness_path` — there is no format that permits
@@ -340,7 +329,7 @@ What "regenerable" means precisely — closure hash and measured subject — is 
 §4, because in this document's revision they are inseparable from the staleness check
 itself rather than a separate description of pairing.
 
-## 4. Mechanical staleness gate (MODEL_DEBT §E5(c)) — re-keyed
+## 4. Mechanical staleness gate — re-keyed
 
 The prior draft's gate compared `provenance.harness_commit` against
 `git log -1 --format=%H -- <harness_path>` for one file. The design-review finding: this
@@ -405,14 +394,14 @@ failing each of checks 1-3 individually, plus a suite failing check 4) and a pos
 control (a correct suite passing all four) — this design doc specifies what must be
 exercised, not that it has been.
 
-## 5. Reduction and the timer-overhead DAG (MODEL_DEBT §E5(c)/(d))
+## 5. Reduction and the timer-overhead DAG
 
 The prior draft's `reduction.method` said "timer-overhead subtracted" as prose with no
 field carrying the actual constant — meaning the gate could not reproduce the stated
 `median`/`min`/`max` from `raw_samples_cycles` at all, and the overhead constant became
-exactly the kind of unrecorded free parameter this document exists to eliminate; F1's
-own task file hands this constant a name and explicitly requires it be governed as
-calibration data ("this constant is calibration data and MUST be governed per F2"),
+exactly the kind of unrecorded free parameter this document exists to eliminate;
+`docs/RDTSC_HARNESS.md` §6.4 hands this constant a name and explicitly requires it be governed as
+calibration data,
 which the prior draft did not act on.
 
 **Fix: samples are stored *pre-subtraction*, and the overhead constant is itself a
@@ -446,7 +435,7 @@ reports the dependency chain rather than a bare pass/fail, so a human sees *why*
 closure changed`) instead of chasing an opaque failure.
 
 The prior draft's `reduction.method` also invented a "top/bottom 1% trimmed" step
-attributed loosely to "the wsc technique" — PLAN.md's actual recon names CPUID+RDTSCP
+attributed loosely to "the wsc technique" — the historical predecessor reconstruction names CPUID+RDTSCP
 bracketing, median-of-N (explicitly not mean), a separate subtracted overhead pass, and
 5k-20k warmup iterations; it does not mention trimming. That invented step is removed
 above; a real trimming policy may be added later, but only once actually adopted by a
@@ -454,7 +443,7 @@ harness and named honestly as this project's own choice, not attributed to a sou
 didn't specify it — a document whose entire thesis is "numbers must trace to where they
 came from" cannot itself contain an untraceable methodological detail.
 
-## 6. Citation, and mechanically binding the coefficient to the value (MODEL_DEBT §E5, Law 12)
+## 6. Citation, and mechanically binding the coefficient to the value (Law 12)
 
 This is the most serious hole the design review found, and it's worth stating why
 plainly: **the prior draft's citation mechanism only checked that a markdown heading
@@ -518,20 +507,19 @@ inline for readability or composed with other hand-written logic where generatio
 a clean fit — both paths are specified here; which one a given coefficient uses is a
 per-declaration authoring choice, not a global switch.
 
-This directly closes what F4 (`docs/tasks/F4-parametric-cost-functions.md`) already
-names as a requirement of its own: "do not let coefficients re-enter the codebase as
+This directly closes a requirement of the parametric-cost-function work in
+`docs/ROADMAP.md` §5: do not let coefficients re-enter the codebase as
 bare literals with no calibration citation, which would silently undo F2's governance
-mechanism at one remove" — §6.2 is the concrete mechanism F4's own deliverable text was
-assuming exists.
+mechanism at one remove — §6.2 is the concrete mechanism that requirement needs.
 
-## 7. Hand-edit prohibition, restated (MODEL_DEBT §E5(d))
+## 7. Hand-edit prohibition, restated
 
 Unchanged core mechanism from the prior draft, now correctly load-bearing because of
 §6: raw samples stored in full (`raw_samples_cycles_unadjusted`, §5), `reduction`
 recomputed by `check_calibration.py` from those samples using the named method, and now
 also compared against the Lean literal it's bound to (§6.2) — so hand-typing a
 "corrected" number requires forging a self-consistent raw-sample array *and* the
-recalibration must still pass the discrimination control (§4.4) and dispersion guard
+recalibration must still pass the discrimination control (§4 check 4) and dispersion guard
 (§2.3), each independently checking a different property of the same underlying data.
 
 **Explicit residual:** this is still not cryptographic non-repudiation — a sufficiently
@@ -622,7 +610,7 @@ terms — permissive enough to vendor, or specific permission granted — that d
 supersedes this section; this section is deliberately not staking the conclusion on a
 license claim nobody here has verified.
 
-## 10. Multi-profile honesty, mechanized (MODEL_DEBT §E5 cross-cutting; TCB.md T11)
+## 10. Multi-profile honesty, mechanized
 
 The prior draft's mechanism for "don't imply validation that doesn't exist" was prose:
 "any report or ADR citing them must say so." Law 13 requires construction, not a
@@ -653,7 +641,7 @@ formal reasoning, never intended to correspond to any silicon — so it can neve
 `siliconValidated` and should never be reported as "not yet validated" (implying
 measurement is pending) either; it gets `syntheticBound` as its own permanent category,
 distinct from `skylakeProfile`/`zen4Profile`'s `siliconUnvalidated` (which *could* earn
-validation the day a second machine exists). MODEL_DEBT §A3's remedy for dead fields
+validation the day a second machine exists). The current remedy for dead fields
 (`reciprocalThroughput`, `renameWidthUops`, etc.) is deleting those *fields* — a
 separate concern from this section, which is about tagging *profiles*, and this
 document does not recommend deleting any profile.
@@ -661,8 +649,8 @@ document does not recommend deleting any profile.
 **The disclosure string surfaces in two places, not one:** `check_calibration.py`'s
 summary output states "validated on exactly N microarchitectures" (N = count of
 profiles with `siliconValidated` status) as the prior draft specified, **and** the same
-string is added to `PerfFuzzerCLI`'s own output — TCB.md T11-b's vacuity concern is
-specifically about a CLI printing a clean success with no such disclosure, so the
+string is added to `PerfFuzzerCLI`'s own output — the vacuity concern recorded in
+the relevant vacuity risk is specifically a CLI printing a clean success with no such disclosure, so the
 disclosure belongs where that vacuity actually lives, not only in a separate lint tool a
 reader might not run.
 
@@ -683,8 +671,8 @@ which RDTSC measures fine, no counter access required.
 Rejecting a PMU path is also the right call independent of the reframing: a
 Windows performance-counter path means a signed kernel driver or a VTune/Intel-PCM-style
 dependency — a large scope expansion, a new permanent TCB entry, and platform lock-in
-that no current spike demands (D7: models grow only on demand, never speculatively).
-MODEL_DEBT §A8's two named defects (`SHL r64,CL` at 1 uop vs. a real 3; `DIV r64` at 5
+that no current spike demands (`docs/DECISIONS.md` §1: models grow only on demand, never
+speculatively). The two named coefficient defects (`SHL r64,CL` at 1 uop vs. a real 3; `DIV r64` at 5
 uops vs. a real ~36) do not need a counter to close — they need the right *shape* of
 cycle-measurement evidence, specified below.
 
@@ -699,8 +687,8 @@ narrow-port-eligibility instruction should rank *faster* than a kernel with equi
 port pressure from wider-eligibility ops; if the real uop count is 3, that ranking
 should flip or collapse under real hardware. Constructing such a pair and checking
 whether real RDTSC measurements agree with the model's prediction is a direct
-application of mutation testing to the perf model itself — the same shape as TCB.md
-T11's "executes ≠ discriminates" finding for the correctness fuzzers, and the same shape
+application of mutation testing to the perf model itself — the same shape as the
+"executes ≠ discriminates" trust finding for the correctness fuzzers, and the same shape
 as §4's discrimination control already added against wsc's symptom (two things that must
 differ, checked to actually differ). A coefficient correction derived this way is a real
 measurement-backed correction, not a guess — it just never required reading a counter to
@@ -715,7 +703,7 @@ calibrated": **any uop-count-class (or other model-internal-parameter) coefficie
 claim must trace to either (a) a vendored authoritative source (Law 4 — an actual
 Optimization Manual/uops.info citation, if §9's licensing posture is ever revisited), or
 (b) a discriminating-kernel cycle measurement of the shape above. A coefficient with
-neither is marked `modelInternalUnvalidated` and MUST NOT be cited, in a report, ADR, or
+neither is marked `modelInternalUnvalidated` and MUST NOT be cited, in a report or
 code comment, as a measured fact** — it is an invented placeholder exactly like `SHL`'s
 current `1 uop` and `DIV`'s current `5 uops`, and this tag is what keeps that honestly
 visible rather than looking calibrated because a calibration file happens to exist for
@@ -742,7 +730,7 @@ pair's kernel definitions and containment result directly (§8's `discrimination
 fields are exactly the right shape to reuse here, generalized from a suite-sanity check
 to a coefficient-validation record).
 
-This closes MODEL_DEBT §A8 without a PMU and without "the coefficient stays invented"
+This closes the recorded coefficient defect without a PMU and without "the coefficient stays invented"
 as a silent, undocumented outcome — the outcome is instead an explicit, checkable tag
 that is either promoted by real evidence or stays honestly marked as unvalidated.
 
@@ -750,8 +738,8 @@ that is either promoted by real evidence or stays honestly marked as unvalidated
 
 Neither draft addressed this until the design review raised it: `schema_version`
 versions the *schema*, not the *data*. F4 makes cost contracts build-failing against
-their stated bound (`docs/tasks/F4-parametric-cost-functions.md`: "a routine whose
-actual measured/derived cost exceeds its contract's stated cost function must fail a
+their stated bound: a routine whose actual measured/derived cost exceeds its contract's
+stated cost function must fail a
 build gate"). Without an explicit generation concept, one recalibration (§6 correctly
 making the build fail on a stale binding) resolves by simply updating the Lean literal
 to the new number — silently re-baselining every downstream cost contract's budget in
@@ -795,7 +783,7 @@ invented silently later by whoever implements `check_calibration.py`.
 | "distinct from Law 4... Law 6... satisfies neither" | §1 (location decision, gap argument) | none — this is the law's own stated reasoning, restated |
 | "regenerable, not transcribed... raw samples plus a committed pure reduction function... recomputes... fails on mismatch" | §5 (timer-overhead DAG), §7 | the specific `raw_samples_cycles_unadjusted`/`timer_overhead_ref` field shapes; the DAG-of-calibration-files structure |
 | "provenance is mandatory and machine-checkable: device profile, host fingerprint, frequency/power policy, OS build, tool versions, run conditions, control-vector outcomes" | §2 (identity + run conditions), §8 (recorded controls) | exact field names (`host_fingerprint`, `run_conditions.core_type`, etc.); the §2.3 dispersion guard, which is this document's own addition on top of what Law 14 requires (Law 14 does not mention dispersion — it is derived from Law 13's control-vector spirit, not from Law 14's text, and is flagged as such) |
-| "staleness keyed on the measured subject... harness's transitive source closure and an explicit list of what was measured" | §4 (closure hash + `measured_subject`) | the specific closure-hash algorithm (git-blob-hash concatenation); the discrimination control (§4.4) is an addition motivated by Law 13 and MODEL_DEBT's wsc history, not by Law 14's staleness clause specifically — Law 14 does not itself require a discrimination control, and this document adds one anyway because §4's own analysis shows staleness-checking alone would not have caught wsc's actual symptom |
+| "staleness keyed on the measured subject... harness's transitive source closure and an explicit list of what was measured" | §4 (closure hash + `measured_subject`) | the specific closure-hash algorithm (git-blob-hash concatenation); the discrimination control (§4 check 4) is an addition motivated by Law 13 and wsc's recorded history, not by Law 14's staleness clause specifically — Law 14 does not itself require a discrimination control, and this document adds one anyway because §4's own analysis shows staleness-checking alone would not have caught wsc's actual symptom |
 | "recalibration is an explicit re-baseline... generation identity... consumers record the generation" | §12 (`CALIBRATION_GENERATION`) | the specific stamp-as-blob-hash mechanism; the review-weight question is left open (design-review question 4) |
 | "coefficients cite, they do not copy... bound... by a mechanical check" | §6 (citation + `bindings`/codegen) | the `bindings` array shape; the codegen-preferred-over-comparison ordering (Law 13's own general preference, applied here) |
 | "honesty in output: how many microarchitectures... validated on... model-internal... may not be cited as facts" | §10 (`CalibrationStatus`), §11 (`modelInternalUnvalidated`, discriminating-kernel promotion) | the specific `CalibrationStatus`/`CalibratedCost` Lean types; `syntheticBound` as a fourth category for `idealProfile` is this document's own addition — Law 14's text has no notion of a profile that is deliberately never measurable, only "validated" vs. not |
@@ -807,17 +795,16 @@ Law 4-derived (external reference ingestion), not Law 14; and **§1's CSV weaker
 escape hatch** is this document's own accommodation for a measurement shape (large
 sweeps) Law 14's text does not distinguish from a scalar measurement.
 
-### 13.2 Wiring the gate (MODEL_DEBT §E5(c); PLAN.md's wsc lesson: "never wired into the build")
+### 13.2 Wiring the gate (the predecessor lesson: "never wired into the build")
 
 Law 14's own text points at its gate ("registered in §4.1 Pillar 1"), but as of this
 document's authoring, `docs/REVIEW.md` §4.1's Pillar-1 list does not yet carry that
 registration — this document does not add it. Landing that one line is left to the
 owner/coordinator to do centrally, since multiple agents currently edit `docs/REVIEW.md`
-concurrently and a locally-authored registration risks exactly the kind of conflict this
-project's own multi-agent workflow (PLAN.md D6) is built to avoid.
+concurrently and a locally-authored registration risks an avoidable merge conflict.
 
-**TC5 (the gate-runner task) is the deliverable that actually invokes `check_calibration.py`.**
-This document specifies the acceptance evidence TC5 must produce for the calibration gate
+**The consolidated gate runner is the component that must invoke `check_calibration.py`.**
+This document specifies the acceptance evidence `scripts/run_gates.py` must produce for the calibration gate
 specifically, mirroring the meta-gate-fixture convention this project already uses
 elsewhere (T4/T2's planted-`sorry`, broken-REF, duplicate-heading fixtures): a
 **planted-bad calibration file** (stale closure hash, undefined profile, missing
@@ -845,7 +832,7 @@ actually deliver.
 
 - F3's staged calibration can start writing files into `calibration/x86_64/` the moment
   `check_calibration.py` and the `check_refs.py` `DOC_DIRS` change exist.
-- MODEL_DEBT §G8 and E1/E3/E4 reuse the same schema under `calibration/transport/`,
+- Future GPU/transport calibration work reuses the same schema under `calibration/transport/`,
   `calibration/storage/`, `calibration/network/` without a second design pass, modulo
   §1's CSV weaker-tier declaration where per-cell raw retention proves impractical.
 - Nothing here mandates a specific reduction statistic beyond "median-of-N, not mean" —
@@ -868,7 +855,7 @@ rather than leaving them open; recorded here so this section doesn't silently dr
 4. **Sequencing the `check_refs.py` change** — resolved: land `DOC_DIRS` now, standalone
    (§1) — verified no-op while `calibration/` is empty.
 5. **Multi-machine roadmap / profile deletion** — resolved: neither keep-silently nor
-   delete; mechanize the marking (§10). MODEL_DEBT §A3's remedy is deleting dead
+   delete; mechanize the marking (§10). The remedy for dead
    *fields*, not profiles — a different entry, not a precedent for removing
    `skylakeProfile`/`zen4Profile`.
 6. **Residual hand-edit gap** — resolved: the named residual (forging a self-consistent
@@ -926,7 +913,7 @@ nothing is silently dropped across repeated rounds of review:
    Lean-side schema addition land as part of F2's implementation follow-up (so the field
    exists before F5 starts) or as F5's own first deliverable (since F5 is the only
    actual consumer)?
-3. **Discrimination-pair scope (§4.4, §11)** — is one universal required-to-differ
+3. **Discrimination-pair scope (§4 check 4, §11)** — is one universal required-to-differ
    kernel pair sufficient for the x86-cycles domain, or does every measurement class
    (PCIe transfer, disk, network) — and now also every individual model-internal
    parameter §11 wants promoted out of `modelInternalUnvalidated` — need its own

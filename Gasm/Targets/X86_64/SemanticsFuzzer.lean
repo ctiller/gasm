@@ -173,7 +173,7 @@ def allSupportedInstructionSuite : List AnyX86_64Instruction :=
 /- REF: docs/VISION.md#32-the-models-must-be-faithful-to-reality -/
 /-- The number of distinct microarchitectures this build's hardware oracle actually executed
 against. Currently exactly one: whatever CPU `runHardwareBatch` spawns the native PE runner on
-(the sole silicon truth source per TCB.md T11 — no cross-microarchitecture disclosure exists yet;
+(the sole silicon truth source per docs/VISION.md §3.2 — no cross-microarchitecture disclosure exists yet;
 see T11's Linux/multi-silicon follow-on plan). Surfacing this number keeps a green run's
 evidentiary scope visible rather than implied
 (docs/VISION.md#32-the-models-must-be-faithful-to-reality). -/
@@ -183,13 +183,13 @@ def microarchitecturesValidated : Nat := 1
 /-- Runs the comprehensive x86-64 differential semantics fuzzer across all supported instruction
     models. Returns (fuzzed-and-passed count, skipped count, failed count, total vectors).
 
-    TC17 nonzero-vector floor (TCB.md T11-b; docs/REVIEW.md Law 13, Findings Become Gates): a run
+    Nonzero-vector floor (`docs/REVIEW.md` Law 13, Findings Become Gates): a run
     that exercises zero hardware test vectors — whether because every candidate's
     `canFuzzHardware` is false, an `--instruction` filter matched nothing, or the candidate suite
     itself is empty — is a distinct failure mode from an oracle that silently no-ops, and must
     hard-fail rather than report a clean summary. The floor fires unconditionally, even when the
     zero-vector state is reached through a legitimate precondition — detect-and-fail, not
-    detect-and-explain, per TCB's framing. This is layered on top of the pre-existing
+    detect-and-explain, per the validation contract. This is layered on top of the pre-existing
     `[SKIP]`/`skipped` machinery and `verifyHardwareOracleControls` gate above; neither of those
     catches the case where the *entire* candidate suite nets zero vectors. -/
 def runX86SemanticsFuzzerSuite (iterationsPerInstr : Nat := 150) (initialSeed : UInt64 := 88172645463325252) (instrFilter : Option String := none) : IO (Nat × Nat × Nat × Nat) := do
@@ -236,7 +236,7 @@ def runX86SemanticsFuzzerSuite (iterationsPerInstr : Nat := 150) (initialSeed : 
   -- an empty suite) is a hard failure, never a clean summary — regardless of totalInstrsFailed.
   if totalVectorsTested == 0 then
     IO.println s!"[VACUITY FLOOR TRIPPED] 0 hardware test vectors were exercised across {candidateSuite.length} candidate instruction instance(s) ({totalInstrsSkipped} skipped, {totalInstrsPassed} fuzzed-and-passed, {totalInstrsFailed} fuzzed-and-failed)."
-    IO.println "A fuzzer run that exercises zero vectors has verified nothing — this is a hard FAIL, not a clean PASS (TCB.md T11-b; docs/REVIEW.md Law 13)."
+    IO.println "A fuzzer run that exercises zero vectors has verified nothing — this is a hard FAIL, not a clean PASS (docs/REVIEW.md Law 13)."
     IO.println "================================================================================"
     return (totalInstrsPassed, totalInstrsSkipped, max 1 totalInstrsFailed, totalVectorsTested)
   IO.println s!"Summary: {totalInstrsPassed} fuzzed + {totalInstrsSkipped} skipped, {totalInstrsFailed} failed ({totalVectorsTested} total test vectors)"

@@ -111,12 +111,12 @@ def main (args : List String) : IO UInt32 := do
 
         -- 3. Run Randomized Differential Fuzzer
         -- REF: docs/REVIEW.md#law-13-findings-become-gates-the-ratchet-law
-        -- TC17 vacuity floor (TCB.md T11-b): `--count 0` must not silently skip the randomized
+        -- TC17 vacuity floor (docs/REVIEW.md Law 13): `--count 0` must not silently skip the randomized
         -- suite and still report "100% BYTE-FOR-BYTE EXACT EQUALITY" — 0 programs exercised
         -- verifies nothing, and must hard-fail rather than fall through to a clean summary.
         if count == 0 then
           IO.println "[Test 3/3] --count 0 requests zero randomized programs."
-          IO.println "[VACUITY FLOOR TRIPPED] 0 randomized encoding vectors were exercised — this is a hard FAIL, not a clean PASS (TCB.md T11-b)."
+          IO.println "[VACUITY FLOOR TRIPPED] 0 randomized encoding vectors were exercised — this is a hard FAIL, not a clean PASS (docs/REVIEW.md Law 13)."
           pure 1
         else
           IO.println ("[Test 3/3] Running " ++ toString count ++ " randomized comprehensive programs (" ++ toString length ++ " instrs each)...")

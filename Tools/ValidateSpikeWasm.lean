@@ -23,9 +23,9 @@ import Spikes.Spike5Gzip.Equivalence
 
 /- REF: docs/REVIEW.md#law-13-findings-become-gates-the-ratchet-law -/
 /-!
-  # Spike Wasm validator differential (TCB T7 / TC20)
+  # Spike Wasm validator differential (the Wasm fail-closed emission contract)
 
-  TCB's finding: the Wasm control-flow fuzzer's V8/Node differential oracle validates only
+  the adversarial review's finding: the Wasm control-flow fuzzer's V8/Node differential oracle validates only
   fuzzer-synthesized modules -- it has never validated a single spike-emitted `.wasm` module.
   This tool closes that gap: it emits every spike's `VerifiedWasmProgram` through the same
   `emitVerifiedWasmBinary` path the `spikeN_*_wasm` executables use, feeds each result through
@@ -74,7 +74,7 @@ def runValidate (bytes : ByteArray) (tmpPath : String) : IO Bool := do
     was observed directly on spike2's module during development of this gate. That is a
     property of Wasm's binary format, not a validator bug. To get an unconditional negative
     control, this flips byte 0 of the mandatory 4-byte magic number (`\0asm`, REF
-    references/wasm/binary/modules.md#modules-1) instead: every conformant engine
+    wasm-binary-modules#modules-1) instead: every conformant engine
     checks the magic number before anything else, so corrupting it is guaranteed-rejected
     regardless of a module's internal content. -/
 def byteFlip (bytes : ByteArray) : ByteArray :=

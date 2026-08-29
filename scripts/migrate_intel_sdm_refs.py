@@ -17,7 +17,7 @@
 scripts/migrate_intel_sdm_refs.py - one-shot migration of Intel SDM `REF:`
 citations from `references/intel_sdm/<path>.md#<anchor>` to the
 `intel-sdm#vol=V;(instr=M|sec=S);part=P;pp=A-B;mp=ENCODED` locator form
-(docs/REFERENCE_INDEX.md, as corrected -- see PLAN.md D24/D25: ONE slug for
+(docs/REFERENCE_INDEX.md, as corrected: ONE slug for
 Intel's combined SDM document, not one per volume; a mandatory part= field
 carrying today's anchor through unchanged; mp= from manual_pages).
 

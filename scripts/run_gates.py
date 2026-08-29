@@ -18,8 +18,8 @@ scripts/run_gates.py - gasm gate runner (TC5): the single entry point for every 
 
 Per docs/REVIEW.md Section 4.1 ("Pillar 1: Mechanical Truth") and Section 4.4 ("Gate 1"), a
 PR/merge is only eligible for semantic review once a fixed list of mechanical gates all pass.
-Before this script existed, every gate was invoked by hand, per-agent, per-session -- PLAN.md's
-Phase-1 tracker states the consequence bluntly: "a gate nothing invokes binds nothing." This
+Before this script existed, every gate was invoked by hand, per-agent, per-session. The
+consequence is recorded in `docs/REVIEW.md` Law 13: a gate nothing invokes binds nothing. This
 script is the single command that invokes all of them, every time, in the fixed order the
 GATE_TABLE below declares (this order is this script's own; it is not required to match, and
 does not always match, docs/REVIEW.md Section 4.1's item numbering, which is a checklist, not
@@ -48,8 +48,7 @@ this script computed its `needed` set from only the selected gates, so `--quick 
 machine with neither NASM nor node installed produced a fully green run with no signal
 anywhere that either oracle was ever considered.)
 
-DIRECT EXIT-CODE CAPTURE ONLY -- NEVER THROUGH A PIPE (the concrete implementation trap this
-task exists to avoid): PLAN.md's "Merge train 2" retro records a self-finding that an earlier
+DIRECT EXIT-CODE CAPTURE ONLY -- NEVER THROUGH A PIPE (a previously observed implementation trap): an earlier
 merged-tree verification script "reported tools' exit codes through a pipe (got tail's exit)
 -- fail-open reporting." Every gate below is invoked via `subprocess.run([...], shell=False)`
 with a Python arg list (never a shell string, never piped through `| tee` / `| tail` / a
@@ -72,7 +71,7 @@ Usage:
     python scripts/run_gates.py --quick           # only the fast gates; exits 2 (PASSED_PARTIAL)
                                                    # on success, never 0 -- NOT SUFFICIENT FOR
                                                    # MERGE SIGN-OFF under any circumstance
-    python scripts/run_gates.py --clean           # `lake clean` first (TCB T13, merge-train mode)
+    python scripts/run_gates.py --clean           # `lake clean` first (the clean-rebuild contract, merge-train mode)
     python scripts/run_gates.py --json            # machine-parseable JSON summary on stdout;
                                                    # always includes "mode": "quick"|"full" so a
                                                    # partial run's JSON cannot be mistaken for a
@@ -83,7 +82,7 @@ Usage:
                                                      # (default 1800 = 30 min; a hung gate is
                                                      # killed and reported as TIMEOUT, not left
                                                      # to hang the runner forever)
-    python scripts/run_gates.py --self-test       # TCB T4 meta-gate fixture: plants each of 6
+    python scripts/run_gates.py --self-test       # docs/REVIEW.md Law 13 meta-gate fixture: plants each of 6
                                                    # known defects (sorry / unallowlisted
                                                    # native_decide / broken REF / a broken REF
                                                    # immediately preceding an anonymous instance
@@ -123,11 +122,11 @@ DEFAULT_GATE_TIMEOUT_S = 1800  # 30 min; generous for wasm_fuzzer's real observe
 
 
 # --------------------------------------------------------------------------------------------
-# Oracle / toolchain version detection (TCB T9: "node/python/nasm: no version recorded or
+# Oracle / toolchain version detection (the oracle/toolchain provenance contract: "node/python/nasm: no version recorded or
 # asserted anywhere" -- this is where that gap closes. Every oracle's version string is both
 # printed to the console AND carried into the --json summary, so a divergence in gate results
 # across two machines/sessions is attributable to an environment drift, not silently
-# re-litigated as a model bug. TCB T14 extends this to `bv_decide`'s external SAT solver: see
+# re-litigated as a model bug. docs/REVIEW.md Law 10 extends this to `bv_decide`'s external SAT solver: see
 # detect_cadical() below.)
 # --------------------------------------------------------------------------------------------
 
@@ -178,7 +177,7 @@ def detect_lake() -> Dict:
 
 
 def detect_lean() -> Dict:
-    """Captures `lean --version` and asserts it matches the lean-toolchain pin (TCB T9's
+    """Captures `lean --version` and asserts it matches the lean-toolchain pin (the oracle/toolchain provenance contract's
     'oracle environment versions unpinned' gap, applied to the Lean toolchain itself: elan
     should make these agree automatically via the lean-toolchain override, but this is the
     mechanical check that a drift is caught rather than assumed)."""
@@ -220,10 +219,10 @@ def detect_nasm() -> Dict:
     silently make the Lean tool use a broken path while THIS detector, if it fell through to a
     PATH/standard-location candidate instead, would report a *different, working* NASM's
     version as if it were the one the gate will actually use -- a false provenance record,
-    exactly the class of gap TCB T9 exists to close. An explicit, broken override is reported
+    exactly the class of gap the oracle/toolchain provenance contract exists to close. An explicit, broken override is reported
     as NOT FOUND (never silently substituted), which is also what actually happens when
     encoding_fuzzer runs.
-    Captures and returns the real version banner (TCB T9: NASM.lean fetches `nasm -v` and
+    Captures and returns the real version banner (the oracle/toolchain provenance contract: NASM.lean fetches `nasm -v` and
     discards the banner today -- this is where that banner actually gets recorded)."""
     override = os.environ.get("GASM_NASM")
     if override:
@@ -316,7 +315,7 @@ def detect_qemu() -> Dict:
 
 
 def detect_cadical() -> Dict:
-    """Resolves the SAT solver `bv_decide` actually invokes (TCB T14), mirroring Lean's own
+    """Resolves the SAT solver `bv_decide` actually invokes (docs/REVIEW.md Law 10), mirroring Lean's own
     `determineSolver` (`Lean/Meta/Tactic/BVDecide/TacticContext.lean`): prefer `cadical.exe`
     (or `cadical`) shipped in the SAME directory as the running toolchain's own binaries --
     pinned by `lean-toolchain` exactly the way `lean.exe`/`lake.exe` are (T1) -- and fall back
@@ -346,22 +345,22 @@ def detect_cadical() -> Dict:
         return {"name": "cadical", "found": code == 0, "path": str(bundled_path),
                 "version": (out or "").strip(),
                 "detail": f"resolved to {bundled_path} -- bundled with the toolchain, pinned "
-                          "by lean-toolchain the same way lean.exe/lake.exe are (TCB T14); "
+                          "by lean-toolchain the same way lean.exe/lake.exe are (docs/REVIEW.md Law 10); "
                           "this is the path bv_decide's determineSolver prefers"}
 
     # Bundled binary absent (or `lean --print-prefix` unavailable): fall back to a bare
     # `cadical` on PATH, exactly as Lean's own determineSolver does -- and exactly as
-    # unpinned as that fallback is by construction (TCB T14).
+    # unpinned as that fallback is by construction (docs/REVIEW.md Law 10).
     exe = shutil.which("cadical") or shutil.which("cadical.exe")
     if not exe:
         return {"name": "cadical", "found": False, "path": None, "version": None,
                 "detail": "no bundled cadical(.exe) found under the toolchain's own bin/ "
                           "(resolved via `lean --print-prefix`) and no bare 'cadical' "
-                          "resolvable on PATH -- required by any bv_decide occurrence (TCB T14)"}
+                          "resolvable on PATH -- required by any bv_decide occurrence (docs/REVIEW.md Law 10)"}
     code, out = _run_capture([exe, "--version"])
     return {"name": "cadical", "found": code == 0, "path": exe, "version": (out or "").strip(),
             "detail": f"resolved to {exe} via PATH -- the bundled toolchain binary was not "
-                      "found under bin/; this fallback is UNPINNED BY CONSTRUCTION (TCB T14)"}
+                      "found under bin/; this fallback is UNPINNED BY CONSTRUCTION (docs/REVIEW.md Law 10)"}
 
 
 def detect_qemu_system_aarch64() -> Dict:
@@ -521,7 +520,7 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
         {"key": "check_licenses", "desc": "python scripts/check_licenses.py",
          "long": "REVIEW.md Sec 4.1 item 5: Apache-2.0 header compliance -- required by Sec 4.1 and "
                  "Sec 4.4 Gate 1, but was never wired into this runner (found and fixed during the "
-                 "D23/decision-record-integrity remediation pass; the same 'a gate that exists but "
+                 "documentation-integrity remediation pass; the same 'a gate that exists but "
                  "never runs protects nothing' lesson this project has already learned once for "
                  "check_publishable.py/check_references.py)",
          "cmd": [py, "scripts/check_licenses.py"], "slow": False, "tools": ["python"]},
@@ -551,8 +550,8 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "to compile -- so an Instructions/<Foo>.lean declaring an X86_64Instruction instance "
                  "but missing from that list is invisible to the audit rather than flagged by it. "
                  "Wired in here (and into .github/workflows/ci.yml) as a follow-up to "
-                 "docs/tasks/B3-stage-b-decoder-modularization.md's own 'not done, flagged for "
-                 "follow-up' note: the script existed and nothing invoked it, the identical shape as "
+                 "the build-performance follow-up recorded in docs/TARGETS/X86_64.md: the script "
+                 "existed and nothing invoked it, the identical shape as "
                  "the check_licenses.py finding recorded two entries above. That note gave the "
                  "script's missing mutation test as the reason it stayed unwired, so wiring it came "
                  "with one: `--self-test` plants a real unimported family file (asserts red, names "
@@ -755,7 +754,7 @@ def fmt_seconds(s: Optional[float]) -> str:
 def print_prereq_table(prereqs: Dict[str, Dict], waived: Optional[List[str]] = None) -> None:
     waived = waived or []
     print("=" * 100)
-    print(" ORACLE / TOOLCHAIN VERSIONS (TCB T9/T14 -- recorded so cross-machine drift is attributable)")
+    print(" ORACLE / TOOLCHAIN VERSIONS (the oracle/toolchain provenance and Law 10 contracts -- recorded so cross-machine drift is attributable)")
     print("=" * 100)
     for name, p in prereqs.items():
         status = "OK" if p["found"] else ("WAIVED" if name in waived else "MISSING")
@@ -790,7 +789,7 @@ def _tool_info_for(g: Dict, prereqs: Dict[str, Dict]) -> str:
 
 
 # --------------------------------------------------------------------------------------------
-# TCB T4 meta-gate fixture (--self-test): a RE-RUNNABLE regression test for the gates
+# docs/REVIEW.md Law 13 meta-gate fixture (--self-test): a RE-RUNNABLE regression test for the gates
 # themselves. A one-time manual demonstration that a gate CAN go red is not a gate by this
 # project's own standard (Law 13(4): a control vector must be checkable again, not a report
 # of something that once happened) -- this is what makes T4 an actual, standing gate rather
@@ -1054,7 +1053,7 @@ def run_self_test(json_mode: bool) -> int:
 
     if not json_mode:
         print("#" * 100)
-        print("# TCB T4 meta-gate fixture (--self-test): re-runnable planted-defect control vectors")
+        print("# docs/REVIEW.md Law 13 meta-gate fixture (--self-test): re-runnable planted-defect control vectors")
         print("#" * 100)
 
     results = []
@@ -1105,7 +1104,7 @@ def main() -> int:
                               "fuzzers). On success this exits 2 (PASSED_PARTIAL), never 0 -- "
                               "NOT SUFFICIENT EVIDENCE FOR MERGE SIGN-OFF under any circumstance.")
     parser.add_argument("--clean", action="store_true",
-                         help="Run `lake clean` before anything else (TCB T13, merge-train mode).")
+                         help="Run `lake clean` before anything else (the clean-rebuild contract, merge-train mode).")
     parser.add_argument("--json", action="store_true",
                          help="Emit a machine-parseable JSON summary to stdout (for CI/TC6); "
                               "suppresses live-streamed gate output and the human table. Always "
@@ -1117,7 +1116,7 @@ def main() -> int:
                               "A gate that exceeds this is killed and reported as TIMEOUT, not left to "
                               "hang the runner (and any CI invoking it) forever.")
     parser.add_argument("--self-test", action="store_true",
-                         help="Run the TCB T4 meta-gate fixture instead of the normal gate "
+                         help="Run the docs/REVIEW.md Law 13 meta-gate fixture instead of the normal gate "
                               "sequence: plant each of 6 known defects, assert the specific "
                               "gate goes red, revert, assert green again. See run_self_test().")
     args = parser.parse_args()
@@ -1198,12 +1197,12 @@ def main() -> int:
             for name in missing:
                 print(f"!   - {name}: {prereqs[name]['detail']}")
             print("! The run is aborting NOW, before any gate executes. This is fail-closed by")
-            print("! design (D13/Law 13): a missing oracle is never silently skipped.")
+            print("! design (docs/REVIEW.md Law 13): a missing oracle is never silently skipped.")
             print("!" * 100)
             print_summary_table(rows)
         return EXIT_PREREQ_ABORT
 
-    # --- Phase 1: optional `lake clean` (TCB T13 merge-train mode) ---------------------------
+    # --- Phase 1: optional `lake clean` (clean-rebuild merge-train mode) ---------------------
     result_rows: List[Dict] = []
     if args.clean:
         lake = shutil.which("lake") or "lake"

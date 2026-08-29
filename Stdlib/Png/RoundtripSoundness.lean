@@ -1658,7 +1658,7 @@ theorem png_roundtrip_soundness_inst :
     let a `decodeImageRGBA8` that always failed still discharge this theorem, since `testStream` is
     a fixed, already-known-good literal and the check never required the initial decode to actually
     succeed -- see `Stdlib.Zlib.deflate_idempotent_canonical_roundtrip_inst`'s doc comment for the
-    full rationale (docs/PA16_CODEC_SOUNDNESS.md). Statement unchanged from its original
+    full rationale (`docs/STDLIB_PNG.md` §6.2). Statement unchanged from its original
     `native_decide` form (`Stdlib/Png/Equivalence.lean`); now a corollary of the universal
     `png_roundtrip_soundness'`. -/
 theorem png_idempotent_canonical_roundtrip_inst :

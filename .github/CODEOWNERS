@@ -28,10 +28,10 @@
 # Default: every path not matched below.
 *                           craig.tiller@gmail.com
 
-# The Law/citation/review protocol itself, and the ratified ADR record --
+# The Law/citation/review protocol itself, and the durable decision record --
 # changes here redefine what "correct" means for everything else in the repo.
 /docs/REVIEW.md             craig.tiller@gmail.com
-/docs/adr/                  craig.tiller@gmail.com
+/docs/DECISIONS.md          craig.tiller@gmail.com
 
 # CI and gate tooling -- a change here can silently weaken what "green"
 # means for every other PR; treat it with the same scrutiny as REVIEW.md.

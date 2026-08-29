@@ -15,7 +15,7 @@ limitations under the License.
 -/
 
 /-
-Gasm/Targets/X86_64/HardwareTimingHarness.lean - F1's RDTSC hardware measurement harness.
+Gasm/Targets/X86_64/HardwareTimingHarness.lean - RDTSC/RDTSCP hardware measurement harness.
 See docs/RDTSC_HARNESS.md for the full design (containment/escape-hatch/fail-closed rationale);
 this file's own comments cover only mechanics.
 
@@ -37,8 +37,9 @@ MEASUREMENT METHODOLOGY (docs/RDTSC_HARNESS.md #6): straight-line unrolling for 
 (`warmupIterations` copies, no CPU loop, no reserved loop-counter register) and the measured
 section (`measuredRepetitions` brackets, each with a host-computed hardcoded output address, no
 reserved address-scratch register). Each bracket is
-`CPUID;RDTSC;start;PUSH;body;RDTSCP;end;PUSH;CPUID;POP;POP;SUB` -- see `bracketBytes`'s own
-comment for why the trailing CPUID and second PUSH exist (Intel's own recommended
+`CPUID;setup;LFENCE;RDTSC;start;PUSH;body;RDTSCP;end;PUSH;CPUID;POP;POP;SUB` -- see
+`bracketBytes`'s own comment for why setup is outside the timestamp and why the trailing CPUID
+and second PUSH exist (Intel's own recommended
 open/close-bracketing idiom, applied so the closing CPUID's own register clobber cannot corrupt
 the already-captured end timestamp). -/
 import Lean
@@ -57,11 +58,12 @@ open Gasm.Targets.Windows
 /- REF: docs/RDTSC_HARNESS.md#6-measurement-methodology -/
 /-- One named kernel this harness can time: `perInstanceBytes` is executed
     `kernelUnrollPerRep` times per measured bracket (and `warmupIterations` times, unrolled,
-    during warm-up); `perBracketSetupBytes` runs once per bracket AND once at the top of
-    warm-up, before any `perInstanceBytes` copies -- see `docs/RDTSC_HARNESS.md`'s `shl_by_cl`
-    discussion for why a kernel needs this (CPUID clobbers RCX every bracket, so a kernel whose
-    timing depends on a specific register value, e.g. the CL shift count, must re-establish it
-    per bracket, not just once globally). -/
+    during warm-up); `perBracketSetupBytes` runs once per bracket after the opening CPUID but
+    before the timestamp, and once at the top of warm-up, before any `perInstanceBytes` copies.
+    See `docs/RDTSC_HARNESS.md`'s `shl_by_cl` discussion for why a kernel needs this: CPUID
+    clobbers RCX every bracket, so a kernel whose timing depends on a specific register value,
+    e.g. the CL shift count, must re-establish it per bracket without charging that harness
+    setup to the modeled instruction. -/
 structure TimingKernel where
   name                 : String
   perInstanceBytes     : ByteArray
@@ -114,17 +116,20 @@ def repeatBytes (unit : ByteArray) (count : Nat) : ByteArray := Id.run do
   return result
 
 /- REF: docs/RDTSC_HARNESS.md#63-per-repetition-bracket -/
-/-- One fully-unrolled measured bracket: serialized CPUID+RDTSC open, `bodyBytes` (already
-    `perBracketSetupBytes ++ repeatBytes perInstanceBytes kernelUnrollPerRep`), serialized
-    RDTSCP+CPUID close, raw cycle delta stored at the host-computed `outAddr`. The end timestamp
-    is combined into RAX and pushed BEFORE the closing CPUID runs (Intel's documented
-    RDTSCP+CPUID idiom: the trailing CPUID prevents later instructions from executing before the
-    timed read retires) so that CPUID's own EAX/EBX/ECX/EDX clobber cannot destroy the very
-    value it is meant to protect -- both PUSH/POP pairs are written here, matched, never
+/-- One fully-unrolled measured bracket: opening CPUID, harness-only `setupBytes`, LFENCE+RDTSC,
+    `bodyBytes` (exactly `kernelUnrollPerRep` instruction copies), serialized RDTSCP+CPUID close,
+    and a raw cycle delta stored at the host-computed `outAddr`. LFENCE keeps the setup before
+    RDTSC, so setup is necessary execution context but is not charged to the modeled stream. The
+    end timestamp is combined into RAX and pushed BEFORE the closing CPUID runs (Intel's
+    documented RDTSCP+CPUID idiom: the trailing CPUID prevents later instructions from executing
+    before the timed read retires) so that CPUID's own EAX/EBX/ECX/EDX clobber cannot destroy the
+    very value it is meant to protect -- both PUSH/POP pairs are written here, matched, never
     fuzzer-generated, so they introduce no RSP drift. -/
-def bracketBytes (bodyBytes : ByteArray) (outAddr : UInt64) : ByteArray :=
+def bracketBytes (setupBytes bodyBytes : ByteArray) (outAddr : UInt64) : ByteArray :=
   ByteArray.mk #[0x31, 0xC0]                                    -- xor eax, eax (CPUID leaf 0)
   ++ ByteArray.mk #[0x0F, 0xA2]                                 -- cpuid (open serialize)
+  ++ setupBytes                                                  -- harness context, outside timing
+  ++ ByteArray.mk #[0x0F, 0xAE, 0xE8]                           -- lfence (setup before timestamp)
   ++ ByteArray.mk #[0x0F, 0x31]                                 -- rdtsc
   ++ ByteArray.mk #[0x48, 0xC1, 0xE2, 0x20]                     -- shl rdx, 32
   ++ ByteArray.mk #[0x48, 0x09, 0xD0]                           -- or rax, rdx  (rax = start_ts)
@@ -157,14 +162,14 @@ def buildKernelBlock (outBufferAddr : UInt64) (testIdx : Nat) (k : TimingKernel)
   let mut block := ByteArray.empty
   -- Warm-up: setup once, then straight-line unrolled instance copies, no timing.
   block := block ++ k.perBracketSetupBytes ++ repeatBytes k.perInstanceBytes warmupIterations
-  -- Measured section: fully unrolled brackets, each re-running perBracketSetupBytes (CPUID
-  -- clobbers whatever it established) before its own kernelUnrollPerRep instance copies.
-  let bracketBody := k.perBracketSetupBytes ++ repeatBytes k.perInstanceBytes kernelUnrollPerRep
+  -- Measured section: fully unrolled brackets, each re-running perBracketSetupBytes after the
+  -- opening CPUID but before LFENCE+RDTSC, then timing exactly kernelUnrollPerRep copies.
+  let bracketBody := repeatBytes k.perInstanceBytes kernelUnrollPerRep
   let measuredPass : ByteArray := Id.run do
     let mut pass := ByteArray.empty
     for r in [0:measuredRepetitions] do
       let repAddr := testOutAddr + (r * 8).toUInt64
-      pass := pass ++ bracketBytes bracketBody repAddr
+      pass := pass ++ bracketBytes k.perBracketSetupBytes bracketBody repAddr
     return pass
   -- PRE-FAULT PASS (docs/RDTSC_HARNESS.md #6.3's page-fault evidence note): the measured
   -- section's own code -- unlike `warmupIterations`' copies, which live in a separate,
@@ -175,14 +180,19 @@ def buildKernelBlock (outBufferAddr : UInt64) (testIdx : Nat) (k : TimingKernel)
   -- executable's `.text` pages on first touch -- a page fault mid-bracket is indistinguishable,
   -- to RDTSC, from genuine kernel cost, and (unlike a sparse SMI/interrupt tail) affected too
   -- large a fraction of samples for the median alone to filter reliably. The specific magnitude
-  -- observed is Law-14-governed measured data, not repeated here (docs/REVIEW.md #4.4). Fix:
-  -- execute the EXACT SAME byte sequence
-  -- (same addresses -- this is a second, textually-duplicated copy, not a loop) once, untimed,
-  -- immediately before the real timed pass, so every page the timed pass touches is already
-  -- resident. `bracketBytes`'s own PUSH/POP pairs stay balanced across both copies (each is
-  -- independently matched), so running the whole bracket sequence twice introduces no RSP
-  -- drift.
-  block := block ++ measuredPass ++ measuredPass
+  -- observed is Law-14-governed measured data, not repeated here (docs/REVIEW.md #4.4). Execute
+  -- the exact measuredPass instructions at the exact same addresses twice: a stack-resident
+  -- two-pass counter avoids reserving a GPR, and the first pass's output is overwritten by the
+  -- second. The backward JNE displacement is measured from the end of its own 6-byte encoding:
+  -- measuredPass + 4-byte DEC + 6-byte JNE. `bracketBytes`'s PUSH/POP pairs are balanced, so the
+  -- counter remains at [RSP] between passes and is removed afterward without stack drift.
+  let backToMeasuredPass := -Int32.ofNat (measuredPass.size + 10)
+  block := block ++ ByteArray.mk #[0x6A, 0x02]                   -- push 2 (two passes)
+  block := block ++ measuredPass                                -- loop target
+  block := block ++ ByteArray.mk #[0x48, 0xFF, 0x0C, 0x24]     -- dec qword ptr [rsp]
+  block := block ++ ByteArray.mk #[0x0F, 0x85]                  -- jne rel32
+  block := block ++ int32ToLittleEndian backToMeasuredPass
+  block := block ++ ByteArray.mk #[0x48, 0x83, 0xC4, 0x08]     -- add rsp, 8
   return block
 
 /- REF: docs/RDTSC_HARNESS.md#63-per-repetition-bracket -/
@@ -205,16 +215,18 @@ def buildTimingText (layout : SectionLayout) (kernels : List TimingKernel) : Byt
   -- arithmetic below is valid.
   let mut body := ByteArray.mk #[0x48, 0x83, 0xEC, 0x48] -- sub rsp, 72
 
-  -- Pin this process to logical processor 0 for the entire run:
+  -- Request a process-wide affinity mask selecting logical processor 0 for the entire run:
   -- SetProcessAffinityMask((HANDLE)-1 /* current process pseudo-handle, needs no
   -- GetCurrentProcess() call -- it is always -1 */, 1). Closes docs/RDTSC_HARNESS.md #7's named
-  -- open item, motivated by an unpinned-baseline finding during this task's own hardware
+  -- open item, motivated by an unpinned-baseline finding during hardware
   -- validation: a dependency-chain kernel's measured cycle distribution was substantially less
   -- consistent than a near-zero-cost kernel's on the same run, on this shared development
   -- machine -- consistent with (though not conclusively proven to be) the OS scheduler migrating
   -- this single thread between cores of different effective frequency/microarchitecture (e.g. a
   -- hybrid P/E-core layout) partway through the measured section. Pinning to one fixed logical
-  -- processor removes that migration as a variable regardless of whether it was the actual cause;
+  -- processor removes that migration as a variable when the call succeeds. The emitted program
+  -- does not currently capture the BOOL return, so generated provenance must record this as a
+  -- requested-but-unverified process affinity mask rather than claim confirmed pinning;
   -- the specific before/after figures are Law-14-governed measured data, not repeated in comments
   -- (docs/REVIEW.md #4.4) -- see calibration/x86_64/*.json for any run's actual numbers.
   body := body ++ ByteArray.mk #[0x48, 0xC7, 0xC1, 0xFF, 0xFF, 0xFF, 0xFF] -- mov rcx, -1
@@ -319,6 +331,10 @@ def runTimingBatch (kernels : List TimingKernel) (tmpExePath : String := "./.tmp
     let outBytes ← child.stdout.read expectedBytes.toUSize
     let exitCode ← child.wait
 
+    if exitCode != 0 then
+      let stderrMsg ← child.stderr.readToEnd
+      return .error s!"Timing harness '{tmpExePath}' exited with code {exitCode}: {stderrMsg}"
+
     if outBytes.size < expectedBytes then
       let stderrMsg ← child.stderr.readToEnd
       return .error s!"Timing harness '{tmpExePath}' produced {outBytes.size}/{expectedBytes} expected bytes (exit code {exitCode}): {stderrMsg}"
@@ -353,7 +369,7 @@ def nopLoopKernel : TimingKernel := { name := "nop_loop", perInstanceBytes := By
 def longDependentChainKernel : TimingKernel := { name := "long_dependent_chain", perInstanceBytes := ByteArray.mk #[0x48, 0x83, 0xC0, 0x01] }
 
 /- REF: docs/RDTSC_HARNESS.md#9-kernel-suite-and-evidence -/
-/-- MODEL_DEBT.md §A8's named spot-check: `SHL RAX, CL`, modeled as 1 uop
+/-- `docs/RDTSC_HARNESS.md`'s named spot-check: `SHL RAX, CL`, modeled as 1 uop
     (`Gasm/Targets/X86_64/Instructions/Shift.lean`'s `ShlR64Cl.toUops`) despite Intel P-cores
     documented elsewhere as needing an extra flag-merge uop when the count is runtime-variable.
     `perBracketSetupBytes` re-establishes `CL := 5` every bracket (CPUID clobbers RCX every

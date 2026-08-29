@@ -45,7 +45,7 @@ executing the assembly interpreter and comparing against 91 samples.
 
 1. Per-instruction `step` facts at the smart-constructor call site, discharged by `rfl` (the
    `AnyX86_64Instruction` existential wrapper unfolds for free at the literal `⟨...⟩` construction
-   site -- confirmed by `docs/tasks/PA1-crc32-pathfinder.md`'s identical finding, reused directly
+   site -- confirmed by `docs/PATHFINDER_CRC32.md`'s identical finding, reused directly
    here for the two instruction shapes PA1 did not already need: `MovR64Imm64`, `SubR64Imm8`, and
    the `rel8`-displacement branch/jump forms `JeRel8`/`JmpRel8`).
 2. `instructionAtRip`-fetch facts at each concrete address the loop body visits, discharged by
@@ -61,7 +61,7 @@ executing the assembly interpreter and comparing against 91 samples.
    prologue and preserved `k -> k+1` by one iteration -- the actual mathematical content, proved by
    induction on the *iteration count*, not by simulating the machine at concrete inputs.
 
-This is exactly the shape `docs/tasks/PA1-crc32-pathfinder.md` demonstrated tractable for a single
+This is exactly the shape `docs/PATHFINDER_CRC32.md` demonstrated tractable for a single
 connection theorem (jump-displacement round-trip + per-instruction step facts) but did not carry
 through to a completed loop induction; this file is believed to be the first *completed* instance of
 that shape against `runProgramWithLoops` end-to-end, and is intended as the template Spikes 3/4/5
@@ -90,7 +90,7 @@ new (PA1 needed the `rel32`/`imm32` cousins of the branch/jump forms and never n
 load or an imm8 subtract).
 -/
 
-/- REF: docs/tasks/PA1-crc32-pathfinder.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 theorem step_xor_r32 (dst src : Reg32) (s : X86_64MachineState) :
     X86_64Instruction.step (xor_r32 dst src) s =
       { (s.setGpr32 dst
@@ -98,44 +98,44 @@ theorem step_xor_r32 (dst src : Reg32) (s : X86_64MachineState) :
           32 (((s.gprs (reg32To64 dst)).toUInt32 ^^^ (s.gprs (reg32To64 src)).toUInt32).toUInt64) with
         rip := s.rip + (if (reg32Code dst).2 || (reg32Code src).2 then 3 else 2) } := rfl
 
-/- REF: docs/tasks/PA1-crc32-pathfinder.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 theorem step_mov_r64_imm64 (dst : Reg64) (imm : UInt64) (s : X86_64MachineState) :
     X86_64Instruction.step (mov_r64_imm64 dst imm) s =
       { s.setGpr64 dst imm with rip := s.rip + 10 } := rfl
 
-/- REF: docs/tasks/PA1-crc32-pathfinder.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 theorem step_cmp_r64_imm8 (dst : Reg64) (imm : UInt8) (s : X86_64MachineState) :
     X86_64Instruction.step (cmp_r64_imm8 dst imm) s =
       { s.setFlagsCmp64 (s.gprs dst) (signExtend8To64 imm) with rip := s.rip + 4 } := rfl
 
-/- REF: docs/tasks/PA1-crc32-pathfinder.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 theorem step_je_rel8 (disp : UInt8) (s : X86_64MachineState) :
     X86_64Instruction.step (je_rel8 disp) s =
       { s with rip := if s.zf then s.rip + 2 + signExtend8To64 disp else s.rip + 2 } := rfl
 
-/- REF: docs/tasks/PA1-crc32-pathfinder.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 theorem step_mov_r64 (dst src : Reg64) (s : X86_64MachineState) :
     X86_64Instruction.step (mov_r64 dst src) s =
       { s.setGpr64 dst (s.gprs src) with rip := s.rip + 3 } := rfl
 
-/- REF: docs/tasks/PA1-crc32-pathfinder.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 theorem step_add_r64 (dst src : Reg64) (s : X86_64MachineState) :
     X86_64Instruction.step (add_r64 dst src) s =
       { (s.setGpr64 dst (s.gprs dst + s.gprs src)).setFlagsAdd64 (s.gprs dst) (s.gprs src) with
         rip := s.rip + 3 } := rfl
 
-/- REF: docs/tasks/PA1-crc32-pathfinder.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 theorem step_sub_r64_imm8 (dst : Reg64) (imm : UInt8) (s : X86_64MachineState) :
     X86_64Instruction.step (sub_r64_imm8 dst imm) s =
       { (s.setGpr64 dst (s.gprs dst - signExtend8To64 imm)).setFlagsSub64 (s.gprs dst)
           (signExtend8To64 imm) with rip := s.rip + 4 } := rfl
 
-/- REF: docs/tasks/PA1-crc32-pathfinder.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 theorem step_jmp_rel8 (disp : UInt8) (s : X86_64MachineState) :
     X86_64Instruction.step (jmp_rel8 disp) s =
       { s with rip := s.rip + 2 + signExtend8To64 disp } := rfl
 
-/- REF: docs/tasks/PA1-crc32-pathfinder.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 theorem step_ret_op (s : X86_64MachineState) :
     X86_64Instruction.step ret_op s =
       { s.setGpr64 .rsp (s.rsp + 8) with rip := s.read64 s.rsp } := rfl

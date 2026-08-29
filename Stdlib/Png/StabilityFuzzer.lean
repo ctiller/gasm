@@ -486,7 +486,7 @@ def runPngStabilityFuzzer (iterations : Nat) (seed : UInt64) : IO Unit := do
 
   -- Vacuity floor (Law 13(4) class): 0 randomized iterations must not print a blanket pass.
   if iterations == 0 then
-    throw (IO.userError "[VACUITY FLOOR TRIPPED] --count 0 requests 0 randomized structured-mutation vectors -- this is a hard FAIL, not a clean PASS (TCB.md T11-b class). Pass --count N with N >= 1.")
+    throw (IO.userError "[VACUITY FLOOR TRIPPED] --count 0 requests 0 randomized structured-mutation vectors -- this is a hard FAIL, not a clean PASS (docs/REVIEW.md Law 13 class). Pass --count N with N >= 1.")
 
   IO.println s!"  [*] Stage 2: Running {iterations} randomized structured-mutation iterations..."
   let mut rng : PngFuzzRng := { state := seed }

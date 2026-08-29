@@ -16,8 +16,8 @@
 """
 scripts/check_references.py - Reference Index validator for gasm
 
-Design: docs/REFERENCE_INDEX.md (as corrected by the adversarial design review
-recorded in PLAN.md D24/D25). Validates `REF: <slug>#<anchor>` citations
+Design: docs/REFERENCE_INDEX.md (including the adversarial corrections recorded
+there). Validates `REF: <slug>#<anchor>` citations
 against `references.json` (the registry, at repository root) and a local,
 gitignored cache at `.cache/references/`.
 
@@ -30,7 +30,7 @@ Two modes:
       file for that slug is present; (4) the cache file's ACTUAL, freshly
       recomputed SHA-256 matches the `sha256` recorded in `references.json`
       (never a comparison between two recorded numbers -- see docs/
-      REFERENCE_INDEX.md and TCB.md T8 for why that distinction matters);
+      REFERENCE_INDEX.md for why that distinction matters);
       (5) the anchor is well-formed per its entry's `anchor_mode` grammar,
       and resolves against the cached content where that mode supports a
       resolution check.
@@ -344,7 +344,7 @@ def strip_html_tags_for_headings(html: str) -> str:
     into -- docs/REFERENCE_INDEX.md #7) -- this only needs to recover
     heading TEXT for anchor checking, which this simpler pass has been
     sufficient for (verified against 12 real fetched WebAssembly spec
-    pages, 99/99 citation anchors resolved -- see PLAN.md)."""
+    pages, 99/99 citation anchors resolved -- see docs/REFERENCE_INDEX.md)."""
     lines = []
     for m in re.finditer(r'<h([1-6])[^>]*>(.*?)</h\1>', html, re.DOTALL | re.IGNORECASE):
         level, inner = m.group(1), m.group(2)
@@ -478,7 +478,8 @@ def sha256_of_file(path: Path) -> str:
 def verify_cache_integrity(entry: dict) -> Path:
     """Returns the cache path if present and hash-verified; raises otherwise.
     ALWAYS recomputes SHA-256 from the bytes on disk -- never compares one
-    recorded number to another (TCB.md T8's demonstrated failure class)."""
+    recorded number to another (the failure class documented in
+    docs/REFERENCE_INDEX.md)."""
     path = cache_path_for(entry)
     if not path.exists():
         raise ValidationFailure(EXIT_CACHE_MISSING, f"slug '{entry['slug']}': cache file {path} does not exist (cold cache). Run --refresh --slug {entry['slug']} deliberately; --offline never fetches.")

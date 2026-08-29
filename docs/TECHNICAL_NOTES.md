@@ -8,7 +8,7 @@ This document consolidates genuine technical insights, open architectural debts,
 - **`native_decide` & `bv_decide` Trust Tiers**: Allowed only for propositions exhaustively quantified over finite domains. `bv_decide` shares the same trust class as `native_decide` (compiled execution trusting an external SAT solver like CaDiCaL) and is not kernel-checked.
 - **Emitter Last Mile Gap**: There is no proposition linking logical `executable.textBytes` to `serializeInstructions`. `traceEquivalence` walks the AST list, and `emit` writes the bytes, leaving the serialization unlinked.
 - **Gate Principles (Law 13)**: Every fuzz/review finding must terminate in mechanical prevention of its whole class (preference: unrepresentable by construction > build-time theorem > build-failing linter > oracle control vectors).
-- **Axiom Gate Blind Spot**: The current `CheckGatesAxioms` tool operates on the import closure, making unimported modules (like `Emit.lean` variants) invisible. Needs filesystem-level enumeration.
+- **Axiom Gate Coverage**: `Tools/CheckGatesAxioms.lean` enumerates tracked build-closure modules and standalone-scans modules outside the umbrella-import baseline, so unimported built modules are no longer invisible to the axiom gate (`docs/REVIEW.md` §4.1.1).
 
 ## 2. Machine & OS Model Debts
 - **Performance Model**: 
@@ -24,11 +24,13 @@ This document consolidates genuine technical insights, open architectural debts,
     them; they do not enforce provenance, borrowing, lock guards, or must-release obligations.
   - The consolidated resolution and dependency gates are `docs/MEMORY_MODEL.md` §§4–14.
 - **OS/Environment Inventions**: 
-  - `ReadFile` and `WriteFile` hooks model ideal disk I/O (no short reads, stdout identical to stderr), lacking pipe/console semantics. 
+  - `ReadFile` supports bounded short reads, but the file hooks still lack realistic handle,
+    error, pipe, and console semantics; stdout and stderr are not distinguished faithfully.
   - Sockets are completely invented (no blocking, 100% successful I/O), and OS error states (`GetLastError`) are unmodeled.
   - `VirtualAlloc` returns a constant address.
-- **Wasm**: 
-  - The LEB128 decoder is missing, meaning the Wasm emission round-trip is unstatable and unprovable.
+- **Wasm**:
+  - Width-checked signed and unsigned LEB128 decoders and their roundtrip theorems exist in
+    `Gasm/Targets/Wasm/LEB128.lean`; remaining Wasm debts are tracked in `docs/TARGETS/WASM.md`.
 
 ## 3. Graphics & GPU Architectural Notes
 - **Observation Standard**: GPU rendering output (`readbackPixels`) must carry actual pixel data, not just an audit trace of a readback event.

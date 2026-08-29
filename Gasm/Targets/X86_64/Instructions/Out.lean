@@ -43,7 +43,7 @@ instance : X86_64Instruction OutImm8Al where
   toLean i := s!"out_imm8_al {formatHex8 i.port}"
   canFuzzHardware _ := false
   validationOracle _ := .nasmEncoding "OUT writes an I/O port and faults (#GP) under the harness's usermode host process; no privileged execution context is available -- encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [OutImm8Al.mk 0x00, OutImm8Al.mk 0x80, OutImm8Al.mk 0xFF]
   memAccesses _ := []
@@ -66,7 +66,7 @@ instance : X86_64Instruction OutDxAl where
   toLean _ := "out_dx_al"
   canFuzzHardware _ := false
   validationOracle _ := .nasmEncoding "OUT writes an I/O port and faults (#GP) under the harness's usermode host process; no privileged execution context is available -- encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [OutDxAl.mk]
   memAccesses _ := []
@@ -90,7 +90,7 @@ instance : X86_64Instruction OutImm8Eax where
   toLean i := s!"out_imm8_eax {formatHex8 i.port}"
   canFuzzHardware _ := false
   validationOracle _ := .nasmEncoding "OUT writes an I/O port and faults (#GP) under the harness's usermode host process; no privileged execution context is available -- encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [OutImm8Eax.mk 0x00, OutImm8Eax.mk 0x80, OutImm8Eax.mk 0xFF]
   memAccesses _ := []
@@ -113,7 +113,7 @@ instance : X86_64Instruction OutDxEax where
   toLean _ := "out_dx_eax"
   canFuzzHardware _ := false
   validationOracle _ := .nasmEncoding "OUT writes an I/O port and faults (#GP) under the harness's usermode host process; no privileged execution context is available -- encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [OutDxEax.mk]
   memAccesses _ := []

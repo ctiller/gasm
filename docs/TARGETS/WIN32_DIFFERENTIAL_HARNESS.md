@@ -35,15 +35,13 @@ for the second reviewer rather than scattered as inline diff markers:
 - **M6** → §7 gains a step 0 (blast-radius enumeration) and a step 7 (re-establishment,
   with an explicit statement that a recomputed `decide`/`native_decide` pass is not evidence),
   plus a model-version-stamp proposal.
-- **M7** → `references/windows/readfile.md` has been **re-ingested for real** as part of this
-  revision (see §11) — it is no longer the 28-line self-authored stub round 1 relied on; seven
-  more Win32 references were vendored in the same pass (system error codes, `GetLastError`,
-  `VirtualAlloc`/`VirtualFree`, `CreateFile`, `CreatePipe`, WinSock error codes,
-  `WriteConsoleInput`). Every numeric error code this design cites now has a `file:line`
-  citation into vendored text, not an asserted literal. One precision error round 1 made is
-  fixed: `ERROR_BROKEN_PIPE` for `ReadFile` is the correct-direction citation from the
-  newly-ingested `readfile.md`, not `writefile.md`'s (differently-directed) mention of the same
-  code.
+- **M7** → the genuine Microsoft `ReadFile` page is hash-pinned as `windows-readfile` in
+  `references.json`, replacing the self-authored stub round 1 relied on. The PE format and the
+  WinSock function pages used here are likewise registered. The broader source set this design
+  once claimed was vendored — system error codes, `GetLastError`, `VirtualAlloc`/`VirtualFree`,
+  pipe creation, WinSock error codes, and `WriteConsoleInput` — is **not** registered today.
+  Claims depending on it are marked as ingestion prerequisites below rather than presented as
+  established ground truth.
 - **M8** → §4.7 drops the recorded-calibration fallback entirely; console reads are declared
   out of this design's modeled scope unless `AllocConsole`/`WriteConsoleInput` prove reliable,
   with the observation that follows from M1's outcome-set analysis: the two facts N2 actually
@@ -57,18 +55,13 @@ record), the Q6 inversion (§1.3 — resolved as a side effect of the M3 channel
 a standalone special case), and the four tense fixes (§1.3, §1.5, §10.1 — §4.7's fallback
 tense-fix is moot since the fallback was deleted per M8).
 
-**One reasoned disagreement, surfaced rather than silently applied**: M8(b)'s suggested
-mechanism for the short-write probe (`CreatePipe` with a small buffer, then
-`SetNamedPipeHandleState(PIPE_NOWAIT)`) does not survive contact with the now-vendored
-`references/windows/createpipe.md`, whose Remarks state plainly that an anonymous pipe's
-`WriteFile` "is not completed until all bytes are written... `WriteFile` does not return until
-another process or thread uses `ReadFile` to make more buffer space available" — i.e. anonymous
-pipes are documented as always-blocking for the writer, with no short-write outcome available
-at all. §4.6 uses `CreateNamedPipe` instead (a local named pipe created with
-`PIPE_TYPE_BYTE | PIPE_NOWAIT` at creation time), which is the mechanism `writefile.md`'s own
-"non-blocking, byte-mode pipe" Remarks text actually describes. This is exactly the kind of
-"check the reference before asserting" correction Law 4 and this design review both exist to
-force, so it is called out rather than silently substituted.
+**Short-write fixture remains blocked on source intake.** An earlier revision rejected
+`CreatePipe` and selected `CreateNamedPipe(... PIPE_TYPE_BYTE | PIPE_NOWAIT)` by citing a local
+`createpipe.md` that no longer exists and was never migrated into `references.json`.
+`windows-writefile` is registered, but the `CreatePipe`, `CreateNamedPipe`, and named-pipe-state
+contracts needed to justify the fixture are not. §4's short-write probe must not become
+normative until those official Microsoft pages are hash-pinned and the proposed mechanism is
+rechecked against them.
 
 ---
 
@@ -79,17 +72,15 @@ harness that invokes the real API and compares observable behavior against the m
 state-transition hooks — the same discipline the ISA models already follow." No such harness
 exists today: `Gasm/Targets/Windows/Win32API.lean`'s hooks (`readFileHook`, `writeFileHook`,
 `virtualAllocHook`, the WinSock hooks) are pure inventions, never checked against a real
-Windows process. `MODEL_DEBT.md` §C1–§C6 and `TCB.md` §T6 catalogue the resulting gaps in
+Windows process. `docs/TECHNICAL_NOTES.md` §2 catalogues the resulting gaps in
 detail; this document is the Law-5 design that must exist before `N2`/`N3` write a line of
 fix code (`docs/REVIEW.md` Law 5).
 
 Per `docs/REVIEW.md` Law 5 this doc is authored, not implemented: it specifies harness
 architecture, probe designs, and the model-update workflow. It contains no Lean beyond
-illustrative sketches marked as such. `N2` and `N3` build against it. (One exception, described
-in §11: this revision also performed the mechanical, non-Lean act of vendoring real reference
-text via `scripts/regenerate_references.py`, since a design that cites numeric error codes
-without a vendored source is exactly the shape Law 4 prohibits, and the fix was cheap and
-verifiable — this is reference-corpus maintenance, not "implementation" of the Win32 model.)
+illustrative sketches marked as such. `N2` and `N3` build against it. §11 distinguishes the
+Microsoft sources already registered in `references.json` from the required intake that has not
+landed; no vendored prose is part of this design.
 
 ---
 
@@ -180,14 +171,13 @@ other extra symbol) purely to report its result, so the special case round 1 nee
 does not arise: the IAT-dump probe imports nothing beyond the baseline set, preserving its
 representativeness for free.
 
-**`GetLastError` ordering discipline** (recommended item, taken): a probe must call
+**`GetLastError` ordering discipline** (conservative probe rule): a probe must call
 `GetLastError()` as the *very next* instruction after the measured call returns, before doing
-anything else — including preparing the phase-record write. `GetLastError` is a per-thread
-value with no reset-on-success guarantee (`references/windows/errhandlingapi.md:194`: "the
-last-error code is maintained on a per-thread basis"), so any intervening Win32 call
-(including one made to *prepare* the report) can clobber it before it's captured. This is a
-probe-authoring discipline `N2` must enforce by code review/convention, not something the
-architecture can make structurally impossible — noted honestly rather than glossed over.
+anything else — including preparing the phase-record write. The official `GetLastError` page is
+not yet registered in `references.json`, so its per-thread and reset-on-success semantics are an
+explicit source-intake prerequisite, not ground truth established by this document. Immediate
+capture is conservative even before that intake and prevents an intervening Win32 call from
+invalidating the observation. `N2` must enforce this by probe construction or review.
 
 ### 1.4 Wire record and result type (M4c)
 
@@ -198,7 +188,7 @@ inductive Win32ProbeResult where
   | failure (lastError : UInt32)
 -- `deriving Inhabited` and any `Default` instance are FORBIDDEN on this type by convention
 -- and by review: there is no legitimate "what a probe would have said" default value, and
--- TCB T10 already names the live consequence of allowing one (`Inhabited HardwareExecutionResult`
+-- The trust review already names the live consequence of allowing one (`Inhabited HardwareExecutionResult`
 -- fabricates `faulted := false`, reachable via `getD`). A missing result must be `Except.error`,
 -- never a constructed `Win32ProbeResult`.
 
@@ -212,7 +202,7 @@ structure Win32ProbeWireRecord where
                       -- (truncated record, checksum absent/short) from "the channel or decode
                       -- logic is corrupted" (record present, checksum mismatch) — neither may
                       -- decode as a plausible `Win32ProbeResult`. This directly avoids
-                      -- `HardwareHarness.lean`'s two live fabrication paths (TCB T10): `getU8`
+                      -- `HardwareHarness.lean`'s two live fabrication paths:
                       -- returning `0` out-of-range so an untouched zero buffer decodes
                       -- plausibly, and `Inhabited` fabricating a default result.
 ```
@@ -328,40 +318,41 @@ real probe result that does not pass through this call first.
 Every positive control above is run in repeated trials (§2, interpretation 3) before the
 session's controls are considered passed.
 
-### 3.2 Negative controls — now cited against vendored text
+### 3.2 Negative controls — source status explicit
 
-- **`ReadFile`** on a fabricated invalid handle (e.g. `(HANDLE)0xDEADBEEF`): `FALSE` +
-  `GetLastError() == ERROR_INVALID_HANDLE (6)` — `references/windows/system_error_codes.md:236-240`.
+- **`ReadFile`** on a fabricated invalid handle (e.g. `(HANDLE)0xDEADBEEF`): proposed outcome
+  `FALSE` + `GetLastError() == ERROR_INVALID_HANDLE (6)`. The symbol/value pair needs a
+  hash-pinned Microsoft system-error-code source before this becomes a normative control.
 - **`ReadFile`** on a pipe read handle whose write end has already been closed with nothing
   written: `FALSE` + `GetLastError() == ERROR_BROKEN_PIPE (109)` —
-  `references/windows/readfile.md:339` ("If an anonymous pipe is being used and the write
+  the registered `windows-readfile` page ("If an anonymous pipe is being used and the write
   handle has been closed, when ReadFile attempts to read using the pipe's corresponding read
-  handle, the function returns FALSE and GetLastError returns ERROR_BROKEN_PIPE"),
-  `references/windows/system_error_codes.md:674-678`.
+  handle, the function returns FALSE and GetLastError returns ERROR_BROKEN_PIPE"). The numeric
+  value `109` separately requires the missing system-error-code registration.
 - **`WriteFile`** to a `GENERIC_READ`-only handle: `FALSE` + `GetLastError() == ERROR_ACCESS_DENIED (5)`
-  — `references/windows/system_error_codes.md:230-234`.
+  — proposed pending registration of the Microsoft system-error-code source.
 - **`VirtualAlloc`** requesting an absurd size: `NULL` + `GetLastError() == ERROR_NOT_ENOUGH_MEMORY (8)`
-  — `references/windows/system_error_codes.md:248-252`, also independently mentioned in
-  `references/windows/readfile.md`'s own Remarks as a documented `ReadFile` failure mode for
-  outstanding-request exhaustion.
+  — proposed pending registration of the Microsoft system-error-code source; the registered
+  `windows-readfile` page independently names the symbolic resource-exhaustion failure mode.
 
 ### 3.3 Distinguishability control (third control) — corrected from round 1's framing
 
 The review asked for a control proving "`TRUE`+0-bytes (disk EOF)" is decoder-distinguishable
-from `FALSE`+`ERROR_BROKEN_PIPE`. Having now actually read the vendored `readfile.md` (M7),
+from `FALSE`+`ERROR_BROKEN_PIPE`. The registered `windows-readfile` source shows that
 that phrasing conflates two different real outcomes: a disk read that begins at or beyond EOF
-is documented as **`FALSE` + `ERROR_HANDLE_EOF (38)`** (`readfile.md:416-420`), not `TRUE`+0.
+is documented as **`FALSE` + `ERROR_HANDLE_EOF`**, not `TRUE`+0; the numeric value `38` remains
+provisional until the system-error-code source is registered.
 The genuine `TRUE`+0 case is a **pipe** outcome: "If the `lpNumberOfBytesRead` parameter is
 zero when `ReadFile` returns `TRUE` on a pipe, the other end of the pipe called `WriteFile`
-with `nNumberOfBytesToWrite` set to zero" (`readfile.md:343`). This is a real, useful
+with `nNumberOfBytesToWrite` set to zero" (`windows-readfile`). This is a real, useful
 correction to bring back to the reviewer (see the disagreement note at the top of this
 document), and it strengthens the control rather than weakening it: there are now **three**
 mutually-confusable "nothing more right now" signals, not two, and the harness must confirm
 its own decoder tells all three apart before any read probe counts:
 
-- `.success 0` — pipe, peer wrote zero bytes (`readfile.md:343`)
-- `.failure ERROR_BROKEN_PIPE` — pipe, write end closed (`readfile.md:339`)
-- `.failure ERROR_HANDLE_EOF` — disk, read begins at/beyond EOF (`readfile.md:416-420`)
+- `.success 0` — pipe, peer wrote zero bytes (`windows-readfile`)
+- `.failure ERROR_BROKEN_PIPE` — pipe, write end closed (`windows-readfile`)
+- `.failure ERROR_HANDLE_EOF` — disk, read begins at/beyond EOF (`windows-readfile`)
 
 The control constructs one probe producing each of the three outcomes and asserts the decoder
 maps them to three distinct `Win32ProbeResult` values — a decoder bug that collapsed any two of
@@ -371,8 +362,8 @@ and must not survive undetected in the harness that's supposed to be catching it
 ### 3.4 Vacuity floor
 
 A harness session that executes zero probes is a hard failure, not a vacuous "0 ran, 0 failed,
-exit 0" pass — `TCB.md` §T11-b names exactly this failure class (`PerfFuzzerCLI --count 0`
-prints "100% SUCCESS" with no oracle involved at all). `runWin32Probe`'s top-level suite runner
+exit 0" pass — the same Law-13 failure class guarded concretely by
+`Gasm/Targets/X86_64/PerfFuzzerCLI.lean`'s `--count 0` vacuity floor. `runWin32Probe`'s top-level suite runner
 prints the executed probe count and a constructor-coverage table (§4.0) at the end of every
 session; an executed count of zero, or a constructor-coverage table with an unfilled row, both
 fail the session.
@@ -389,7 +380,7 @@ a skipped probe or a synthesized pass.
 
 ## 4. C1 — the reachable read-outcome domain, with a reachability witness for each element (M1)
 
-Per `MODEL_DEBT.md` §C1, this is the section that determines whether Phase 4's
+This is the section that determines whether Phase 4's
 `read`-as-universal-binder plan (`docs/REVIEW.md` Law 9) is buildable at all. Round 1's mistake,
 named precisely by the review: **the deliverable is not "a validated `readFileHook`" — it is
 the reachable read-outcome domain, with a reachability witness for each element.** Five exact
@@ -418,41 +409,42 @@ ratified for its other world-sampling oracle (`wsc`'s replacement of a `%`-error
 `real ∈ [min, max]` containment). Every probe below checks
 `observedOutcome ∈ readFilePermitted kind requested streamState`, never equality against a
 single predicted value. Exact characterization is achievable and preferred for the pipe and
-disk cases specifically, since the vendored `readfile.md` Remarks fully pin their outcome sets
+disk cases specifically, since the registered `windows-readfile` Remarks pin their outcome sets
 (quoted throughout §4.1–§4.6); it is not attempted for console (§4.7, scoped out) or for
 anything in the NOT-MODELED list below.
 
 **Three-legged comparison, all three legs now present** (round 1 had only the third):
-1. **doc ⊨ model** — `readFilePermitted` is derived from `readfile.md`'s Remarks, cited per
+1. **doc ⊨ model** — `readFilePermitted` is derived from `windows-readfile`'s Remarks, cited per
    constructor below, not authored from memory.
-2. **probe ∈ doc** — every probe's observed outcome is checked against the vendored text before
-   it's used for anything else (a probe outcome the vendored doc doesn't predict is itself a
+2. **probe ∈ doc** — every probe's observed outcome is checked against the registered source
+   before it's used for anything else (an outcome the source doesn't predict is itself a
    finding about the *reference*, not just the model — see M7's residual note in §11).
 3. **probe ∈ model** — the containment check against `readFilePermitted`, run every session.
 
 **Constructor → witness table**:
 
-| Constructor | Vendored source | Witness probe |
+| Constructor | Registered source | Witness probe |
 | :-- | :-- | :-- |
-| `.success (n, bytes)`, `1 ≤ n < requested`, more pending | "the number of bytes requested is read... a write operation completes on the write end of the pipe" (`readfile.md:263-267`) | §4.1 |
+| `.success (n, bytes)`, `1 ≤ n < requested`, more pending | "the number of bytes requested is read... a write operation completes on the write end of the pipe" (`windows-readfile`) | §4.1 |
 | `.success (n, bytes)`, `n == requested` | same, exact-count branch of the above | §3.1 positive control |
-| `.success (n, bytes)`, disk read straddling EOF | "If a read operation... extends past the end of the file, then the read operation succeeds, and the number of bytes read is the number of bytes that were read before the end of file was reached" (`readfile.md:305`) | §4.5 |
-| `.zeroSuccess` | "the other end of the pipe called WriteFile with nNumberOfBytesToWrite set to zero" (`readfile.md:343`) | §4.4 (new) |
-| `.failure ERROR_BROKEN_PIPE (109)` | `readfile.md:339` | §4.3 |
-| `.failure ERROR_HANDLE_EOF (38)` | "a read operation on a file begins at or beyond the end of the file" (`readfile.md:305`) | §4.6 (new) |
+| `.success (n, bytes)`, disk read straddling EOF | "If a read operation... extends past the end of the file, then the read operation succeeds, and the number of bytes read is the number of bytes that were read before the end of file was reached" (`windows-readfile`) | §4.5 |
+| `.zeroSuccess` | "the other end of the pipe called WriteFile with nNumberOfBytesToWrite set to zero" (`windows-readfile`) | §4.4 (new) |
+| `.failure ERROR_BROKEN_PIPE` | `windows-readfile`; numeric value needs system-error source intake | §4.3 |
+| `.failure ERROR_HANDLE_EOF` | "a read operation on a file begins at or beyond the end of the file" (`windows-readfile`); numeric value needs system-error source intake | §4.6 (new) |
 
-**Explicit NOT-MODELED list** (out of this design's scope, per Law 5/D7 demand-driven
+**Explicit NOT-MODELED list** (out of this design's scope, per Law 5 and the demand-driven
 scoping — named so a gap is a decision, not a silent omission):
 - Overlapped I/O (`ERROR_IO_PENDING`, the whole `OVERLAPPED`-structure discipline) — no current
   spike opens a handle with `FILE_FLAG_OVERLAPPED`.
-- Named-pipe message mode and `ERROR_MORE_DATA (234)` (`system_error_codes.md:1292-1296`) — byte
-  mode only is in scope; message mode is a distinct, separately-scoped read shape.
-- `ERROR_OPERATION_ABORTED` from a console `Ctrl+C` (`readfile.md:291`) — folds into §4.7's
+- Named-pipe message mode and `ERROR_MORE_DATA` (numeric value provisional pending system-error
+  source intake) — byte mode only is in scope; message mode is a distinct, separately-scoped
+  read shape.
+- `ERROR_OPERATION_ABORTED` from a console `Ctrl+C` (`windows-readfile`) — folds into §4.7's
   console-scope decision.
 - `ERROR_INVALID_USER_BUFFER`/`ERROR_NOT_ENOUGH_QUOTA` from exhausted outstanding async I/O
-  (`readfile.md:273,285`) — overlapped-only, out of scope with the above.
-- Mailslots (`ERROR_INSUFFICIENT_BUFFER`, `readfile.md:295`) and transacted-file reads
-  (`readfile.md:347-349`) — no current or near-term spike uses either.
+  (`windows-readfile`) — overlapped-only, out of scope with the above.
+- Mailslots (`ERROR_INSUFFICIENT_BUFFER`) and transacted-file reads (`windows-readfile`) — no
+  current or near-term spike uses either.
 
 **Parameter sweep** (turns five points into a surface, per the review's explicit suggestion):
 `requested ∈ {0, 1, 7, 4095, 4096, 65537}` × `fed ∈ {0, 1, 7, 4095, 4096, 65537, more-than-requested}`
@@ -461,8 +453,8 @@ data), never (still open)}`. `N2`'s probe battery iterates this sweep rather tha
 scenarios named individually below — §4.1–§4.6 name the *load-bearing* points in that surface
 (the ones with a distinct constructor or a documented boundary condition), not its entirety.
 
-**Coverage obligation (TC11 tie-in)**: per Law 13's "check ∀, fix ∀" and `TCB.md` §TC11's
-"executes ≠ discriminates" framing, the finished battery must be run under mutation of each
+**Coverage obligation**: per Law 13's "check ∀, fix ∀" and `docs/VISION.md` §3.2's
+"executes ≠ discriminates" requirement, the finished battery must be run under mutation of each
 `readFileHook` constructor (e.g. force the rewritten hook to always take the maximal-read
 branch regardless of scenario) and confirm at least one probe goes red for every mutated
 constructor. This is a build obligation for `N2`/`TC11`, not something this design doc can
@@ -477,11 +469,12 @@ channel, §1.3, once the probe reports its first `ReadFile` has returned). Probe
 bytes.
 
 **Invariant checked**: `TRUE`, `1 ≤ bytesTransferred ≤ 7`, returned bytes are a prefix of the
-known feed. (Round 1 asserted `bytesTransferred == 7` as if it were guaranteed; per
-`createpipe.md:241` — "ReadFile returns when one of the following is true: a write operation
+known feed. (Round 1 asserted `bytesTransferred == 7` as if it were guaranteed; the registered
+`windows-readfile` source says "ReadFile returns when one of the following is true: a write operation
 completes on the write end of the pipe, the number of bytes requested has been read, or an
 error occurs" — a partial flush by the OS mid-write is not documented as impossible, so the
-invariant is a range, not a literal, per M2.)
+invariant is a range, not a literal, per M2. The `CreatePipe` fixture contract itself remains a
+§11 source-intake gate.)
 
 ### 4.2 Witness: incremental, stateful reads (repeated trials required)
 
@@ -507,17 +500,17 @@ structurally cannot represent the scenario.
 **Setup**: `CreatePipe`, controller closes the write handle before writing anything and before
 signaling the probe to proceed.
 
-**Invariant checked**: `FALSE`, `GetLastError() == ERROR_BROKEN_PIPE (109)` —
-`readfile.md:339`, `system_error_codes.md:674-678`.
+**Invariant checked**: `FALSE`, `GetLastError() == ERROR_BROKEN_PIPE` (`windows-readfile`). The
+numeric value `109` remains provisional until the Microsoft system-error-code source is registered.
 
 ### 4.4 Witness: pipe zero-byte success (new — closes a gap round 1's battery left uncovered)
 
 **Setup**: `CreatePipe`; feeder calls `WriteFile(writeHandle, buf, 0, &written, NULL)` — a
-documented "null write operation" (`writefile.md`'s own Remarks) — then holds the handle open.
+documented "null write operation" in registered source `windows-writefile` — then holds the handle open.
 Probe calls `ReadFile` requesting any nonzero length.
 
 **Invariant checked**: `TRUE`, `bytesTransferred == 0` —
-`readfile.md:343` ("If the lpNumberOfBytesRead parameter is zero when ReadFile returns TRUE on
+`windows-readfile` ("If the lpNumberOfBytesRead parameter is zero when ReadFile returns TRUE on
 a pipe, the other end of the pipe called WriteFile with nNumberOfBytesToWrite set to zero").
 This is the `.zeroSuccess` constructor's only witness and was entirely absent from round 1's
 five probes — without it, `readFilePermitted`'s `.zeroSuccess` arm would have zero reachability
@@ -527,19 +520,19 @@ evidence.
 
 **Setup**: a disk file of known size `F`; `ReadFile` requests `F + k` bytes for some `k > 0`.
 
-**Invariant checked**: `TRUE`, `bytesTransferred == F` — `readfile.md:305`, second sentence.
-Retained from round 1 as the correctly-modeled disk case and now backed by an exact vendored
-citation rather than an inferred claim.
+**Invariant checked**: `TRUE`, `bytesTransferred == F` — the registered `windows-readfile`
+source's straddling-EOF rule. Retained from round 1 as the correctly modeled disk case and now
+backed by a registered source rather than an inferred claim.
 
 ### 4.6 Witness: disk read beginning at/beyond EOF (failure — new)
 
 **Setup**: the same file, fully consumed (file position at `F`, i.e. at EOF), a further
 `ReadFile` call.
 
-**Invariant checked**: `FALSE`, `GetLastError() == ERROR_HANDLE_EOF (38)` —
-`readfile.md:305`, first sentence ("If a read operation on a file begins at or beyond the end
-of the file, then the read operation fails with the error ERROR_HANDLE_EOF"),
-`system_error_codes.md:416-420`. This constructor was entirely missing from round 1's battery
+**Invariant checked**: `FALSE`, `GetLastError() == ERROR_HANDLE_EOF` — the registered
+`windows-readfile` source states that a read beginning at or beyond EOF fails with that symbol.
+The numeric value `38` remains provisional until the Microsoft system-error-code source is
+registered. This constructor was entirely missing from round 1's battery
 — §4.5's "extends past EOF" case and this section's "begins at/beyond EOF" case are
 *documented as two different outcomes* (success-with-fewer-bytes vs. hard failure) by the same
 paragraph, and conflating them (as a naive "min(requested, available)" model does) is exactly
@@ -550,26 +543,28 @@ the C1 defect this whole section exists to close.
 Round 1 proposed `AllocConsole`/`WriteConsoleInput` as primary with a "recorded calibration
 data" fallback if that proved unreliable in CI. The review correctly rejected the fallback: its
 trigger condition ("if console emulation proves unreliable in the actual CI environment")
-references an environment that does not exist (`TCB.md`'s headline: "No CI; every gate
+references an environment that does not exist (the historical trust review's headline: "No CI; every gate
 manual"), which makes the fallback the *default* path under any time pressure, not a rare
 escape hatch; nothing in round 1's design made a saved recording self-describing (Windows
 build/SKU, conhost vs. Windows Terminal vs. ConPTY, and — the specific gap the review named —
 console **mode flags**, which is what CRLF/line-buffering behavior is actually a function of,
-were never proposed to be captured); and it leaned on `MODEL_DEBT.md` §E5's calibration
+were never proposed to be captured); and it leaned on `docs/CALIBRATION_GOVERNANCE.md`'s calibration
 governance, whose implementing task is itself unresolved.
 
-**Resolution**: `AllocConsole`/`WriteConsoleInput` (now vendored, `references/windows/writeconsoleinput.md`)
-is the *only* path. If it proves unreliable, console handles are out of `N2`'s modeled scope
-under Law 5/D7, and `readFileHook`'s rebuild carries a stated restriction ("console handles:
+**Resolution**: the official `WriteConsoleInput` contract is not registered in `references.json`,
+so the proposed `AllocConsole`/`WriteConsoleInput` fixture cannot yet be a normative path.
+Console handles remain out of `N2`'s modeled scope
+under Law 5 and `docs/DECISIONS.md` §1's demand-driven rule, and `readFileHook`'s rebuild carries a stated restriction ("console handles:
 unmodeled; falls back to today's behavior or a hard `Except`-visible unsupported-scenario
 marker — `N2` decides which") rather than a silently-wrong console path. The review's own
 observation motivating this: the actual observable `N2` needs from the read-outcome domain —
 "nothing more right now, not an error" vs. "hard failure" (§3.3's three-way distinguishability)
 — is fully probeable with a disk file and a pipe; no console is required to close C1 itself.
-Console-specific facts that *are* now vendored for whenever this is revisited:
+Console-specific `ReadFile` facts available from the registered `windows-readfile` source for
+whenever this is revisited:
 `ENABLE_LINE_INPUT` is the default console mode and causes `ReadFile` to read until a carriage
 return; `Ctrl+C` succeeds the call but sets `GetLastError() == ERROR_OPERATION_ABORTED`
-(`readfile.md:291`) — no `Ctrl-Z`-as-EOF behavior is documented on this page, so round 1's
+(`windows-readfile`) — no `Ctrl-Z`-as-EOF behavior is documented on this page, so round 1's
 unsourced claim about `Ctrl-Z` is dropped rather than carried forward unverified.
 
 ---
@@ -596,27 +591,27 @@ falsification target for `writeFileHook`'s unconditional `ConsoleEvent.out` emis
 
 **Probe: handle lifecycle (open/close/invalid-handle).** Open a disk file, close it, issue
 `ReadFile` on the closed handle. **Invariant**: `FALSE` + `GetLastError() == ERROR_INVALID_HANDLE (6)`
-— `system_error_codes.md:236-240`, same code as §3.2's general negative control specialized to
+— proposed value pending registration of the Microsoft system-error-code source, specialized to
 "a handle that was once valid."
 
 ---
 
-## 6. Error-path model (closes C3, scoped per Law 5/D7)
+## 6. Error-path model (closes C3, scoped per Law 5)
 
-All codes below are now cited against vendored text (M7) rather than asserted from memory:
+The symbolic outcomes backed by `windows-readfile` are distinguished from numeric values that
+still require a registered Microsoft system-error-code source:
 
-| Error code | Value | Vendored citation | Probe |
+| Error code | Provisional value | Current source status | Probe |
 | :-- | :-- | :-- | :-- |
-| `ERROR_BROKEN_PIPE` | 109 | `readfile.md:339`, `system_error_codes.md:674-678` | §4.3 |
-| `ERROR_INVALID_HANDLE` | 6 | `system_error_codes.md:236-240` | §3.2, §5 |
-| `ERROR_ACCESS_DENIED` | 5 | `system_error_codes.md:230-234` | §3.2 |
-| `ERROR_NOT_ENOUGH_MEMORY` | 8 | `system_error_codes.md:248-252`, `readfile.md` Remarks | §3.2 |
-| `ERROR_HANDLE_EOF` | 38 | `readfile.md:305`, `system_error_codes.md:416-420` | §4.6 |
+| `ERROR_BROKEN_PIPE` | 109 | Symbolic behavior: `windows-readfile`; numeric source not registered | §4.3 |
+| `ERROR_INVALID_HANDLE` | 6 | System-error-code source not registered | §3.2, §5 |
+| `ERROR_ACCESS_DENIED` | 5 | System-error-code source not registered | §3.2 |
+| `ERROR_NOT_ENOUGH_MEMORY` | 8 | Symbolic resource failure: `windows-readfile`; numeric source not registered | §3.2 |
+| `ERROR_HANDLE_EOF` | 38 | Symbolic behavior: `windows-readfile`; numeric source not registered | §4.6 |
 
-`GetLastError`'s per-thread semantics are now vendored directly:
-"the last-error code is maintained on a per-thread basis. Multiple threads do not overwrite
-each other's last-error code" (`references/windows/errhandlingapi.md:194`). **Probe:
-error-code persistence.** Call a failing API, then call `GetLastError()` as a genuinely
+`GetLastError`'s official page must be registered before its per-thread persistence claim can be
+used normatively. **Probe: error-code persistence.** Call a failing API, then call
+`GetLastError()` as a genuinely
 separate subsequent call (not folded into the failing call's own return path), confirming this
 project's model needs a real thread-local error-code field (or single-threaded-program
 equivalent) rather than an extra return value threaded through each hook's own signature —
@@ -652,8 +647,8 @@ as missing:
 5. **The fix is checked against every existing regression probe** (§4.5/§4.6's disk cases are
    the standing example: a pipe-focused rewrite must not regress the already-correct
    maximal-read-or-EOF disk behavior).
-6. **The divergence and its resolution are logged** in `MODEL_DEBT.md`'s relevant `C`-entry and,
-   where it touches a TCB item, in `TCB.md` as well.
+6. **The divergence and its resolution are logged** in `docs/TECHNICAL_NOTES.md` or the owning
+   canonical target document.
 7. **Re-establishment (new).** Every declaration named by step 0's blast-radius enumeration is
    re-derived or explicitly marked unproven against the new hook behavior. The loud case (a
    type changes, proofs fail to elaborate) needs no special process. The dangerous case is
@@ -661,7 +656,7 @@ as missing:
    returning distinct pointers instead of a constant, `GetStdHandle` returning distinct handles)
    leaves every pointwise contract discharged by `decide`/`native_decide` free to simply
    **recompute and pass**, while the property it originally captured has silently changed
-   underneath it — and `TCB.md`'s allowlist currently names roughly 25 grandfathered contracts
+   underneath it — and `scripts/gate_allowlist.txt` currently names the grandfathered contracts
    of exactly this shape. **A recomputed `decide`/`native_decide` pass is not evidence a
    contract still means what it did; it must be re-justified by hand**, or explicitly marked as
    requiring re-derivation and left failing until that happens.
@@ -674,24 +669,23 @@ existing `check_refs.py`/doc-facade-linter family) flags any contract whose reco
 predates the hook's current version as needing re-justification, rather than relying on someone
 remembering to run the blast-radius query by hand every time.
 
-This workflow applies identically to the TCB T6 IAT finding (§10) — a divergence there is a
+This workflow applies identically to the IAT trust finding (§10) — a divergence there is a
 defect in `loadMemory`'s convention, not in the harness that measured it.
 
 ---
 
 ## 8. `VirtualAlloc`/`VirtualFree` real semantics (closes C4)
 
-Now cited against vendored `virtualalloc.md`/`virtualfree.md` text (M7), with round 1's
-uncited "64 KB allocation granularity" claim corrected to a measured invariant:
+The `VirtualAlloc`, `VirtualFree`, `VirtualQuery`, and `GetSystemInfo` pages are not registered in
+`references.json`; registering them is an entry gate for this section. The probes below describe
+the required validation shape, not source-backed outcome claims yet:
 
 **Probe: distinct-pointer invariant.** Two consecutive `VirtualAlloc(NULL, 0x1000,
 MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE)` calls in one probe process. **Invariant**: two
 non-null, distinct addresses, both `% 0x1000 == 0`. The probe additionally calls
 `GetSystemInfo` and reports `dwAllocationGranularity`/`dwPageSize` directly, rather than this
-design asserting a fixed 64 KB figure — `virtualalloc.md:212` documents that a *reserved*
-region's starting address is "rounded down to the nearest multiple of the allocation
-granularity," queried via `GetSystemInfo` (`memoryapi.md`/`sysinfoapi.md` cross-reference), not
-a value this design is entitled to hardcode. This directly falsifies `virtualAllocHook`'s
+design asserting a fixed 64 KB figure. The exact rounding and query contracts must come from the
+future registered sources, not from this document. This probe is intended to falsify `virtualAllocHook`'s
 current `0x20000000` constant (`Win32API.lean:134`) as a regression probe per §7 step 3.
 
 **Probe: size-respecting allocation.** Allocate `0x1000` bytes, VEH-guarded (as
@@ -719,7 +713,8 @@ rather than requiring cross-machine/cross-NIC infrastructure this project doesn'
   the rendezvous protocol (§1.3's channel, extended to the socket probe pair) has the server
   probe report each `recv`'s byte count as its own phase, letting the controller confirm a
   genuine multi-call short-read sequence rather than guessing at buffer-size interactions.
-- **MTU/latency omission is explicit, not silent**: this section's scope, per Law 5/D7, does
+- **MTU/latency omission is explicit, not silent**: this section's scope, per Law 5 and
+  `docs/DECISIONS.md` §1, does
   not attempt to exercise real-WAN segmentation or latency-driven short reads — those remain
   named as out of scope rather than silently absent, matching the NOT-MODELED-list discipline
   §4.0 established for `ReadFile`.
@@ -730,23 +725,23 @@ before the controller spawns the client, resolving round 1's unimplementable ord
 requirement the same way §4.2 was resolved.
 
 **Pinned probes for `N3` to build against** (unchanged in substance from round 1, restated as
-invariants and now cross-referencing vendored WinSock error codes,
-`references/windows/winsock_error_codes.md`):
+invariants. The WinSock function contracts are registered individually as
+`windows-winsock2-*`; the numeric error-code table is not registered and is an entry gate):
 - Blocking `accept` with no pending connection, then a connection arrives — replaces
   `acceptHook`'s `rip := 0` invention (`Win32API.lean:176-178`).
 - Three-way `recv` distinction: data available, peer gracefully closed (`0` bytes),
   `SOCKET_ERROR`/`-1` + a real `WSAGetLastError` code — e.g. `WSAECONNRESET (10054)`
-  (`winsock_error_codes.md:298-300`) — as three separately observable outcomes.
+  (provisional value; source intake required) — as three separately observable outcomes.
 - Short reads on `recv`, per the `SO_RCVBUF`-staged mechanism above.
 - `bind`-to-in-use-port negative control: `WSAEADDRINUSE (10048)`
-  (`winsock_error_codes.md:280-282`).
+  (provisional value; source intake required).
 
 This section stops at scope, not implementation — `N3`'s own design doc is where the concrete
 hook rewrites land.
 
 ---
 
-## 10. TCB T6 — the IAT/loader re-keying plan, restated around soundness properties (M5)
+## 10. IAT/loader re-keying plan, restated around soundness properties (M5)
 
 ### 10.1 What "dump the real post-load IAT" means, concretely
 
@@ -763,9 +758,10 @@ now; see §1.3's Q6 resolution).
 **`imageBase`/ASLR as a measured invariant, not an aside (recommended item, promoted).** The
 probe additionally compares its own `GetModuleHandle(NULL)` against its linked `imageBase`
 (`0x140000000`) and reports whether the real loader honored or relocated it. This matters
-beyond curiosity: `imageBase` exists as three unlinked copies in this codebase (`TCB.md` §T5),
+beyond curiosity: the `0x140000000` image-base assumption is repeated across the PE emitter,
+`WindowsExecutable`, and both hardware harnesses rather than derived from one checked source,
 and `HardwareHarness.lean` emits absolute VAs that only work *because* the loader has, so far,
-honored the requested base — this design does not fix that (`TCB.md` T5 is a separate,
+honored the requested base — this design does not fix that (it is a separate,
 larger item), but it must not silently assume the fact away either; the probe measuring it
 directly is the honest way to carry the dependency forward.
 
@@ -814,7 +810,7 @@ indices 0–5 are real imports and **index 6 is that DLL's null terminator** —
 memory-map's `0` default), so `findIatIndex`'s `s.read64 addr != addr` check correctly returns
 `none` there, and index 7 is `ws2_32.dll`'s first real import (`wsaStartupHook`). This is not a
 gap; it's the null terminator every `.idata` import table has, working exactly as the PE format
-requires (`references/windows/pe_format.md`'s import-directory section).
+requires (the import-directory section of registered source `windows-pe-format`).
 
 **The live latent bug this same arithmetic actually names (new, per the review).** The dispatch
 table (`Win32API.lean:255-273`) is **positional across the entire IAT, keyed on absolute index,
@@ -864,44 +860,37 @@ domain-shrinking concern exists to catch.
 
 ---
 
-## 11. `references/` ingestion — status after this revision (M7)
+## 11. Reference-registry status and intake gates (M7)
 
-**Vendored during this design revision** (via `scripts/regenerate_references.py --target windows`,
-manifest entries added in the same commit as this doc, verified with `--verify`):
+The repository does not vendor specification prose. Current authoritative sources are
+hash-pinned metadata entries in `references.json`, with content fetched into the gitignored
+cache only for validation (`docs/REFERENCE_INDEX.md`).
 
-| File | Source | What it backs |
-| :-- | :-- | :-- |
-| `readfile.md` (531 lines, was 28) | `learn.microsoft.com/.../nf-fileapi-readfile` | §4's entire constructor table; the whole point of C1 |
-| `system_error_codes.md` (new) | `learn.microsoft.com/.../system-error-codes--0-499-` | every numeric code §3.2/§4/§6 cites |
-| `errhandlingapi.md` (new) | `learn.microsoft.com/.../nf-errhandlingapi-getlasterror` | the per-thread `GetLastError` semantics §1.3/§6 depend on |
-| `virtualalloc.md` (new) | `learn.microsoft.com/.../nf-memoryapi-virtualalloc` | §8's allocation-granularity correction |
-| `virtualfree.md` (new) | `learn.microsoft.com/.../nf-memoryapi-virtualfree` | §8 |
-| `createfile.md` (new) | `learn.microsoft.com/.../nf-fileapi-createfilea` | probe-fixture construction throughout §4/§5 |
-| `createpipe.md` (new) | `learn.microsoft.com/.../nf-namedpipeapi-createpipe` | the disagreement note (anonymous pipes always block on write) |
-| `winsock_error_codes.md` (new) | `learn.microsoft.com/.../windows-sockets-error-codes-2` | §9's WinSock codes for `N3` |
-| `writeconsoleinput.md` (new) | `learn.microsoft.com/.../writeconsoleinput` | §4.7's console-scope decision |
+**Registered and usable by this design:**
 
-**Still not vendored — named as a blocking prerequisite to `N2`, not a to-do table entry (per
-the review's explicit instruction), because `N2`'s negative controls (§3.2) and short-write
-probe (§4.6... actually §4 numbering — cross-reference: the `WriteFile` short-write mechanism)
-cite it directly**:
-- `CreateNamedPipe` (`namedpipeapi.h`) — needed to back §4.6's/M8(b)'s short-write probe
-  mechanism (`PIPE_TYPE_BYTE | PIPE_NOWAIT`); `createpipe.md` (vendored) covers `CreatePipe`
-  only, which is the anonymous-pipe API this revision's disagreement note shows is the *wrong*
-  API for that probe.
-- `SetNamedPipeHandleState`/`GetNamedPipeHandleState` (`namedpipeapi.h`) — same probe.
-- **`references/windows/winsock2.md` is the same class of Law 6 violation `readfile.md` was**:
-  it is present in `references/windows/` but absent from `scripts/regenerate_references.py`'s
-  manifest entirely (grep-confirmed against the manifest as it stood before this revision), and
-  its prose ("This document provides the official Win32 WinSock2 API specifications...
-  utilized by gasm") is self-authored summary in the same voice `readfile.md`'s stub was,
-  not fetched content. This was not named by the review directly (it named `readfile.md`
-  specifically), but it is the identical defect and directly backs §9's function *signatures*
-  (as opposed to the error codes, which are now vendored via `winsock_error_codes.md`) — flagged
-  here rather than silently left in its pre-review state, for `N3` to close before it leans on
-  `winsock2.md`'s function-signature claims.
-- Named-pipe message-mode semantics (for the explicitly-NOT-MODELED `ERROR_MORE_DATA` case, if
-  a future revision brings message mode into scope).
+- `windows-readfile` for §3–§6's symbolic `ReadFile` outcomes.
+- `windows-writefile`, `windows-getstdhandle`, and `windows-exitprocess` for their respective
+  function contracts.
+- `windows-pe-format` for §10's import/IAT layout.
+- The nine `windows-winsock2-*` per-function entries for the socket function contracts used in
+  §9: `accept`, `bind`, `closesocket`, `listen`, `recv`, `send`, `socket`, `WSACleanup`, and
+  `WSAStartup`.
+
+**Required intake before the affected probes or claims become normative:**
+
+- Microsoft system error codes, including the numeric bindings in §3/§6 and WinSock error
+  codes in §9.
+- `GetLastError`, for the per-thread and reset/persistence semantics used in §1.3 and §6.
+- `VirtualAlloc`, `VirtualFree`, `VirtualQuery`, and `GetSystemInfo`, for §8.
+- `CreateFile`/`CloseHandle`, for disk and handle-lifecycle fixture construction.
+- `CreatePipe`, `CreateNamedPipe`, and named-pipe state APIs, for the short-write fixture and
+  any future message-mode/`ERROR_MORE_DATA` coverage.
+- `WriteConsoleInput` and any required console-mode APIs before console reads leave §4.7's
+  explicitly unsupported scope.
+
+These are registry additions, not requests to restore `references/windows/**`. Each must name an
+official upstream URL, pin the exact bytes and edition, and pass the Law 6 cache/hash/anchor
+validation before a model theorem or probe treats it as ground truth.
 
 ---
 
@@ -919,12 +908,10 @@ Round 1's six questions, per the reviewer's own answers, plus what remains genui
    "`∀` over any VA assignment satisfying S1–S3" — §10.5.
 4. **Resolved.** Loopback is sufficient for everything §9 pins except `recv` short reads, fixed
    inside loopback via `SO_RCVBUF` staging; MTU/WAN latency stays explicitly out of scope — §9.
-5. **Re-opened, now answerable.** Round 1 asked whether its five-code error table was the right
-   demand-driven boundary before Law 4 ingestion existed to check it against. With
-   `system_error_codes.md` now vendored (§11), the boundary is: the five codes in §6's table
-   are the ones this design's own probes produce; is there a specific currently-planned spike
-   (not yet reflected here) that needs a sixth code named now rather than discovered as a
-   third design-doc revision?
+5. **Open behind source intake.** The five symbols in §6 are the outcomes this design's own
+   probes produce, but their numeric bindings are not normative until the Microsoft system-error
+   source is registered (§11). After that intake, expand the table only for a concrete probe or
+   spike rather than speculatively.
 6. **Resolved as a non-issue.** The IAT-dump probe does not need the side-channel exception at
    all once reporting goes over the inherited rendezvous pipe (§1.3) rather than a
    self-opened file — no import-count/stride risk remains to invert.
@@ -938,13 +925,11 @@ Round 1's six questions, per the reviewer's own answers, plus what remains genui
    of the rest of `N2`, given it's a live bug in the *current* tree, not a consequence of this
    design's changes?
 8. §4.0 recommends sound over-approximation as `readFilePermitted`'s default characterization
-   mode. Given the disk and pipe cases are now fully pinned by vendored text (§4.0's
+   mode. Given the disk and pipe symbolic cases are pinned by `windows-readfile` (§4.0's
    three-legged comparison, leg 1), is exact characterization actually achievable — and
    preferable — for those two cases specifically, reserving over-approximation only for
    whatever residual nondeterminism §2's repeated-trial probing actually observes (as opposed
    to adopting over-approximation as a blanket default before that evidence exists)?
-9. §11 names `winsock2.md` as an unaddressed Law 6 violation of the same class `readfile.md`
-   was. Should closing it be pulled into this design's own scope now (mechanically identical
-   work to what this revision already did for the eight files in §11's vendored table), or left
-   as a named prerequisite for `N3` specifically, given it backs socket *signatures* rather than
-   anything `N2` touches?
+9. **Resolved for function contracts:** the WinSock function pages are registered individually
+   as `windows-winsock2-*`. The remaining intake gate is the authoritative WinSock numeric
+   error-code source used by §9.

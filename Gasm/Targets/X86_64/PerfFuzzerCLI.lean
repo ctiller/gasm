@@ -69,9 +69,9 @@ def main (args : List String) : IO UInt32 := do
     | _ => i := i + 1
 
   -- REF: docs/RDTSC_HARNESS.md#4-containment-fail-closed-world-sampling-vs-correctness-unrepresentable-by-construction
-  -- F1: real-silicon RDTSC measurement mode, alongside the existing model-only invariant checks
-  -- above. Same executable, same hosted-CI exclusion as the model-only mode (docs/CI.md #5) --
-  -- see docs/RDTSC_HARNESS.md #7 for exactly where this is and is not valid to run.
+  -- Real-silicon RDTSC measurement mode, alongside the ordinary model-only invariant checks.
+  -- Only this explicit mode has the hosted-CI exclusion; the default mode samples no host timing
+  -- and is valid in CI (docs/CI.md #5). See docs/RDTSC_HARNESS.md #7 for the hardware boundary.
   if hardware then
     return (← Gasm.Targets.X86_64.PerfHardwareFuzzer.runHardwareFuzz seedVal)
 
@@ -81,11 +81,11 @@ def main (args : List String) : IO UInt32 := do
   IO.println "--------------------------------------------------------------------------------"
 
   -- REF: docs/REVIEW.md#law-13-findings-become-gates-the-ratchet-law
-  -- TC17 vacuity floor (TCB.md T11-b): `--count 0` must not fuzz nothing and still report
+  -- TC17 vacuity floor (docs/REVIEW.md Law 13): `--count 0` must not fuzz nothing and still report
   -- "100% SUCCESS" — a run with no programs has verified no invariant and must hard-fail.
   if count == 0 then
     IO.println "[VACUITY FLOOR TRIPPED] --count 0 requests zero fuzzed programs — 0 vectors exercised verifies nothing."
-    IO.println "A fuzzer run that exercises zero programs has verified no cycle-bound invariant — this is a hard FAIL, not a clean PASS (TCB.md T11-b)."
+    IO.println "A fuzzer run that exercises zero programs has verified no cycle-bound invariant — this is a hard FAIL, not a clean PASS (docs/REVIEW.md Law 13)."
     IO.println "================================================================================"
     return 1
 

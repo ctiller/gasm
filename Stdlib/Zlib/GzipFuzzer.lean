@@ -300,11 +300,11 @@ def runGzipDifferentialFuzzer (pythonPath : String) (iterations : Nat := 100) (s
 
   -- 2. Randomized Differential Fuzzing
   -- REF: docs/REVIEW.md#law-13-findings-become-gates-the-ratchet-law
-  -- TC17 vacuity floor (TCB.md T11-b): `--count 0` must not silently skip the randomized
+  -- TC17 vacuity floor (docs/REVIEW.md Law 13): `--count 0` must not silently skip the randomized
   -- differential stage and still report "100% SUCCESS" below — 0 randomized vectors verifies
   -- nothing beyond the fixed edge cases, and must hard-fail rather than fall through.
   if iterations == 0 then
-    throw (IO.userError "[VACUITY FLOOR TRIPPED] --count 0 requests 0 randomized cross-differential vectors for Stage 2 — this is a hard FAIL, not a clean PASS (TCB.md T11-b). Pass --count N with N >= 1.")
+    throw (IO.userError "[VACUITY FLOOR TRIPPED] --count 0 requests 0 randomized cross-differential vectors for Stage 2 — this is a hard FAIL, not a clean PASS (docs/REVIEW.md Law 13). Pass --count N with N >= 1.")
   IO.println s!"  [*] Stage 2: Running {iterations} randomized cross-differential fuzzing iterations..."
   for iter in [0:iterations] do
     let (patRaw, r1) := rng.next

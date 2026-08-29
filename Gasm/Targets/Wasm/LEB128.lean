@@ -25,7 +25,7 @@ open Gasm.Core
   ## LEB128 (Little-Endian Base-128) codec
 
   This module carries both directions of the RFC/Wasm-spec variable-length integer encoding:
-  encoders (`encode*`) and, per TCB T7 / TC20, their formal inverses (`decode*`). Every
+  encoders (`encode*`) and, per the Wasm fail-closed emission contract, their formal inverses (`decode*`). Every
   encoder is paired with a decoder and a kernel-checked roundtrip theorem
   `decode (encode n) = n`, quantified over the FULL relevant domain (`Nat` unrestricted for
   unsigned, `Int` unrestricted for signed) per Law 9 -- no pinned sample values, no
@@ -333,8 +333,8 @@ theorem decodeI64SLEB128_encodeI64SLEB128 (v : Int)
 
 /-! ### The `encodeI64SLEB128 := encodeI32SLEB128` alias: general byte-budget bound (PA12)
 
-    TCB T7 / TC20 flag the former one-line alias `encodeI64SLEB128 := encodeI32SLEB128` as
-    lacking a width bound. Rigorous check (see `docs/tasks/TC20-wasm-emission-roundtrip.md`
+    the Wasm fail-closed emission contract flag the former one-line alias `encodeI64SLEB128 := encodeI32SLEB128` as
+    lacking a width bound. Rigorous check (see `docs/TARGETS/WASM.md`
     completion notes): the shared arithmetic core above is a genuinely arbitrary-precision
     SLEB128 encoder, so the alias was NOT numerically wrong for any `Int` -- the roundtrip
     theorems above hold unconditionally, including across the full i64 range. The real defect

@@ -2,9 +2,9 @@
 
 - REF: docs/VISION.md#4-tractability-modular-contracts-composed-proofs
 - REF: docs/EQUIVALENCE_PROOFS.md#4-the-three-independent-split-theorems
-- REF: docs/REVIEW.md#law-7-target-separation--equivalence-proof-purity-the-authoring-ergonomics-mandate
-- REF: docs/REVIEW.md#law-9-universal-quantification--input-completeness-mandate-the-anti-pointwise-law
-- REF: docs/REVIEW.md#law-10-kernel-checked-gates--the-native_decide-restriction-exhaustive-finite-domains-only
+- REF: docs/REVIEW.md#law-7-target-separation-equivalence-proof-purity-the-authoring-ergonomics-mandate
+- REF: docs/REVIEW.md#law-9-universal-quantification-input-completeness-mandate-the-anti-pointwise-law
+- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only
 - REF: docs/REVIEW.md#law-12-connection-theorem-mandate-no-unlinked-twins
 - REF: docs/STDLIB_ZLIB.md#22-crc-32-iso-3309-ieee-8023
 - REF: docs/STDLIB_ZLIB.md#61-checksum-invariance-theorems
@@ -12,14 +12,10 @@
 - REF: docs/STDLIB_SMOLALLOC.md#4-linear-obligations-memory-invariants
 - REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention
 
-This design's task brief (`PA1: crc32 pathfinder`) and the DSL/composition ADRs it tests are
-tracked in the integration branch's `docs/tasks/` and `docs/adr/` directories, which are not yet
-committed to any shared branch this worktree can resolve a path against (verified: no commit on
-any local branch touches `docs/adr/` or `docs/tasks/`). Those citations are therefore given as
-prose pointers below, not as `REF:` links, to avoid asserting a resolvable in-tree path that does
-not exist. `MODEL_DEBT.md`, `TASKS.md`, and `PLAN.md` **do** exist on this branch (this document
-was rebased onto `claude/codebase-review-sonnet-4fe3c4` specifically to make those citations
-resolve) and are cited directly.
+This is the historical PA1 CRC32 pathfinder design. Its durable architectural inputs now live in
+`docs/DECISIONS.md` (modular composition, DSL proof leverage, capabilities), while current
+implementation gaps live in `docs/TECHNICAL_NOTES.md` and the owning subsystem documents. The
+local PA/M labels below are revision-local work labels, not references to an external task ledger.
 
 ## 0. Status and Revision Log
 
@@ -83,8 +79,8 @@ sonnet-4fe3c4` plus this commit) — line numbers below are current against that
 - `Gasm/Targets/X86_64/Instructions/Jcc.lean:206-211` (`JgeRel32`, signed), `:271-286` (`JaeRel32`,
   unsigned — confirmed to exist, confirmed `estimatedSize` for both near forms is 6 bytes,
   confirmed as the drop-in fix in §8).
-- `Gasm/Targets/X86_64/Instructions/Div.lean:29,37` — the only two `faulted := true` sites in the
-  tree, confirmed unchanged.
+- `Gasm/Targets/X86_64/Instructions/{Div,Hlt}.lean` and platform exit hooks — DIV/IDIV write
+  `.divideError`; HLT and clean exits write `.halted`; no path makes `.memFault` reachable.
 - `Gasm/Core/Verification.lean` (`VerifiedRoutine`, `couplingInv : SpecState → MachineState →
   Bool`) — confirmed unchanged; the `Bool`-valued field is load-bearing for §4.5's finding.
 - `docs/TARGETS/WINDOWS.md:11-17` (§1.1: return register is `RAX` not `EAX`; callee-saved list;
@@ -100,8 +96,9 @@ sonnet-4fe3c4` plus this commit) — line numbers below are current against that
 - `Tools/CheckGatesAxioms.lean:68-76` (`hasNativeComponent`: matches any `Name` component literally
   equal to `"_native"`) — confirms M9(b)'s correction that the axiom-level gate tool, unlike the
   source-level pre-check, already catches `bv_decide`'s emitted axiom.
-- `MODEL_DEBT.md` B3 (no-fault, no-permission memory model) and B6 (self-modifying-code /
-  `instructionAtRip` O(n²) note — now also cited as a proof-cost finding, §3/§5).
+- `docs/TECHNICAL_NOTES.md` §2 (the live no-fault/no-permission machine-model debt) and
+  `Gasm/Targets/X86_64/Semantics.lean`'s `instructionAtRip` re-encoding walk (also treated as a
+  proof-cost finding in §3/§5).
 
 ## 1. Why `crc32SymbolicProgram` Specifically
 
@@ -279,9 +276,9 @@ the fixed behavior (`m_final.gprs .rax = (crc32 buf).toUInt64`, full-width, zero
 ### 2.5 Postcondition (Theorem 3, renamed: memory safety is not statable as such — M5)
 
 v1 named this "Memory Safety" and stated an awkward prose conjunct ("no instruction dereferences
-`a`") because the machine model (`MODEL_DEBT.md` B3: no faults, no permissions, no bounds-checking
-at all — `memory : Address → Byte` is total, and the only two `faulted := true` sites in the whole
-tree are `Div.lean:29,37`) gives no trace event to quantify over. There is no access log to state
+`a`") because the live machine model (`docs/TECHNICAL_NOTES.md` §2: no reachable memory faults,
+no permissions, and no bounds-checking — `memory : Address → Byte` is total; DIV/IDIV write
+`.divideError`, HLT/exit paths write `.halted`, and no path writes `.memFault`) gives no trace event to quantify over. There is no access log to state
 a confinement claim against. **Two constructive, honestly-named substitutes, both actually
 statable and both true:**
 
@@ -395,8 +392,8 @@ still per iteration, not per proof — i.e. this cost recurs at *every one of `l
 if the proof re-runs the interpreter naively, and the order of magnitude and the conclusion (this
 is the dominant risk, and a decode-lemma set is mandatory, not optional) are unchanged by the
 correction.
-`MODEL_DEBT.md` B6 already flags `instructionAtRip`'s re-encoding walk as an O(n²) *performance*
-wall for the emitted binary; it is equally, independently, an O(n²) *proof-tactic* wall for this
+The `instructionAtRip` re-encoding walk is already an O(n²) *performance* wall for the emitted
+binary; it is equally, independently, an O(n²) *proof-tactic* wall for this
 exact proof, and nobody had previously connected the two. **This, not the specification side's
 `Id.run` structure, is the primary tractability risk for PA1** — see §3.6/§5 for the fix.
 
@@ -406,8 +403,8 @@ The 8x bit-unrolled chain (`crc_sub_bit0`..`crc_sub_bit7`) is straight-line code
 conditional skips — no back-edge, no induction. v1 correctly identified this needs no loop
 invariant, but its proposed discharge (`simp` unfolding plus `by_cases`/`split` on each of the 8
 `je` conditions independently) is **2⁸ = 256 leaf goals per byte iteration** if the 8 bit-blocks
-are case-split independently rather than composed. **The actual reuse unit (ADR-0011's "prove the
-language once" move, applied at the right granularity) is the 6-instruction bit-block itself, not
+are case-split independently rather than composed. **The actual reuse unit (`docs/DECISIONS.md`
+§2's "prove the language once" move, applied at the right granularity) is the 6-instruction bit-block itself, not
 the individual step lemma**: prove one composite lemma —
 
 ```
@@ -790,7 +787,7 @@ somewhere plausible-looking.
 1. **The 14 step lemmas, stated at the correct wrapper-construction shape (§3.2)** — near-
    universal ISA coverage, genuinely validated by the 61-instruction census.
 2. **The block-level lemma as the reuse unit** (§3.4) — the most under-exploited insight in v1;
-   ADR-0011's "prove the language once" applies one level above individual instructions wherever a
+   `docs/DECISIONS.md` §2's "prove the language once" principle applies one level above individual instructions wherever a
    DSL program repeats a multi-instruction idiom (the 6-instruction bit-test-and-conditional-XOR
    block recurs 8× here; similar multi-instruction idioms likely recur across the Huffman/LZ77
    bit-packers).
@@ -820,8 +817,9 @@ somewhere plausible-looking.
 ## 7. Honest Accounting Against the Architecture Hypothesis
 
 v1 correctly flagged composition as unexercised (§4) but framed three other properties of this
-routine as simplifications rather than as the dimensions of the D2/D11 hypothesis most likely to
-fail. Restated honestly: **PA1, scoped to `crc32SymbolicProgram` alone, cannot falsify the modular-
+routine as simplifications rather than as the dimensions of the modular-composition and
+capability hypotheses (`docs/DECISIONS.md` §§2–3) most likely to fail. Restated honestly:
+**PA1, scoped to `crc32SymbolicProgram` alone, cannot falsify the modular-
 contracts hypothesis — it can only confirm the easiest quadrant.** Specifically:
 
 - **Zero memory writes** (§2.1) means the **frame-condition half of the hypothesis is completely
@@ -832,9 +830,9 @@ contracts hypothesis — it can only confirm the easiest quadrant.** Specificall
   needs a real frame condition and does not have one — `gzipCompressSymbolicProgram`'s header-
   writing prologue, which writes to `outBuf` at hand-computed offsets from a caller-supplied
   pointer, and its Dynamic-Huffman decompression path's 4096-byte hand-offset scratch region
-  (`sub rsp, 4096`, `Windows.lean` decompress path) — is exactly `MODEL_DEBT.md` B3's named hidden-
-  bug class (no bounds checking means a hand-computed offset write that goes wrong is
-  unrepresentable as a *caught* error, only as silently wrong output). Nothing about crc32
+  (`sub rsp, 4096`, `Windows.lean` decompress path) — exposes the total-memory model's limitation
+  directly: with no bounds or ownership check, a bad hand-computed offset is unrepresentable as a
+  *caught* error and appears only as silently wrong output. Nothing about crc32
   exercises whether a frame condition for a routine like that is even statable cleanly, let alone
   provable.
 - **A leaf routine** (no callees) means the call-composition rule (§4.2 point 5) is completely
@@ -929,7 +927,7 @@ independently-justified addition — not a PA1 prerequisite.
   routine needing to be complicated.
 - **It writes to a hand-computed offset from a caller-supplied pointer** (`rax := rcx - 32`, then
   `mov_mem64_disp_imm rax 0x08 1` to mark the block free, and `mov_mem64_disp rax 0x18 r10` to link
-  the freelist), which is exactly `MODEL_DEBT.md` B3's named hidden-bug class in miniature: there
+  the freelist), which exposes the same hidden-bug class in miniature: there
   is no check in the model or the routine that `rcx - 32` is a validly-owned header address (a
   caller passing a bad/foreign `rcx` produces silently-wrong writes, not a caught fault) — the
   smallest possible instance of the risk §7 says `crc32` cannot exercise.
@@ -1041,9 +1039,9 @@ dimension §7 identifies as untested" overclaimed; it covers *statability*, not 
   cares about that happens to overlap `[ptr-32, ptr)`); the frame condition above is a fact about
   this routine's own writes in isolation, not a composed fact against an arbitrary caller's memory
   layout.
-- No write address depends on loop-carried state — `MODEL_DEBT.md` B3's actual named bug class
-  (a hand-computed offset that drifts across loop iterations, as in `gzipCompressSymbolicProgram`'s
-  header-writing loop or its Dynamic-Huffman scratch region, §7) is still completely untested by
+- No write address depends on loop-carried state — the harder bug class remains a hand-computed
+  offset that drifts across loop iterations, as in `gzipCompressSymbolicProgram`'s
+  header-writing loop or its Dynamic-Huffman scratch region (§7), and is still completely untested by
   either routine in PA1's scope now.
 - Being a leaf, `smolFree` cannot test **composition** of frame conditions across a call boundary —
   exactly `docs/VISION.md` §4's actual central claim (capability tokens double as frame conditions
@@ -1071,7 +1069,7 @@ Several questions from earlier revisions are now resolved; recorded here as reso
 genuinely open ones. Items 1-6 are v1's, carried forward; item 7 is corrected per M7; items 10-12
 are new in v3.
 
-1. ~~Is Theorem 3's memory-safety claim honest given MODEL_DEBT B3?~~ **Resolved (§2.5, M5[v2])**:
+1. ~~Is Theorem 3's memory-safety claim honest given the total-memory model debt?~~ **Resolved (§2.5, M5[v2])**:
    renamed to two constructive theorems that do not claim more than is proven.
 2. ~~Does the connection theorem close by unfolding both sides?~~ **Resolved (§3.6, M1[v2])**: no;
    the `bv_decide`-on-branch-free-normal-form route is adopted and verified working (and its own

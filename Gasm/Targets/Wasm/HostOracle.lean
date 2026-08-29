@@ -182,7 +182,7 @@ def runWasmHostExecution (m : WasmModule) (timeoutMs : Nat := 10000) : IO WasmOr
   let tmpWasmPath := s!".tmp_wasm_fuzzer_{pid}_{nowMs}.wasm"
 
   let result ← try
-      -- `emitWasmBinary` is fail-closed (TC20 / TCB T7): a genuine type-index mismatch surfaces
+      -- `emitWasmBinary` is fail-closed (the Wasm fail-closed emission contract): a genuine type-index mismatch surfaces
       -- here as `Except.error` rather than silently encoding index 0. Matched explicitly (rather
       -- than `IO.ofExcept`) and folded into `OracleFailure.processError` so it stays inside this
       -- function's own no-escape-hatch `Except` discipline instead of escaping as an uncaught

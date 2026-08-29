@@ -42,8 +42,8 @@ EXPLICITLY OUT OF SCOPE:
                        empty/absent count would be indistinguishable from
                        "didn't look").
     .lake/, .git/, and any other generated/VCS-internal directory.
-    Markdown (docs/**, root ledgers like PLAN.md/TASKS.md/MODEL_DEBT.md/
-    TCB.md, scripts/*.md): a deliberate judgment call, not an oversight --
+    Markdown documentation (`docs/**`, root and `scripts/*.md` files): a deliberate
+    judgment call, not an oversight --
     see docs/REVIEW.md / the commit introducing this tool for the
     reasoning. Prose documentation is covered by the repository LICENSE
     as a whole; this project does not stamp per-file boilerplate onto

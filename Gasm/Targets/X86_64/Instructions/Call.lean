@@ -62,8 +62,8 @@ instance : X86_64Instruction CallRipRel where
   toNASM i := s!"call [rel $+6 {formatDisp32 i.disp}]"
   toLean i := s!"call_rip ({i.disp})"
   canFuzzHardware _ := false
-  validationOracle _ := .nasmEncoding "CALL transfers control (RIP) and pushes a return address onto RSP; HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  validationOracle _ := .nasmEncoding "CALL transfers control (RIP) and pushes a return address onto RSP; HardwareHarness has no branch/landing-pad support for control-flow instructions yet (see docs/X86_ISA_EXPANSION_PREREQUISITES.md P4) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map CallRipRel.mk
   memAccesses := callRipRelAccesses
@@ -109,8 +109,8 @@ instance : X86_64Instruction CallRel32 where
   toNASM i := s!"call $+5 {formatDisp32 i.disp}"
   toLean i := s!"call_rel32 ({i.disp})"
   canFuzzHardware _ := false
-  validationOracle _ := .nasmEncoding "CALL transfers control (RIP) and pushes a return address onto RSP; HardwareHarness has no branch/landing-pad support for control-flow instructions yet (PLAN.md Phase 3) -- encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  validationOracle _ := .nasmEncoding "CALL transfers control (RIP) and pushes a return address onto RSP; HardwareHarness has no branch/landing-pad support for control-flow instructions yet (see docs/X86_ISA_EXPANSION_PREREQUISITES.md P4) -- encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := curatedInt32Cases.map CallRel32.mk
   memAccesses := callRel32Accesses

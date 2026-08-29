@@ -18,8 +18,10 @@ scripts/check_refs.py - Citation Validity Checker for gasm (Law 3)
 
 Enforces the citation-VALIDITY half of the gasm Citation Laws (docs/REVIEW.md):
 1. Indexes all markdown section headings across docs/ and references/.
-2. Scans all `.lean` files for `/- REF: target#anchor -/` annotations.
-3. Validates that every citation's target resolves to a real section
+2. Scans all `.lean` files for `/- REF: target#anchor -/` annotations and scans
+   tracked first-party text for mechanically shaped
+   `docs/MEMORY_MODEL.md#6-provenance-borrowing-and-cross-thread-authority` links.
+3. Validates that every citation/link target resolves to a real section
    (path targets) or a real registry entry (slug targets) -- failing CI on
    broken references.
 4. Reports the backlog of unreferenced design specifications (Law 3's
@@ -121,6 +123,16 @@ def git_tracked_files() -> List[str]:
 # Regex patterns
 HEADING_REGEX = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
 REF_REGEX = re.compile(r'/\-\s*REF:\s*([^#\s]+)#([^\s\-]+[^\s]*)\s*\-/', re.MULTILINE)
+INLINE_DOC_REF_REGEX = re.compile(
+    r'(?<![A-Za-z0-9_./-])(docs/[A-Za-z0-9_./-]+\.md)#([A-Za-z0-9_-]+)'
+)
+INLINE_DOC_REF_SUFFIXES = {
+    ".lean", ".md", ".py", ".txt", ".toml", ".yml", ".yaml", ".sh", ".ps1"
+}
+RUN_GATES_MISSING_DOC_FIXTURES = {
+    "docs/DOES_NOT_EXIST_TC5_SELFTEST.md",
+    "docs/_tc5_selftest_dup_heading.md",
+}
 
 
 def slugify_heading(title: str) -> str:
@@ -250,6 +262,49 @@ def collect_ref_citations() -> List[Dict]:
     return citations
 
 
+def collect_inline_doc_references() -> List[Dict]:
+    """Collects explicit internal Markdown anchors from tracked first-party text.
+
+    This is intentionally independent of Lean's formal `/- REF: ... -/` syntax. Design
+    documents and explanatory comments also route readers with links such as
+    `docs/MEMORY_MODEL.md#6-provenance-borrowing-and-cross-thread-authority`; before this
+    check, a typo in that class was invisible to the citation gate. Only the unambiguous
+    no-space `docs/MEMORY_MODEL.md#6-provenance-borrowing-and-cross-thread-authority`
+    shape is checked. Prose shorthands such as
+    `docs/MEMORY_MODEL.md (§6)` remain human-readable text, not machine-checked anchors.
+
+    These cross-links are validity-checked but do not count as formal implementation
+    citations in the design-backlog coverage numerator below.
+    """
+    references = []
+    for rel_path in sorted(git_tracked_files()):
+        path = Path(rel_path)
+        if path.suffix.lower() not in INLINE_DOC_REF_SUFFIXES:
+            continue
+        if rel_path.startswith("references/"):
+            continue
+        source_file = REPO_ROOT / rel_path
+        try:
+            lines = source_file.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            continue
+        for line_num, line in enumerate(lines, start=1):
+            for match in INLINE_DOC_REF_REGEX.finditer(line):
+                target_path = match.group(1)
+                # `run_gates.py` deliberately names absent paths while self-testing its own
+                # missing/duplicate-doc diagnostics. They are fixture data, not reader links.
+                if (rel_path == "scripts/run_gates.py"
+                        and target_path in RUN_GATES_MISSING_DOC_FIXTURES):
+                    continue
+                references.append({
+                    "source_file": rel_path,
+                    "source_line": line_num,
+                    "target_path": target_path,
+                    "target_anchor": match.group(2),
+                })
+    return references
+
+
 def main():
     print("=" * 70)
     print(" gasm Citation Validity Verifier (Law 3) -- see also `lake exe check_refs_coverage`")
@@ -266,6 +321,8 @@ def main():
 
     citations = collect_ref_citations()
     print(f"[*] Found {len(citations)} Lean citations across the repository.")
+    inline_doc_references = collect_inline_doc_references()
+    print(f"[*] Found {len(inline_doc_references)} explicit internal document anchor link(s).")
 
     registry = load_reference_registry()
     if registry:
@@ -298,6 +355,19 @@ def main():
             broken_citations.append((c, f"Anchor '#{anchor}' not found in '{doc_path}'"))
         else:
             referenced_sections.add((doc_path, anchor))
+
+    broken_inline_references = []
+    for ref in inline_doc_references:
+        doc_path = ref["target_path"]
+        anchor = ref["target_anchor"]
+        if doc_path not in sections:
+            broken_inline_references.append(
+                (ref, f"Target file '{doc_path}' not found in docs/")
+            )
+        elif anchor not in sections[doc_path]:
+            broken_inline_references.append(
+                (ref, f"Anchor '#{anchor}' not found in '{doc_path}'")
+            )
             
     # 2. Report citation validity
     print("\n--- CITATION VALIDITY CHECK (Law 3) ---")
@@ -315,6 +385,14 @@ def main():
               f"existence-checked only -- anchor-level checking needs scripts/check_references.py's "
               f"cache, not yet present in this tree; see module docstring.)")
 
+    if broken_inline_references:
+        has_errors = True
+        print(f"[!] FAILED: Found {len(broken_inline_references)} broken internal document anchor link(s):")
+        for ref, reason in broken_inline_references:
+            print(f"    - {ref['source_file']}:{ref['source_line']} -> {reason}")
+    else:
+        print("[+] All explicit internal document anchor links resolve.")
+
     print("\n[i] Un-cited Lean declaration detection (Law 1) is NOT performed by this script --")
     print("    run `lake exe check_refs_coverage` (Tools/CheckRefsCoverage.lean), which walks the")
     print("    COMPILED ENVIRONMENT rather than source text so no declaration form can hide from")
@@ -322,11 +400,11 @@ def main():
     print("    checks are independent mechanisms rather than one script doing both jobs.")
 
     # 3. Report Unreferenced Design Backlog (docs/)
-    # docs/adr/ and docs/tasks/ headings stay INDEXED above (citable anchors,
+    # Legacy docs/adr/ and docs/tasks/ headings, if present, stay INDEXED above (citable anchors,
     # broken-ref detection still applies to them) but are excluded from this
     # backlog report/count: they are process records (decision history, task
-    # briefs), not unimplemented design specifications (PLAN.md's stated
-    # rationale for why they don't belong in the "what's left to build" list).
+    # briefs), not unimplemented design specifications, so they do not belong
+    # in the "what's left to build" list.
     print("\n--- UNREFERENCED DESIGN SPECIFICATION BACKLOG (docs/) ---")
     doc_unref_count = 0
     for doc_path, file_sections in sections.items():

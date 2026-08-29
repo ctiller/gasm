@@ -40,8 +40,7 @@ namespace Gasm.Targets.Wasm
     `Gasm/Targets/WASI/ABI.lean`'s `wasiHostCall` did before this change (it called the old
     unchecked `readMem32`/`writeMem32` helpers directly, and `fd_read`/`sock_recv` additionally
     called `ByteArray.set!` on `s.memory` raw -- bypassing `evalInstr`'s trap check entirely; see
-    `docs/tasks/B7-wasm-oob-trap-and-limits.md`'s closing note and `docs/MEMORY_HOOK.md`'s
-    cross-target section for the full asymmetry argument). -/
+    `docs/MEMORY_HOOK.md` §12.3 for the full asymmetry argument). -/
 structure WasmMemory where
   private mk ::
   private raw : ByteArray

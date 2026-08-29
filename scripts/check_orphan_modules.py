@@ -56,8 +56,8 @@ open the missing `.olean`. But they report it as a bare exit 1 alongside "0 NOT
 allowlisted" / "0 uncited": zero substantive violations and no named cause. Worse,
 that signal does not separate the one real orphan from the 47 modules their own
 closure simply does not model (the census below), so the same red means "a proof is
-unchecked" and "this tool cannot see executables" indistinguishably. ADR-0035 records
-what an unexplained red costs -- it trains people to stop reading failures.
+unchecked" and "this tool cannot see executables" indistinguishably. `docs/REVIEW.md`
+Law 13 records what an unexplained red costs -- it trains people to stop reading failures.
 
 This gate's contribution is therefore not detection, which partly existed; it is
 naming the file, the umbrella, and the exact line to add, with a root model that
@@ -102,8 +102,8 @@ Classified, that population is:
         (scripts/orphan_allowlist.txt)
 
 47 of those 48 are compiled; exactly one is not. Counting them all as orphans would
-make this gate 98% allowlist -- enforcement in appearance only, the failure ADR-0038
-and the doc-facade rollout both warn about -- and a gate that must be argued around
+make this gate 98% allowlist -- enforcement in appearance only, the failure the
+doc-facade rollout warns about -- and a gate that must be argued around
 is a gate that gets disabled. The 48 is a MODELLING GAP in the tools that walk only
 the three lib umbrellas, not 48 defects in the tree.
 
@@ -116,7 +116,7 @@ subjects. Deleting them would be the wrong fix.
 NOTE that "compiled" is a weaker property than "inside the axiom gate's environment
 walk": a `sorry` in those 47 modules is a compiler warning that `lake build` exits 0
 on, and the axiom tool that would harden it into a failure never sees them. That is
-TCB.md's T2 blind spot (tracked as TC15). This gate does not close it and does not
+the import-closure blind spot documented in `docs/REVIEW.md` §4.1.1. This gate does not close it and does not
 claim to -- closing it means widening those tools' closure to every declared target,
 which would also retire both FAILED sections described above.
 
@@ -132,7 +132,7 @@ reasons first.
    An *untracked* orphan is an agent mid-edit -- a file that is not yet claimed to
    be anything, and that no CI checkout will ever contain. Firing on it would make
    the gate red for work that is proceeding normally, and this repository has
-   already recorded what that costs (ADR-0035; the doc-facade linter's rollout
+   already recorded what that costs (`docs/REVIEW.md` Law 13 and the doc-facade linter's rollout
    reasoning): a gate that fires on legitimate work trains people to stop reading
    red, and a gate nobody reads prevents nothing.
 
@@ -380,8 +380,7 @@ def load_allowlist() -> Tuple[Dict[str, AllowlistEntry], List[str]]:
     """
     Parses scripts/orphan_allowlist.txt: 5 `::`-delimited fields --
     `relative-file-path::category::added-date::added-by::justification`
-    (the same shape as scripts/gate_allowlist.txt, scripts/license_allowlist.txt and
-    scripts/decision_record_allowlist.txt).
+    (the same shape as scripts/gate_allowlist.txt and scripts/license_allowlist.txt).
 
     Keyed on the file path, since an exemption applies to a whole module. A line with
     any other field count, an unknown category, an empty path, an empty justification,
@@ -681,7 +680,7 @@ def result_to_json(result: Dict) -> Dict:
 
 # --- --self-test ---------------------------------------------------------------
 # A RE-RUNNABLE regression test for the gate itself, matching the convention
-# scripts/check_doc_facade.py / check_record.py / run_gates.py already use: plant a
+# scripts/check_doc_facade.py / run_gates.py already use: plant a
 # REAL defect, assert the gate goes red, revert, assert it goes green again, with
 # try/finally so a crash mid-test cannot leave the tree dirty. A gate only ever
 # observed to pass is not a gate.

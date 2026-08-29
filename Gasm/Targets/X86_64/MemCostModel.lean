@@ -15,14 +15,14 @@ limitations under the License.
 -/
 
 /-
-Gasm/Targets/X86_64/MemCostModel.lean -- Layer P of the memory hook (docs/MEMORY_HOOK.md §5,
-MH2, docs/tasks/MH2-memory-uop-centralization.md). Collapses the 14 memory-touching instruction
+Gasm/Targets/X86_64/MemCostModel.lean -- Layer P of the memory hook
+(`docs/MEMORY_HOOK.md` §5, historical phase MH2). Collapses the 14 memory-touching instruction
 forms' duplicated, uncited inline uop literal blocks (`MOV.storeAddr`/`MOV.storeData` hand-copied
 verbatim across every store form; every load `latencyCycles := 4`) into ONE small, Law-14
 provenance-marked coefficient table, from which every form's memory uops are DERIVED via its MH1
 `memAccesses` descriptor rather than hand-written. This is the Law 12 fix for the twin population
 `docs/X86_ISA_EXPANSION_PREREQUISITES.md` measured at "0 of 88 forms cite any source"
-(`MODEL_DEBT.md` §A8) -- collapsing 14 unlinked copies to one derivation makes the memory half of
+(`docs/X86_ISA_EXPANSION_PREREQUISITES.md` P5) -- collapsing 14 unlinked copies to one derivation makes the memory half of
 that debt honestly countable instead of invisible.
 
 MODULE LAYOUT (own leaf module, per docs/MEMORY_HOOK.md §7's cascade note): this file imports
@@ -59,11 +59,11 @@ THE reciprocalThroughput DEAD-FIELD DECISION (MH2's own acceptance criterion: "m
 populate reciprocalThroughput or other zero-read-site fields... either the field is deleted in a
 coordinated change or this task records explicitly why it still exists"): grep-verified
 (`grep -rn "reciprocalThroughput" --include=*.lean .`, excluding literal-assignment sites) zero
-read sites anywhere in the tree, confirming `MODEL_DEBT.md` §A3's finding independently for this
+read sites anywhere in the tree, confirming `docs/X86_ISA_EXPANSION_PREREQUISITES.md` P5's finding independently for this
 change. `memUops` below deliberately does NOT set it (leaving `X86_64Uop`'s struct default,
 `0.25`, in place of the 14 forms' previous invented `0.5` literal) rather than perpetuating a
-literal for a field nothing reads. Full field deletion is NOT done here: it is `MODEL_DEBT.md`'s
-own priority-9 backlog item ("Reconcile X86_64.md §3 TSO claim + dead profile fields with the
+literal for a field nothing reads. Full field deletion is NOT done here: it remains in
+`docs/X86_ISA_EXPANSION_PREREQUISITES.md` P5's backlog ("Reconcile X86_64.md §3 TSO claim + dead profile fields with the
 code (B1, A3)"), and deleting it touches every one of the 88 forms' `toUops` (all `UopClass`
 variants set it, not just the 3 memory-class ones), which is out of MH2's scope (the 14 memory
 forms only). Recorded here, per the acceptance criterion's second branch, rather than silently
@@ -125,7 +125,7 @@ structure MemCostModel where
 /- REF: docs/MEMORY_HOOK.md#52-why-this-is-falsifiable-where-todays-numbers-are-not -/
 /-- Today's de-facto memory cost model, relabeled honestly as `modelInternalUnvalidated` rather
     than left as 14 sets of implicit, uncited literals (`docs/X86_ISA_EXPANSION_PREREQUISITES.md`
-    P5; `MODEL_DEBT.md` §A8: "0 of 88 forms cite any source"). Values are UNCHANGED from what the
+    P5: "0 of 88 forms cite any source"). Values are UNCHANGED from what the
     14 forms' inline `toUops` literals encoded before this migration -- verified by reading every
     memory form's pre-migration `toUops` in `Mov.lean` (9 forms), `Push.lean`, `Pop.lean`,
     `Call.lean` (2 forms), `Ret.lean`: every load uop was `latencyCycles := 4, eligiblePorts :=
@@ -133,9 +133,8 @@ structure MemCostModel where
     .p7, .p8]`; every store's data uop was `latencyCycles := 1, eligiblePorts := [.p4, .p9]` --
     this migration is a pure re-derivation, not a re-calibration.
 
-    PER-COEFFICIENT MEASUREMENT RECIPES (`docs/MEMORY_HOOK.md` §5.2 item 2 -- named, not yet
-    performed, until F1's RDTSC harness lands, `docs/tasks/F1-rdtsc-harness.md`, status
-    `ready`/unbuilt):
+    PER-COEFFICIENT MEASUREMENT RECIPES (`docs/MEMORY_HOOK.md` §5.2 item 2 -- named, but not yet
+    accepted as governed coefficient bindings):
     - `loadLatency`/`loadPorts`: a dependent pointer-chase microbenchmark resident in L1 (each
       load's address depends on the previous load's result, isolating load-to-use latency from
       throughput; port occupancy read from `perf`/PMU counters on the same run).
@@ -151,44 +150,38 @@ def defaultMemCostModel : MemCostModel where
   loadLatency := {
     value := 4
     source := .modelInternalUnvalidated
-      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration \
-      artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status \
-      ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish \
+      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no accepted \
+      governed calibration binding exists, and intel-sdm (the registered combined architecture SDM) does not publish \
       cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5" }
   loadPorts := {
     value := [.p2, .p3]
     source := .modelInternalUnvalidated
-      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration \
-      artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status \
-      ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish \
+      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no accepted \
+      governed calibration binding exists, and intel-sdm (the registered combined architecture SDM) does not publish \
       cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5" }
   storeAddrLatency := {
     value := 1
     source := .modelInternalUnvalidated
-      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration \
-      artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status \
-      ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish \
+      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no accepted \
+      governed calibration binding exists, and intel-sdm (the registered combined architecture SDM) does not publish \
       cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5" }
   storeAddrPorts := {
     value := [.p2, .p3, .p7, .p8]
     source := .modelInternalUnvalidated
-      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration \
-      artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status \
-      ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish \
+      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no accepted \
+      governed calibration binding exists, and intel-sdm (the registered combined architecture SDM) does not publish \
       cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5" }
   storeDataLatency := {
     value := 1
     source := .modelInternalUnvalidated
-      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration \
-      artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status \
-      ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish \
+      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no accepted \
+      governed calibration binding exists, and intel-sdm (the registered combined architecture SDM) does not publish \
       cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5" }
   storeDataPorts := {
     value := [.p4, .p9]
     source := .modelInternalUnvalidated
-      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration \
-      artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status \
-      ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish \
+      "toUops coefficients predate Law 14 and are uncalibrated inline literals; no accepted \
+      governed calibration binding exists, and intel-sdm (the registered combined architecture SDM) does not publish \
       cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5" }
 
 /- REF: docs/MEMORY_HOOK.md#51-one-table-provenance-marked-instead-of-14-sets-of-inline-literals -/
@@ -225,7 +218,7 @@ def isMemoryClassUop (u : X86_64Uop) : Bool :=
     every pre-migration form's uop count) -- `spec.width` does not otherwise vary the result
     (see `defaultMemCostModel`'s doc comment: no width-dependent behavior exists in the 14 forms
     to derive a delta from today). Deliberately does NOT set `reciprocalThroughput` (see this
-    file's header comment: the field is dead, `MODEL_DEBT.md` §A3, zero read sites tree-wide) --
+    file's header comment: the field is dead, `docs/X86_ISA_EXPANSION_PREREQUISITES.md` P5, zero read sites tree-wide) --
     it is left at `X86_64Uop`'s struct default rather than perpetuating an invented literal for a
     field nothing reads. The generic `"MEM.load"`/`"MEM.storeAddr"`/`"MEM.storeData"` mnemonics
     replace the 14 forms' previous family-specific labels (`"MOV.load"`, `"MOVZX.load"`,

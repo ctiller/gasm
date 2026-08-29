@@ -126,7 +126,7 @@ What exists, in `Spikes/Spike4HttpServer/Equivalence.lean`:
 - **Two honest restatements**, `spike4_{windows,wasm}_trace_equivalence_for_request` (`:267`,
   `:278`), which make that narrow domain an explicit hypothesis (`h : req = routeRequestStr r`)
   instead of hiding it behind the `HttpRoute` case split — the shape
-  `docs/tasks/PA17-spike3-spike4-domain-honesty.md` asks for.
+  the domain-honesty review requires.
 - **`spike4WindowsVerifiedProgram` / `spike4LinuxVerifiedProgram` / `spike4WasmVerifiedProgram`**
   (`:451`, `:460`, `:472`), each carrying a `NOTE (PA17 domain-honesty finding)` recording in the
   source that this is **not** a Law-9-compliant universal claim despite `VerifiedProgram`'s type
@@ -136,10 +136,10 @@ What exists, in `Spikes/Spike4HttpServer/Equivalence.lean`:
 recorded in the tree. Historically it was route-prefix confusion: the x86-64 lowering matched a
 5-byte `"/stat"` prefix and the WASI lowering a single byte after `"/"`, so `"/static"`,
 `"/status_check"`, `"/search"` and others were misrouted relative to `Spec.lean`'s
-`parseRequestLine`/`routeRequest`. **That bug is fixed** — `docs/tasks/N8-spike4-stack-buffer-overflow.md`
+`parseRequestLine`/`routeRequest`. **That bug is fixed** — the stack-buffer audit
 made all three targets compare the full 8 bytes `"/status "`, and `spike4RouteFixedOnAllTargets`
 (`:354`) re-checks every witness the former "KNOWN DIVERGENCE" note named. The allowlist entries
-still point at that note and are stale in that specific respect.
+now cite the surviving malformed-request mismatch rather than that retired bug.
 
 The falsity survives the fix for an independent reason, recorded in the same file: `parseRequestLine`
 returns `none` (400 Bad Request) for any request line that is not exactly three space-separated

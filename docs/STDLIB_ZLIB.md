@@ -145,8 +145,7 @@ sentence "Every valid byte array roundtrips losslessly through compression and d
 Those three names **have never existed anywhere in the tree**, and the displayed signatures were
 wrong in a second way as well: they returned `some data`, while no function in `Stdlib.Zlib`
 returns an `Option` — `decompress` returns `Except ZlibError ByteArray`.
-`docs/PA16_CODEC_SOUNDNESS.md` has told the accurate story since 2026-08-27; this document, which
-a reader reaches first, told the opposite one. What follows is what
+This owning document now states the accurate status. What follows is what
 `Stdlib/Zlib/Equivalence.lean` actually contains.
 
 **Universal, kernel-checked, no `native_decide` — one theorem** (`Equivalence.lean:1875`, the
@@ -190,15 +189,14 @@ and `deflate_roundtrip_repetitive_inst` (`Equivalence.lean:117-157`) each push *
 string literal or byte array** through `compress`-then-`decompress` and discharge it with
 `native_decide` — the compiler-trusted oracle, not the kernel (`docs/REVIEW.md` Law 10). They are
 single-point ground regression checks with theorem-shaped names; the `_soundness` in a name is not
-evidence about any other input. `docs/PA16_CODEC_SOUNDNESS.md` §1 enumerates all ten such entries
-and is the authority on their status.
+evidence about any other input. The inventory above is the authority on their status.
 
 ### 6.3 Canonical 1.5-Roundtrip Soundness Theorems
 
 The universal property this section targets — for any arbitrary binary stream, either
 decompression fails cleanly with an error, or the decompressed data re-compresses and
 re-decompresses to the exact same data — is a **free corollary** of §6.2's universal target once
-that is proven (`docs/PA16_CODEC_SOUNDNESS.md` §3, L12), which is why no separate universal
+that is proven, which is why no separate universal
 theorem for it exists or needs to.
 
 **Status**: the universal form does not yet exist for any of the three containers. Until
@@ -227,17 +225,16 @@ theorem lz77_roundtrip_soundness (data : ByteArray) :
   expandTokens (tokenize data) = data
 ```
 
-This is the L3 (match certificate) + L4 (self-overlapping copy induction) + token-level L5
-content of the PA16 decomposition (`docs/PA16_CODEC_SOUNDNESS.md` §4), stated over total
-functions only.
+This is the match-certificate, self-overlapping-copy, and token-level induction decomposition used
+by the current proof, stated over total functions only.
 
 **The remaining frontier (updated 2026-08-28).** This paragraph previously said the Huffman/
 bitstream layer was "blocked on PA16 P0 (the decoder's `partial def` conversion)". **P0 has
 landed**: zero `partial def` remain anywhere in `Stdlib/Zlib/` (the branch-rooted `HuffmanTable`
 invariant made `decodeHuffmanStream`/`decompress` well-founded unconditionally), and on top of it
 the whole fixed-Huffman path closed kernel-checked — L1b, L2-fixed in full, the L6 code algebra,
-both halves of L5-fixed, and L7-fixed, which is §6.2's `emitFixedBlock_roundtrip_soundness`
-(`docs/PA16_CODEC_SOUNDNESS.md` §9). What now stands between here and a universal DEFLATE
+both halves of L5-fixed, and L7-fixed, which is §6.2's `emitFixedBlock_roundtrip_soundness`.
+What now stands between here and a universal DEFLATE
 roundtrip theorem is the **dynamic-Huffman branch**, four obligations, none of them started:
 **L2v** (package-merge validity), **L2d** (canonical decode inversion for arbitrary transmitted
 code lengths), **L2h** (RFC 1951 §3.2.7 header RLE roundtrip), and then the **dynamic instance of

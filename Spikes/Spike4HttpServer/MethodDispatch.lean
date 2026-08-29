@@ -31,7 +31,7 @@ import Spikes.Spike4HttpServer.Spec
 
 The Windows and Linux lowerings run byte-identical request-line inspection code; the only thing
 that differs between them is the surrounding syscall/import ABI. That duplication is exactly how
-the `/stat`-prefix routing bug (`docs/tasks/N8-spike4-stack-buffer-overflow.md`) came to exist in
+the `/stat`-prefix routing bug (`docs/SPIKES/SPIKE4_HTTP_SERVER.md`) came to exist in
 two targets at once and be fixed twice, so the method-validation prologue lives here, generated
 once from `Spikes.Spike4HttpServer.allHttpMethods` (itself derived from `Stdlib.Http11.Method`),
 and is spliced into both programs.
@@ -69,7 +69,7 @@ def methodPathLabel (off : Nat) : String :=
 
     The masked compare is exact on the token *and* its delimiter, so no token can match a mere
     prefix of a longer word (`"GETX / ..."` fails the `GET ` test because byte 3 is `X`, not SP) --
-    the failure mode `docs/tasks/N8-spike4-stack-buffer-overflow.md` found in the route dispatch,
+    the failure mode `docs/SPIKES/SPIKE4_HTTP_SERVER.md` found in the route dispatch,
     not repeated here. Near (`rel32`) conditional jumps are used because the nine blocks together
     span far more than a `rel8` displacement. -/
 def methodValidationInstrs (bufDisp : Nat) : List SymbolicInstr :=

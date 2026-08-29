@@ -87,7 +87,7 @@ def rdataPayload : ByteArray :=
       [RSP + 0x28..0x2F]  : client socket descriptor (8 bytes)
       [RSP + 0x30..0x3F]  : sockaddr_in buffer (16 bytes)
       [RSP + 0x40..0x13F] : HTTP request recv buffer (256 bytes -- widened in lockstep with the
-                             Windows target, REF: docs/tasks/N8-spike4-stack-buffer-overflow.md)
+                             Windows target, REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md)
 -/
 def spike4SymbolicProgram : List SymbolicInstr := [
   -- 1. Setup 320-byte stack frame (imm32 form: 320 exceeds sub_rsp's 8-bit immediate range)
@@ -136,14 +136,14 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   instr (mov_r32 .eax 0),  -- SYS_read
   instr syscall_op,
 
-  -- 7b. Validate read() return value (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md, defect 2).
+  -- 7b. Validate read() return value (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md, defect 2).
   -- SYS_read returns the byte count read (> 0), 0 on EOF, or a negative errno on error. RAX is
   -- sign-extended, so a signed JLE against 0 catches both without reading the request buffer.
   instr (cmp_r64_imm8 .rax 0x00),
   jle_near_label "close_conn",
 ] ++
 
-  -- 8. Validate the request's HTTP method token (REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md).
+  -- 8. Validate the request's HTTP method token (REF: docs/READ_BINDER_CONTRACT.md).
   -- Previously this code assumed, without checking, that the first four bytes were literally
   -- "GET " and read the path window at the fixed offset 4. That answered 200 OK to
   -- "FOO / HTTP/1.1..." where Spec.parseRequestLine answers 400 Bad Request, and mis-read the path
@@ -164,7 +164,7 @@ def spike4SymbolicProgram : List SymbolicInstr := [
 [
   -- 8b. Inspect the request target RSI now points at.
   -- Check if path is exactly "/status" followed by the request-line's delimiting space.
-  -- Full 8-byte exact compare (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
+  -- Full 8-byte exact compare (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md,
   -- defect 3) -- the prior 5-byte-masked "/stat" prefix compare mis-routed any path merely starting
   -- with "/stat" (e.g. "/static") to the status handler.
   label "route_dispatch",

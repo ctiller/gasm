@@ -86,7 +86,7 @@ def encodeFunctionCode (fn : WasmFunction) : ByteArray :=
 
 /- REF: docs/TARGETS/WASM.md#3-binary-module-structure -/
 /-- Finds the index of a `FuncType` in a list of signatures. Fails closed: a not-found lookup
-    returns `none` rather than silently defaulting to index `0` (TCB T7 / TC20 -- a type-index
+    returns `none` rather than silently defaulting to index `0` (the Wasm fail-closed emission contract -- a type-index
     mismatch previously encoded as a reference to type `0` instead of erroring, which is exactly
     the "wrong type, wrong index, no diagnostic" shape of bug this guards against). Callers
     (`emitWasmBinary`) must handle the failure explicitly; see `findTypeIdx_eq_none_iff` below
@@ -134,7 +134,7 @@ def collectTypeSignatures (m : WasmModule) : List FuncType := Id.run do
 
 /- REF: docs/TARGETS/WASM.md#3-binary-module-structure -/
 /-- Serializes a high-level WasmModule into binary WebAssembly format (.wasm). Fails closed
-    (`Except String ByteArray`, TCB T7 / TC20) if any function's signature has no matching
+    (`Except String ByteArray`, the Wasm fail-closed emission contract) if any function's signature has no matching
     entry in `typeSignatures` -- previously `findTypeIdx`'s `0`-default let such a mismatch
     silently encode a reference to the wrong function type instead of erroring. -/
 def emitWasmBinary (m : WasmModule) (typeSignatures : List FuncType) : Except String ByteArray := do

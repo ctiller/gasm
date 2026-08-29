@@ -155,7 +155,7 @@ script's own docstring for the fuller argument), not a convenience:
 1. TRACKED-ONLY IS THE CORRECT SEMANTICS. What both gates that call this are
    actually asserting is a property of the tree CI checks out. A *committed*
    `.lean` with no `.olean` is exactly the blind spot they refuse to hide (a
-   reviewed, unbuilt, therefore unverified module -- TC15/TCB.md T2). An
+   reviewed, unbuilt, therefore unverified module -- docs/REVIEW.md §4.1.1). An
    *untracked* `.lean` is an agent mid-edit: not yet claimed to be anything,
    and never present in any CI checkout.
 
@@ -166,7 +166,7 @@ script's own docstring for the fuller argument), not a convenience:
    work-in-progress during the first run and committed by the second. Both
    runs were correct about what they measured; they measured different trees.
    The failure named an unloadable module rather than the real cause, so the
-   reader chases the wrong thing -- and ADR-0035 records what an unexplained
+   reader chases the wrong thing -- and `docs/REVIEW.md` Law 13 records what an unexplained
    red costs: it trains people to stop reading failures.
 
 2. Several agents write to this tree concurrently. A filesystem walk makes any
@@ -419,7 +419,7 @@ made it wrong in two directions at once:
 The closure is therefore derived from EVERY declared target -- both
 `[[lean_lib]] roots` and `[[lean_exe]] root` -- over `import` edges among
 TRACKED files, which is the same model `scripts/check_orphan_modules.py` uses
-and the same one TCB.md T2 / TC15 call for. Reachability is a transitive graph
+and the same one docs/REVIEW.md §4.1.1 call for. Reachability is a transitive graph
 walk, not a flat membership test: a module reached via an intermediate import
 is correctly in scope.
 

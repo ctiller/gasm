@@ -27,7 +27,7 @@ pointwise checks slip in silently; it has been removed). `bv_decide` is
 recognized and gated identically: it shares `native_decide`'s exact
 axiom-emission code path (`Lean.Meta.nativeEqTrue`, the same routine both
 tactics call to compile a closed term, run it, and assert the result as an
-axiom) -- see docs/PATHFINDER_CRC32.md #3.6-policy and TCB.md's `bv_decide`
+axiom) -- see docs/PATHFINDER_CRC32.md #3.6-policy and docs/REVIEW.md Law 10's `bv_decide`
 entry for the empirical basis -- so it falls under the identical "exhaustive
 finite domain only" restriction, not a separate or lesser one.
 

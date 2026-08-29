@@ -58,9 +58,9 @@ class X86_64Instruction (ι : Type u) where
   -- NO default, exactly like `roundtripCases` above -- an instance cannot compile without
   -- declaring both. This is what makes "an instruction with identity semantics, an empty uop
   -- list, and zero fuzz states compiles cleanly" (the prerequisites document's mutation probe)
-  -- impossible going forward: the author must say, in DATA `Tools/CheckX86Obligations.lean` and
-  -- `scripts/check_x86_obligations.py` can both read, which oracle validated this instance and
-  -- where its cost coefficients came from.
+  -- impossible going forward: the author must say, in data consumed by
+  -- `Tools/CheckX86Obligations.lean` (`lake exe check_x86_obligations`), which oracle validated
+  -- this instance and where its cost coefficients came from.
   validationOracle : ι → ValidationOracle
   costProvenance   : ι → CoefficientProvenance
   memAccesses     : ι → List MemAccessSpec

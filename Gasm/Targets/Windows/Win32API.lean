@@ -195,7 +195,7 @@ def acceptHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) :
 /- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
 /-- Win32 recv call hook: copies at most R8 (`len`, the syscall's declared cap) bytes from the
 head of `s.incomingRequests` into buffer at RDX and emits NetEvent.recv with exactly what was
-delivered. N2 fix (MODEL_DEBT.md §C1): the pre-N2 hook never read R8 at all and always wrote
+delivered. Short-read contract fix (`docs/READ_BINDER_CONTRACT.md`): the earlier hook never read R8 at all and always wrote
 the entire queued logical request regardless of the caller's declared cap -- the gap
 `docs/READ_BINDER_CONTRACT.md` §5 names as making Spike 4's buffer/cap mismatch invisible to any
 proof (see `Gasm/Effects/ReadBinderWiring.lean`). Delivery is now built on
@@ -422,7 +422,7 @@ end WindowsExecutable
 
     The `valid` field carries the proof, so a `ValidEntryState exe` cannot be obtained -- via
     the anonymous constructor, `mk`, or any other introduction rule -- without discharging
-    `isValidEntryState`. This is the `memAccesses` precedent (ADR-0040): a mandatory field
+    `isValidEntryState`. This is the `memAccesses` precedent (`docs/MEMORY_HOOK.md`): a mandatory field
     cannot be forgotten, whereas an `isValidEntryState exe s = true ->` hypothesis on a
     theorem can simply be left off the statement.
 

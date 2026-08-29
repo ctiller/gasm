@@ -120,9 +120,9 @@ and REJECTED -- see "REJECTED SHAPES" below):
    `x86_mov_store_is_release` (fixed by hand, 2026-08-28, commit f597a53) and
    `docs/STDLIB_ZLIB.md` §6.2/§6.3's six roundtrip-soundness theorems.
 
-   NAME RESOLUTION -- DECLARATION SITES, NOT TOKEN PRESENCE (the one design parameter
-   where this check deliberately diverges from `docs/tasks/TC22-doc-lean-fence-facade.md`'s
-   filed recommendation, on measurement): the declared name resolves if and only if it
+   NAME RESOLUTION -- DECLARATION SITES, NOT TOKEN PRESENCE (the one measured design
+   parameter where this check deliberately chooses the stricter interpretation of
+   `docs/REVIEW.md` Law 8): the declared name resolves if and only if it
    appears at a DECLARATION SITE in some `.lean` file -- i.e. a line matching
    `<modifiers> (theorem|lemma|def|structure|inductive|abbrev|instance|class|axiom|opaque)
    <name>` -- matched either fully-qualified (namespace-prefixed) or on its final
@@ -169,8 +169,8 @@ and REJECTED -- see "REJECTED SHAPES" below):
    sites is cheap, deterministic, build-independent, and (measured above) catches both
    known instances. The trade accepted is the statement-fidelity blind spot named above.
 
-   ESCAPES, in the order tried (`docs/tasks/TC22-doc-lean-fence-facade.md` §3, adopted
-   as filed):
+   ESCAPES, in the order tried (the current implementation of the Law 8 disclosure
+   policy):
    (a) SECTION-SCOPED: a `**Status**:`-family marker (STATUS_MARKER_RE) anywhere in the
        enclosing document section -- from the nearest preceding `#`-heading line through
        the line before the next heading -- OR in any ANCESTOR section's intro prose (a
@@ -219,23 +219,19 @@ this alone excludes every file path, command line, and multi-word phrase) AND
 either mixes upper- and lower-case letters, or contains an underscore next to
 a lowercase letter. This excludes bare English words (`free`, `read`),
 Lean keywords (`instance`, `abbrev`, `initialize` -- all lowercase, no
-underscore), and task/decision IDs (`PA5`, `TC21`, `D23` -- uppercase+digits,
+underscore), and task/decision-shaped IDs (`PA5`, `TC21`, `Q23` -- uppercase+digits,
 no lowercase letter), while keeping CamelCase/lowerCamelCase Lean identifiers
 and snake_case tool/tactic names.
 
 REJECTED SHAPE: "a quantified enforcement claim ('100%', 'every', 'all',
 'zero') about something a gate is supposed to establish, without a verifiable
-binding to that gate." This is NOT implemented here, for two reasons. First,
-`scripts/check_record.py`'s UNVERIFIED_COMPLETENESS_CLAIM check already scans
-`docs/REVIEW.md` (it is in that tool's CORE_DOC_FILES) for exactly this
-phrase-shaped claim; a second, near-duplicate implementation in this file
-would itself be the Law 12 "unlinked twins" defect this project's own Laws
-prohibit. Second, and more fundamentally: verifying that a claim like "100%
+binding to that gate." A retired gate attempted to detect this with phrase
+matching, but the approach was not a semantic verifier and is deliberately not
+reintroduced here. Verifying that a claim like "100%
 citation validity" is actually TRUE (as opposed to merely paired with a
 plausible-looking nearby citation) requires re-running the cited gate and
 semantically checking its output against the claim -- exactly the kind of
-check `check_record.py`'s own module docstring admits it cannot do ("this
-check is inherently a heuristic phrase-match, not a semantic verifier"). A
+check a static phrase matcher cannot do. A
 prose linter cannot mechanically distinguish "100%, verified" from "100%,
 silently wrong" (the precise defect docs/REVIEW.md #4.1.2 documents already
 happened once) without executing and interpreting the gate itself, which is
@@ -281,8 +277,8 @@ a single line can name more than one candidate). A line with any other field
 count, an unknown check name, an empty key, or an empty justification is a
 hard parse failure -- never a silently-skipped line, matching every other
 Law-10-style allowlist in this repository. A stale entry (its (check, key) no
-longer trips anything) is also a hard failure, same discipline as
-`scripts/check_record.py`.
+longer trips anything) is also a hard failure, the same mutation-tested
+discipline used by the other live gates.
 
 Usage:
     python scripts/check_doc_facade.py            # full report (default)
@@ -390,7 +386,7 @@ def _identifier_in_lean_tree(ident: str) -> bool:
     return ident in _lean_tokens()
 
 
-# --- Doc file scoping: docs/*.md recursively, excluding docs/adr/ and docs/tasks/ -
+# --- Doc file scoping: docs/*.md recursively, excluding legacy process-record subtrees -
 
 def iter_scanned_docs() -> List[Path]:
     if not DOCS_DIR.is_dir():
@@ -835,8 +831,7 @@ def _preamble_bounds(lines: List[str]) -> Tuple[int, int]:
 
 def iter_theorem_fence_docs() -> List[Path]:
     """Scope for check 3: the linter's existing normative doc set (docs/**/*.md minus
-    `adr/` and `tasks/` -- both are by construction proposal documents) PLUS every
-    root-level tracked `*.md` (README, CONTRIBUTING, MODEL_DEBT, TCB, PLAN, TASKS -- all
+    legacy process-record subtrees) PLUS every root-level tracked `*.md` (all
     normative, and all reachable before docs/ by a new reader). Measured: adding the
     root files and the excluded subtrees changes the finding count by zero today, so this
     scope is the widest one available at no noise cost."""
@@ -1142,7 +1137,7 @@ def main():
 
 # --------------------------------------------------------------------------------
 # --self-test: a RE-RUNNABLE regression test for the gate itself (mirrors
-# scripts/check_record.py's / scripts/run_gates.py's pattern exactly: plant a
+# scripts/run_gates.py's pattern exactly: plant a
 # defect into the REAL tree, assert the SPECIFIC check goes red, revert, assert
 # green again -- with try/finally so a crash mid-test cannot leave the tree
 # dirty). A gate only ever seen to pass is untested.

@@ -49,8 +49,7 @@ What this file DOES contain, fully kernel/SAT-checked with zero `sorry`:
    (design §3.6): the table-driven spec step and the assembly's inline
    8x-unrolled per-bit recurrence are proven to compute the *same* function,
    via a branch-free bitvector normalization. Originally discharged end-to-end
-   by `bv_decide`; per PA13/PA14 (2026-08-27, prompted by `TCB.md` T14 finding
-   `bv_decide` is not kernel-checked), every step is now a structural proof
+   by `bv_decide`; per the trust ladder in `docs/REVIEW.md` Law 10, every step is now a structural proof
    (`BitVec` extensionality, `omega`, algebraic rewriting) with zero `bv_decide`
    calls anywhere in this file.
 3. The jump-displacement round-trip facts (design §3.8's "recommended, not
@@ -191,7 +190,6 @@ def G (poly c : UInt32) : UInt32 := if c &&& 1 != 0 then (c >>> 1) ^^^ poly else
 def Gbf (poly c : UInt32) : UInt32 := (c >>> 1) ^^^ (poly &&& (0 - (c &&& 1)))
 
 /- REF: docs/PATHFINDER_CRC32.md#36-the-connection-theorem-bvdecide-on-a-branch-free-normal-form-not-linearity-m1 -/
-/- REF: docs/tasks/PA13-crc32-bittrick-lemmas-without-sat.md -/
 /-- Per PA13: proven structurally rather than by `bv_decide`. `(c &&& 1).toNat = c.toNat % 2`
     (`Nat.and_one_is_mod`, via `UInt32.toNat_and`/`UInt32.toNat_one`), and a `Nat` mod-2 value is
     `0` or `1` by `omega`; `UInt32.toNat_inj` lifts each case back up to a `UInt32` equation. -/
@@ -203,7 +201,7 @@ theorem and_one_cases (c : UInt32) : c &&& 1 = 0 ∨ c &&& 1 = 1 := by
   · left; apply UInt32.toNat_inj.mp; rw [h, h2, UInt32.toNat_zero]
   · right; apply UInt32.toNat_inj.mp; rw [h, h2, UInt32.toNat_one]
 
-/- REF: docs/tasks/PA13-crc32-bittrick-lemmas-without-sat.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- `G = Gbf` pointwise. Confirms the design's M9(a) finding that `G`'s raw `Bool`-decidability
     guard must be case-split first (via `and_one_cases`) before the branch-free form can be
     related to it. Per PA13, each branch is then closed structurally, not by `bv_decide`: the
@@ -254,7 +252,7 @@ are linear in this sense. Given that, `x`'s low byte and high bits split by XOR
 `x` itself, since the masked-off bits are exactly the ones shifted away (`and_high_shr8`).
 -/
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- Bitwise AND distributes over bitwise XOR (the Boolean-ring distributive law, applied
     bit-by-bit via `BitVec` extensionality and a case split on each side's bit). -/
 theorem and_xor_distrib (a b c : UInt32) : a &&& (b ^^^ c) = (a &&& b) ^^^ (a &&& c) := by
@@ -264,12 +262,12 @@ theorem and_xor_distrib (a b c : UInt32) : a &&& (b ^^^ c) = (a &&& b) ^^^ (a &&
   simp [UInt32.toBitVec_and, UInt32.toBitVec_xor, BitVec.getLsbD_and, BitVec.getLsbD_xor]
   cases a.toBitVec.getLsbD i <;> cases b.toBitVec.getLsbD i <;> cases c.toBitVec.getLsbD i <;> simp
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- `and_xor_distrib` with the mask on the right instead of the left (AND commutes). -/
 theorem xor_and_one (a b : UInt32) : (a ^^^ b) &&& 1 = (a &&& 1) ^^^ (b &&& 1) := by
   rw [UInt32.and_comm, and_xor_distrib, UInt32.and_comm 1 a, UInt32.and_comm 1 b]
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- `Gbf`'s branch-free feedback mask (`0 - (c &&& 1)`, all-ones or all-zero) is itself
     XOR-linear in `c`: case-split `a &&& 1` and `b &&& 1` (via `and_one_cases`) into their
     four combinations and check each concretely. -/
@@ -279,7 +277,7 @@ theorem mask_xor (a b : UInt32) :
   rcases and_one_cases a with ha | ha <;> rcases and_one_cases b with hb | hb <;>
     rw [ha, hb] <;> decide
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- `Gbf poly` is `UInt32`-XOR-linear for fixed `poly`: its shift term distributes over XOR
     (`UInt32.shiftRight_xor`) and its feedback-mask term does too (`mask_xor` plus
     `and_xor_distrib`), so the whole map does. This is the key algebraic fact PA14's
@@ -289,14 +287,14 @@ theorem Gbf_additive (poly a b : UInt32) : Gbf poly (a ^^^ b) = Gbf poly a ^^^ G
   rw [UInt32.shiftRight_xor, mask_xor, and_xor_distrib]
   ac_rfl
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- Eight compositions of a linear map are linear: `simp` applies `Gbf_additive` bottom-up
     through all eight nested layers of `Gbf8`'s definition. -/
 theorem Gbf8_additive (poly a b : UInt32) : Gbf8 poly (a ^^^ b) = Gbf8 poly a ^^^ Gbf8 poly b := by
   unfold Gbf8
   simp only [Gbf_additive]
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- When `y`'s bit 0 is clear, `Gbf`'s feedback mask is `0 - 0 = 0`, so no `poly` is
     injected and the step is a pure shift -- the branch-free-form counterpart of
     `G_eq_Gbf`'s `c &&& 1 = 0` case. -/
@@ -304,7 +302,7 @@ theorem Gbf_of_bit0_zero (poly y : UInt32) (h : y &&& 1 = 0) : Gbf poly y = y >>
   unfold Gbf
   simp [h, UInt32.and_zero, UInt32.xor_zero]
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- Two `UInt32` right-shifts by literal amounts compose into one shift by their sum,
     given both amounts (and the sum) are within the 32-bit shift range so no `% 32`
     wraparound kicks in. Bridges `UInt32`'s `BitVec`-shift-amount semantics
@@ -316,7 +314,7 @@ theorem shr_shr_add (z : UInt32) (a b c : UInt32) (h : a.toNat + b.toNat = c.toN
   rw [UInt32.toNat_shiftRight, UInt32.toNat_shiftRight, UInt32.toNat_shiftRight,
     Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb, Nat.mod_eq_of_lt hc, ← h, Nat.shiftRight_add]
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- A minimal hand-rolled "apply `Gbf poly` `n` times" recursor. This project has no
     `Nat.iterate`/`f^[n]` (a Mathlib addition, per `mkCrcTableEntry_eq_G8`'s own note above),
     so `Gbf8_high_part` below needs its own small recursive definition to state and prove,
@@ -326,7 +324,7 @@ def iterGbf (poly : UInt32) : Nat → UInt32 → UInt32
   | 0, c => c
   | n + 1, c => iterGbf poly n (Gbf poly c)
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- If `y`'s bit `k` is clear for every `k < n`, then `n` applications of `Gbf poly` to `y`
     never inject `poly` and reduce to a single shift by `n`. Proved by induction on `n`:
     the first step needs bit 0 (`Gbf_of_bit0_zero`); the inductive hypothesis is then
@@ -361,7 +359,7 @@ theorem iterGbf_zero_low (poly : UInt32) (n : Nat) (hn : n < 32) (y : UInt32)
     · simp <;> omega
     · simp <;> omega
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- The high-24-bits mask's bit `k` (`k < 8`) is always clear, so masking `x`'s high bits
     first cannot set the low-order bit that a subsequent shift-by-`k` would expose --
     purely a fact about the concrete mask constant, via `UInt32.shiftRight_and` pushing the
@@ -371,7 +369,7 @@ theorem high_shr_bit0_zero (x : UInt32) (k : Nat)
     ((x &&& 0xFFFFFF00) >>> k.toUInt32) &&& 1 = 0 := by
   rw [UInt32.shiftRight_and, UInt32.and_assoc, hk, UInt32.and_zero]
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- The high-24-bits half of `x` passes through all 8 `Gbf` steps as a pure shift: instance
     `iterGbf_zero_low` at `n = 8` (`8 < 32`), discharging its "bit `k` clear for `k < 8`"
     hypothesis by the 8 concrete instances of `high_shr_bit0_zero`, then noting
@@ -389,7 +387,7 @@ theorem Gbf8_high_part (poly x : UInt32) :
   rw [iterGbf_zero_low poly 8 (by omega) (x &&& 0xFFFFFF00) hall]
   congr 1
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- `x`'s low byte, as a `UInt32`, is `< 256` (`Nat.and_le_right` bounds it by the mask),
     so shifting it right by 8 gives `0` (a value `< 2^8` divided by `2^8` is `0`). -/
 theorem and_0xFF_shr8_zero (x : UInt32) : (x &&& 0xFF) >>> 8 = 0 := by
@@ -403,7 +401,7 @@ theorem and_0xFF_shr8_zero (x : UInt32) : (x &&& 0xFF) >>> 8 = 0 := by
   rw [hmod, Nat.shiftRight_eq_div_pow]
   exact Nat.div_eq_of_lt hlt
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- ANDing with a mask's bitwise complement equals XORing with the AND: at each bit,
     `x_i && !m_i` is `x_i` when `m_i` is clear and `0` when `m_i` is set, which is exactly
     `x_i ^^ (x_i && m_i)` either way (a per-bit case split closes it). -/
@@ -416,31 +414,30 @@ theorem and_not_eq_xor_and (x m : UInt32) : x &&& (~~~m) = x ^^^ (x &&& m) := by
   simp only [hi, decide_true, Bool.true_and]
   cases x.toBitVec.getLsbD i <;> cases m.toBitVec.getLsbD i <;> decide
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- The high-24-bits mask is exactly the bitwise complement of the low-byte mask (both
     concrete 32-bit numerals; `decide` computes it directly, no free variables). -/
 theorem not_0xFF_eq : (~~~(0xFF : UInt32)) = 0xFFFFFF00 := by decide
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- Restates `x`'s high bits (`x &&& 0xFFFFFF00`) via `and_not_eq_xor_and` and
     `not_0xFF_eq`, in the XOR form `Gbf8_additive`/`and_xor_compl` need. -/
 theorem and_0xFFFFFF00_eq (x : UInt32) : x &&& 0xFFFFFF00 = x ^^^ (x &&& 0xFF) := by
   rw [← not_0xFF_eq, and_not_eq_xor_and]
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- Masking off `x`'s low byte before shifting right by 8 doesn't change the result: the
     masked-off bits are exactly the ones the shift discards. -/
 theorem and_high_shr8 (x : UInt32) : (x &&& 0xFFFFFF00) >>> 8 = x >>> 8 := by
   rw [and_0xFFFFFF00_eq, UInt32.shiftRight_xor, and_0xFF_shr8_zero, UInt32.xor_zero]
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
+/- REF: docs/PATHFINDER_CRC32.md -/
 /-- `x`'s low byte and high bits XOR back together to `x` (they're complementary masks, so
     this is `y ^^^ (x ^^^ y) = x`, an XOR-cancellation rearrangement). -/
 theorem and_xor_compl (x : UInt32) : (x &&& 0xFF) ^^^ (x &&& 0xFFFFFF00) = x := by
   rw [and_0xFFFFFF00_eq, UInt32.xor_comm (x &&& 0xFF) (x ^^^ (x &&& 0xFF)), UInt32.xor_assoc,
     UInt32.xor_self, UInt32.xor_zero]
 
-/- REF: docs/tasks/PA14-crc32-table-identity-structural-closure.md -/
 /- REF: docs/PATHFINDER_CRC32.md#36-the-connection-theorem-bvdecide-on-a-branch-free-normal-form-not-linearity-m1 -/
 /-- **The table/closed-form connection identity**, over the complete `UInt32 x UInt32`
     domain (`poly`, `x`): applying the 8-step map to a full 32-bit value equals shifting it
@@ -467,7 +464,6 @@ theorem mkCrcTableEntry_eq_G8 (n : Nat) :
   rfl
 
 /- REF: docs/PATHFINDER_CRC32.md#36-the-connection-theorem-bvdecide-on-a-branch-free-normal-form-not-linearity-m1 -/
-/- REF: docs/tasks/PA13-crc32-bittrick-lemmas-without-sat.md -/
 /-- XORing in a single byte's worth of bits (`b.toUInt32 < 256`) never changes bits 8
     and above, so shifting right by 8 afterward is unaffected by that XOR. This is what
     lets the per-byte connection theorem below equate `crc32ByteStep`'s `c >>> 8` (over

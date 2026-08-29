@@ -1,14 +1,12 @@
 # Graphics Architecture Specification: GPU Compute Pipelines & Shader Lowering
 
-> **Status note (2026-08-27)**: This document was rewritten per `GRAPHICS_PREBUILD_AUDIT.md`
-> §9 (ranked amendments #1, #2, #5, #9, #10) — an Opus pre-build audit that found this doc,
+> **Status note (2026-08-27)**: This document was rewritten after a pre-build review found it,
 > before any graphics Lean code existed, in violation of Law 9 (pointwise Spike 6), the
-> observation standard (`docs/EQUIVALENCE_PROOFS.md` §1.1), and Law 2/D7 (six speculative
-> targets, zero built). See `docs/tasks/G1-graphics-doc-rework.md` for the task that produced
-> this rewrite. Two subsystems this document previously asserted as settled design —
+> observation standard (`docs/EQUIVALENCE_PROOFS.md` §1.1), and the demand-driven-growth
+> decision in `docs/DECISIONS.md` §1 (six speculative targets, zero built). Two subsystems this
+> document previously asserted as settled design —
 > GPU synchronization and floating-point kernel determinism — are marked **SUPERSEDED** below
-> and reworked as pointers to tasks **G2** and **G3** respectively; this document does not
-> invent that content itself.
+> and retained as explicit design gaps; this document does not invent their replacements.
 
 ## 1. Overview
 
@@ -17,7 +15,7 @@ hardware. We define a unified, high-level, fine-grained monadic graphics specifi
 Lean, together with a formal state machine model and a binary code generator for **its one
 committed target slice** (§2.1) — with the remaining five target combinations explicitly
 demoted to a non-obligating "possible futures" appendix (§2.2), per `docs/VISION.md` §3.3's
-demand-driven-growth principle and the D7 anti-bulk-import rule.
+demand-driven-growth principle and `docs/DECISIONS.md` §1.
 
 **Present truth**: zero graphics Lean code exists in this repository. Every section below is
 unimplemented design — a specification for what will be built, not a description of anything
@@ -50,15 +48,11 @@ graph TD
 | :--- | :--- | :--- | :--- | :--- |
 | **Windows x86-64 + Vulkan 1.3 (compute-only)** | Windows x86-64 | Vulkan 1.3, compute pipeline only — no rasterization, no render pass, no presentation | `Gasm.Targets.Spirv` (Binary Words) | `vulkan-1.dll` / Win32 Fastcall |
 
-Reference ingestion for this target is already complete: the full SPIR-V unified spec and
-Vulkan 1.3 (including `ch_07_synchronization_and_cache_control`, `appendix_b__memory_model`,
-`appendix_i__invariance`, `ch_23_queries`) are vendored under `references/vulkan/` and
-`references/spirv/` (Law 4 satisfied for this target). `references/spirv/` currently vendors
-the prose unified specification chapters only — the machine-readable
-`spirv.core.grammar.json` used by Khronos's own tooling is **not** present on disk. A
-build-time Lean SPIR-V validator with a grammar-driven encode/decode roundtrip theorem
-(`GRAPHICS_PREBUILD_AUDIT.md` §9 amendment #7) is task **G5**'s job, not this document's; G5
-will need that grammar file ingested under Law 4 before it can be authored.
+Reference registration for this target is complete: the SPIR-V specification, machine-readable
+SPIR-V grammar, and Vulkan specification are hash-pinned as `spirv-spec`, `spirv-grammar`, and
+`vulkan-spec` entries in `references.json`. A build-time Lean SPIR-V validator with a
+grammar-driven encode/decode roundtrip theorem remains future graphics work tracked by
+`docs/ROADMAP.md` §1; it is not implemented by this document.
 
 ### 2.2 Possible Futures (No Obligations, No REF Targets)
 
@@ -69,20 +63,20 @@ will need that grammar file ingested under Law 4 before it can be authored.
 > dedicated target document is authored and reviewed under Law 5. This table is a
 > demand-driven backlog note (`docs/VISION.md` §3.3), not a commitment — the prior version of
 > this document declared six target slices as a flat, equally-weighted matrix, which the
-> pre-build audit identified as exactly the bulk-import pattern D7 forbids.
+> pre-build review identified as exactly the bulk-import pattern `docs/DECISIONS.md` §1 forbids.
 
 | Former Slice | Status | What's missing before it's buildable |
 | :--- | :--- | :--- |
-| Win-DX12 (Windows x86-64, DirectX 12, DXIL) | Deferred | `docs/TARGETS/DXIL_D3D12.md` does not exist; DXBC container format, LLVM-3.7 bitcode, DXC signing, root signatures, and COM vtable calling conventions are all undesigned. No DXIL/DXBC/D3D12 reference corpus is vendored under `references/` — Law 4 blocks this target until one is ingested, with a corresponding MANIFEST entry. |
+| Win-DX12 (Windows x86-64, DirectX 12, DXIL) | Deferred | `docs/TARGETS/DXIL_D3D12.md` does not exist; DXBC container format, LLVM-3.7 bitcode, DXC signing, root signatures, and COM vtable calling conventions are all undesigned. No DXIL/DXBC/D3D12 source is registered in `references.json` — Law 4 blocks this target until the exact authoritative sources are hash-pinned there. |
 | Wasm-Vulkan (WebAssembly, Vulkan, SPIR-V) | **Impossible as stated** | Browsers have no Vulkan; WASI has no GPU. The prior version of this table's "Host FFI / Native Vulkan Trampolines" column named inventing host imports with no documented import surface — the same defect class as Spike 4's fabricated `sock_*` calls. This slice is recorded here only so it is not silently reintroduced; it cannot be resurrected without an entirely different, real, ingested, documented host-import ABI. |
-| Wasm-WebGPU (WebAssembly, WebGPU, WGSL) | Deferred | `docs/TARGETS/WGSL_WEBGPU.md` does not exist; no `references/wgsl` or `references/webgpu` corpus is vendored. Needs a real, documented host/JS import surface (unlike Wasm-Vulkan, WebGPU is at least a real browser/WASI-adjacent API — but nothing here has been designed or ingested yet). |
+| Wasm-WebGPU (WebAssembly, WebGPU, WGSL) | Deferred | `docs/TARGETS/WGSL_WEBGPU.md` does not exist, and no WGSL or WebGPU source is registered in `references.json`. It needs hash-pinned authoritative specifications plus a real, documented host/JS import surface (unlike Wasm-Vulkan, WebGPU is at least a real browser/WASI-adjacent API — but nothing here has been designed or ingested yet). |
 | Win-Compute (Vulkan/DX12 compute, no longer a distinct slice) | Absorbed | The Vulkan-compute half is already the committed target (§2.1); the DX12-compute half is blocked on Win-DX12's prerequisites above. |
 | Wasm-Compute (WebGPU compute, no longer a distinct slice) | Absorbed | Blocked on Wasm-WebGPU's prerequisites above; not an independent gap. |
 
 Windowing/presentation (Spike 7) has its own prerequisite, independent of the graphics-API
 slices above: `docs/TARGETS/WIN32_WINDOWING.md` (`RegisterClassEx`/`CreateWindowEx`/
-`GetMessage`/`DispatchMessage`/`WM_*`) does not exist, and nothing windowing-related is
-vendored under `references/`.
+`GetMessage`/`DispatchMessage`/`WM_*`) does not exist, and no windowing source is registered in
+`references.json`.
 
 ---
 
@@ -117,7 +111,7 @@ Modern explicit graphics APIs (Vulkan, DX12, WebGPU) share a unified mental mode
 
 ### 3.2 Effect Hierarchy: Contract Trace vs. Audit Trace
 
-Per `GRAPHICS_PREBUILD_AUDIT.md` §9 amendment #2 and `docs/EQUIVALENCE_PROOFS.md` §1.1
+Per `docs/EQUIVALENCE_PROOFS.md` §1.1
 ("Contract trace vs. audit trace"), GPU effects are split into two distinct event types
 rather than one undifferentiated trace:
 
@@ -190,36 +184,35 @@ For Spike 6 specifically: the **contract trace is exactly "PNG bytes on disk + e
 and every `GpuAuditEvent` above is audit trace attached to the Vulkan target instance, never
 part of that contract's equivalence obligation.
 
-### 3.3 Synchronization Model — SUPERSEDED, see task G2
+### 3.3 Synchronization Model — SUPERSEDED, replacement pending
 
 > **SUPERSEDED.** This document previously modeled GPU barriers as a resource-layout FSM
-> claiming Write-After-Read/Write-After-Write prevention. The pre-build audit
-> (`GRAPHICS_PREBUILD_AUDIT.md` §2, §9 amendment #3) found that model omits Read-After-Write
+> claiming Write-After-Read/Write-After-Write prevention. The pre-build review found that model omits Read-After-Write
 > hazards entirely — Spike 6's own critical hazard, shader store → transfer read — and that a
 > layout FSM can "prove" a barrier correct with an empty `srcAccessMask` (a real, classic
 > class of Vulkan bug). See `docs/TARGETS/SPIRV_VULKAN.md` §2's superseded note for the exact
 > prior claim and its replacement pointer.
 >
 > **Ratified direction** (not yet designed here): synchronization is modeled on Vulkan's own
-> memory model — synchronizes-with / happens-before / availability+visibility
-> (`references/vulkan/appendix_b__memory_model.md`) — mapped onto this repository's existing
+> memory model — synchronizes-with / happens-before / availability+visibility, grounded in the
+> hash-pinned `vulkan-spec` entry in `references.json` — mapped onto this repository's existing
 > `VectorClock` machinery (`Gasm/Core/Types.lean:32-47`, currently unused by any graphics
 > code) and the causally-ordered trace representation already ratified in
 > `docs/SYSTEM_EFFECTS.md` §6.3–6.4. `vkQueueSubmit` is a host→queue edge; a fence is a
 > queue→host edge; semaphores are queue→queue edges; barriers are intra-queue edges carrying
 > availability/visibility, with RAW included alongside WAR/WAW. The full DSL design — total
 > race-freedom and happens-before-soundness theorems over the command-stream language, per
-> `docs/adr/0011-dsls-as-unit-of-proof-leverage.md`'s DSL-as-proof-leverage principle — is **task G2**
-> (`docs/tasks/G2-synchronization-dsl.md`), sequenced `after: G1` with no other upstream
-> dependency. This document does not sketch that design; it only states that the prior
-> layout-FSM claim is retracted and points to where its replacement lands.
+> `docs/DECISIONS.md` §2's DSL-as-proof-leverage principle — remains a prerequisite in
+> `docs/ROADMAP.md` §1. This document does not sketch that design; it only states that the prior
+> layout-FSM claim is retracted and records the required replacement shape.
 
-### 3.4 Floating-Point Kernel Determinism — SUPERSEDED, see task G3
+### 3.4 Floating-Point Kernel Determinism — SUPERSEDED, replacement pending
 
 > **SUPERSEDED / previously silent.** This document (and `docs/TARGETS/SPIRV_VULKAN.md`) did
 > not previously discuss floating-point equivalence at all — the pre-build audit (§2) calls
-> this "MAJOR, docs silent." The Vulkan specification itself states cross-implementation
-> results are **not** guaranteed pixel/bit exact (`references/vulkan/appendix_i__invariance.md`),
+> this "MAJOR, docs silent." The Vulkan specification itself states cross-implementation results
+> are **not** guaranteed pixel/bit exact (the invariance appendix in the registered
+> `vulkan-spec` source),
 > and per-device repeatability is relaxed for shaders with side effects — i.e. storage-buffer
 > compute, Spike 6's exact shape — absent specific decorations. §5.4 below states the
 > resulting qualification on this document's one shader-equivalence claim.
@@ -230,11 +223,11 @@ part of that contract's equivalence obligation.
 > inside which both-ways byte-equal equivalence is provable exactly as any other contract in
 > this codebase; outside that profile, an explicit ULP-tolerance-refinement-plus-liveness
 > contract shape, with cross-driver bit-exact equality abandoned honestly rather than
-> claimed. Authoring this profile as a DSL (per `docs/adr/0011-dsls-as-unit-of-proof-leverage.md`, so determinism and ULP-bound
-> theorems are proven once per kernel-language membership rather than once per shader) is
-> **task G3** (`docs/tasks/G3-fp-kernel-dsl.md`), sequenced `after: G1` with no other
-> upstream dependency. This document does not sketch that grammar; it only retracts the
-> unqualified equivalence claim in §5.4 and points to where its replacement lands.
+> claimed. Authoring this profile as a DSL (per `docs/DECISIONS.md` §2, so determinism and
+> ULP-bound theorems are proven once per kernel-language membership rather than once per
+> shader) remains a prerequisite in `docs/ROADMAP.md` §1. This document does not sketch that
+> grammar; it only retracts the unqualified equivalence claim in §5.4 and records the required
+> replacement shape.
 
 ---
 
@@ -247,8 +240,8 @@ During lowering from the pure monadic specification to concrete target assembly,
 
 The GPU memory-capability model (device-local provenance, descriptor handoff as
 capability transfer, fence-guarded temporal release) is a separate, not-yet-designed
-extension of Law 11 to GPU memory ranges — tracked as task **G6**, out of this document's
-scope.
+extension of Law 11 to GPU memory ranges — tracked by `docs/ROADMAP.md` §1 and out of this
+document's scope.
 
 ---
 
@@ -286,15 +279,15 @@ scope.
 
 Every shader program in `gasm` is accompanied by a mathematical specification in Lean. Per
 §3.4 above, the claim below is qualified: it holds **only for kernels inside the
-Deterministic Shader Profile** (task G3) — not unconditionally, as a prior version of this
+Deterministic Shader Profile** (§3.4) — not unconditionally, as a prior version of this
 document stated.
 
 $$\forall x \in \text{profile domain}, \quad \text{evalShader}(\text{loweredBytecode}, x) = \text{pureShaderFunction}(x)$$
 
 discharged constructively via mechanical proof **for kernels within the profile**. A kernel
 using an operation, decoration, or execution mode outside the profile is not covered by this
-theorem and instead carries G3's ULP-tolerance-refinement-plus-liveness contract shape; no
-cross-driver bit-exact equality is claimed for it. Until task G3 lands and defines the
+theorem and instead carries §3.4's ULP-tolerance-refinement-plus-liveness contract shape; no
+cross-driver bit-exact equality is claimed for it. Until that profile design lands and defines the
 profile grammar precisely, no shader in this codebase may cite this section as satisfied.
 
 ---
@@ -321,9 +314,8 @@ To support headless rendering and verified image export without OS dependencies,
 1. **`Stdlib/Png` & `Stdlib/Zlib`**: Verified streaming PNG image codec and reusable DEFLATE engine with 1.5-roundtrip theorems and CRC32/Adler32 validation.
 2. **Spike 5: Dual-Target GZIP/GUNZIP Utility (`Stdlib/Zlib`)**:
    - Streaming RFC 1952 compression & decompression across Windows x86_64 and WebAssembly WASI.
-3. **Spike 6: Headless Parametric Compute Pipeline (`Stdlib/Png`)** — redefined per
-   `GRAPHICS_PREBUILD_AUDIT.md` §9 amendment #1 (Law 9 / `docs/VISION.md` §2's canned-output
-   prohibition):
+3. **Spike 6: Headless Parametric Compute Pipeline (`Stdlib/Png`)** — redefined by Law 9 and
+   `docs/VISION.md` §2's canned-output prohibition:
    - **Parametric compute, not a fixed gradient.** The kernel takes an arbitrary input
      buffer `b` (within declared bounds) and the equivalence obligation is
      `∀ b, readback = specFn(b)` — a compute-only dispatch, no rasterization, no fixed or
@@ -345,17 +337,16 @@ To support headless rendering and verified image export without OS dependencies,
      left to claim, and the claim was independently incoherent under the observation
      standard even before the shrink (a trace containing Vulkan resource events can never
      equal a different API's audit-trace shape).
-   - **Synchronization**: superseded, see §3.3 and task **G2**.
-   - **Floating-point determinism**: previously undesigned, see §3.4 and task **G3**. Spike
-     6's kernel must fall inside whatever profile G3 defines, or explicitly carry G3's
+   - **Synchronization**: superseded; see §3.3.
+   - **Floating-point determinism**: previously undesigned; see §3.4. Spike
+     6's kernel must fall inside the profile defined there, or explicitly carry its
      ULP-tolerance-refinement fallback contract; no bit-exact cross-driver claim is made
      here.
-   - **Differential validation**: no harness exists yet; its design (oracle stack, Law 13
-     positive/negative/device-loss/driver-absent/FP-canary controls, scoped to this one
-     committed target) is task **G4** (`docs/tasks/G4-gpu-differential-harness.md`).
-   - **Performance**: per `GRAPHICS_PREBUILD_AUDIT.md` §9 amendment #9, **Spike 6 carries
-     NO performance contract** until the GPU/PCIe cost models are calibrated (task **G8** and
-     the F-track calibration work). No cycle/latency/bandwidth budget may be attached to
+   - **Differential validation**: no harness exists yet; its design must include the oracle
+     stack and Law 13 positive/negative/device-loss/driver-absent/FP-canary controls scoped to
+     this one committed target (`docs/ROADMAP.md` §1).
+   - **Performance**: **Spike 6 carries NO performance contract** until the GPU/PCIe cost
+     models are calibrated under `docs/CALIBRATION_GOVERNANCE.md`. No cycle/latency/bandwidth budget may be attached to
      this spike before then.
 4. **Spike 7: Interactive Windowed Swapchain & Event Loop**:
    - Win32 window creation / HTML5 canvas binding with continuous frame swapchain presentation.

@@ -268,11 +268,11 @@ def get_tier2_tests() -> List[TestCase]:
     tests.append(make_boundary_test("T2.04.04", 4, "M1", "doc_facade_integrity", "Verify check_doc_facade.py passes", t2_04_04))
 
     def t2_04_05(ctx):
-        code, out, err = ctx.run_cmd([ctx.python_exe, "scripts/check_record.py"])
+        code, out, err = ctx.run_cmd([ctx.python_exe, "scripts/check_instructions_umbrella.py"])
         if code == 0:
-            return TestStatus.PASS, "check_record.py passed (D23 decision record integrity)"
-        return TestStatus.FAIL, f"check_record.py failed: {out}"
-    tests.append(make_boundary_test("T2.04.05", 4, "M1", "decision_record_integrity", "Verify check_record.py passes", t2_04_05))
+            return TestStatus.PASS, "check_instructions_umbrella.py passed"
+        return TestStatus.FAIL, f"check_instructions_umbrella.py failed: {out or err}"
+    tests.append(make_boundary_test("T2.04.05", 4, "M1", "instruction_umbrella_integrity", "Verify the instruction umbrella gate passes", t2_04_05))
 
     # --------------------------------------------------------------------------------------------
     # Feature 5: Registers & State (M2, R2) - 5 genuine boundary tests

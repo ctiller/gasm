@@ -182,32 +182,28 @@ theorem spike4_linux_404_trace_equivalence :
 #guard !Gasm.Targets.Wasm.WasmRunResult.isError
   (runWasiTraceState spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports ["GET /unknown HTTP/1.1\r\nHost: localhost\r\n\r\n"])
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- **Domain-honesty note (PA17).** The real per-connection domain Law 9's read-binder clause
     demands here is `∀ (request : ByteArray)` (or the `String` `recv`/`sock_recv` currently model
     as their unit of transfer) -- any byte string a client can send, per
-    `docs/tasks/PA6-read-binder-contract.md`. `HttpRoute` below is NOT that domain: it is a
+    `docs/READ_BINDER_CONTRACT.md`. `HttpRoute` below is NOT that domain: it is a
     three-element proxy standing in for exactly the three literal request strings
     `routeRequestStr` maps it to, chosen so `∀ (r : HttpRoute)` type-checks trivially over a
-    domain of size 3. An earlier census (`PLAN.md`'s Law 9 mock-verification census) classified
+    domain of size 3. The historical Law 9 mock-verification census classified
     the `cases r; exact ...` composition below as "Tier 3 -- legit pattern," reasoning that it is
     a genuine finite-∀ over an exhaustive enum. **That reasoning is correct about the outer
     composition and incomplete about the inner claim**: each of the three branches is still one
     `native_decide` check against one literal byte string, not "any request that would route the
-    same way." This is not academic: the actual x86-64 lowering's route dispatch
-    (`Spikes/Spike4HttpServer/Windows/Program.lean`'s `send_status` check) matches on a 5-byte
-    prefix (`"/stat"`) rather than the full 7-character `"/status"`, and the WASI lowering
-    (`Spikes/Spike4HttpServer/Wasm/Program.lean`) matches on a single byte (the character right
-    after `"/"` being `'s'`). Both are *provably wrong* against the honest model
-    (`Spec.lean`'s `parseRequestLine`/`routeRequest`, which compare the full path string) for
-    requests neither `HttpRoute` nor these six theorems ever exercise -- see the "KNOWN
-    DIVERGENCE" note below `spike4_wasm_route_equivalence` for the precise counterexamples this
-    task found while establishing that fact. `spike4_windows_trace_equivalence_for_request` and
+    same way." The historical route-prefix counterexamples were fixed by N8 (see the FIXED note
+    below), but the domain gap is still substantive: malformed request lines that the model maps
+    to 400 Bad Request receive a different response from at least one lowering. The checked
+    surviving counterexamples are listed under `spike4GeneralClaimCounterexamples` below.
+    `spike4_windows_trace_equivalence_for_request` and
     `spike4_wasm_trace_equivalence_for_request` below restate the six facts this file already
     proves with their real, narrow domain (one of three literal request strings) made an
-    explicit, checkable hypothesis instead of an implicit `HttpRoute` case split -- they do not
-    and cannot extend coverage to the request strings that expose the divergence, because for
-    those requests the claim is false, not merely unproven. -/
+    explicit, checkable hypothesis instead of an implicit `HttpRoute` case split. They do not
+    extend coverage to arbitrary request bytes; the fully general claim remains false on the
+    malformed-request witnesses. -/
 inductive HttpRoute where
   | root
   | status
@@ -254,23 +250,23 @@ theorem spike4_linux_route_equivalence (r : HttpRoute) :
   · exact spike4_linux_status_trace_equivalence
   · exact spike4_linux_404_trace_equivalence
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Honest restatement of `spike4_windows_route_equivalence`'s three constituent facts with their
     real, narrow domain (one of the three literal request strings `routeRequestStr` produces) made
     an explicit, machine-checked hypothesis (`h`) rather than an implicit `HttpRoute` case split
-    standing in for it -- the shape `docs/tasks/PA17-spike3-spike4-domain-honesty.md` asks for
+    standing in for it -- the domain-honesty shape `docs/SPIKES/SPIKE4_HTTP_SERVER.md` §4 records
     when a genuinely universal `∀ (request : ByteArray)` statement is not reachable in this task:
     "for all inputs satisfying P, with P stated." `P` here is deliberately narrow and is not the
-    real per-route domain (see the "KNOWN DIVERGENCE" note below, which is why it cannot honestly
-    be widened to "any request whose parsed path is `r`"). -/
+    real per-route domain (see the surviving general-claim counterexamples below, which is why it
+    cannot honestly be widened to arbitrary request bytes). -/
 theorem spike4_windows_trace_equivalence_for_request (req : String) (r : HttpRoute)
     (h : req = routeRequestStr r) :
     (runAsmTrace (Event := AnyEvent) Windows.spike4Instructions (Windows.spike4Executable.loadWithRequests [req]) == routeModelTrace r) = true := by
   subst h
   exact spike4_windows_route_equivalence r
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Honest restatement of `spike4_wasm_route_equivalence`'s three constituent facts; see
     `spike4_windows_trace_equivalence_for_request` immediately above for the rationale, which
@@ -281,7 +277,7 @@ theorem spike4_wasm_trace_equivalence_for_request (req : String) (r : HttpRoute)
   subst h
   exact spike4_wasm_route_equivalence r
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Honest restatement of `spike4_linux_route_equivalence`'s three constituent facts; see
     `spike4_windows_trace_equivalence_for_request` above for the rationale, which applies
@@ -294,12 +290,11 @@ theorem spike4_linux_trace_equivalence_for_request (req : String) (r : HttpRoute
   subst h
   exact spike4_linux_route_equivalence r
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
-/- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-!
 **FIXED (N8).** This note used to document a confirmed route-prefix-confusion divergence between
 `spike4_windows_route_equivalence`/`spike4_wasm_route_equivalence` and the honest per-request model
-(`Spec.lean`'s `parseRequestLine`/`routeRequest`); `docs/tasks/N8-spike4-stack-buffer-overflow.md`
+(`Spec.lean`'s `parseRequestLine`/`routeRequest`); `docs/SPIKES/SPIKE4_HTTP_SERVER.md`
 fixed the underlying assembly/WASI dispatch bug, and the regression suite below (`spike4RouteFixedOnAllTargets`)
 re-checks every witness this note used to name. The historical bug, for the record:
 
@@ -351,14 +346,14 @@ other: `parseRequestLine ""` fails to split into three tokens and the model send
 before closing. These two behaviors are genuinely different, not because the fix is wrong, but
 because `MonadNetwork.recv` cannot represent a true zero-byte/EOF read distinctly from "one more
 (possibly empty) logical request" — the same "vacuous ∀ proven against a model that cannot produce
-the input the claim needs to range over" gap `docs/tasks/PA6-read-binder-contract.md` names for
-short/partial reads (`MODEL_DEBT.md` §C1), recurring here one layer down (read *atomicity*, not read
+the input the claim needs to range over" gap `docs/READ_BINDER_CONTRACT.md` names for
+short/partial reads (`docs/READ_BINDER_CONTRACT.md`), recurring here one layer down (read *atomicity*, not read
 *length*). `spike4EmptyRecvClosesWithoutCorruption` below instead pins the fixed assembly's *own*
 observable behavior (a regression check, not a spec-equivalence claim) and confirms the connection
 immediately after it is unaffected.
 -/
 
-/- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md -/
 /-- Combined route-correctness regression check across all three lowered targets for one request
     string, verified against the honest per-request model (`serverModelTraceFor`, `Spec.lean`).
     Used below to re-check every literal counterexample the (now-fixed) route-prefix bug's
@@ -371,7 +366,7 @@ def spike4RouteFixedOnAllTargets (req : String) : Bool :=
   (runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req] == expected.map Inject.inject)
 
 -- Every prefix-confusion witness the pre-fix "KNOWN DIVERGENCE" note named, plus the two
--- specifically called out in docs/tasks/N8-spike4-stack-buffer-overflow.md's routing-bug writeup.
+-- specifically called out in docs/SPIKES/SPIKE4_HTTP_SERVER.md's routing-bug writeup.
 #guard spike4RouteFixedOnAllTargets "GET /static HTTP/1.1\r\nHost: localhost\r\n\r\n"
 #guard spike4RouteFixedOnAllTargets "GET /search HTTP/1.1\r\nHost: localhost\r\n\r\n"
 #guard spike4RouteFixedOnAllTargets "GET /status_check HTTP/1.1\r\nHost: localhost\r\n\r\n"
@@ -384,7 +379,7 @@ def spike4RouteFixedOnAllTargets (req : String) : Bool :=
 -- an over-correction that broke the legitimate case.
 #guard spike4RouteFixedOnAllTargets "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
 /-!
 ## Method validation (PA17's second defect -- FIXED on all three targets)
 
@@ -421,7 +416,7 @@ the method was one reason among several, not the last one. See
 `spike4GeneralClaimCounterexamples` below for the surviving reasons, each a checked witness.
 -/
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
 /-- PA17's original falsity witness for the fully-general claim: method `"FOO"` is outside
     `Stdlib.Http11.Method`, so the model answers 400, while every lowering used to answer 200 OK.
     Retained under its original name because the guard below is the checked record of the flip --
@@ -441,7 +436,7 @@ def witnessMethodNotValidatedDivergence : String :=
 def spike4MethodRequest (m : Stdlib.Http11.Method) (path : String) : String :=
   s!"{methodToString m} {path} HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
 /-- Every one of `Stdlib.Http11.Method`'s nine tokens, on one target path, agrees with the model on
     all three lowerings. This is the coverage that pins defect 2 above: the nine methods span five
     distinct token lengths, so a lowering that reverted to a fixed path offset would fail here for
@@ -462,7 +457,7 @@ def spike4AllMethodsRouteCorrectly (path : String) : Bool :=
 #guard spike4RouteFixedOnAllTargets "OPTION / HTTP/1.1\r\nHost: localhost\r\n\r\n"
 #guard spike4RouteFixedOnAllTargets "get / HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
 /-- **The fully-general `∀ (request : ByteArray)` trace-equivalence claim is still FALSE after the
     method-validation fix, and these are the surviving reasons -- checked, not asserted.**
 
@@ -546,7 +541,7 @@ def spike4RequestLineErrorTaxonomy : List Stdlib.Http11.Error :=
 -- into a stale comment the way the route-prefix justification it replaces did.
 #guard spike4GeneralClaimCounterexamples.all (fun (_, _, req) => !spike4RouteFixedOnAllTargets req)
 
-/- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md -/
 /-- Widened-buffer, variable-size negative-control regression (N8's "variable sizes ... do not
     crash or corrupt stack state" deliverable). Pairs a garbage/oversized-relative-to-the-old-16-byte-
     buffer request with a well-formed canonical `GET /` request and checks two things about the
@@ -582,9 +577,9 @@ def spike4SecondConnectionUnaffectedByFirst (garbageReq : String) : Bool :=
 #guard spike4SecondConnectionUnaffectedByFirst (String.ofList (List.replicate 120 'C'))   -- 120 bytes
 #guard spike4SecondConnectionUnaffectedByFirst (String.ofList (List.replicate 250 'D'))   -- 250 bytes, within 8 bytes of the widened 256-byte buffer's capacity
 
-/- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md -/
 /-- Pins the fixed assembly's own behavior for a `recv`/`read` that returns exactly `0` (the one
-    case `docs/tasks/N8-spike4-stack-buffer-overflow.md`'s defect 2 concerns): the connection is
+    case `docs/SPIKES/SPIKE4_HTTP_SERVER.md`'s defect 2 concerns): the connection is
     closed WITHOUT a `send` event (no uninitialized-buffer content is ever read or transmitted), and
     the following connection is unaffected. See the note above `spike4RouteFixedOnAllTargets` for
     why this is a regression check against the fix's own intended behavior rather than a
@@ -620,8 +615,8 @@ instance : WasiEnvironmentLoader HttpRoute where
     NOTE (PA17 domain-honesty finding): despite the `∀ (r : HttpRoute)` shape below satisfying
     `VerifiedProgram`'s literal type signature, this is NOT a Law-9-compliant universal claim over
     the real per-connection request domain -- see the domain-honesty note on `HttpRoute` above and
-    the "KNOWN DIVERGENCE" note below `spike4_wasm_route_equivalence`, which documents a confirmed,
-    real routing bug outside the three literal requests this contract's proof exercises. Do not
+    the checked malformed-request counterexamples below, which document response mismatches outside
+    the three literal requests this contract's proof exercises. Do not
     cite this declaration as evidence Spike 4 has been verified for arbitrary HTTP requests. -/
 def spike4WindowsVerifiedProgram : VerifiedProgram HttpRoute AnyEvent where
   name := "spike4_http_server_windows"
@@ -642,8 +637,9 @@ def spike4LinuxVerifiedProgram : VerifiedLinuxProgram HttpRoute AnyEvent where
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- Instantiation of the First-Class Parametric VerifiedWasmProgram contract for Spike 4 on WebAssembly across all routing branches.
     NOTE (PA17 domain-honesty finding): see the identical note on `spike4WindowsVerifiedProgram`
-    above -- it applies here unchanged, and the WASI routing dispatch's single-byte prefix check
-    is in fact a strictly broader instance of the same bug (see the "KNOWN DIVERGENCE" note). -/
+    above -- it applies here unchanged. The old WASI single-byte route-prefix bug is fixed; the
+    remaining gap is the malformed-request/error-response mismatch recorded by the checked
+    counterexamples above. -/
 def spike4WasmVerifiedProgram : VerifiedWasmProgram HttpRoute AnyEvent where
   name := "spike4_http_server_wasm"
   module := spike4WasmModule

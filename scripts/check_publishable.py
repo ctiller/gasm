@@ -16,7 +16,8 @@
 """
 scripts/check_publishable.py - Pre-Flatten Publishability Gate for gasm
 
-The top-level mechanical gate for docs/PRE_FLATTEN_CHECKLIST.md. This script
+The top-level mechanical gate for the publishability contract in
+docs/REFERENCE_INDEX.md §6.6. This script
 is the PUBLISHABILITY gate: "is anything in this tree unsafe or improper to
 publish." It deliberately does not re-implement checks that already have a
 dedicated, better-scoped owner elsewhere in scripts/ -- it shells out to them
@@ -479,7 +480,7 @@ def check_root_license_text(allowlist: List[dict]) -> List[Finding]:
 def run_subprocess_check(args: List[str], label: str) -> bool:
     """Runs a delegated check script in the foreground and returns True iff
     it exited 0. Never piped -- the caller's own exit code must reflect this
-    directly, the same discipline docs/PRE_FLATTEN_CHECKLIST.md requires of
+    directly, the same discipline docs/REFERENCE_INDEX.md §6.6 requires of
     a human running these tools by hand."""
     print(f"\n--- delegated check: {label} ---")
     sys.stdout.flush()

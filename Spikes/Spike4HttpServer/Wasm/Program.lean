@@ -151,7 +151,7 @@ def spike4WasmInstructions : List WasmInstr := [
     .call 2,
     .local_set 2,
 
-    -- 3b. Validate bytes_recv (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md, defect 2 analog
+    -- 3b. Validate bytes_recv (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md, defect 2 analog
     -- for this target). sock_recv only ever returns a non-negative count in this model (0 on
     -- EOF/no data), so a plain i32_eqz suffices -- unlike the native targets there is no negative
     -- errno return to additionally guard against here. On EOF, skip routing entirely rather than
@@ -165,7 +165,7 @@ def spike4WasmInstructions : List WasmInstr := [
       .call 4,
       .drop
     ] ([
-      -- 3c. Validate the request's HTTP method token (REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md).
+      -- 3c. Validate the request's HTTP method token (REF: docs/READ_BINDER_CONTRACT.md).
       -- This lowering used to assume, with no check, that the request began with the four bytes
       -- "GET " and read the path window at the fixed offset 0x404 -- answering 200 OK to
       -- "FOO / HTTP/1.1..." where Spec.parseRequestLine answers 400 Bad Request, and mis-reading
@@ -181,7 +181,7 @@ def spike4WasmInstructions : List WasmInstr := [
         .local_set 4
       ] [
       -- 4. Route request based on the full path at the offset the method token selected.
-      -- Exact 8-byte compare against "/status " (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
+      -- Exact 8-byte compare against "/status " (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md,
       -- defect 3) -- the prior check read a *single* byte at offset 0x405 ('s'), matching ANY path
       -- merely starting with "/s" ("/static", "/search", "/settings", even the bare path "/s");
       -- strictly weaker than the Windows/Linux 5-byte "/stat" prefix bug it mirrors.

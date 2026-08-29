@@ -1,5 +1,14 @@
 # Spike 3: Verified Stdin Lexicographical Sort & Windows PE64 Executable
 
+**Status (2026-08-29): implemented vertical slice with narrow verification coverage.** The
+Windows lowering has checked trace-equality facts for exactly two stdin values: empty input and
+`defaultSampleInput`. Its `VerifiedProgram Bool` instance composes those two facts; `Bool` is a
+two-element selector, not a proof over arbitrary `ByteArray` input. The source-level reader,
+bounded hook wiring, and executable tests cover more behavior operationally, but no theorem yet
+proves end-to-end equivalence, sortedness, or permutation for every stdin stream. The precise
+boundary is documented in §6 and
+`Spikes/Spike3SortLines/Windows/Equivalence.lean`.
+
 ## 1. Overview & High-Level Architecture
 
 Spike 3 is an end-to-end verified vertical slice in `gasm` demonstrating buffered stream reading from standard input, parsing and tokenizing raw character streams into discrete string records in memory, in-place lexicographical sorting via proof-carrying x86-64 assembly, and formatted output streaming to standard output via the Win32 API.
@@ -57,27 +66,41 @@ The relation $\le_{\text{lex}}$ is a total preorder (reflexive, transitive, and 
 
 ---
 
-## 4. First Spike of Memory Provenance & Unbounded Ingestion
+## 4. Current Memory and Ingestion Boundary
 
-Spike 3 establishes the foundation for **Memory Provenance** in `gasm`:
-- **Unbounded Monadic Ingestion**: `readAllLines` actively reads from `MonadConsole.readLine` without artificial caps, fuels, or hardcoded limits (`docs/MEMORY_PROVENANCE.md`).
-- **Dynamic Heap Memory**: Stdin buffers and line descriptors are managed dynamically in process memory, scaling to available RAM limits.
-- **Pointer Typestates & Safety**: Line descriptor pointers $\langle ptr_i, len_i \rangle$ carry spatial validity within the active allocation block, guaranteeing memory safety throughout in-place sorting and stdout emission.
+Spike 3 exercises streamed input and pointer-rich lowered code, but it does not yet establish the
+repository's planned provenance model:
+
+- **Specification reader**: `readAllLinesFueled` is structurally recursive with an explicit
+  `specMaxStdinLines` bound; it is not an unbounded termination proof.
+- **Lowered buffers**: the Windows and Wasm programs use concrete bounded buffers and fixed read
+  sizes. They do not prove scaling to available RAM or a general dynamic-heap theorem.
+- **Pointer safety**: the current program and trace checks do not carry the generational typed-view
+  and capability witnesses required by `docs/MEMORY_MODEL.md` §§6–7. That remains future M1/M4
+  work, not a property this spike may claim today.
 
 ---
 
 ## 5. Mathematical Sortedness & Permutation Theorems
 
-The functional specification defines `sortStrings : List String → List String`.
-The implementation proves:
-1. **Sortedness Invariant**:
-   $$\forall i < j, \quad \text{sortStrings}(L)[i] \le_{\text{lex}} \text{sortStrings}(L)[j]$$
-2. **Permutation Invariant**:
-   $$\text{sortStrings}(L) \sim_{\text{perm}} L$$
-   (The sorted list contains exactly the same multiset of elements as the input list).
+The functional specification defines `sortStrings : List String → List String` and an
+`IsSorted` predicate. The checked theorem population is narrower than the intended general
+contract: `sortStrings_nil`, `sortStrings_single`, and one concrete three-element example exist.
+There is no universal sortedness theorem and no universal permutation theorem in the tree yet.
+Those remain required before the mathematical contract below can be claimed for arbitrary lists.
 
 ---
 
-## 5. End-to-End Simulation & Verification Invariant
+## 6. End-to-End Simulation & Verification Invariant
 
-The execution of the assembled machine program $\mathcal{P}_{\text{asm}}$ starting from a valid Windows entry state $\sigma_{\text{entry}}$ with standard input stream $I$ yields a canonical effect trace $\mathcal{T}_{\text{asm}}$ identical to the monadic functional specification $\mathcal{T}_{\text{spec}}(\text{sortLinesSpec}(I))$.
+The target contract is that execution of the assembled machine program $\mathcal{P}_{\text{asm}}$
+from a valid Windows entry state $\sigma_{\text{entry}}$, for arbitrary standard-input bytes $I$,
+yields a canonical effect trace $\mathcal{T}_{\text{asm}}$ identical to the monadic functional
+specification $\mathcal{T}_{\text{spec}}(\text{sortLinesSpec}(I))$.
+
+**Current proof boundary:** this universal statement is not proved. The Windows equivalence file
+checks the empty and canonical sample inputs and provides explicit-hypothesis wrappers for exactly
+those two values. Its `EnvironmentLoader Bool`/`VerifiedProgram Bool` composition exhausts the
+selector type but does not quantify over stdin bytes. Closing the gap requires a live read-binder
+obligation plus induction over the streaming-ingestion loop; see `docs/READ_BINDER_CONTRACT.md`
+§§8–9 and `docs/REVIEW.md` Law 9.

@@ -711,7 +711,7 @@ def get_tier1_tests() -> List[TestCase]:
         make_file_check_test("T1.28.01", 28, "M7", "adversarial_tier2_suite", "Verify Tier 2 Boundary suite exists", "tests/e2e/cases/tier2_boundary_corner.py"),
         make_file_check_test("T1.28.02", 28, "M7", "adversarial_tier3_suite", "Verify Tier 3 Cross-Feature suite exists", "tests/e2e/cases/tier3_cross_feature.py"),
         make_file_check_test("T1.28.03", 28, "M7", "adversarial_tier4_suite", "Verify Tier 4 Real-World suite exists", "tests/e2e/cases/tier4_real_world.py"),
-        make_content_check_test("T1.28.04", 28, "M7", "tcb_ledger_rules", "Verify TCB.md trust ledger integrity", "TCB.md", r"Trust"),
-        make_content_check_test("T1.28.05", 28, "M7", "model_debt_ledger", "Verify MODEL_DEBT.md model debt ledger exists", "MODEL_DEBT.md", r"Debt"),
+        make_content_check_test("T1.28.04", 28, "M7", "review_trust_rules", "Verify the current review protocol records trust rules", "docs/REVIEW.md", r"Mechanical Truth"),
+        make_content_check_test("T1.28.05", 28, "M7", "architectural_debt_notes", "Verify the current technical-debt ledger exists", "docs/TECHNICAL_NOTES.md", r"Architectural Debts"),
     ]
     return tests
