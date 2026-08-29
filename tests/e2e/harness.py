@@ -99,8 +99,13 @@ class ExecutionContext:
             shutil.which("qemu-system-aarch64.exe"),
             "/usr/bin/qemu-system-aarch64",
             "/usr/local/bin/qemu-system-aarch64",
-            r"C:\Program Files\qemu\qemu-system-aarch64.exe",
         ]
+        pf = os.environ.get("ProgramFiles")
+        if pf:
+            candidates.append(os.path.join(pf, "qemu", "qemu-system-aarch64.exe"))
+        pfx86 = os.environ.get("ProgramFiles(x86)")
+        if pfx86:
+            candidates.append(os.path.join(pfx86, "qemu", "qemu-system-aarch64.exe"))
         for c in candidates:
             if c and os.path.exists(c):
                 return c

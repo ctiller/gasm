@@ -48,10 +48,10 @@ def findNasmPath (overridePath : Option String := none) : IO String := do
   ]
   if let some localAppData ← IO.getEnv "LOCALAPPDATA" then
     standardPaths := standardPaths ++ [s!"{localAppData}\\bin\\NASM\\nasm.exe"]
-  standardPaths := standardPaths ++ [
-    "C:\\Program Files\\NASM\\nasm.exe",
-    "C:\\Program Files (x86)\\NASM\\nasm.exe"
-  ]
+  if let some pf ← IO.getEnv "ProgramFiles" then
+    standardPaths := standardPaths ++ [s!"{pf}\\NASM\\nasm.exe"]
+  if let some pfx86 ← IO.getEnv "ProgramFiles(x86)" then
+    standardPaths := standardPaths ++ [s!"{pfx86}\\NASM\\nasm.exe"]
   for p in standardPaths do
     let isAvail ← try
       let proc ← IO.Process.spawn {

@@ -245,8 +245,12 @@ def detect_nasm() -> Dict:
     localappdata = os.environ.get("LOCALAPPDATA")
     if localappdata:
         candidates.append(str(Path(localappdata) / "bin" / "NASM" / "nasm.exe"))
-    candidates.append(r"C:\Program Files\NASM\nasm.exe")
-    candidates.append(r"C:\Program Files (x86)\NASM\nasm.exe")
+    programfiles = os.environ.get("ProgramFiles")
+    if programfiles:
+        candidates.append(str(Path(programfiles) / "NASM" / "nasm.exe"))
+    programfiles_x86 = os.environ.get("ProgramFiles(x86)")
+    if programfiles_x86:
+        candidates.append(str(Path(programfiles_x86) / "NASM" / "nasm.exe"))
 
     tried = []
     for cand in candidates:
@@ -267,15 +271,8 @@ def detect_nasm() -> Dict:
 
 def detect_qemu() -> Dict:
     """Mirrors detect_nasm()'s resolution order, applied to Gasm/Targets/BareMetal/QEMU.lean's
-    `findQemuPath`: GASM_QEMU override -> PATH -> standard Windows install location (winget's
-    default, `C:\\Program Files\\qemu\\qemu-system-x86_64.exe`) -> standard Linux package-manager
-    location (`/usr/bin/qemu-system-x86_64`, where `apt-get install qemu-system-x86` puts it).
-    Same explicit-override-does-not-fall-through divergence as detect_nasm(), for the same
-    reason: a broken GASM_QEMU must be reported as NOT FOUND, never silently substituted by a
-    different, working qemu-system-x86_64 this detector happened to also find -- that would be a
-    false provenance record for what test_spike1_baremetal will actually invoke.
-    Required by test_spike1_baremetal (Spikes/Spike1Hello/BareMetal/Test.lean), the QEMU hardware
-    runner for the bare-metal x86-64 target -- see docs/TARGETS/BARE_METAL.md §7."""
+    `findQemuPath`: GASM_QEMU override -> PATH -> standard Windows install location -> standard Linux
+    package-manager location (`/usr/bin/qemu-system-x86_64`)."""
     override = os.environ.get("GASM_QEMU")
     if override:
         code, out = _run_capture([override, "--version"])
@@ -293,9 +290,12 @@ def detect_qemu() -> Dict:
     which_qemu = shutil.which("qemu-system-x86_64") or shutil.which("qemu-system-x86_64.exe")
     if which_qemu:
         candidates.append(which_qemu)
-    candidates.append(r"C:\Program Files\qemu\qemu-system-x86_64.exe")
-    candidates.append(r"C:\Program Files (x86)\qemu\qemu-system-x86_64.exe")
+    if programfiles:
+        candidates.append(str(Path(programfiles) / "qemu" / "qemu-system-x86_64.exe"))
+    if programfiles_x86:
+        candidates.append(str(Path(programfiles_x86) / "qemu" / "qemu-system-x86_64.exe"))
     candidates.append("/usr/bin/qemu-system-x86_64")
+    candidates.append("/usr/local/bin/qemu-system-x86_64")
 
     tried = []
     for cand in candidates:
@@ -379,7 +379,12 @@ def detect_qemu_system_aarch64() -> Dict:
     which_qemu = shutil.which("qemu-system-aarch64") or shutil.which("qemu-system-aarch64.exe")
     if which_qemu:
         candidates.append(which_qemu)
-    candidates.append(r"C:\Program Files\qemu\qemu-system-aarch64.exe")
+    if programfiles:
+        candidates.append(str(Path(programfiles) / "qemu" / "qemu-system-aarch64.exe"))
+    if programfiles_x86:
+        candidates.append(str(Path(programfiles_x86) / "qemu" / "qemu-system-aarch64.exe"))
+    candidates.append("/usr/bin/qemu-system-aarch64")
+    candidates.append("/usr/local/bin/qemu-system-aarch64")
     candidates.append("/usr/bin/qemu-system-aarch64")
 
     tried = []

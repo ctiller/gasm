@@ -27,13 +27,17 @@ def findQemuSystemPath (overridePath : Option String := none) : IO (Option Strin
     return some p
   if let some envPath ← IO.getEnv "GASM_QEMU_AARCH64" then
     return some envPath
-  let standardPaths := [
+  let mut candidates := #[
     "qemu-system-aarch64",
     "qemu-system-aarch64.exe",
-    "C:\\Program Files\\qemu\\qemu-system-aarch64.exe",
-    "/usr/bin/qemu-system-aarch64"
+    "/usr/bin/qemu-system-aarch64",
+    "/usr/local/bin/qemu-system-aarch64"
   ]
-  for p in standardPaths do
+  if let some pf ← IO.getEnv "ProgramFiles" then
+    candidates := candidates.push s!"{pf}\\qemu\\qemu-system-aarch64.exe"
+  if let some pfx86 ← IO.getEnv "ProgramFiles(x86)" then
+    candidates := candidates.push s!"{pfx86}\\qemu\\qemu-system-aarch64.exe"
+  for p in candidates do
     let isAvail ← try
       let proc ← IO.Process.spawn {
         cmd := p

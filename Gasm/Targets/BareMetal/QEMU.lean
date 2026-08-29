@@ -25,28 +25,29 @@ namespace Gasm.Targets.BareMetal
     explicit `overridePath` argument; (2) the `GASM_QEMU` environment variable, which callers
     should set to the full path of their `qemu-system-x86_64(.exe)` when it is not
     discoverable by the remaining generic candidates (e.g.
-    `GASM_QEMU=C:\Program Files\qemu\qemu-system-x86_64.exe` -- the default winget/upstream
-    Windows install location, not on PATH by default); (3) `qemu-system-x86_64` /
-    `qemu-system-x86_64.exe` on PATH; (4) the standard machine-wide Windows install locations
-    (`Program Files`, `Program Files (x86)`); (5) the standard Linux package-manager install
-    location (`/usr/bin/qemu-system-x86_64`, where `apt-get install qemu-system-x86` puts it).
+    `GASM_QEMU` environment variable, which callers should set to the full path of their
+    `qemu-system-x86_64(.exe)` when it is not discoverable by the remaining generic candidates;
+    (3) `qemu-system-x86_64` / `qemu-system-x86_64.exe` on PATH; (4) the standard machine-wide
+    Windows install locations (`Program Files`, `Program Files (x86)`); (5) the standard Linux
+    package-manager install location (`/usr/bin/qemu-system-x86_64`).
     Returns `none` (never throws) if none of these resolve to a working QEMU binary, so callers
-    can honor the honest-runner convention (`docs/SPIKES.md` §4 item 5: exit `2` = oracle
-    absent, hardware validation did not run) rather than have an exception synthesize a false
-    failure that looks identical to a genuine verification mismatch. -/
+    can honor the honest-runner convention rather than have an exception synthesize a false failure. -/
 def findQemuPath (overridePath : Option String := none) : IO (Option String) := do
   if let some p := overridePath then
     return some p
   if let some envPath ← IO.getEnv "GASM_QEMU" then
     return some envPath
-  let standardPaths := [
+  let mut candidates := #[
     "qemu-system-x86_64",
     "qemu-system-x86_64.exe",
-    "C:\\Program Files\\qemu\\qemu-system-x86_64.exe",
-    "C:\\Program Files (x86)\\qemu\\qemu-system-x86_64.exe",
-    "/usr/bin/qemu-system-x86_64"
+    "/usr/bin/qemu-system-x86_64",
+    "/usr/local/bin/qemu-system-x86_64"
   ]
-  for p in standardPaths do
+  if let some pf ← IO.getEnv "ProgramFiles" then
+    candidates := candidates.push s!"{pf}\\qemu\\qemu-system-x86_64.exe"
+  if let some pfx86 ← IO.getEnv "ProgramFiles(x86)" then
+    candidates := candidates.push s!"{pfx86}\\qemu\\qemu-system-x86_64.exe"
+  for p in candidates do
     let isAvail ← try
       let proc ← IO.Process.spawn {
         cmd := p
