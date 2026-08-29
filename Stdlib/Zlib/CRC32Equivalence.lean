@@ -621,7 +621,9 @@ theorem step_shr_r64_imm8 (dst : Reg64) (imm : UInt8) (s : X86_64MachineState) :
             else 0)
           (if (imm &&& 0x3F).toUInt64 == 1 then (s.gprs dst >>> 63) &&& 1 else 0)
           (imm &&& 0x3F) with
-        rip := s.rip + 4 } := rfl
+        rip := s.rip + 4 } := by
+  cases s
+  rfl
 
 /- REF: docs/PATHFINDER_CRC32.md#31-fourteen-distinct-instruction-types-revised-again-m5 -/
 theorem step_cmp_r64_imm8 (dst : Reg64) (imm : UInt8) (s : X86_64MachineState) :
