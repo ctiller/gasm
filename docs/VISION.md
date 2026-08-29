@@ -63,7 +63,7 @@ while leaving everything inside the proved envelope open to creative implementat
 
 Proof burden is proportional to that envelope across all of gasm: functional equivalence, ABI and
 linking, memory/provenance, effects and observables, lifecycle, security, performance bounds and
-liveness/progress. Proof planning derives an applicability closure from
+liveness/progress. Proof planning derives and records an applicability closure from
 the selected targets, reachable effects and failure paths, and the guarantees actually advertised.
 Every obligation in that closure is mandatory, but optional architectures, APIs, progress classes and
 stronger properties outside it impose no work. Stage packaging is not a semantic dependency: when a
@@ -71,6 +71,12 @@ stage contains independent certificates, a consumer takes only the certificate i
 contract and library theorems are proved once; an implementation proves its refinement delta and any
 stronger property it elects to claim. A proof request should be traceable to the unsafe behavior,
 platform rule or advertised consequence it excludes.
+
+Until a separate repository-wide applicability-closure checker is implemented, that closure is a
+required author/reviewer artifact, not a claimed automatic gate. A boundary-profile registry can
+close concrete entries without deriving unrelated functional, security, performance or lifecycle
+obligations. The absence of automation never excuses an applicable proof, but the mere existence of
+an expressible optional profile never creates one.
 
 Synchronization and communication preserve that freedom through three proof levels. A high-level
 program states the demand and required consequences. A domain plan chooses an ISA-independent
@@ -81,17 +87,24 @@ and transport. This lets one domain architecture be reused across targets and le
 different domain plans, while preventing either an attractive ISA instruction or a convenient API
 event from being credited with a consequence its owning profile does not guarantee.
 
-Lifecycle and failure boundaries obey the same rule. A high-level task may demand eventual result
-transfer and one-shot join without prescribing whether the domain plan uses a thread, a process or
-a remote worker. A process realization must then prove generative identity, explicit result/IPC
-channels, status observation versus consumption/reaping, handle/object rights and resource-specific
-survival within a named failure domain; termination is neither a magic capability sink nor a global
-world invalidation. Code callable from an interrupt, exception, signal, APC, trap or cancellation
-handler must separately prove that handler context's authority, nesting/mask/reentrancy, stack,
-blocking/allocation/fault, cleanup and progress bounds. At-fork callbacks, restricted fork-child
-code and vfork-borrowed children are distinct lifecycle phases with their own callable surface,
-authority, allowed exits and failure rules—not handler stacks. This preserves implementation freedom
-without allowing a convenient lifecycle or asynchronous event to inherit unproved thread semantics.
+Lifecycle and failure boundaries obey the same rule. Through M9 the hosted target is one root host
+process with multiple CPU threads, while GPU/device/IOMMU/resource address domains remain separately
+indexed; “single process” is not “one global address space.” Graceful root exit accounts for every
+thread context, terminal bundle, guard, loan and join right. Fatal root/agent abort is not normal
+discharge or global invalidation of surviving external effects.
+
+Multiprocess creation, wait/reap, cross-process IPC and process-shared robust recovery are deferred
+beyond M9 and add no current proof burden. `docs/FUTURE_PROCESS_MODEL.md` preserves the detailed
+compatibility constraints for a later consumer-selected profile. A high-level task may still demand
+eventual result transfer without prescribing a thread/process/remote mechanism; only an implementer
+who selects the future process mechanism owes its lifecycle, channel and failure-domain proof.
+
+Code callable from an interrupt, exception, signal, APC, trap or cancellation handler separately
+proves that context's authority, nesting/mask/reentrancy, stack, blocking/allocation/fault, cleanup and
+progress bounds. Bare-metal IRQ/NMI frames are agent-local; hosted signal/APC activations belong to
+their logical thread. Unselected asynchronous surfaces impose no proof. This preserves implementation
+freedom without allowing a convenient lifecycle or asynchronous event to inherit unproved thread
+semantics.
 
 ### The Target Systems
 
@@ -266,9 +279,10 @@ for realistically sized programs. It **is** tractable as a composition:
 3. **Composition rules.** Sequential composition, call, and loop rules assemble routine
    contracts into whole-program theorems. The whole-program equivalence statement
    (`VerifiedProgram`) becomes a *derived theorem*, not an obligation discharged by
-   evaluation. Concretely, an applicability closure produces a finite set of certificate keys;
-   reusable artifact/emission, link/export, provider/runtime, entry, admissibility, and behavioral
-   certificates are indexed by the same final artifact and composed by one general rule. A program
+   evaluation. The current fixed composer combines reusable artifact/emission, link/export,
+   provider/runtime, entry, admissibility, and behavioral certificates indexed by the same final
+   artifact and composed by one general rule. The future mechanical applicability closure will
+   derive the exact finite key set. A program
    author proves only missing leaves and local refinement deltas. The root theorem contains no
    bespoke replay of a certificate already established by an ISA, platform, linker, or library.
    The implemented spikes are required exemplars of this factoring. Trust repair exits only when

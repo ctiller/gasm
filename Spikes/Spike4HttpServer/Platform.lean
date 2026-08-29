@@ -59,9 +59,10 @@ def requestRuntimeEvent (phase : UInt64) (hasRequest : Bool)
   else if phase = 4 then some (AnyEvent.of (NetEvent.close 101))
   else none
 
-/-- Windows x64 realization of the verified parser component.  The ABI is
-`(socket, scratch, scratchCapacity, retainedBudget) -> RuntimeRoute`; the proof component fixes
-the logical transition while this hook fixes the concrete calling convention. -/
+/-- Candidate Windows x64 ABI adapter for the staged request runtime. The intended ABI is
+`(socket, scratch, scratchCapacity, retainedBudget) -> RuntimeRoute`. This executable hook models
+the calling convention and lifecycle events, but no theorem here yet relates its machine-state
+transition to `parserRealization`'s abstract boundary semantics. -/
 def windowsParserHook (s : X86_64MachineState) : X86_64MachineState × Option AnyEvent :=
   let parsed := parserInput s.incomingRequests
   let popped := popReturnAddress s
@@ -70,13 +71,16 @@ def windowsParserHook (s : X86_64MachineState) : X86_64MachineState × Option An
   let after := { (popped.setGpr64 .rax (routeCode parsed.1)) with incomingRequests := requests }
   (after, requestRuntimeEvent phase (!s.incomingRequests.isEmpty) parsed)
 
+/-- Candidate composed Windows runtime binding. Provider support below proves dispatch at the
+linked import slot; it does not by itself prove refinement to the parser component contract. -/
 def spike4WindowsRuntime : ExternalCallInterceptor X86_64 AnyEvent where
   interceptCall addr state :=
     if findIatIndex state addr = some 0 then some (windowsParserHook state)
     else win32Intercept addr state
 
-/-- Linux x86-64 realization.  `gasmHttpLinuxSyscall` is deliberately not represented as a Linux
-kernel syscall; it is a required import of the OS + Gasm-runtime profile. -/
+/-- Candidate Linux x86-64 ABI adapter. `gasmHttpLinuxSyscall` is deliberately not represented as
+a Linux kernel syscall; it is a required import of the OS + Gasm-runtime profile. The adapter is
+executable, but its refinement to `parserRealization` remains a separate proof obligation. -/
 def linuxParserHook (s : X86_64MachineState) : X86_64MachineState × Option AnyEvent :=
   let parsed := parserInput s.incomingRequests
   let phase := s.gprs .r10
@@ -85,6 +89,8 @@ def linuxParserHook (s : X86_64MachineState) : X86_64MachineState × Option AnyE
     rip := s.gprs .rcx, incomingRequests := requests }
   (after, requestRuntimeEvent phase (!s.incomingRequests.isEmpty) parsed)
 
+/-- Candidate composed Linux runtime binding, with linked-call support but no claimed semantic
+bridge from the machine transition to the abstract parser boundary. -/
 def spike4LinuxRuntime : ExternalCallInterceptor X86_64 AnyEvent where
   interceptCall addr state :=
     if addr = linuxSyscallEntry ∧ state.gprs .rax = gasmHttpLinuxSyscall then
@@ -95,7 +101,8 @@ def appendRuntimeEvent (events : List AnyEvent) : Option AnyEvent → List AnyEv
   | some emitted => events ++ [emitted]
   | none => events
 
-/-- Wasm canonical import realization of the same component. -/
+/-- Candidate Wasm canonical-import adapter for the staged request runtime. Its stack/event
+behavior is executable; equivalence to `parserRealization` is not established in this file. -/
 def spike4WasiRuntime : WasiHostRuntime := fun imports idx state =>
   if imports[idx]? = some gasmHttpParserSymbol then
     let (phase, s1) := popI32 state
@@ -152,9 +159,10 @@ def spike4LinuxProviders : List LinuxX86_64Provider :=
 def spike4WasiProviders : List WasiProvider :=
   [{ protocol := .library parserProtocol, imports := Wasm.spike4WasmImports, importIndex := 0 }]
 
-/-- The connection object is intentionally proof-bearing.  It consumes the exact
-`verifiedStreamingParserComponent`, its exact artifact, and the exact final whole-program
-artifact that calls it. -/
+/-- Staging linkage records. They pin the selected component identity, required import, and final
+instruction sequence for each artifact. These facts prevent accidental artifact drift, but they
+do **not** constitute a machine/Wasm-to-`parserRealization` semantic refinement proof; that bridge
+remains an explicit whole-program behavior obligation. -/
 structure WindowsParserConnection (artifact : WindowsX86_64Artifact) where
   component : StreamingParserComponentConnection
   exactComponent : component = streamingParserComponentConnection

@@ -19,10 +19,11 @@ import Lean
 namespace Gasm.Core
 
 /-!
-This module contains staging vocabulary for composable boundary contexts. It deliberately does not
-define a link gate or a whole-program callability theorem. Constructing one of these descriptive
-values is not authority to emit a `VerifiedProgram`; the required connection theorem is tracked in
-`docs/ABI_CONTEXT.md`.
+This module contains staging vocabulary and reusable export/link certificates for composable
+boundary contexts. `Gasm.Core.Platform` carries exact export-set evidence into `VerifiedProgram`,
+but this module deliberately does not define the closed per-call gate or a substantive target
+callability theorem. Constructing one realization is therefore not execution or emission authority;
+the remaining connection obligations are tracked in `docs/ABI_CONTEXT.md`.
 
 The logical vocabulary is a projection of the common authority/obligation world specified by
 `docs/MEMORY_MODEL.md`. It is not a second ownership or cleanup system.
@@ -93,8 +94,8 @@ class TargetBoundarySemantics (Target : Type) where
 /--
 A staged realization connects every physical execution of one boundary to the exact nominal logical
 transition. Physical admissibility is mandatory, not an optional footprint supplied by the
-realization. This remains disconnected from `VerifiedProgram` until the whole-program theorem and
-closed target profiles exist.
+realization. A realization may be published only through exact export/artifact certificates, and a
+reachable call still needs caller establishment plus a closed substantive target profile.
 -/
 structure ContextBoundaryRealization
     (World Key Target : Type)

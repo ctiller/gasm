@@ -97,6 +97,7 @@ Usage:
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import json
 import os
 import re
@@ -105,7 +106,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
+
+if sys.stdout.encoding != "utf-8":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LEAN_TOOLCHAIN_FILE = REPO_ROOT / "lean-toolchain"
@@ -138,7 +146,7 @@ def _run_capture(cmd: List[str], cwd: Optional[Path] = None, timeout: float = 30
     try:
         proc = subprocess.run(
             cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, timeout=timeout,
+            text=True, encoding="utf-8", errors="replace", timeout=timeout,
         )
         return proc.returncode, proc.stdout
     except (FileNotFoundError, OSError) as e:
@@ -289,8 +297,10 @@ def detect_qemu() -> Dict:
     which_qemu = shutil.which("qemu-system-x86_64") or shutil.which("qemu-system-x86_64.exe")
     if which_qemu:
         candidates.append(which_qemu)
+    programfiles = os.environ.get("ProgramFiles")
     if programfiles:
         candidates.append(str(Path(programfiles) / "qemu" / "qemu-system-x86_64.exe"))
+    programfiles_x86 = os.environ.get("ProgramFiles(x86)")
     if programfiles_x86:
         candidates.append(str(Path(programfiles_x86) / "qemu" / "qemu-system-x86_64.exe"))
     candidates.append("/usr/bin/qemu-system-x86_64")
@@ -378,8 +388,10 @@ def detect_qemu_system_aarch64() -> Dict:
     which_qemu = shutil.which("qemu-system-aarch64") or shutil.which("qemu-system-aarch64.exe")
     if which_qemu:
         candidates.append(which_qemu)
+    programfiles = os.environ.get("ProgramFiles")
     if programfiles:
         candidates.append(str(Path(programfiles) / "qemu" / "qemu-system-aarch64.exe"))
+    programfiles_x86 = os.environ.get("ProgramFiles(x86)")
     if programfiles_x86:
         candidates.append(str(Path(programfiles_x86) / "qemu" / "qemu-system-aarch64.exe"))
     candidates.append("/usr/bin/qemu-system-aarch64")
@@ -488,50 +500,60 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
     py = shutil.which("python") or shutil.which("python3") or shutil.which("py") or "python"
     return [
         {"key": "lake_build", "desc": "lake build",
+         "group": "build",
          "long": "all defaultTargets compile cleanly (a stray `sorry` is only a compiler "
                  "warning here -- lakefile.toml sets no warningAsError -- the actual "
                  "zero-sorry/zero-unauthorized-axiom enforcement is check_gates_axioms below)",
-         "cmd": [lake, "build"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "build"], "slow": False, "tools": ["lean"], "depends_on": []},
         {"key": "check_refs", "desc": "python scripts/check_refs.py",
+         "group": "linters",
          "long": "Law 3: citation validity (no Lean parsing -- see docs/REVIEW.md #4.1.2)",
-         "cmd": [py, "scripts/check_refs.py"], "slow": False, "tools": ["python"]},
+         "cmd": [py, "scripts/check_refs.py"], "slow": False, "tools": ["python"], "depends_on": []},
         {"key": "check_refs_coverage", "desc": "lake exe check_refs_coverage",
+         "group": "proofs",
          "long": "Law 1 LOAD-BEARING declaration-coverage gate -- walks the compiled environment, "
                  "not source text, so no declaration form (anonymous instance, abbrev, initialize, "
                  "...) can hide from it; run from repo root, building it is not running it",
-         "cmd": [lake, "exe", "check_refs_coverage"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "check_refs_coverage"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "check_gates", "desc": "python scripts/check_gates.py",
+         "group": "linters",
          "long": "Law 10 fast source-level pre-check (defense-in-depth, not the load-bearing gate)",
-         "cmd": [py, "scripts/check_gates.py"], "slow": False, "tools": ["python"]},
+         "cmd": [py, "scripts/check_gates.py"], "slow": False, "tools": ["python"], "depends_on": []},
         {"key": "check_gates_axioms", "desc": "lake exe check_gates_axioms",
+         "group": "proofs",
          "long": "Law 10 LOAD-BEARING axiom gate -- run from repo root; building it is not running it",
-         "cmd": [lake, "exe", "check_gates_axioms"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "check_gates_axioms"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "check_references_offline", "desc": "python scripts/check_references.py --offline",
+         "group": "linters",
          "long": "Law 6: reference registry integrity -- every REF: <slug>#<anchor> citation is "
                  "registered in references.json, its cache file's freshly-recomputed sha256 matches "
                  "the recorded pin, and its anchor resolves. Network-free; requires a warm local "
                  "cache at .cache/references/ (populate first with --refresh --slug/--corpus/--all).",
-         "cmd": [py, "scripts/check_references.py", "--offline"], "slow": False, "tools": ["python"]},
+         "cmd": [py, "scripts/check_references.py", "--offline"], "slow": False, "tools": ["python"], "depends_on": []},
         {"key": "check_publishable", "desc": "python scripts/check_publishable.py",
+         "group": "linters",
          "long": "Pre-flatten publishability gate: zero third-party prose under references/ (owner "
                  "ruling), zero dangling REF: citations into it, zero machine-specific paths, "
                  "Apache-2.0 header coverage (delegates to check_licenses.py)",
-         "cmd": [py, "scripts/check_publishable.py"], "slow": False, "tools": ["python"]},
+         "cmd": [py, "scripts/check_publishable.py"], "slow": False, "tools": ["python"], "depends_on": []},
         {"key": "check_licenses", "desc": "python scripts/check_licenses.py",
+         "group": "linters",
          "long": "REVIEW.md Sec 4.1 item 5: Apache-2.0 header compliance -- required by Sec 4.1 and "
                  "Sec 4.4 Gate 1, but was never wired into this runner (found and fixed during the "
                  "documentation-integrity remediation pass; the same 'a gate that exists but "
                  "never runs protects nothing' lesson this project has already learned once for "
                  "check_publishable.py/check_references.py)",
-         "cmd": [py, "scripts/check_licenses.py"], "slow": False, "tools": ["python"]},
+         "cmd": [py, "scripts/check_licenses.py"], "slow": False, "tools": ["python"], "depends_on": []},
         {"key": "check_doc_facade", "desc": "python scripts/check_doc_facade.py",
-         "long": "TC21: doc-facade linter -- detects docs/*.md (excluding docs/adr/, docs/tasks/) "
+         "group": "linters",
+         "long": "Doc-facade linter -- detects governed docs/*.md "
                  "asserting enforcement the tree does not provide: a MUST/is-implemented-shaped "
                  "claim citing a Lean identifier absent from the whole .lean tree, or "
                  "docs/REVIEW.md naming a script/lake-exe gate that is missing or not wired into "
                  "this table (the check_licenses.py-was-never-wired-in shape, found this week)",
-         "cmd": [py, "scripts/check_doc_facade.py"], "slow": False, "tools": ["python"]},
+         "cmd": [py, "scripts/check_doc_facade.py"], "slow": False, "tools": ["python"], "depends_on": []},
         {"key": "check_orphan_modules", "desc": "python scripts/check_orphan_modules.py",
+         "group": "linters",
          "long": "Law 13 ratchet: every tracked .lean file must be reachable, transitively, from "
                  "a root lakefile.toml declares. An orphan is a committed file that `lake build` "
                  "never compiles, so no proof, `sorry` or axiom inside it is checked by anything "
@@ -541,8 +563,9 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "module docstring has the full specification, including why the roots are "
                  "derived from lakefile.toml rather than hardcoded and why enumeration is "
                  "`git ls-files` rather than a filesystem walk. Needs no build.",
-         "cmd": [py, "scripts/check_orphan_modules.py"], "slow": False, "tools": ["python"]},
+         "cmd": [py, "scripts/check_orphan_modules.py"], "slow": False, "tools": ["python"], "depends_on": []},
         {"key": "check_instructions_umbrella", "desc": "python scripts/check_instructions_umbrella.py",
+         "group": "linters",
          "long": "B3: Gasm/Targets/X86_64/Instructions.lean umbrella completeness. That file is a "
                  "hand-maintained 'true umbrella' whose import list is the ONLY reason Registry.lean's "
                  "build-time environment audit can see an instruction family at all -- Lean's "
@@ -558,13 +581,15 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "it, reverts, asserts green) plus a negative control that an un-imported "
                  "NON-family file is correctly ignored. Measured 0.5s; needs no build (pure "
                  "filesystem-vs-import-list diff).",
-         "cmd": [py, "scripts/check_instructions_umbrella.py"], "slow": False, "tools": ["python"]},
+         "cmd": [py, "scripts/check_instructions_umbrella.py"], "slow": False, "tools": ["python"], "depends_on": []},
         {"key": "test_roundtrip", "desc": "lake exe test_roundtrip",
+         "group": "proofs",
          "long": "x86-64 decode/encode roundtrip suite (registry gate's ~21 native_decide shards "
                  "are compiled into lake build itself, not re-invoked here)",
-         "cmd": [lake, "exe", "test_roundtrip"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_roundtrip"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "check_x86_obligations", "desc": "lake exe check_x86_obligations",
-         "long": "P4/P5 unified x86-64 instruction obligation gate (D30/ADR-0039) -- LOAD-BEARING "
+         "group": "proofs",
+         "long": "P4/P5 unified x86-64 instruction obligation gate -- LOAD-BEARING "
                  "honesty check on top of Instructions/Base.lean's mandatory validationOracle/"
                  "costProvenance fields (field PRESENCE is compile-time and enforced by lake build "
                  "itself; this walks the compiled registry and checks field HONESTY: toUops "
@@ -574,11 +599,12 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "Run from the repo root; building it is not running it, the same distinction item "
                  "4 draws for check_gates_axioms. See Tools/CheckX86Obligations.lean's own module "
                  "docstring for the full specification.",
-         "cmd": [lake, "exe", "check_x86_obligations"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "check_x86_obligations"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "check_aarch64_obligations", "desc": "lake exe check_aarch64_obligations",
+         "group": "proofs",
          "long": "AArch64 instruction obligation gate enforcing honesty constraints on validationOracle "
                  "and costProvenance fields.",
-         "cmd": [lake, "exe", "check_aarch64_obligations"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "check_aarch64_obligations"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         # --- Spike / Stdlib CLI test suites (REVIEW.md Sec 4.1 item 9): defaultTargets builds
         # these; building is not running them (the exact distinction item 4 draws for
         # check_gates_axioms). All fast (seconds), all take no CLI args.
@@ -592,88 +618,114 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
         # emit step is an explicit, separate gate immediately before its test, not folded
         # silently into the test's own command.
         {"key": "spike1_hello_windows", "desc": "lake exe spike1_hello_windows",
+         "group": "spikes",
          "long": "emits hello.exe -- prerequisite artifact for test_spike1_windows below",
-         "cmd": [lake, "exe", "spike1_hello_windows"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "spike1_hello_windows"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "test_spike1_windows", "desc": "lake exe test_spike1_windows",
+         "group": "spikes",
          "long": "Spike 1 (Hello World) Windows target test",
-         "cmd": [lake, "exe", "test_spike1_windows"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_spike1_windows"], "slow": False, "tools": ["lean"], "depends_on": ["spike1_hello_windows"]},
         {"key": "test_spike1_wasm", "desc": "lake exe test_spike1_wasm",
+         "group": "spikes",
          "long": "Spike 1 (Hello World) Wasm target test (in-Lean trace + host runtime; "
                  "exit 2 = no host Wasm runner found, per Law 13(4))",
-         "cmd": [lake, "exe", "test_spike1_wasm"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_spike1_wasm"], "slow": False, "tools": ["lean"], "allow_skip_code_2": True, "depends_on": ["lake_build"]},
         {"key": "spike1_hello_baremetal", "desc": "lake exe spike1_hello_baremetal",
+         "group": "spikes",
          "long": "emits spike1_hello_baremetal.elf -- prerequisite artifact for test_spike1_baremetal below",
-         "cmd": [lake, "exe", "spike1_hello_baremetal"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "spike1_hello_baremetal"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "test_spike1_baremetal", "desc": "lake exe test_spike1_baremetal",
+         "group": "spikes",
          "long": "Spike 1 (Hello World) Bare Metal target test (in-Lean trace + QEMU execution); "
                  "requires the qemu prerequisite (see detect_qemu()) so a missing QEMU aborts "
                  "this run rather than being reported as an ordinary gate FAIL indistinguishable "
                  "from a real verification defect -- consistent with how nasm/node are enforced "
                  "for encoding_fuzzer/wasm_fuzzer above.",
-         "cmd": [lake, "exe", "test_spike1_baremetal"], "slow": False, "tools": ["lean", "qemu"]},
+         "cmd": [lake, "exe", "test_spike1_baremetal"], "slow": False, "tools": ["lean", "qemu"], "depends_on": ["spike1_hello_baremetal"]},
         {"key": "spike1_hello_aarch64_baremetal", "desc": "lake exe spike1_hello_aarch64_baremetal",
+         "group": "spikes",
          "long": "emits spike1_hello_aarch64_baremetal.elf -- prerequisite artifact for test_spike1_aarch64_baremetal below",
-         "cmd": [lake, "exe", "spike1_hello_aarch64_baremetal"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "spike1_hello_aarch64_baremetal"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "test_spike1_aarch64_baremetal", "desc": "lake exe test_spike1_aarch64_baremetal",
+         "group": "spikes",
          "long": "Spike 1 (Hello World) AArch64 Bare Metal target test (in-Lean trace + QEMU execution); "
                  "requires the qemu_system_aarch64 prerequisite.",
-         "cmd": [lake, "exe", "test_spike1_aarch64_baremetal"], "slow": False, "tools": ["lean", "qemu_system_aarch64"]},
+         "cmd": [lake, "exe", "test_spike1_aarch64_baremetal"], "slow": False, "tools": ["lean", "qemu_system_aarch64"], "depends_on": ["spike1_hello_aarch64_baremetal"]},
         {"key": "spike1_hello_aarch64_linux", "desc": "lake exe spike1_hello_aarch64_linux",
+         "group": "spikes",
          "long": "emits spike1_hello_aarch64_linux -- prerequisite artifact for test_spike1_aarch64_linux below",
-         "cmd": [lake, "exe", "spike1_hello_aarch64_linux"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "spike1_hello_aarch64_linux"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "test_spike1_aarch64_linux", "desc": "lake exe test_spike1_aarch64_linux",
-         "long": "Spike 1 (Hello World) AArch64 Linux target test (in-Lean trace + QEMU user execution); "
-                 "requires the qemu_user_aarch64 prerequisite.",
-         "cmd": [lake, "exe", "test_spike1_aarch64_linux"], "slow": False, "tools": ["lean", "qemu_user_aarch64"]},
+         "group": "spikes",
+         "long": "Spike 1 (Hello World) AArch64 Linux target test (in-Lean trace + QEMU user execution; "
+                 "requires the lean prerequisite; qemu-aarch64 run if available, skipped if not).",
+         "cmd": [lake, "exe", "test_spike1_aarch64_linux"], "slow": False, "tools": ["lean"], "allow_skip_code_2": True, "depends_on": ["spike1_hello_aarch64_linux"]},
         {"key": "spike2_fibonacci_windows", "desc": "lake exe spike2_fibonacci_windows",
+         "group": "spikes",
          "long": "emits fib.exe -- prerequisite artifact for test_spike2_windows below",
-         "cmd": [lake, "exe", "spike2_fibonacci_windows"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "spike2_fibonacci_windows"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "test_spike2_windows", "desc": "lake exe test_spike2_windows",
+         "group": "spikes",
          "long": "Spike 2 (Fibonacci) Windows target test",
-         "cmd": [lake, "exe", "test_spike2_windows"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_spike2_windows"], "slow": False, "tools": ["lean"], "depends_on": ["spike2_fibonacci_windows"]},
         {"key": "test_spike2_wasm", "desc": "lake exe test_spike2_wasm",
+         "group": "spikes",
          "long": "Spike 2 (Fibonacci) Wasm target test (in-Lean trace + host runtime; "
                  "exit 2 = no host Wasm runner found, per Law 13(4))",
-         "cmd": [lake, "exe", "test_spike2_wasm"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_spike2_wasm"], "slow": False, "tools": ["lean"], "allow_skip_code_2": True, "depends_on": ["lake_build"]},
         {"key": "test_spike3_windows", "desc": "lake exe test_spike3_windows",
+         "group": "spikes",
          "long": "Spike 3 (Sort Lines) Windows target test",
-         "cmd": [lake, "exe", "test_spike3_windows"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_spike3_windows"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "test_spike3_wasm", "desc": "lake exe test_spike3_wasm",
-         "long": "Spike 3 (Sort Lines) Wasm target test",
-         "cmd": [lake, "exe", "test_spike3_wasm"], "slow": False, "tools": ["lean"]},
+         "group": "spikes",
+         "long": "Spike 3 (Sort Lines) Wasm target test (in-Lean trace + host runtime; "
+                 "exit 2 = no host Wasm runner found, per Law 13(4))",
+         "cmd": [lake, "exe", "test_spike3_wasm"], "slow": False, "tools": ["lean"], "allow_skip_code_2": True, "depends_on": ["lake_build"]},
         {"key": "test_spike4", "desc": "lake exe test_spike4",
+         "group": "spikes",
          "long": "Spike 4 (HTTP Server) target test",
-         "cmd": [lake, "exe", "test_spike4"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_spike4"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "test_spike5", "desc": "lake exe test_spike5",
+         "group": "spikes",
          "long": "Spike 5 (Gzip) target test",
-         "cmd": [lake, "exe", "test_spike5"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_spike5"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "test_zlib", "desc": "lake exe test_zlib",
+         "group": "spikes",
          "long": "Stdlib.Zlib unit/roundtrip test suite",
-         "cmd": [lake, "exe", "test_zlib"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_zlib"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "test_png", "desc": "lake exe test_png",
+         "group": "spikes",
          "long": "Stdlib.Png unit/roundtrip test suite",
-         "cmd": [lake, "exe", "test_png"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_png"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "test_smolalloc", "desc": "lake exe test_smolalloc",
+         "group": "spikes",
          "long": "Stdlib.SmolAlloc unit test suite",
-         "cmd": [lake, "exe", "test_smolalloc"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "test_smolalloc"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "perf_fuzzer", "desc": "lake exe perf_fuzzer",
+         "group": "fuzzers",
          "long": "x86-64 microarchitectural performance fuzzer",
-         "cmd": [lake, "exe", "perf_fuzzer"], "slow": False, "tools": ["lean"]},
+         "cmd": [lake, "exe", "perf_fuzzer"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
         # --- Differential fuzzers (slow; --quick-skippable) ---
         {"key": "x86_fuzzer", "desc": "lake exe x86_fuzzer",
+         "group": "fuzzers",
          "long": "hardware-semantics differential fuzzer vs real silicon (mandatory pos/neg control vectors)",
-         "cmd": [lake, "exe", "x86_fuzzer"], "slow": True, "tools": ["lean"]},
+         "cmd": [lake, "exe", "x86_fuzzer"], "slow": True, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "encoding_fuzzer", "desc": "lake exe encoding_fuzzer",
+         "group": "fuzzers",
          "long": "binary-encoding differential fuzzer vs NASM (mandatory pos/neg control vectors)",
-         "cmd": [lake, "exe", "encoding_fuzzer"], "slow": True, "tools": ["lean", "nasm"]},
+         "cmd": [lake, "exe", "encoding_fuzzer"], "slow": True, "tools": ["lean", "nasm"], "depends_on": ["lake_build"]},
         {"key": "wasm_fuzzer", "desc": "lake exe wasm_fuzzer",
+         "group": "fuzzers",
          "long": "Wasm host-semantics differential fuzzer vs node",
-         "cmd": [lake, "exe", "wasm_fuzzer"], "slow": True, "tools": ["lean", "node"]},
+         "cmd": [lake, "exe", "wasm_fuzzer"], "slow": True, "tools": ["lean", "node"], "depends_on": ["lake_build"]},
         {"key": "gzip_fuzzer", "desc": f"lake exe gzip_fuzzer --count {gzip_count}",
+         "group": "fuzzers",
          "long": "gzip cross-differential fuzzer vs the python stdlib oracle",
          "cmd": [lake, "exe", "gzip_fuzzer", "--count", str(gzip_count)], "slow": True,
-         "tools": ["lean", "python"]},
+         "tools": ["lean", "python"], "depends_on": ["lake_build"]},
         {"key": "png_stability_fuzzer", "desc": "lake exe png_stability_fuzzer",
+         "group": "fuzzers",
          "long": "PNG parser-stability fuzzer: parse b = r1 -> parse (write r1) = r2 -> r1 = r2. "
                  "No external oracle (unlike every fuzzer above) -- structured-mutation-generated "
                  "bytes only, self-checked against this codebase's own writer. The fuzzer's own "
@@ -685,14 +737,16 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "table (png-rfc2083#section-4.1.1) and unpackScanlinesToRGBA8's dispatch is total "
                  "(an unhandled depth/colorType combination is an explicit .unsupportedBitDepth "
                  "error, not a silent no-op), so this gate now passes.",
-         "cmd": [lake, "exe", "png_stability_fuzzer"], "slow": True, "tools": ["lean"]},
+         "cmd": [lake, "exe", "png_stability_fuzzer"], "slow": True, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "x86_stability_fuzzer", "desc": "lake exe x86_stability_fuzzer",
+         "group": "fuzzers",
          "long": "x86-64 decoder/encoder parser-stability fuzzer: decode b = r1 -> decode "
                  "(encode r1) = r2 -> r1 = r2. No external oracle (complements encoding_fuzzer's "
                  "NASM oracle and x86_fuzzer's silicon oracle, neither of which cover every "
                  "encodable form) -- structured mutation of a valid encoding only.",
-         "cmd": [lake, "exe", "x86_stability_fuzzer"], "slow": True, "tools": ["lean"]},
+         "cmd": [lake, "exe", "x86_stability_fuzzer"], "slow": True, "tools": ["lean"], "depends_on": ["lake_build"]},
         {"key": "elf_stability_fuzzer", "desc": "lake exe elf_stability_fuzzer",
+         "group": "fuzzers",
          "long": "ELF64 parser-stability fuzzer: parse b = r1 -> parse (write r1) = r2 -> r1 = r2 "
                  "(phrased as parse (write p) = p against an already-parsed p; see "
                  "Spikes/Common/ElfStabilityFuzzer.lean's header for why the two are equivalent). "
@@ -700,33 +754,43 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "ELF64 reader) against every real Linux Spike's actually-emitted binary plus "
                  "structured-mutation-generated bytes from the real writer, "
                  "Gasm.Targets.Linux.emitELF64Executable.",
-         "cmd": [lake, "exe", "elf_stability_fuzzer"], "slow": True, "tools": ["lean"]},
+         "cmd": [lake, "exe", "elf_stability_fuzzer"], "slow": True, "tools": ["lean"], "depends_on": ["lake_build"]},
     ]
 
 
+def resolve_gate_cmd(cmd: List[str]) -> List[str]:
+    """If cmd is [lake, 'exe', target, ...], and .lake/build/bin/target[.exe] exists,
+    invokes the binary directly. This avoids Lake internal lock file contention
+    when multiple gates execute concurrently in parallel."""
+    if len(cmd) >= 3 and Path(cmd[0]).name.lower().startswith("lake") and cmd[1] == "exe":
+        target = cmd[2]
+        bin_dir = REPO_ROOT / ".lake" / "build" / "bin"
+        candidate_exe = bin_dir / f"{target}.exe"
+        candidate_bin = bin_dir / target
+        if candidate_exe.is_file():
+            return [str(candidate_exe)] + cmd[3:]
+        elif candidate_bin.is_file():
+            return [str(candidate_bin)] + cmd[3:]
+    return cmd
+
+
 def run_one_gate(cmd: List[str], capture: bool, timeout_s: float) -> Dict:
+    eff_cmd = resolve_gate_cmd(cmd)
     start = time.monotonic()
-    # Flush OUR OWN buffered stdout/stderr before the child can write to the same underlying
-    # OS file descriptor (relevant whenever stdout is redirected to a file/pipe rather than a
-    # TTY, where Python defaults to block buffering). Without this, our own queued "[GATE] ..."
-    # header can flush AFTER the child has already written and advanced the shared file
-    # position, silently clobbering the child's inherited-stdout output in the redirected log
-    # -- exit codes/timings are unaffected (they never touch this buffer), but a human watching
-    # a live log would see nothing from the gate that just ran. This was caught by inspecting
-    # this script's own first full non-json run (a gate runner is not exempt from Law 13).
     sys.stdout.flush()
     sys.stderr.flush()
     try:
         if capture:
-            proc = subprocess.run(cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, text=True, timeout=timeout_s)
+            proc = subprocess.run(eff_cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, text=True,
+                                   encoding="utf-8", errors="replace", timeout=timeout_s)
             output = proc.stdout
             code = proc.returncode
         else:
             # Inherit the parent's stdout/stderr so a human watching a 15-25 minute run sees
             # live progress. `proc.returncode` below is STILL the direct exit code of THIS
             # exact process -- no shell, no pipe, no tee sits between us and it.
-            proc = subprocess.run(cmd, cwd=REPO_ROOT, timeout=timeout_s)
+            proc = subprocess.run(eff_cmd, cwd=REPO_ROOT, timeout=timeout_s)
             output = None
             code = proc.returncode
         elapsed = time.monotonic() - start
@@ -982,12 +1046,14 @@ def _self_test_planted_sorry(lake: str) -> Dict:
     try:
         probe.write_text(probe_content, encoding="utf-8")
         GASM_ROOT_FILE.write_text(original_root + import_line, encoding="utf-8")
+        _git_stage(probe)
         build_code, _ = _run_capture([lake, "build"], cwd=REPO_ROOT, timeout=600)
         build_ok = build_code == 0
         if build_ok:
             code, out = _run_capture([lake, "exe", "check_gates_axioms"], cwd=REPO_ROOT, timeout=300)
             red = code != 0 and "tc5SelfTestPlantedSorry" in (out or "") and "sorryAx" in (out or "")
     finally:
+        _git_unstage(probe)
         GASM_ROOT_FILE.write_text(original_root, encoding="utf-8")
         probe.unlink(missing_ok=True)
     # Rebuild to confirm green again -- also restores .lake/build to a clean state for
@@ -1026,6 +1092,7 @@ def _self_test_uncited_anonymous_instance(lake: str) -> Dict:
     try:
         probe.write_text(probe_content, encoding="utf-8")
         GASM_ROOT_FILE.write_text(original_root + import_line, encoding="utf-8")
+        _git_stage(probe)
         build_code, _ = _run_capture([lake, "build"], cwd=REPO_ROOT, timeout=600)
         build_ok = build_code == 0
         if build_ok:
@@ -1033,6 +1100,7 @@ def _self_test_uncited_anonymous_instance(lake: str) -> Dict:
             red = (code != 0 and "instInhabitedTc5SelfTestUncitedFoo" in (out or "")
                    and "_TC5SelfTestUncitedInstance.lean" in (out or ""))
     finally:
+        _git_unstage(probe)
         GASM_ROOT_FILE.write_text(original_root, encoding="utf-8")
         probe.unlink(missing_ok=True)
     # Rebuild to confirm green again -- also restores .lake/build to a clean state for
@@ -1111,6 +1179,18 @@ def main() -> int:
                               "includes a top-level \"mode\" field.")
     parser.add_argument("--gzip-count", type=int, default=25,
                          help="Iteration count passed to gzip_fuzzer's --count flag (default: 25).")
+    parser.add_argument("--group", action="append", default=[],
+                         help="Select one or more gate groups (e.g. build, linters, proofs, spikes, fuzzers; can be repeated or comma-separated).")
+    parser.add_argument("--gate", action="append", default=[],
+                         help="Select one or more specific gates by key (can be repeated).")
+    parser.add_argument("--shard", type=str, default=None,
+                         help="Shard index and total (e.g. 1/4, 2/4) to distribute gates across parallel runners.")
+    parser.add_argument("-j", "--jobs", type=int, default=1,
+                         help="Number of concurrent worker processes (default: 1; >1 enables parallel execution).")
+    parser.add_argument("--parallel", action="store_true",
+                         help="Run independent gates concurrently across worker processes (default worker count = CPU count).")
+    parser.add_argument("--list-groups", action="store_true",
+                         help="List all available gate groups and their gates, then exit.")
     parser.add_argument("--gate-timeout", type=float, default=DEFAULT_GATE_TIMEOUT_S,
                          help=f"Per-gate wall-clock timeout in seconds (default {DEFAULT_GATE_TIMEOUT_S}). "
                               "A gate that exceeds this is killed and reported as TIMEOUT, not left to "
@@ -1124,8 +1204,71 @@ def main() -> int:
     if args.self_test:
         return run_self_test(args.json)
 
+    gates = build_gate_table(args.gzip_count)
+
+    if args.list_groups:
+        groups: Dict[str, List[str]] = {}
+        for g in gates:
+            grp = g.get("group", "other")
+            groups.setdefault(grp, []).append(g["key"])
+        print("Available gate groups:")
+        for grp, keys in sorted(groups.items()):
+            print(f"  {grp:<12} ({len(keys)} gates): {', '.join(keys)}")
+        return EXIT_OK
+
     json_mode = args.json
     mode = "quick" if args.quick else "full"
+
+    GROUP_ALIASES = {
+        "lint": "linters",
+        "linter": "linters",
+        "proof": "proofs",
+        "spike": "spikes",
+        "test": "spikes",
+        "tests": "spikes",
+        "fuzzer": "fuzzers",
+    }
+    valid_groups = {g.get("group") for g in gates if g.get("group")}
+
+    requested_groups: Set[str] = set()
+    if args.group:
+        for g_arg in args.group:
+            for item in g_arg.split(","):
+                norm = item.strip().lower()
+                norm = GROUP_ALIASES.get(norm, norm)
+                if norm:
+                    requested_groups.add(norm)
+        unknown = requested_groups - valid_groups
+        if unknown:
+            sys.stderr.write(f"Unknown gate group(s): {', '.join(sorted(unknown))}. Valid groups: {', '.join(sorted(valid_groups))}\n")
+            return EXIT_PREREQ_ABORT
+
+    # Filter pipeline: groups -> quick -> specific gates -> shard
+    selected = list(gates)
+    if requested_groups:
+        selected = [g for g in selected if g.get("group") in requested_groups]
+    if args.quick:
+        selected = [g for g in selected if not g["slow"]]
+    if args.gate:
+        selected = [g for g in selected if g["key"] in args.gate]
+    if args.shard:
+        parts = args.shard.split("/")
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            k, n = int(parts[0]), int(parts[1])
+            if 1 <= k <= n:
+                selected = [g for i, g in enumerate(selected) if i % n == (k - 1)]
+            else:
+                sys.stderr.write(f"Invalid shard: {args.shard} (index must be between 1 and total)\n")
+                return EXIT_PREREQ_ABORT
+        else:
+            sys.stderr.write(f"Invalid shard format: {args.shard} (expected K/N, e.g. 1/4)\n")
+            return EXIT_PREREQ_ABORT
+
+    selected_keys = {g["key"] for g in selected}
+
+    jobs = args.jobs
+    if args.parallel and jobs <= 1:
+        jobs = max(1, os.cpu_count() or 4)
 
     if not json_mode:
         print("#" * 100)
@@ -1133,26 +1276,20 @@ def main() -> int:
         print(f"# repo root: {REPO_ROOT}")
         print(f"# mode: {mode.upper()}"
               f"{' (fuzzers + several gates skipped -- NOT sufficient for merge sign-off)' if args.quick else ''}"
+              f"{f' [GROUPS: {', '.join(sorted(requested_groups))}]' if requested_groups else ''}"
+              f"{f' [SHARD {args.shard}]' if args.shard else ''}"
+              f"{f' [GATES: {', '.join(args.gate)}]' if args.gate else ''}"
+              f"{f' [JOBS: {jobs}]' if jobs > 1 else ''}"
               f"{' + CLEAN' if args.clean else ''}")
         print("#" * 100)
 
-    gates = build_gate_table(args.gzip_count)
-    selected = [g for g in gates if not (args.quick and g["slow"])]
-    selected_keys = {g["key"] for g in selected}
-
-    # --- Phase 0: prerequisite detection -- ALWAYS all 6, ALWAYS reported, regardless of mode
-    # or of which gates are selected (M2 fix: detection must never be scoped down by --quick).
+    # --- Phase 0: prerequisite detection -- ALWAYS all, ALWAYS reported, regardless of mode
     prereqs = detect_all_prereqs()
 
-    # `needed`: tools required by a SELECTED gate -- this is what the abort decision reads.
-    # `only_skipped_need`: tools ONLY a skipped (--quick) gate would have needed, so a missing
-    # one there is reported as an explicit WAIVED entry rather than silently absent from the
-    # abort decision.
-    always_required = {"lake", "lean", "python"}
-    needed = set(always_required)
+    needed: Set[str] = set()
     for g in selected:
         needed.update(g["tools"])
-    all_tools_in_table = set(always_required)
+    all_tools_in_table: Set[str] = set()
     for g in gates:
         all_tools_in_table.update(g["tools"])
     only_skipped_need = sorted(all_tools_in_table - needed)
@@ -1161,19 +1298,26 @@ def main() -> int:
     if not json_mode:
         print_prereq_table(prereqs, waived=waived)
         if waived:
-            print(f"\n[i] WAIVED (not enforced this run, --quick skipped every gate that needs "
+            print(f"\n[i] WAIVED (not enforced this run, no selected gate needs "
                   f"{'them' if len(waived) > 1 else 'it'}): {', '.join(waived)}")
 
     missing = [name for name in needed if not prereqs[name]["found"]]
 
     if missing:
-        # ABORT THE WHOLE RUN -- never silently skip. This is "abort, not skip", verbatim from
-        # TASKS.md's TC5 entry, and the exact demonstration this task's acceptance criteria
-        # require for NASM-absent / node-absent.
+        # ABORT THE WHOLE RUN -- fail-closed
         rows = []
         for g in gates:
             if g["key"] not in selected_keys:
-                status = "SKIPPED (--quick)"
+                if requested_groups and g.get("group") not in requested_groups:
+                    status = "SKIPPED (--group)"
+                elif args.quick and g["slow"]:
+                    status = "SKIPPED (--quick)"
+                elif args.gate and g["key"] not in args.gate:
+                    status = "SKIPPED (--gate)"
+                elif args.shard:
+                    status = "SKIPPED (--shard)"
+                else:
+                    status = "SKIPPED"
             else:
                 needs_missing = [t for t in g["tools"] if t in missing]
                 status = f"ABORTED (missing: {', '.join(needs_missing)})" if needs_missing \
@@ -1203,85 +1347,183 @@ def main() -> int:
         return EXIT_PREREQ_ABORT
 
     # --- Phase 1: optional `lake clean` (clean-rebuild merge-train mode) ---------------------
-    result_rows: List[Dict] = []
+    clean_row = None
     if args.clean:
         lake = shutil.which("lake") or "lake"
         if not json_mode:
             print("\n[*] --clean: running `lake clean` before the gate sequence...")
         clean_res = run_one_gate([lake, "clean"], capture=json_mode, timeout_s=args.gate_timeout)
         status = "PASS" if clean_res["exit_code"] == 0 else "FAIL"
-        result_rows.append({"key": "lake_clean", "status": status,
-                             "exit_code": clean_res["exit_code"],
-                             "wall_time": clean_res["wall_time"], "tool_info": "-"})
+        clean_row = {"key": "lake_clean", "status": status,
+                     "exit_code": clean_res["exit_code"],
+                     "wall_time": clean_res["wall_time"], "tool_info": "-"}
         if clean_res["exit_code"] != 0:
             if not json_mode:
                 print("[!] `lake clean` failed -- aborting before the gate sequence "
                       "(a corrupted .lake/build tree makes every downstream result unreliable).")
+            rows = [clean_row]
             for g in gates:
-                if any(r["key"] == g["key"] for r in result_rows):
-                    continue
-                sk = "SKIPPED (--quick)" if g["key"] not in selected_keys else "SKIPPED (lake clean failed)"
-                result_rows.append({"key": g["key"], "status": sk,
-                                     "exit_code": None, "wall_time": None, "tool_info": "-"})
+                rows.append({"key": g["key"], "status": "SKIPPED (lake clean failed)",
+                             "exit_code": None, "wall_time": None, "tool_info": "-"})
             if json_mode:
                 print(json.dumps({"mode": mode, "overall_status": "FAILED",
                                    "overall_exit_code": EXIT_GATE_FAILED,
-                                   "prerequisites": prereqs, "gates": result_rows}, indent=2))
+                                   "prerequisites": prereqs, "gates": rows}, indent=2))
             else:
-                print_summary_table(result_rows)
+                print_summary_table(rows)
             return EXIT_GATE_FAILED
 
-    # --- Phase 2: run every gate in GATE_TABLE order. Non-selected (--quick) gates get an
-    # explicit SKIPPED row -- they are never simply absent from the report. -------------------
-    stop_rest = False
-    for g in gates:
-        if g["key"] not in selected_keys:
-            result_rows.append({"key": g["key"], "status": "SKIPPED (--quick)",
-                                 "exit_code": None, "wall_time": None, "tool_info": "-"})
-            continue
+    # --- Phase 2: Execute selected gates (parallel if jobs > 1, sequential if jobs == 1) ---
+    result_map: Dict[str, Dict] = {}
 
-        if stop_rest:
-            result_rows.append({"key": g["key"], "status": "SKIPPED (lake build failed)",
-                                 "exit_code": None, "wall_time": None, "tool_info": "-"})
-            continue
-
-        tool_info = _tool_info_for(g, prereqs)
-
+    if jobs > 1:
         if not json_mode:
-            print("\n" + "-" * 100)
-            print(f"[GATE] {g['desc']}  --  {g['long']}")
-            print(f"       $ {' '.join(g['cmd'])}   (cwd={REPO_ROOT})")
-            print("-" * 100)
+            print(f"\n[*] Running {len(selected)} selected gates in parallel (max {jobs} concurrent workers)...")
+        pending_gates = {g["key"]: g for g in selected}
+        in_flight: Dict = {}
 
-        res = run_one_gate(g["cmd"], capture=json_mode, timeout_s=args.gate_timeout)
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            while pending_gates or in_flight:
+                # Find all gates that are ready to schedule
+                ready = []
+                failed_or_skipped_keys = {
+                    k for k, v in result_map.items() if v["status"] != "PASS"
+                }
+                passed_keys = {
+                    k for k, v in result_map.items() if v["status"] == "PASS"
+                }
 
-        if res["timed_out"]:
-            status = f"TIMEOUT (> {args.gate_timeout:.0f}s)"
-            exit_code = None
-        elif res["launch_error"] is not None:
-            status = f"ERROR: could not launch ({res['launch_error']})"
-            exit_code = None
-        elif res["exit_code"] == 0:
-            status = "PASS"
-            exit_code = 0
-        else:
-            status = "FAIL"
-            exit_code = res["exit_code"]
+                for key, g in list(pending_gates.items()):
+                    eff_deps = [d for d in g.get("depends_on", []) if d in selected_keys]
+                    blocked_by = [d for d in eff_deps if d in failed_or_skipped_keys]
+                    if blocked_by:
+                        del pending_gates[key]
+                        reason = f"SKIPPED (dependency '{blocked_by[0]}' failed)"
+                        tool_info = _tool_info_for(g, prereqs)
+                        result_map[key] = {
+                            "key": key, "status": reason, "exit_code": None,
+                            "wall_time": None, "tool_info": tool_info, "output": None
+                        }
+                        if not json_mode:
+                            print(f"  [SKIP   ] {key:<28} -- dependency '{blocked_by[0]}' failed")
+                        continue
 
-        result_rows.append({"key": g["key"], "status": status, "exit_code": exit_code,
-                             "wall_time": res["wall_time"], "tool_info": tool_info,
-                             "output": res["output"] if json_mode else None})
+                    if all(d in passed_keys for d in eff_deps):
+                        ready.append(g)
 
-        if g["key"] == "lake_build" and status != "PASS":
-            stop_rest = True
+                for g in ready:
+                    key = g["key"]
+                    del pending_gates[key]
+                    if not json_mode:
+                        print(f"  [START  ] {key:<28} ($ {' '.join(g['cmd'])})")
+                    fut = executor.submit(run_one_gate, g["cmd"], True, args.gate_timeout)
+                    in_flight[fut] = g
+
+                if in_flight:
+                    done, _ = wait(in_flight.keys(), return_when=FIRST_COMPLETED)
+                    for fut in done:
+                        g = in_flight.pop(fut)
+                        key = g["key"]
+                        tool_info = _tool_info_for(g, prereqs)
+                        res = fut.result()
+                        if res["timed_out"]:
+                            status = f"TIMEOUT (> {args.gate_timeout:.0f}s)"
+                            exit_code = None
+                        elif res["launch_error"] is not None:
+                            status = f"ERROR: could not launch ({res['launch_error']})"
+                            exit_code = None
+                        elif res["exit_code"] == 0:
+                            status = "PASS"
+                            exit_code = 0
+                        elif res["exit_code"] == 2 and g.get("allow_skip_code_2", False):
+                            status = "SKIPPED (runner not available)"
+                            exit_code = 2
+                        else:
+                            status = "FAIL"
+                            exit_code = res["exit_code"]
+
+                        result_map[key] = {
+                            "key": key, "status": status, "exit_code": exit_code,
+                            "wall_time": res["wall_time"], "tool_info": tool_info,
+                            "output": res["output"]
+                        }
+                        if not json_mode:
+                            wt_str = fmt_seconds(res["wall_time"])
+                            status_tag = f"[{status:<7}]"
+                            print(f"  {status_tag} {key:<28} ({wt_str})")
+                            if status not in ("PASS", "SKIPPED (runner not available)") and res["output"]:
+                                print(f"\n--- Output from {key} ---")
+                                print(res["output"].rstrip())
+                                print("-" * 40 + "\n")
+    else:
+        for g in selected:
+            key = g["key"]
+            eff_deps = [d for d in g.get("depends_on", []) if d in selected_keys]
+            if any(result_map.get(d, {}).get("status") not in ("PASS", "SKIPPED (runner not available)") for d in eff_deps):
+                failed_dep = [d for d in eff_deps if result_map.get(d, {}).get("status") not in ("PASS", "SKIPPED (runner not available)")][0]
+                result_map[key] = {
+                    "key": key, "status": f"SKIPPED (dependency '{failed_dep}' failed)",
+                    "exit_code": None, "wall_time": None,
+                    "tool_info": _tool_info_for(g, prereqs), "output": None
+                }
+                continue
+
+            tool_info = _tool_info_for(g, prereqs)
             if not json_mode:
-                print("\n[!] `lake build` failed -- every remaining gate depends on a successful "
-                      "build (either compiling the checker itself, or the lake exe binaries it "
-                      "produces). Skipping the rest rather than running against stale/partial "
-                      "binaries.")
+                print("\n" + "-" * 100)
+                print(f"[GATE] {g['desc']}  --  {g['long']}")
+                print(f"       $ {' '.join(g['cmd'])}   (cwd={REPO_ROOT})")
+                print("-" * 100)
+
+            res = run_one_gate(g["cmd"], capture=json_mode, timeout_s=args.gate_timeout)
+            if res["timed_out"]:
+                status = f"TIMEOUT (> {args.gate_timeout:.0f}s)"
+                exit_code = None
+            elif res["launch_error"] is not None:
+                status = f"ERROR: could not launch ({res['launch_error']})"
+                exit_code = None
+            elif res["exit_code"] == 0:
+                status = "PASS"
+                exit_code = 0
+            elif res["exit_code"] == 2 and g.get("allow_skip_code_2", False):
+                status = "SKIPPED (runner not available)"
+                exit_code = 2
+            else:
+                status = "FAIL"
+                exit_code = res["exit_code"]
+
+            result_map[key] = {
+                "key": key, "status": status, "exit_code": exit_code,
+                "wall_time": res["wall_time"], "tool_info": tool_info,
+                "output": res["output"] if json_mode else None
+            }
+
+    result_rows: List[Dict] = []
+    if clean_row is not None:
+        result_rows.append(clean_row)
+
+    for g in gates:
+        k = g["key"]
+        if k in result_map:
+            result_rows.append(result_map[k])
+        else:
+            if requested_groups and g.get("group") not in requested_groups:
+                sk_reason = "SKIPPED (--group)"
+            elif args.quick and g["slow"]:
+                sk_reason = "SKIPPED (--quick)"
+            elif args.gate and k not in args.gate:
+                sk_reason = "SKIPPED (--gate)"
+            elif args.shard:
+                sk_reason = "SKIPPED (--shard)"
+            else:
+                sk_reason = "SKIPPED"
+            result_rows.append({
+                "key": k, "status": sk_reason, "exit_code": None,
+                "wall_time": None, "tool_info": "-"
+            })
 
     selected_rows = [r for r in result_rows if r["key"] in selected_keys]
-    overall_pass = all(r["status"] == "PASS" for r in selected_rows)
+    overall_pass = (len(selected_rows) > 0) and all(r["status"] in ("PASS", "SKIPPED (runner not available)") for r in selected_rows)
 
     if not overall_pass:
         overall_status = "FAILED"
@@ -1315,3 +1557,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

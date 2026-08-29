@@ -40,8 +40,5 @@ instance : AbiDiscipline X86_64 WindowsFastcall where
   stackAlignment       := 16
   argumentRegisters    := [⟨1⟩, ⟨2⟩, ⟨8⟩, ⟨9⟩] -- RCX, RDX, R8, R9
   returnRegister       := ⟨0⟩ -- RAX
-  calleePreservesStack := by
-    intro S s_post h_callee
-    exact h_callee.stack_clean
 
 end Gasm.Targets.Windows

@@ -53,306 +53,58 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------
-  # Windows: the primary, fully-covered platform (docs/CI.md #4). This is
-  # where the x86-64 spikes emit AND execute real .exe binaries end to end.
+  # Linters: fast standalone Python validation across all 7 linter gates.
+  # Runs on ubuntu-latest in parallel without waiting for Lean builds.
   # ---------------------------------------------------------------------
-  windows:
-    name: Windows (full gate set)
-    runs-on: windows-latest
+  linters:
+    name: Linters (parallel Python gates)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run all linters concurrently in parallel
+        shell: bash
+        run: |
+          python scripts/run_gates.py --group linters \
+            --gate check_refs \
+            --gate check_gates \
+            --gate check_publishable \
+            --gate check_licenses \
+            --gate check_doc_facade \
+            --gate check_orphan_modules \
+            --gate check_instructions_umbrella \
+            --parallel
+
+  # ---------------------------------------------------------------------
+  # Proofs: Lean kernel verification, axiom audit, coverage, and obligations.
+  # Runs concurrently across Windows and Linux.
+  # ---------------------------------------------------------------------
+  proofs:
+    name: Proofs (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install elan (Lean toolchain manager)
+      - name: Install elan (Lean toolchain manager) [Windows]
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/leanprover/elan/master/elan-init.ps1" -OutFile elan-init.ps1
           ./elan-init.ps1 -NoPrompt 1 -DefaultToolchain none
           "$HOME\.elan\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Cache elan toolchain
-        uses: actions/cache@v4
-        with:
-          path: ~/.elan
-          key: ${{ runner.os }}-elan-${{ hashFiles('lean-toolchain') }}
-
-      - name: Cache Lake build artifacts
-        uses: actions/cache@v4
-        with:
-          path: .lake/build
-          key: ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.toml', 'lake-manifest.json') }}-${{ hashFiles('Gasm/**/*.lean', 'Stdlib/**/*.lean', 'Spikes/**/*.lean', 'Tools/**/*.lean', '*.lean') }}
-          restore-keys: |
-            ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.toml', 'lake-manifest.json') }}-
-            ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-
-            ${{ runner.os }}-lake-
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      # windows-latest images ship Chocolatey pre-installed with its shim
-      # directory already on PATH, so no PATH surgery is needed after this.
-      - name: Install NASM (encoding_fuzzer oracle)
-        shell: pwsh
-        run: choco install nasm -y --no-progress
-
-      - name: Record oracle versions (TCB T9 -- pin & record, never drift silently)
-        shell: pwsh
-        run: |
-          lean --version
-          lake --version
-          node --version
-          python --version
-          nasm -v
-
-      - name: lake build (all defaultTargets, 380 jobs)
-        shell: pwsh
-        run: |
-          $sw = [System.Diagnostics.Stopwatch]::StartNew()
-          lake build
-          $buildExit = $LASTEXITCODE
-          $sw.Stop()
-          $seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1)
-          Write-Host "lake build: ${seconds}s (exit $buildExit)"
-          "lake build (Windows): ${seconds}s (exit $buildExit)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          exit $buildExit
-
-      # --- Pillar 1, docs/REVIEW.md #4.1 (every push) --------------------
-
-      - name: Citation audit (Law 1-3)
-        shell: pwsh
-        run: python scripts/check_refs.py
-
-      - name: Gate policy pre-check (Law 10, fast source-level)
-        shell: pwsh
-        run: python scripts/check_gates.py
-
-      - name: Gate policy load-bearing axiom check (Law 10)
-        shell: pwsh
-        run: lake exe check_gates_axioms
-
-      # docs/CI.md #7's documented swap, now made: the vendored references/
-      # tree (and scripts/regenerate_references.py, which verified it) is
-      # deleted; citations are validated against the references.json
-      # registry instead. NOTE (named, not silently dropped -- docs/CI.md
-      # #7): --offline reads a local cache at .cache/references/ that only
-      # `--refresh` populates, and no step here runs --refresh (an
-      # every-push --refresh --all would make this gate fail on ANY
-      # registered slug's unpinned upstream drifting -- several entries,
-      # e.g. png-lodepng-cpp, intentionally track a rolling branch -- which
-      # is exactly the cadence/staleness problem docs/CI.md #7 already
-      # named as designed-but-not-implemented). Until that scheduled-refresh
-      # + staleness-bound design lands, this step fails on a cold cache;
-      # that is a known gap, not a regression introduced here.
-      # Reference integrity (Law 6) -- upstream hash verification runs in
-      # .github/workflows/scheduled.yml, NOT here. check_references.py --offline
-      # compares SHA-256 of a local .cache/references/ against references.json,
-      # and that cache cannot exist in a fresh checkout: it holds third-party
-      # prose, which D25 forbids committing. Running it per-push therefore fails
-      # structurally (exit 3, cold cache) rather than detecting anything.
-      #
-      # This is a cadence change, not a dropped gate. Per-push coverage is
-      # unchanged and network-free: check_refs.py above already fails on any
-      # citation whose slug is absent from references.json, and
-      # check_publishable.py fails on any third-party prose or any citation
-      # resolving into references/. What moves to the schedule is solely the
-      # part that needs the network: verifying the registry's hashes still
-      # match what upstream serves.
-
-      - name: Publishability (Law 6 -- no third-party prose)
-        shell: pwsh
-        run: python scripts/check_publishable.py
-
-      - name: Apache-2.0 header compliance
-        shell: pwsh
-        run: python scripts/check_licenses.py
-
-      - name: Doc-facade linter (TC21)
-        shell: pwsh
-        run: python scripts/check_doc_facade.py
-
-      # Law 13 ratchet for a defect class that has now shipped three times (the
-      # script's module docstring names all three commits): a committed `.lean`
-      # file that no lakefile.toml root reaches transitively, so `lake build`
-      # never compiles it and nothing checks any proof inside it -- including
-      # `lake exe check_gates_axioms` above, whose environment walk only sees the
-      # umbrella closure. Needs no build of its own: it reads lakefile.toml's
-      # declared roots and the tracked tree's import edges, nothing else.
-      - name: Orphan-module reachability gate (Law 13)
-        shell: pwsh
-        run: python scripts/check_orphan_modules.py
-
-      # B3 follow-up: this script existed but was wired into neither this
-      # workflow nor scripts/run_gates.py's gate table -- the identical
-      # "a gate that exists but never runs protects nothing" shape as the
-      # check_licenses.py finding run_gates.py's own docstring records.
-      # Instructions.lean is a hand-maintained umbrella whose import list is
-      # what makes Registry.lean's environment audit able to see an
-      # instruction family at all; a family file missing from it is invisible
-      # to that audit rather than flagged by it. Pure Python, ~0.5s.
-      - name: Instructions.lean umbrella completeness (B3)
-        shell: pwsh
-        run: python scripts/check_instructions_umbrella.py
-
-      - name: Roundtrip properties
-        shell: pwsh
-        run: lake exe test_roundtrip
-
-      - name: x86-64 instruction obligation gate (P4/P5, D30/ADR-0039)
-        shell: pwsh
-        run: lake exe check_x86_obligations
-
-      - name: Stdlib unit suite -- zlib
-        shell: pwsh
-        run: lake exe test_zlib
-
-      - name: Stdlib unit suite -- png
-        shell: pwsh
-        run: lake exe test_png
-
-      - name: Stdlib unit suite -- smolalloc
-        shell: pwsh
-        run: lake exe test_smolalloc
-
-      # --- Full gate set: pull_request/workflow_dispatch only ------------
-      # (docs/CI.md #10 -- differential fuzzers and spike execution are
-      # deferred to PR time to keep every-push cost low; see that section
-      # for the justification.)
-
-      - name: x86-64 semantics fuzzer
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe x86_fuzzer
-
-      - name: "Wasm semantics fuzzer (oracle: node)"
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe wasm_fuzzer
-
-      - name: "x86-64 encoding fuzzer (oracle: NASM)"
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe encoding_fuzzer
-
-      - name: "GZIP differential fuzzer, in-Lean (oracle: python)"
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe gzip_fuzzer
-
-      - name: "PNG parser-stability fuzzer (no external oracle)"
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe png_stability_fuzzer
-
-      - name: "x86-64 decoder/encoder parser-stability fuzzer (no external oracle)"
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe x86_stability_fuzzer
-
-      - name: "Spike Wasm validator differential (oracle: node)"
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe validate_spike_wasm
-
-      # perf_fuzzer (microarchitectural cycle-bound fuzzer) is deliberately
-      # NOT invoked here. docs/CI.md #5 -- a shared/virtualized hosted vCPU
-      # cannot give a trustworthy cycle-count signal. It stays a local and
-      # (once available) vendor-hardware-runner gate, not a hosted-runner one.
-
-      # test_spike1_baremetal (the bare-metal x86-64 target's QEMU hardware
-      # runner, docs/TARGETS/BARE_METAL.md) is deliberately NOT invoked on
-      # this job either -- it runs on the Linux job instead (see that job's
-      # "Install QEMU" step for the full rationale). QEMU emulates the guest
-      # ELF64 identically regardless of host OS, so which host runs it does
-      # not change what's being verified; Chocolatey's `qemu` package on
-      # Windows is a much larger install (full GUI/SDL stack) than apt's
-      # headless `qemu-system-x86` for a runner that only ever passes
-      # `-display none`. One platform closing this loop is sufficient
-      # evidence, so it is not duplicated here.
-
-      - name: Emit Spike 1 (Windows PE) -- required before test_spike1_windows
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe spike1_hello_windows
-
-      - name: Spike 1 -- Windows PE execution
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe test_spike1_windows
-
-      - name: Emit Spike 2 (Windows PE) -- required before test_spike2_windows
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe spike2_fibonacci_windows
-
-      - name: Spike 2 -- Windows PE execution
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe test_spike2_windows
-
-      # Spikes 3/4/5's Test.lean self-emit the .exe if missing, unlike 1/2
-      # above (docs/CI.md #7 "Spike 1/2 Windows emit-then-test ordering").
-      - name: Spike 3 -- Windows PE execution (self-emitting)
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe test_spike3_windows
-
-      - name: Spike 4 -- Windows PE execution (self-emitting)
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe test_spike4
-
-      - name: Spike 5 -- Windows PE execution (self-emitting)
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe test_spike5
-
-      - name: "Spike 1 -- Wasm host execution (oracle: node)"
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe test_spike1_wasm
-
-      - name: "Spike 2 -- Wasm host execution (oracle: node)"
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe test_spike2_wasm
-
-      # Genuinely Windows-only, not just "not yet run on Linux": this test's
-      # stdin-piping shim hardcodes powershell.exe (docs/CI.md #4).
-      - name: "Spike 3 -- Wasm host execution (oracle: node, via powershell.exe stdin shim)"
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: lake exe test_spike3_wasm
-
-      # Executes the emitted spike5_gzip.exe/spike5_gunzip.exe as native
-      # processes -- Windows-only for the same reason the Spike 1-5 PE
-      # execution steps above are.
-      - name: "GZIP native-binary cross-fuzzer (oracle: python + native PE)"
-        if: github.event_name != 'push'
-        shell: pwsh
-        run: python scripts/fuzz_gzip.py
-
-  # ---------------------------------------------------------------------
-  # Linux: builds and runs everything that does not require executing a
-  # Windows PE binary or a native hardware oracle (docs/CI.md #4). Every
-  # Windows-only gate below still has a same-named `if: false` placeholder
-  # step in this job so it renders as an explicit "Skipped" line in GitHub's
-  # Checks UI rather than being silently absent from the step list.
-  # ubuntu-latest today; the vendor-supplied self-hosted fleet joins this
-  # matrix as an additional `runs-on` once that hardware is registered.
-  # ---------------------------------------------------------------------
-  linux:
-    name: Linux (portable gate subset)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install elan (Lean toolchain manager)
+      - name: Install elan (Lean toolchain manager) [Linux]
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
@@ -382,277 +134,210 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install NASM (encoding_fuzzer oracle)
+      - name: lake build (all defaultTargets)
+        shell: bash
+        run: lake build
+
+      - name: Run proofs & obligations in parallel
+        shell: bash
+        run: python scripts/run_gates.py --group proofs --parallel
+
+  # ---------------------------------------------------------------------
+  # Spikes: executable targets and Stdlib unit test suites.
+  # ---------------------------------------------------------------------
+  spikes:
+    name: Spikes & Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install elan (Lean toolchain manager) [Windows]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/leanprover/elan/master/elan-init.ps1" -OutFile elan-init.ps1
+          ./elan-init.ps1 -NoPrompt 1 -DefaultToolchain none
+          "$HOME\.elan\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install elan (Lean toolchain manager) [Linux]
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache elan toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.elan
+          key: ${{ runner.os }}-elan-${{ hashFiles('lean-toolchain') }}
+
+      - name: Cache Lake build artifacts
+        uses: actions/cache@v4
+        with:
+          path: .lake/build
+          key: ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.toml', 'lake-manifest.json') }}-${{ hashFiles('Gasm/**/*.lean', 'Stdlib/**/*.lean', 'Spikes/**/*.lean', 'Tools/**/*.lean', '*.lean') }}
+          restore-keys: |
+            ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.toml', 'lake-manifest.json') }}-
+            ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-
+            ${{ runner.os }}-lake-
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install QEMU [Linux]
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-user
+
+      - name: lake build (all defaultTargets)
+        shell: bash
+        run: lake build
+
+      - name: Fast Stdlib unit suite (Push mode)
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          python scripts/run_gates.py --group spikes \
+            --gate test_zlib \
+            --gate test_png \
+            --gate test_smolalloc \
+            --parallel
+
+      - name: Full Spike execution in parallel [Windows] (PR / Workflow Dispatch)
+        if: github.event_name != 'push' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python scripts/run_gates.py --group spikes `
+            --gate test_zlib `
+            --gate test_png `
+            --gate test_smolalloc `
+            --gate test_spike1_windows `
+            --gate test_spike2_windows `
+            --gate test_spike3_windows `
+            --gate test_spike4 `
+            --gate test_spike5 `
+            --gate test_spike1_wasm `
+            --gate test_spike2_wasm `
+            --gate test_spike3_wasm `
+            --parallel
+
+      - name: Full Spike execution in parallel [Linux] (PR / Workflow Dispatch)
+        if: github.event_name != 'push' && runner.os == 'Linux'
+        shell: bash
+        run: |
+          python scripts/run_gates.py --group spikes \
+            --gate test_zlib \
+            --gate test_png \
+            --gate test_smolalloc \
+            --gate test_spike1_baremetal \
+            --gate test_spike1_aarch64_baremetal \
+            --gate test_spike1_aarch64_linux \
+            --gate test_spike1_wasm \
+            --gate test_spike2_wasm \
+            --gate test_spike3_wasm \
+            --parallel
+
+  # ---------------------------------------------------------------------
+  # Fuzzers: Differential & stability fuzzers sharded across CI workers.
+  # Executed on PR & workflow_dispatch only.
+  # ---------------------------------------------------------------------
+  fuzzers:
+    name: Fuzzers (${{ matrix.os }}, shard ${{ matrix.shard }})
+    if: github.event_name != 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        shard: ["1/2", "2/2"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install elan (Lean toolchain manager) [Windows]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/leanprover/elan/master/elan-init.ps1" -OutFile elan-init.ps1
+          ./elan-init.ps1 -NoPrompt 1 -DefaultToolchain none
+          "$HOME\.elan\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install elan (Lean toolchain manager) [Linux]
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache elan toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.elan
+          key: ${{ runner.os }}-elan-${{ hashFiles('lean-toolchain') }}
+
+      - name: Cache Lake build artifacts
+        uses: actions/cache@v4
+        with:
+          path: .lake/build
+          key: ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.toml', 'lake-manifest.json') }}-${{ hashFiles('Gasm/**/*.lean', 'Stdlib/**/*.lean', 'Spikes/**/*.lean', 'Tools/**/*.lean', '*.lean') }}
+          restore-keys: |
+            ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.toml', 'lake-manifest.json') }}-
+            ${{ runner.os }}-lake-${{ hashFiles('lean-toolchain') }}-
+            ${{ runner.os }}-lake-
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install NASM (encoding_fuzzer oracle) [Windows]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install nasm -y --no-progress
+
+      - name: Install NASM (encoding_fuzzer oracle) [Linux]
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y nasm
 
-      # qemu-system-x86_64 is the hardware runner for the bare-metal x86-64 target
-      # (docs/TARGETS/BARE_METAL.md §7, test_spike1_baremetal). It goes on the Linux
-      # job, not Windows: it emulates a flat-physical-memory x86-64 guest regardless
-      # of host OS, so which host runs it doesn't change what's being verified, and
-      # `apt-get install qemu-system-x86` is a small, fast package here versus
-      # Chocolatey's much larger `qemu` package on Windows (it pulls in a full GUI
-      # stack this headless `-display none` runner never touches). One platform
-      # running it is sufficient evidence; see Gasm/Targets/BareMetal/QEMU.lean's
-      # findQemuPath for the GASM_QEMU-override / PATH / standard-location
-      # resolution this step's install location satisfies.
-      - name: Install QEMU (bare-metal x86-64 target's hardware runner)
+      - name: lake build (all defaultTargets)
+        shell: bash
+        run: lake build
+
+      - name: Run Fuzzers Shard in Parallel [Windows]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python scripts/run_gates.py --group fuzzers --shard ${{ matrix.shard }} --parallel
+
+      - name: Run Fuzzers Shard in Parallel [Linux]
+        if: runner.os == 'Linux'
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86
-
-      - name: Record oracle versions (TCB T9 -- pin & record, never drift silently)
-        shell: bash
-        run: |
-          lean --version
-          lake --version
-          node --version
-          python3 --version
-          nasm -v
-          qemu-system-x86_64 --version
-
-      - name: lake build (all defaultTargets, 380 jobs)
-        shell: bash
-        run: |
-          start=$SECONDS
-          lake build
-          elapsed=$((SECONDS - start))
-          echo "lake build (Linux): ${elapsed}s"
-          echo "lake build (Linux): ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
-
-      # --- Pillar 1, docs/REVIEW.md #4.1 (every push) --------------------
-
-      - name: Citation audit (Law 1-3)
-        shell: bash
-        run: python scripts/check_refs.py
-
-      - name: Gate policy pre-check (Law 10, fast source-level)
-        shell: bash
-        run: python scripts/check_gates.py
-
-      - name: Gate policy load-bearing axiom check (Law 10)
-        shell: bash
-        run: lake exe check_gates_axioms
-
-      # See the Windows job above for the full rationale (docs/CI.md #7) of
-      # this swap and its named cache-population gap.
-      # Reference integrity (Law 6) -- upstream hash verification runs in
-      # .github/workflows/scheduled.yml, NOT here. check_references.py --offline
-      # compares SHA-256 of a local .cache/references/ against references.json,
-      # and that cache cannot exist in a fresh checkout: it holds third-party
-      # prose, which D25 forbids committing. Running it per-push therefore fails
-      # structurally (exit 3, cold cache) rather than detecting anything.
-      #
-      # This is a cadence change, not a dropped gate. Per-push coverage is
-      # unchanged and network-free: check_refs.py above already fails on any
-      # citation whose slug is absent from references.json, and
-      # check_publishable.py fails on any third-party prose or any citation
-      # resolving into references/. What moves to the schedule is solely the
-      # part that needs the network: verifying the registry's hashes still
-      # match what upstream serves.
-
-      - name: Publishability (Law 6 -- no third-party prose)
-        shell: bash
-        run: python scripts/check_publishable.py
-
-      - name: Apache-2.0 header compliance
-        shell: bash
-        run: python scripts/check_licenses.py
-
-      - name: Doc-facade linter (TC21)
-        shell: bash
-        run: python scripts/check_doc_facade.py
-
-      # See the Windows job above for this gate's full rationale (Law 13; three
-      # shipped instances of the class). Run on both platforms because it is
-      # pure Python over `git ls-files` plus lakefile.toml and costs ~1s.
-      - name: Orphan-module reachability gate (Law 13)
-        shell: bash
-        run: python scripts/check_orphan_modules.py
-
-      # See the Windows job above for this gate's full rationale (B3 follow-up;
-      # the check_licenses.py never-wired shape). Pure Python, ~0.5s.
-      - name: Instructions.lean umbrella completeness (B3)
-        shell: bash
-        run: python scripts/check_instructions_umbrella.py
-
-      - name: Roundtrip properties
-        shell: bash
-        run: lake exe test_roundtrip
-
-      - name: x86-64 instruction obligation gate (P4/P5, D30/ADR-0039)
-        shell: bash
-        run: lake exe check_x86_obligations
-
-      - name: Stdlib unit suite -- zlib
-        shell: bash
-        run: lake exe test_zlib
-
-      - name: Stdlib unit suite -- png
-        shell: bash
-        run: lake exe test_png
-
-      - name: Stdlib unit suite -- smolalloc
-        shell: bash
-        run: lake exe test_smolalloc
-
-      # --- Full gate set: pull_request/workflow_dispatch only ------------
-
-      # NOT run on Linux -- genuinely Windows-only, not just "not yet ported"
-      # (docs/CI.md #4): Gasm.Targets.X86_64.HardwareHarness emits a native PE
-      # executable and executes it directly against the host CPU as its mandatory
-      # oracle-sanity-check control vectors (see HardwareHarness.lean's
-      # "HARDWARE ORACLE SANITY CHECK" aborts), the same PE-execution dependency
-      # as the Spike Windows-execution gates below -- there is no Linux
-      # equivalent oracle. This step is a placeholder, not the gate itself: it
-      # is `if: false` so it always renders as an explicit "Skipped" line in
-      # GitHub's Checks UI (never silently absent from the step list), per the
-      # "a gate that does not run on a platform must be visibly marked as such"
-      # requirement. It was previously miswired to actually run here, which
-      # made every Linux run fail outright (the control-vector PE cannot
-      # execute on ubuntu-latest) -- see docs/CI.md #4 for the incident.
-      - name: "x86-64 semantics fuzzer (Windows-only: executes a native PE oracle on real silicon; see docs/CI.md #4)"
-        if: false
-        shell: bash
-        run: echo "not reached -- Windows-only, see docs/CI.md #4"
-
-      - name: "Wasm semantics fuzzer (oracle: node)"
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe wasm_fuzzer
-
-      - name: "x86-64 encoding fuzzer (oracle: NASM)"
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe encoding_fuzzer
-
-      - name: "GZIP differential fuzzer, in-Lean (oracle: python)"
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe gzip_fuzzer
-
-      - name: "PNG parser-stability fuzzer (no external oracle)"
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe png_stability_fuzzer
-
-      - name: "x86-64 decoder/encoder parser-stability fuzzer (no external oracle)"
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe x86_stability_fuzzer
-
-      - name: "Spike Wasm validator differential (oracle: node)"
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe validate_spike_wasm
-
-      # perf_fuzzer: same hardware carve-out as the Windows job (docs/CI.md #5).
-
-      - name: "Spike 1 -- Wasm host execution (oracle: node)"
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe test_spike1_wasm
-
-      - name: "Spike 2 -- Wasm host execution (oracle: node)"
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe test_spike2_wasm
-
-      # Bare-metal x86-64 target (docs/TARGETS/BARE_METAL.md): unlike the Windows PE
-      # spikes, this one genuinely EXECUTES here, not just emits -- QEMU emulates the
-      # ELF64 guest directly, no host-native loader involved, so Linux closes this
-      # loop completely rather than emit-only (contrast with the Windows-PE emit
-      # steps below). Test.lean self-emits spike1_hello_baremetal.elf if missing, so
-      # no separate emit step is needed (unlike Spike 1/2's Windows PE ordering trap,
-      # docs/CI.md #7).
-      - name: "Spike 1 -- Bare Metal x86-64 QEMU execution (oracle: qemu-system-x86_64)"
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe test_spike1_baremetal
-
-      # Spike 3's Wasm host test used to hardcode a `powershell.exe` stdin shim
-      # (Windows-only, see docs/CI.md #4 history). That shim is gone --
-      # Spikes/Spike3SortLines/Wasm/Test.lean now spawns `node` directly with
-      # `stdin := .piped` via `IO.Process.output`'s `input?` parameter, exactly
-      # like Spike 1/2's Wasm tests above, so this gate is now genuinely
-      # portable and runs here too.
-      - name: "Spike 3 -- Wasm host execution (oracle: node)"
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe test_spike3_wasm
-
-      # Spike emitters (write PE bytes to a file; no execution) still run
-      # here for signal that the emission code path itself doesn't fault,
-      # even though the resulting .exe can't be executed on this platform
-      # (docs/CI.md #4).
-      - name: Emit Spike 1 (Windows PE bytes; not executed here)
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe spike1_hello_windows
-
-      - name: Emit Spike 2 (Windows PE bytes; not executed here)
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe spike2_fibonacci_windows
-
-      - name: Emit Spike 3 (Windows PE bytes; not executed here)
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe spike3_sort_lines_windows
-
-      - name: Emit Spike 4 (Windows PE bytes; not executed here)
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe spike4_http_windows
-
-      - name: Emit Spike 5 gzip (Windows PE bytes; not executed here)
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe spike5_gzip_windows
-
-      - name: Emit Spike 5 gunzip (Windows PE bytes; not executed here)
-        if: github.event_name != 'push'
-        shell: bash
-        run: lake exe spike5_gunzip_windows
-
-      # --- Windows-only: visibly marked NOT RUN here, not silently absent ---
-      # (docs/CI.md #4.) Each step below is `if: false` so GitHub's Checks UI
-      # always renders it as an explicit "Skipped" line on the Linux job --
-      # never just missing from the list, which would be indistinguishable
-      # from a gate nobody thought to add. Each is covered for real on the
-      # windows job above. A step that does not exist at all in a job's step
-      # list is invisible in the Checks UI; a `if: false` step is not -- that
-      # distinction is the entire point of adding these.
-
-      - name: "Spike 1 -- Windows PE execution (Windows-only: executes the emitted .exe natively, needs a Windows loader; see docs/CI.md #4)"
-        if: false
-        shell: bash
-        run: echo "not reached -- Windows-only, see docs/CI.md #4"
-
-      - name: "Spike 2 -- Windows PE execution (Windows-only: executes the emitted .exe natively, needs a Windows loader; see docs/CI.md #4)"
-        if: false
-        shell: bash
-        run: echo "not reached -- Windows-only, see docs/CI.md #4"
-
-      - name: "Spike 3 -- Windows PE execution (Windows-only: executes the emitted .exe natively, needs a Windows loader; see docs/CI.md #4)"
-        if: false
-        shell: bash
-        run: echo "not reached -- Windows-only, see docs/CI.md #4"
-
-      - name: "Spike 4 -- Windows PE execution (Windows-only: executes the emitted .exe natively, needs a Windows loader; see docs/CI.md #4)"
-        if: false
-        shell: bash
-        run: echo "not reached -- Windows-only, see docs/CI.md #4"
-
-      - name: "Spike 5 -- Windows PE execution (Windows-only: executes the emitted .exe natively, needs a Windows loader; see docs/CI.md #4)"
-        if: false
-        shell: bash
-        run: echo "not reached -- Windows-only, see docs/CI.md #4"
-
-      - name: "GZIP native-binary cross-fuzzer (Windows-only: scripts/fuzz_gzip.py executes spike5_gzip.exe/spike5_gunzip.exe natively; see docs/CI.md #4)"
-        if: false
-        shell: bash
-        run: echo "not reached -- Windows-only, see docs/CI.md #4"
+          python scripts/run_gates.py --group fuzzers \
+            --gate wasm_fuzzer \
+            --gate encoding_fuzzer \
+            --gate gzip_fuzzer \
+            --gate png_stability_fuzzer \
+            --gate x86_stability_fuzzer \
+            --gate elf_stability_fuzzer \
+            --shard ${{ matrix.shard }} \
+            --parallel

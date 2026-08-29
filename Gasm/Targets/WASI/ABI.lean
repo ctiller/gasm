@@ -712,8 +712,10 @@ def wasiHostCapabilities : CapabilityComposition WasiPlatform where
     rcases hprovider with rfl | rfl <;> intro state <;> rfl
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- WAT rendering remains gated by the same sole proof authority as binary emission. -/
-def renderVerifiedWasmText (program : VerifiedProgram WasiPlatform wasiHostCapabilities) : String :=
+/-- WAT rendering remains gated by the same sole proof authority as binary emission, while allowing
+    any capability composition proved for the WASI platform. -/
+def renderVerifiedWasmText {capabilities : CapabilityComposition WasiPlatform}
+    (program : VerifiedProgram WasiPlatform capabilities) : String :=
   emitWasmText program.artifact.module program.artifact.typeSignatures
 
 end Gasm.Targets.WASI

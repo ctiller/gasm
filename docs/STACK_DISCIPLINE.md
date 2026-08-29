@@ -1,13 +1,13 @@
 # Stack Discipline & Local Jump Obligations
 
-**Status (2026-08-29): required design with an unsoundly weak partial substrate.**
-`ComposedState.stackDepth`, CFG terminators and a minimal stack-clean predicate exist, but current
-`jmp`/`jcc` constructors carry only string labels and depth equality: they do not establish the
-destination block's entry contract or transfer its ghost world. `BlockM` also has unrestricted state
-replacement and no checked stack-instruction authoring surface. The trust-repair milestone must
-complete the typed-edge and composition rules below before treating spike proofs as exemplars.
-`AbiDiscipline` vocabulary and a stack-restoration fact are necessary but not sufficient for
-relational entry/exit, target admissibility, artifact/link identity or boundary certification.
+**Status (2026-08-29): required design with a partial substrate.** `ComposedState.stackDepth`, typed
+direct/conditional/closed-set-indirect edges, finite CFG closure, reachability composition and a
+minimal stack-clean predicate exist. The remaining trust connections are the checked
+stack-instruction authoring surface, removal of unrestricted `BlockM` state replacement, and the
+proof that semantic CFG decoding is the control flow of the exact final artifact. The selected
+M1/M2-B profile must complete those connections before the spike proofs are accepted as exemplars.
+`AbiDiscipline` is structural vocabulary only; it deliberately carries no information-free
+“preservation” field. The canonical boundary-profile closure rule is `docs/MEMORY_MODEL.md` §3.
 
 Completed function-local stack manipulation must be strictly checked to guarantee that:
 1. Every allocated byte on the stack is restored before a return instruction (`ret`).
@@ -55,13 +55,16 @@ soundness on `stackDepth`:
 
 Different operating systems and architectures mandate distinct calling conventions. The current
 partial substrate records structural **ABI Discipline** vocabulary parameterized over `Arch` and
-`ABI`; a selected M2-B profile must add exact relational entry/exit and caller/link certification:
+`ABI`; a selected M2-B profile must add exact relational entry/exit and caller/link certification.
 
 This document uses *ABI* narrowly for the machine calling convention: registers, stack layout,
 preservation, and return. Logical allocator, request, cancellation, or library capabilities are
-specified by [Composable Boundary ABI Contexts](ABI_CONTEXT.md). The row-level connection remains
-unimplemented. Its eventual call rule must satisfy both layers; neither an OS nor this stack
-discipline implicitly supplies the contextual layer.
+specified by [Composable Boundary ABI Contexts](ABI_CONTEXT.md). Their staging records now provide
+relational boundary and artifact/export certificates, but the M1 resource-world connection and
+substantive M2-B target profiles remain unimplemented. A complete call rule must satisfy both
+layers; neither an OS nor this stack discipline implicitly supplies the contextual layer.
+
+The structural vocabulary is:
 
 ```lean
 class AbiDiscipline (Arch : Type) (ABI : Type) where
@@ -71,12 +74,20 @@ class AbiDiscipline (Arch : Type) (ABI : Type) where
   stackAlignment      : Nat
   argumentRegisters   : List (Register Arch (TargetArch.wordWidth Arch))
   returnRegister      : Register Arch (TargetArch.wordWidth Arch)
-  
-  /-- Post-call return invariant verified on the machine state -/
-  calleePreservesStack : ∀ (s_pre s_post : MachineState Arch),
-    CalleeDiscipline Arch s_post →
-    s_post.rsp = s_pre.rsp + TargetArch.wordWidth Arch
 ```
+
+The former `calleePreservesStack` field was removed because it merely concluded
+`s_post.stackDepth = 0` from a `CalleeDiscipline` premise that already contained exactly that fact.
+An older version of this document instead displayed an unrelated `s_pre` and an RSP equation that no
+tree declaration implemented. Neither shape certified a call.
+
+The meaningful M2-B theorem is relational over the **same selected boundary execution**: from its
+established entry state, emitted call/return path and exit state, it proves the profile-specific RSP
+restoration relation, equality of every full-width callee-saved register, return-address/control-flow
+integrity, returned stack authority, and the declared result/obligation after-world. System V,
+Microsoft x64, AAPCS64 and any `ret N` profile may have different exact RSP equations; the structural
+table above does not manufacture a universal one. A closed registry/artifact/caller link under
+`docs/MEMORY_MODEL.md` §3 is what makes that theorem executable authority.
 
 ### 2.1 ABI Stack Restoration Matrix
 

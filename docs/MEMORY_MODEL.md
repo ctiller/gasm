@@ -1,16 +1,17 @@
 # Memory, Concurrency, Ownership, and Synchronization Model
 
-**Status:** canonical cross-architecture design and implementation roadmap. The repository
-currently implements only the single-threaded pieces identified in §2. Everything else is a
-requirement, not a claim about existing Lean declarations.
+**Status:** canonical cross-architecture design and implementation roadmap. The repository's
+implemented substrate is inventoried in §2; no concurrent memory model is implemented yet.
+Everything listed as missing or as a future stage is a requirement, not a claim about existing Lean
+declarations.
 
 This document supersedes the retired x86-only memory-model and borrowing plans and owns the
 architecture shared by Spike 8. Target documents own
 instruction encodings and platform details; this document owns how their memory, concurrency,
 ownership, and synchronization semantics fit together.
 [Composable boundary ABI contexts](ABI_CONTEXT.md) consume this model's common authority and
-obligation world and prove that concrete calling mechanisms transport its transitions; they do not
-define a parallel ownership, cancellation, or cleanup model.
+obligation world; they transport it across calls, roots, callbacks and other entries rather than
+defining a parallel ownership or cleanup system.
 
 The design has one central rule:
 
@@ -48,10 +49,10 @@ The completed system must provide all of the following:
    profile-native relation labels.
 8. **Differential validation:** bounded model outcomes, emitted binaries, native silicon, and
    architecture-appropriate negative controls remain linked.
-9. **Honest process boundaries:** the first thread scheduler is not mislabeled as a process model.
-   A later hosted-process profile composes generative process instances, address-space and image
-   generations, process-local handle namespaces, shared kernel/backing objects, explicit failure
-   domains, and platform-specific termination observation and status consumption.
+9. **Honest process boundaries:** the current thread scheduler is one host process, not a process
+   model. Multiprocess creation, image replacement, observation/reaping, inheritance and
+   process-shared robust synchronization are deferred behind the compatibility constraints in
+   `docs/FUTURE_PROCESS_MODEL.md`; they are not M0–M9 prerequisites.
 
 The first supported concurrent profile is deliberately bounded:
 
@@ -64,17 +65,19 @@ The first supported concurrent profile is deliberately bounded:
 - process-private futex wait/wake first, with other futex operations deferred explicitly;
 - two-thread litmus and lock programs first, with the model itself parameterized by thread count.
 
-The M3 implementation profile is intentionally one hosted address space or one bare-metal machine.
-It supplies Spike 8's thread/PE topology and scheduler seam, but not the later platform adapters,
-locks, trace proof or full M9 acceptance, and it is not multiprocessing. True hosted
-process creation, image replacement, observation/reaping, shared mappings, handle inheritance and
-IPC are the separately gated M6-P profile family described in §§6.5 and 8.1. This separation keeps process
-work from silently inheriting thread-join or single-address-space assumptions.
+The M3 implementation profile is intentionally one host process's CPU thread domain or one
+bare-metal CPU/PE machine. It supplies Spike 8's thread/PE topology and scheduler seam, but not the
+later platform adapters, locks, trace proof or full M9 acceptance, and it is not multiprocessing.
+It does **not** assert one global address space: independently selected GPU, device, IOMMU, RDMA and
+other domains can have distinct reference/address spaces and execution agents through M0's
+target-indexed interfaces. Host process creation, image replacement, observation/reaping, handle
+inheritance and cross-process IPC remain deferred as described in §§6.5 and 8.1.
 
 These restrictions are acceptance boundaries, not silent assumptions. Widening any one requires a
 new validation demand and an update here before implementation.
 
-This first profile is CPU concurrency, not a claim that CPU-shaped event fields are universal.
+This first scheduler profile is CPU concurrency, not a claim that CPU-shaped event fields or one
+host virtual-address domain are universal.
 WebAssembly shared-memory threads, SPIR-V/Vulkan, WGSL/WebGPU, DMA submission/completion
 interfaces, network and IPC protocols, and durable storage need additional execution agents,
 locations, scopes, relations, and consequences.
@@ -86,7 +89,7 @@ types, §15 decision 2 must preserve target-indexed extension points for those d
 
 ## 2. Verified Current Baseline
 
-As of 2026-08-28, the tree has the following relevant machinery:
+As of 2026-08-29, the tree has the following relevant machinery:
 
 | Area | Present | Missing |
 |---|---|---|
@@ -95,9 +98,10 @@ As of 2026-08-28, the tree has the following relevant machinery:
 | Capabilities | `PermissionShare`, `MemoryPerm`, `MemoryPermissions` | Enforcement at instruction construction, provenanced pointer authoring, temporal loans, cross-thread transfer |
 | Obligations | Generic `ObligationToken` list and return/exit predicates | Typed lock/join/wait obligations and an index that prevents forged ledger replacement |
 | Indexed programs | `BlockM Arch S₁ S₂ α` with indexed bind | A borrow/obligation index used by assembly programs; safe constructors that prevent arbitrary state replacement |
+| Boundary contexts | `Gasm.Core.AbiContext` provides relational entry/exit realizations, exact export sets, link/component certificates, and `Gasm.Core.Platform` connects those certificates to the universal `VerifiedProgram` root | The M1 authority/obligation world, coherent heterogeneous rows and conservation laws, the closed boundary-profile registry, and substantive M2-B target realizations/admissibility profiles |
 | Causality | `ThreadId`, vector clocks, `CausalEvent`, single-thread stamping | Concurrent execution graph, correct synchronizes-with generation, multi-thread trace projection |
 | OS threads | Single-state Win32 and Linux hooks | Runnable/blocked thread state, clone/CreateThread lifecycle, joins, futexes, wait queues |
-| OS processes | One implicit process; thread and process exit collapse into a whole-machine stop | Generative process/system state, address-space and image generations, fork/exec/CreateProcess, process objects/status/reaping, failure domains, shared-object survival, and typed IPC/handle transfer |
+| OS processes | One implicit root host process; current thread/process exits still collapse into a whole-program stop | Multiprocess creation, images, observation/reaping, inheritance, IPC and robust process-shared synchronization are explicitly deferred to `docs/FUTURE_PROCESS_MODEL.md` |
 | Bare metal | Single-CPU x86 and AArch64 execution paths | SMP bring-up, coherent shared-memory assumptions, interrupt/wakeup model, per-CPU/PE state |
 
 No concurrency theorem may be presented as implemented until it is stated against a machine with
@@ -188,32 +192,42 @@ The connection theorems between layers are mandatory:
 
 Without these the layers are parallel descriptions, not a verified system.
 
-The ABI-context work expected to converge with this plan instantiates the entry half of this seam
-through a relation such as `ContextBoundaryRealization.relatesEntry`; it is the implementation path
-for M1, not a competing memory model. Before that interface freezes, Decision 3 must also make exit
-result/outcome binding relational or prove that every functional projection is restricted to
-non-authorizing physical/scalar data while all fresh erased identities live only in the relational
-after-world. Merely constructing a boundary realization—especially one with a false entry/world
-relation, vacuous admissibility, weak artifact relation, or identity-minting result projection—confers
-no authority to execute it.
+`Gasm.Core.AbiContext` and `Gasm.Core.Platform` are now the concrete staging substrate for M1's
+boundary seam, not a competing memory model. They provide relational entry and exit bindings,
+physical/logical world-coherence laws, exact export-set and link certificates, non-total component
+contracts, and universal root-program connection fields. [The ABI-context document](ABI_CONTEXT.md)
+owns that interface's detailed schema. This does **not** complete M1 or admit an M2-B profile: the
+shared world has not yet been instantiated with M1's indexed authority/obligation algebra, coherent
+heterogeneous rows and conservation laws are absent, and no substantive callable target realization
+or validated physical-admissibility profile exists. Fresh erased identities may be minted only by a
+generative logical transition from the live logical pre-world; they may never be reconstructed from
+physical result bits.
+
+This paragraph is the canonical **boundary-profile closure rule**. Constructing a boundary
+realization alone confers no execution authority. Every concrete M2-B profile has one registry entry
+identifying its selected entry kind/result subset, reachable caller/loader/platform origin,
+admissibility theorem, artifact or TCB connection, and applicable negative-control class. Its closure
+theorem must connect a logical transition witness—including authority changes when applicable—to an
+independently checkable physical control-flow/artifact or pinned platform transition. Registry entries
+and closure theorems are reusable per physical boundary realization/profile; callers prove only their
+entry precondition and do not duplicate the profile proof at every call site. A false/empty world
+relation, trivially true
+admissibility predicate, unconstrained ghost-before-ghost ordering, weak artifact relation, or
+physical identity-minting projection cannot satisfy that closure. Other documents reference this rule
+rather than restating a weaker variant.
 
 M1 freezes and tests only the abstract relation/link interface. A concrete ordinary call, syscall or
 loader root additionally selects its exact M2-B architecture/platform/entry-kind profile. Thread
 semantics belong to M6-T[Linux] or M6-T[Windows]; native lifecycle belongs to M6-NX[Linux],
 M6-NX[Windows], or M6-NA[Linux]; optional address parking belongs separately to M6-X[Linux],
-M6-X[Windows], or M6-A[Linux]. A process boundary belongs to M6-PL-X/A or M6-PW-X; and an asynchronous
-entry on Decision 13 plus the selected hosted or M7 target. Nothing reaches `VerifiedProgram` until a
+M6-X[Windows], or M6-A[Linux]. An asynchronous entry additionally selects Decision 13 and the
+applicable hosted or M7 target. Nothing reaches `VerifiedProgram` until a
 whole-program caller-or-loader link theorem establishes every exact entry tuple and precondition and
 connects the target execution to the emitted artifact.
 
-Launching or replacing an image with an **opaque environment program** is a different profile. The
-model may prove OS lifecycle/object/termination semantics and explicit shared-memory/IPC/handle
-channels without interpreting that program's internal execution, granting it internal linear
-authority, or claiming a child `VerifiedProgram`; that profile therefore owes no application-artifact
-or application-entry theorem. A **verified child/image** profile does owe the complete artifact and
-entry connection. This distinction keeps an ordinary external `CreateProcess`/spawn/exec from
-inheriting an unnecessary whole-program proof burden while preventing opaque code from receiving
-verified-code authority by implication.
+Future opaque and verified child/image boundaries, including required environment-interference
+authority for writable shared resources, are specified only in `docs/FUTURE_PROCESS_MODEL.md`. They
+do not add a current M2-B profile or proof obligation.
 
 ---
 
@@ -397,16 +411,6 @@ allocation order. Logical `ThreadId` values are generative and never reused with
 trace; platform TIDs, handles, APIC IDs, and MPIDR values map to the current logical instance but are
 not program-event or vector-clock identities.
 
-The aligned, non-overlapping v1 CPU subset has one reusable `CpuGraph.WellFormed` algebra rather
-than target proofs rebuilding graph hygiene independently. It requires: every read byte has exactly
-one `rf` source (an explicit initial write or a compatible write event); source and returned values,
-locations, widths, and byte lanes agree; each modeled Normal-memory location has exactly one initial
-write; `co` is a strict total order over writes to each location and contains no unrelated events;
-`fr` is derived from `rf` and `co`, not freely supplied; and atomic/RMW/exclusive reads and successful
-writes obey the profile's indivisibility and read-source constraints. Target consistency predicates
-accept only a `CpuGraph.WellFormed` graph and then add ISA ordering rules. Mixed-size and overlapping
-accesses require an explicit later extension of this algebra rather than weakening v1 well-formedness.
-
 The event graph is the common proof-facing representation. Each ISA may use the executable model
 best suited to it, provided connection theorems relate that model to this graph.
 
@@ -454,13 +458,16 @@ Required x86 connection theorems:
 1. one-thread, drained executions agree observationally with the existing sequential interpreter;
 2. an atomic descriptor corresponds to one indivisible dynamic action;
 3. every admitted operational execution satisfies the x86 execution-graph consistency predicate;
-4. every native observation is contained in the pinned model's allowed outcomes; and
-5. the model-derived outcome sets for the finite named x86 litmus suite match the stated TSO profile.
-
-Reverse inclusion—every bounded graph-consistent execution being produced by the operational
-enumerator—is required only when that enumerator is advertised as a complete model checker. Such an
-`EnumeratorComplete` profile proves general adequacy and obtains named-suite equality as a
-corollary; ordinary verified programs and soundness-only execution engines do not pay that cost.
+4. the bounded validation enumerator is sound and complete for an independently defined finite
+   operational reachability relation and declared bound;
+5. the model-derived outcome sets for the selected finite x86 litmus suite equal those of the stated
+   TSO profile; and
+6. general graph-predicate-to-operational-enumerator adequacy is required only if gasm advertises the
+   enumerator as a complete bounded model checker or an exact-outcome/equivalence/progress theorem
+   consumes its results beyond a separately proved finite scope. A production safety theorem stated
+   directly over the normative execution relation needs semantic soundness; it does not become unsafe
+   merely because a test enumerator under-approximates allowed behavior outside the finite validation
+   suite.
 
 ### 5.2 AArch64: Weak Memory, Acquire/Release, and Exclusives
 
@@ -503,14 +510,15 @@ Required AArch64 connection theorems mirror x86 but are architecture-specific:
 2. exclusive-monitor success and failure correspond to the emitted event sequence;
 3. acquire, release, and barrier descriptors are faithful to dynamic ordering behavior;
 4. every admitted execution satisfies the chosen AArch64 consistency predicate;
-5. bounded outcome sets equal those of the pinned formal Arm profile for the finite named litmus
-   suite; and
-6. every native observation is contained in the pinned allowed set.
-
-General reverse-inclusion adequacy is an optional `EnumeratorComplete` claim, not a prerequisite for
-program soundness. A tool making that stronger claim proves every bounded graph-consistent execution
-is represented; a soundness-only Arm execution engine proves operational execution implies pinned
-consistency and is validated by the finite named-suite equality above.
+5. the bounded validation enumerator is sound and complete for an independently defined finite
+   operational reachability relation and declared bound;
+6. outcome sets for the selected finite litmus suite equal those of the pinned formal Arm profile,
+   and every native observation is contained in that set; and
+7. general graph-predicate-to-operational-enumerator adequacy is optional unless gasm claims the
+   enumerator is a complete bounded model checker or an exact-outcome/equivalence/progress theorem
+   consumes its results beyond a separately proved finite scope. The normative Arm predicate remains
+   the oracle; a safety theorem stated directly over it requires the execution-soundness theorem in
+   item 4, not completeness of a second testing engine.
 
 ### 5.3 What Is Shared and What Is Not
 
@@ -530,16 +538,6 @@ Architecture-specific:
 - fence/barrier semantics and scope;
 - normal/device memory attributes;
 - bare-metal CPU/PE bring-up.
-
-The implementation packages those layers as composable certificates. A generic finite-transition
-DFS library supplies search mechanics without claiming an ISA; each ISA proves a reusable induction
-from one local operational step to its event projection; descriptor families prove parameterized
-projection and emitted-stream/relocation fidelity once; `CpuGraph.WellFormed` is consumed by the
-target consistency theorem; and observation projection derives the finite named-suite comparison.
-A whole program composes certificates for its reachable descriptor classes, emitted artifact, and
-selected target profile. It does not re-prove generic DFS correctness, per-instruction instances of
-a descriptor-family theorem, or an optional enumerator-completeness result. Exceptional encodings
-and semantics contribute only their refinement delta and any stronger property they advertise.
 
 ---
 
@@ -644,7 +642,7 @@ model. Migration should separate atomic-object authority from protected-region o
 ### 6.3 Global Cross-Thread Invariant
 
 For every event-time concrete mutable byte range, the family of live authority contexts in the
-selected thread/process system satisfies a global access-mode invariant:
+selected shared-backing authority domain satisfies a global access-mode invariant:
 
 - at most one context has ordinary write authority;
 - if one context has ordinary write authority, no other context has read or write authority;
@@ -692,11 +690,11 @@ manufacture every capability originally donated. Platform thread handles and the
 obligations are separate observation resources.
 
 `JoinRight` is a high-level task/thread contract, not a platform process-lifecycle primitive. A
-high-level task may eventually be implemented by a child process, but its adapter must separately
-own the process-observation, status, reaping and IPC resources in §6.5 and prove how an explicit
-channel realizes the task's terminal result. The one-shot task abstraction cannot be used to claim
-that a repeatable process wait consumes an OS process object, or that process termination returns
-the child's private address-space authority.
+high-level task may eventually be implemented by a child process, but only a future Decision-12
+adapter would own the required observation/channel resources and prove that refinement; current
+task/thread consumers owe none. The one-shot task abstraction cannot be used to claim that a
+repeatable process wait consumes an OS process object, or that process termination returns a child's
+private address-domain authority.
 
 Every thread terminal transition seals a bundle that accounts for its entire resource context:
 each authority, loan, atomic grant, guard, and obligation is returned, donated through a specified
@@ -706,6 +704,17 @@ capability left in a dead thread is still invalid. Detach consumes a `JoinRight`
 contract returns no join-owned linear resource, or atomically redirects the declared terminal
 bundle to such a live sink. A dead or terminating process is not itself a magic recipient.
 
+The current implicit-root whole-program exit (host `exit_group`/`ExitProcess` lowering or bare-metal
+machine stop) must additionally account for **every** thread context and every sealed but unconsumed
+terminal bundle in that root domain. Each remaining resource needs its selected normal discharge or
+transfer to a named live recipient. Only a resource explicitly typed as root-lifetime may instead use
+a target-specific teardown theorem that proves the exact disposition of that resource class. In
+particular, a live `MustRelease`, outstanding loan/withdrawal, or any unconsumed `JoinRight` cannot
+pass root exit merely because the OS will stop the threads. A failure-domain abort disposition is not
+normal discharge, and the legacy `isDroppableOnExit` Boolean is not either proof. This is an
+M4/M6-T plus applicable M6-NX/M6-NA and M9 obligation for the current single-process profile; it does
+not depend on the deferred multiprocess extension in §6.5.
+
 Spawn and join contribute program-happens-before only through a proved lifecycle-visibility
 refinement. Parent-to-child spawn must make the promised pre-spawn writes visible before the child
 uses donated authority; child-to-parent join must make the terminal bundle's promised writes visible
@@ -713,76 +722,26 @@ after successful join. A runnable/signaled state, child-TID clear, or wake event
 proof. Each platform adapter must cite an API/architecture guarantee that provides the edge or use an
 explicit release/acquire publication word alongside its lifecycle mechanism.
 
-### 6.5 Process lifecycle authority and interprocess resources
+### 6.5 Deferred hosted-process extension
 
-The real hosted-process model is the separately gated M6-P profile family. Its POSIX/Linux
-(`M6-PL`) and Windows (`M6-PW`) members can advance independently and do not reuse the task/thread
-join algebra. Their required information content includes a globally generative `ProcessInstanceId`;
-time-indexed external PID bindings; process-world, image and address-space generations; independently
-owned termination/status records; aliasable termination-observation and status-query grants; and,
-where the platform has one, a distinct one-shot reap/status-consumption right. Raw PIDs and handle or
-descriptor numbers are reusable namespace keys, never identities or capabilities.
+The current M0–M9 path has one implicit root host process. It intentionally has no `fork`, `_Fork`,
+`vfork`, `exec`, `posix_spawn`, `CreateProcess`, process wait/reap, inherited handle table,
+cross-process shared-memory authority or process-shared robust-mutex constructor. No current theorem
+or implementation stage depends on one.
 
-Process creation refines mappings, typed views, pointer-slot bindings and authority together; copying
-page bytes is not enough. In the POSIX/Linux profile:
+The public memory and boundary seams nevertheless remain extensible: raw PID/fd/HANDLE values cannot
+mint identity or authority; task/thread `JoinRight` is not process observation; failure is
+resource-specific rather than global-world invalidation; and dynamic bindings can later be qualified
+by generative process, image and address-domain identities. These negative boundaries prevent the
+thread model from blocking a sound future process composition without forcing current consumers to
+prove it.
 
-- a private inherited mapping creates a fresh child `RegionId`, mapping generation, typed views and
-  slot bindings through a generative parent-to-child rebase witness. While kernel copy-on-write
-  shares the physical snapshot, its concrete backing is frozen and both mappings hold only the
-  derived read grant there, even though each process owns its distinct logical private region. Before
-  either process performs an ordinary write, a kernel COW transition allocates/copies and
-  generation-rebinds that mapping to fresh concrete backing, installs its concrete exclusive grant,
-  and only then lets the store resolve and execute. Thus two private logical owners never authorize
-  ordinary writes to the same event-time concrete mutable range;
-- a shared mapping preserves its backing-object identity and creates a child mapping/view reference,
-  but access authority is only the read-shared, registered-atomic, partitioned or other grant derived
-  by the pre-fork contract. Mapping inheritance never duplicates an `Exclusive` grant to a common
-  backing;
-- a `MADV_DONTFORK`-like disposition creates no child mapping or view, while a
-  `MADV_WIPEONFORK`-like disposition creates the selected zero/reset child state and clears or
-  regenerates every affected typed slot binding rather than retaining provenance for erased values;
-- `vfork` creates none of those independent child grants: it carries only the scoped non-owning
-  address-space/view borrow described in §8.1; successful exec invalidates old-image mappings, views
-  and slot bindings before the replacement image establishes new ones.
-
-The lifecycle transition may rebase a live typed pointer slot because it carries the parent binding
-and exact mapping transform. Loading equal pointer-sized bytes in the child cannot manufacture that
-witness. Fork is rejected or restricts the child's access if the proposed shared-mapping authority
-split would violate the global access-mode invariant.
-
-Process termination creates only the profile's terminal fact/status and resource-specific cleanup
-transitions. It cannot seal arbitrary private-memory capabilities into an in-memory bundle for an
-observer. Results or authority crossing a process boundary require an explicit shared-memory, IPC,
-pipe/socket, inherited-object or handle-transfer channel and its own visibility/lifetime proof.
-POSIX `waitid(..., WNOWAIT)`-style observation can preserve a waitable status record and a later reap
-can consume it; Windows process-object signaling can be observed repeatedly through independently
-owned handles. Neither platform shape is forced through `JoinRight`.
-
-The common handle/object seam distinguishes at least:
-
-- the source and destination process-local `HandleEntryId`/descriptor entry and binding generation;
-- any intermediate open-file description or provider object, the underlying kernel/object instance,
-  the exact rights, inheritability, and each local close obligation;
-- copy/alias, move/donation, rights attenuation, creation-time inheritance, import/open by name, and
-  object-specific export/import; attenuation and source closure are result-indexed dimensions rather
-  than assumptions hidden in the word “transfer”;
-- publication, receiver acceptance, source retention/closure, and failure atomicity as separate
-  consequences.
-
-Thus Linux `SCM_RIGHTS` is an alias-creation operation: the receiver obtains a fresh descriptor entry
-to the same open-file description while the sender normally retains its entry. Windows
-`DuplicateHandle` may preserve or transform rights, and `DUPLICATE_CLOSE_SOURCE` retires the source
-even on an error outcome; sockets and other exceptional object types use their selected
-object-specific transfer profile. Equal numeric entries in different namespaces prove no aliasing.
-
-Every process world belongs to an explicit `FailureDomainId`, and every resource/effect declares its
-termination disposition. Private mappings and local entries may be invalidated or forcibly closed;
-shared mappings and refcounted kernel objects may survive through other bindings; a robust
-process-shared lock may enter owner-dead recovery; children may survive, reparent, or be killed only
-under a selected job/group rule; and device, network, filesystem and remote effects may complete,
-cancel, persist, leak, or become indeterminate as their own profile states. Forced termination is an
-abort of precisely that domain. It is never proof of normal guard release, global-world
-invalidation, or clean destruction of surviving resources.
+`docs/FUTURE_PROCESS_MODEL.md` is the single detailed design note for that later work. It defines the
+capability-indexed profile split, opaque-environment interference, portable logical fork semantics,
+optional physical COW refinement (triggered by every store-class effect, not only ordinary writes),
+process observation versus reaping, handle/object derivation, failure domains and quarantined robust
+owner-death repair. Its feature labels are not current stages, and its source intake opens only when a
+consumer selects the corresponding capability.
 
 ---
 
@@ -808,7 +767,8 @@ structure LockInv
     (representationCore : MutexRepresentationId)
     (protectedRegion : RegionId) where
   -- When unlocked, the invariant owns protectedRegion.
-  -- When locked, exactly one live guard owns protectedRegion.
+  -- When healthy-held, exactly one HealthyGuard owns invariant-backed authority.
+  -- A recovery-held state exposes only its profile-scoped repair capability.
   invariant : LockStateRelation implementation representationCore protectedRegion
 ```
 
@@ -817,8 +777,10 @@ invariant relates its implementation-defined state, profile-owned logical owner 
 acquisition generation, protected authority, wait state, lifecycle, live auxiliary-resource loans,
 and any additional packed payload. Contenders receive only the implementation-declared atomic grants
 for `rCore`; mixed atomic/plain access or separately claimed authority for overlapping fields of any
-core object is rejected. The invariant owns `p` while available, and exactly one live guard owns `p`
-while held.
+core object is rejected. The invariant owns `p` while available. A healthy held state transfers its
+invariant-backed authority to exactly one `HealthyGuard`; an exceptional state instead transfers only
+the separately typed `RecoveryGuard` and quarantined repair footprint described by its profile. No
+common theorem may treat those two authorities as interchangeable.
 
 Auxiliary resources remain owned by their contributor or infrastructure until a checked acquisition
 transition lends them to the lock protocol. A queue-node implementation such as MCS may therefore
@@ -847,11 +809,15 @@ Acquire has an extensible, result-dependent postcondition. The common result sur
   `LockGuard lock owner generation protectedRegion`, transfer exclusive protected authority, and add
   the matching `MustRelease lock owner generation`;
 - `acquiredNeedsRecovery`: transfer exceptional ownership plus a profile-specific typed
-  recovery/repair obligation. A POSIX robust profile can require `pthread_mutex_consistent` to
-  promote the guard and make unlock-before-consistent poison the mutex; a Windows abandoned-mutex
-  profile grants ownership while reporting the protected application state potentially inconsistent
+  recovery/repair obligation and only the quarantined repair capability needed by that protocol. It
+  does **not** create the ordinary healthy invariant-backed guard or let ordinary clients rely on the
+  protected invariant. A POSIX robust profile can require a checked repair plus
+  `pthread_mutex_consistent` to atomically promote the exceptional guard to `acquiredHealthy` and
+  make unlock-before-consistent poison the mutex; a Windows abandoned-mutex profile grants
+  exceptional ownership while reporting the protected application state potentially inconsistent
   and must not import POSIX's kernel-level consistent/not-recoverable state machine. Each profile
-  states what evidence restores its application invariant and what release is permitted; and
+  states the exact repair footprint, what evidence restores its application invariant and what
+  release is permitted; and
 - `notRecoverable reason`: report the permanent protocol state without granting ownership.
 
 The first `ParkedMutex32` profile exposes only `notAcquired` and `acquiredHealthy`. Robust and
@@ -931,7 +897,8 @@ Target realizations differ:
 The obligation model must replace string-only protocol knowledge with typed resources including:
 
 - `MustRelease lock owner generation`;
-- `MustRecover lock owner generation` for a selected robust/abandoned profile;
+- `MustResolveRecovery lock owner generation` for a selected robust/abandoned profile, discharged by
+  checked invariant restoration/promotion or by the selected poison/not-recoverable branch;
 - `MustWithdrawQueueNode lock acquisition node` or the implementation's equivalent auxiliary loan;
 - `MustJoin child` or explicit detachment;
 - `MustUnregisterWait queueEntry`;
@@ -1079,14 +1046,16 @@ reader/writer authority overlap, lost waiter registration, duplicated permits an
 
 ## 8. Thread/PE Machine and Scheduler
 
-M3 is deliberately a **single-address-space logical-thread/PE machine**, not a process model. A
-hosted instance has one admitted address-space identity; a bare-metal instance has one machine
-memory topology. The concurrent machine separates domain-shared, per-thread and execution-agent
-state:
+M3 is deliberately a **single-host-process CPU logical-thread/PE machine**, not a process model and
+not a claim of one global address space. A hosted instance has one admitted host CPU virtual-address
+domain; a bare-metal instance has one selected CPU/PE machine-memory topology. Independently selected
+GPU/device/IOMMU/resource domains may coexist through M0's target-indexed references and bindings,
+but their agents and schedulers are owned by their domain profiles rather than `ThreadState`. The CPU
+concurrent machine separates domain-shared, per-thread and execution-agent state:
 
 ```text
-ThreadDomainState
-  domain/address-space identity
+HostThreadDomainState
+  host-process and CPU address-domain qualification
   shared normal memory
   thread table
   scheduler wait registrations
@@ -1107,12 +1076,12 @@ SchedulerMapping
   logical thread <-> current execution agent / not running
 ```
 
-`ThreadDomainState` does not own a generic process handle table, global kernel-object graph, child
-process tree, PID namespace, or process status/reap record. Those belong to the M6-P family. Thread identifiers
-are nevertheless generative and can later be qualified by a process instance; a raw OS TID or equal
-virtual address is not allowed to close that future seam. M3's public API may expose only the opaque
-owner/domain qualification needed for later composition, not a guessed `fork` or `CreateProcess`
-record.
+`HostThreadDomainState` does not own a generic process handle table, global kernel-object graph,
+child process tree, PID namespace, or process status/reap record. Those are deferred. Thread
+identifiers are nevertheless generative and domain-qualified; a raw OS TID or equal numeric address
+cannot close either the future process seam or a heterogeneous aliasing question. M3's public API may
+expose only the opaque owner/domain qualification needed for later composition, not a guessed
+`fork`/`CreateProcess` record or a universal single-address-space theorem.
 
 Architecture-local state belongs to the execution agent, not to a migratable logical thread. An
 AArch64 reservation is never copied to another PE; descheduling, migration, exception transitions,
@@ -1132,172 +1101,23 @@ Scheduling nondeterminism is universally quantified in safety theorems. Progress
 their fairness hypotheses explicitly. Fuel-bounded execution remains a test runner, not a proof of
 termination or absence of deadlock.
 
-### 8.1 Future hosted-process system layer
+### 8.1 Deferred hosted-process system layer
 
-The M6-P family introduces the first genuine multi-process topology only after decision 12 and the
-selected platform's reference intake. The following is required information content, not an
-accepted Lean representation:
+M3 deliberately stops at one host process's CPU thread domain. It does not add a process table,
+process-status/reap record, PID/handle namespace, cross-process shared-mapping authority or process
+constructor. Those types and transitions are not placeholders that current implementations must fill.
 
-```text
-SystemState
-  process instances, address spaces and image generations
-  handle tables, open descriptions and shared kernel/backing objects
-  PID/handle namespaces and generational bindings
-  process status/reap records, parent/reaper and job/group relations
-  failure domains, execution agents, scheduler, platform and devices
+A future process composition must remain possible without changing M0's event/binding envelope or
+pretending that `JoinRight` is an OS wait. The preserved extension points are generative domain
+qualification, dynamic binding generations, relational lifecycle results, explicit environment
+agents/channels and resource-specific failure dispositions. The detailed capability-indexed topology,
+creation/image rules, opaque-child interference and validation intake live only in
+`docs/FUTURE_PROCESS_MODEL.md` and open after M9 when a concrete consumer selects them.
 
-ProcessState processInstance
-  current image and address-space generation
-  handle-table/namespace identity
-  owned logical threads
-  lifecycle, parent/reaper/group relations and failure domain
-```
-
-Address spaces and handle tables are referenced objects rather than assumed one-per-process values:
-ordinary `fork` creates private descendants while retaining explicit shared backing aliases; selected
-`clone` flags can share an address space or file table; and `vfork` requires a scoped address-space
-borrow plus parent suspension and an exec-or-exit obligation. The POSIX/Linux `fork` profile models
-registered at-fork handler ordering where applicable; `_Fork` runs no such handlers and exposes only
-its exact async-signal-safe creator contract. On a successful transition, when the source process state and selected profile
-require the multithreaded-child restriction, the child enters the selected restricted fork-child
-lifecycle phase as an orthogonal dimension; a single-threaded child does not acquire that restriction
-merely because the operation was named `fork` or `_Fork`. Independently, copied synchronization bytes
-never create lock authority. When `_Fork` was called from a signal handler and the restricted phase
-applies, the child initially carries the product of the copied handler context and that phase until a
-profile-admitted returning or non-returning transition below.
-
-At-fork callbacks do not replace any already active context. Prepare and parent callbacks intersect
-their `AtForkPrepare`/`AtForkParent` traits with the caller's handler/lifecycle traits. After a
-successful multithreaded fork, a child callback runs under
-`AtForkChild × RestrictedForkChild` (and any copied handler trait); callback return removes only
-`AtForkChild` and leaves the restriction in force until its admitted exec/immediate-exit/fatal
-transition. `_Fork` creates no at-fork callback phase.
-
-Every fork-/clone-/vfork-like creation transition is result-indexed. A creation failure creates no
-child `ProcessInstance`, address space, image, external-ID binding, status/reap authority, lifecycle
-phase or borrowed world, and leaves no vfork parent suspension; it has only the exact error and parent/
-at-fork callback consequences admitted by the selected wrapper profile. Success creates distinct
-parent and child return branches plus only the selected resources and relationships. Thus a prepare
-callback may have run before a failed creation only when the pinned callback-order contract says so,
-but failure can never leak an unreachable child identity or suspension.
-
-A successful `fork` creates a fresh child process, address space, image-generation
-identity (initialized with the copied image contents), table, thread and PID-binding generation,
-retains only the calling thread in the
-child, and applies a selected per-mapping disposition: private snapshot/copy-on-write, retained shared
-backing alias, omitted mapping, zero/reset child contents, or another explicitly pinned policy. On
-Linux this includes exact `MADV_DONTFORK` and `MADV_WIPEONFORK` behavior rather than pretending every
-private mapping is copied. It creates child-local
-descriptor entries to inherited open descriptions except where the selected close-on-fork contract
-(including `FD_CLOFORK` when that POSIX Issue 8 feature is selected) removes an entry. A Linux target
-that lacks that feature records it as unsupported rather than silently claiming the full profile.
-Copied mutex bytes never clone a guard,
-ownership, or must-release obligation; the multithreaded child remains in the platform's restricted
-post-fork state while it performs only profile-admitted operations, and leaves that state only on
-successful exec, `_Exit`/Linux `_exit`, or a separately modeled fatal termination. One admitted call
-does not discharge the restriction. The selected POSIX edition and libc wrapper decide whether
-ordinary `fork` itself is callable from a signal context; `_Fork`'s callable guarantee is not
-silently transferred to `fork`.
-
-The `vfork` profile is stricter: it suspends only the calling parent thread while other parent threads
-may continue, gives the child a generative **non-owning** borrow of the parent's live address space
-and stack without exclusive ordinary authority, and creates `MustExecOrExit`. Every allowed child
-memory effect is pinned explicitly because concurrent parent threads may still access that world.
-The checked child surface admits only the selected exec or immediate-exit
-path (`_Exit`/Linux `_exit`) and any operation explicitly pinned by that exact platform profile; it
-cannot call `exit`, return, retain a pointer beyond the lease, or use ordinary process state as
-though privately owned. Failed exec preserves the restricted child and the borrow/obligation.
-Successful exec or the admitted immediate-exit transition releases the parent and normally
-discharges `MustExecOrExit`; fatal child termination also releases the suspension but aborts the
-obligation through the selected failure disposition rather than pretending normal discharge. This
-is not ordinary fork snapshot semantics.
-
-Successful `exec` preserves the generative process instance while replacing its image/address-space
-generation, invalidating old-image pointers/views, applying the selected close-on-exec and attribute
-rules, and removing other threads through an abort disposition rather than fabricated normal thread
-cleanup. Failure before the profile's commit preserves the old world; any admitted failure after an
-irreversible teardown is a distinct fatal result. `posix_spawn` and Windows `CreateProcess` receive
-their own profiles: neither is defined as a spelling of thread spawn or forced through a mandated
-fork/exec implementation. The POSIX spawn profile orders file actions and distinguishes failure with
-no returned child, returned-child execution, and any selected late setup/exec failure represented by
-the child's status (including the profile's status-127 rule). Windows creation produces a distinct
-process/address space and primary thread, with creation success, image initialization and later
-terminality kept separate. `CreateProcess` failure creates no live process/address-space/primary-
-thread/process-object identity, external PID/TID binding, returned handle entry or close obligation,
-and restores any authority staged solely for creation. Success creates distinct process and primary-
-thread objects, PID/TID generations, separate process/thread handle entries and `MustClose`
-obligations. The selected profile pins `CREATE_SUSPENDED` and whether the primary thread may run before
-the API returns. A later loader/DLL/image-initialization failure is terminality after successful
-creation, not retroactive call failure.
-
-Successful exec/process creation separates OS bootstrap from verified application entry. On Windows,
-a platform bootstrap witness may schedule the fresh primary thread into the OS loader after binding
-the new process/thread identities and loader-owned initial physical state; it does not yet claim that
-application code, arguments or linear authority are established. Loader/DLL initialization may run
-before `CreateProcess` returns and may later terminate the already-created process. Only a selected
-verified-child profile adds a later application-entry witness that binds image/module/load and
-dynamic-binding generations to exact artifact/entry bytes plus the logical authority/obligation world
-before verified application code executes. An opaque-child profile stops at platform lifecycle and
-explicit channel semantics.
-
-Exec similarly retires the old-image entry witnesses and applies the selected disposition to the
-calling logical-thread identity, external TID generation and removed threads. A verified replacement
-establishes its exact application-entry witness after loader success; an opaque replacement leaves
-the verified execution model without claiming the new program. Exec does not invent a fresh “primary
-thread” by analogy to Windows. Equal entry addresses after reload, ASLR, exec or external-ID reuse
-prove nothing.
-
-Process execution terminality, status availability, notification/signaling, observation,
-status consumption/reaping, external PID-name reuse, and lifecycle-object reclamation are distinct
-consequences. A POSIX profile owns zombie/reparent/subreaper rules and, when it retains waitable
-status, creates a unique reap authority; `WNOWAIT`-style observation preserves it. The alternative
-exact explicit-ignore or `SA_NOCLDWAIT` auto-reap/no-zombie/no-later-reap branch creates no such
-authority, rather than allocating one and making it vanish. The profile pins the complete `SIGCHLD`
-disposition that selects among those branches. A Windows profile owns persistent signaled process objects,
-duplicable rights-bearing handles, independently queryable status, job membership and exact handle
-inheritance. Parentage alone is neither a failure domain nor authority transfer. The generic process-
-wait seam creates only lifecycle/control causality. A selected profile may add an independently
-labelled memory-synchronization consequence only from its exact platform theorem: the selected POSIX
-profile must account for its specified successful `fork`/`wait`/`waitid`/`waitpid` memory-
-synchronization rules, while Windows receives only the guarantees proved from its own sources. Such
-an edge still does not consume or create reap rights, alias memory, manufacture authority, or turn a
-process wait into `JoinRight`.
-
-Windows parentage or parent exit alone does not terminate descendants. A selected job-object profile
-may instead prove cascade transitions from explicit job membership plus `TerminateJobObject`, nested-
-job rules, or last-handle close with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`; only that job witness—not
-the process-tree label—authorizes the affected failure-domain transitions.
-
-Windows termination request acceptance is distinct from process terminality, status availability,
-object signaling and final object reclamation. Self-`TerminateProcess` is a selected non-returning
-transition; an external successful `TerminateProcess` request returns asynchronously and is not a
-terminal/signaled-now witness. Threads stop and pending I/O is canceled or completes under the exact
-profile before terminality; open handles can retain the process object afterward. `ExitProcess` and
-job termination receive their own request/commit rules rather than inheriting this shape by name.
-
-Every M6-P-family profile plants common negative controls: equal virtual addresses in different spaces
-do not alias; explicit shared mappings do; stale PID/handle/fd bindings do not retarget reused
-instances; observation does not consume its status/reap/process-object resource; process exit does not
-return a terminal capability bundle or invalidate surviving shared objects, children and remote/device
-effects; handle alias creation is not silently treated as donation; and a generic wait cannot claim
-memory synchronization without the selected platform witness.
-
-M6-PL additionally rejects fork copying all threads or guards; exec creating a new
-`ProcessInstanceId` or preserving old-image provenance; `_Fork` running at-fork handlers; a fork-child
-call outside the admitted surface or one admitted call ending the restriction; inherited held non-
-process-shared lock try/lock/unlock/destroy or fabricated child ownership; `vfork` creating a private
-address space or suspending unrelated parent threads; failed exec discharging the restricted phase or
-`MustExecOrExit`; and signal delivery granting parent-world authority, permitting a forbidden child
-operation, mutating vfork-borrowed state without the combined proof, or making handler return clear the
-child phase/borrow/obligation. Process-shared lock state follows only its selected M6-PS profile.
-
-M6-PW additionally rejects CreateProcess failure creating any child/object/handle/close obligation;
-one returned handle standing for both process and primary-thread objects; a primary thread running
-without the selected OS-bootstrap/runnable-before-return proof; verified application entry before its
-artifact/entry witness; an opaque child receiving internal linear authority; parentage or parent exit
-alone cascading to children; successful external termination request implying terminal/signaled-now;
-process observation consuming the persistent object; and job cascade without the exact membership/
-operation/kill-on-close witness.
+This deferral is orthogonal to heterogeneous execution. A single host process may still own multiple
+GPU/device/IOMMU/resource address domains and submit work to non-CPU agents. Those domains use their
+own profile-selected binding, visibility, availability, scope and completion relations under §§4,
+10–11; they do not become host processes and are not scheduled by M3.
 
 ### 8.2 Restartable Sequences
 
@@ -1317,14 +1137,11 @@ migration/CPU-ID validation, libc or `librseq` integration, code layout, and arc
 compiler barriers/instructions are all profile inputs. An rseq commit or abort supplies neither a
 mutex guard nor a memory-visibility edge unless a separate target synchronization witness proves it.
 
-Composition with M6-PL is a separate required connection proof, not lifecycle silence. The exact
-pinned kernel/libc profile decides how registration, CPU/concurrency IDs and an active critical
-section change across `fork`/`_Fork`, selected `clone`/`clone3` flags, `vfork`, exec success/failure
-and signal delivery. The Linux intake must in particular verify the selected source's
-non-`CLONE_VM` copy behavior, `CLONE_VM` child reset, successful-exec reset, failed-exec forced ID
-update with registration retention, and signal-driven pre-handler abort path before any theorem uses
-them. Negative controls reject a child or replacement image silently retaining stale rseq identity,
-or a handler entering while an abort-required critical section is still credited as active.
+Rseq's current single-process thread/migration semantics can be selected without process creation.
+If a later process capability is also selected, their composition is a separate connection proof,
+not lifecycle silence: the pinned kernel/libc profile then decides how registration, CPU/concurrency
+IDs and an active critical section change across only the admitted creation/image operations. Those
+deferred requirements live in `docs/FUTURE_PROCESS_MODEL.md`; they are not an rseq baseline burden.
 
 ### 8.3 Direct User-Scheduling Handoffs
 
@@ -1344,48 +1161,41 @@ receives its own profile rather than inheriting guessed `SwitchTo` semantics.
 
 ### 8.4 Interrupt, Exception, Signal, and Trap Contexts
 
-An interrupt-driven profile models handler contexts as a stack on an execution agent, not as
-migratable logical threads. Synchronous CPU exceptions, asynchronous device interrupts, hosted OS
-signals, Wasm traps, and embedding cancellation are different transitions with separate outcome and
-cleanup rules. The selected profile pins entry/return event keys and control edges, masks and
-priorities, nesting/reentrancy, save/restore state, stack authority, and architecture-local effects
-such as exclusive-reservation invalidation.
+Handler locality is profile-specific. Bare-metal IRQ/NMI frames are stacked on the execution agent
+and do not migrate as logical threads. Hosted signal/APC/trap frames belong to the selected logical
+thread activation and migrate with that thread when scheduler binding changes. Synchronous exception
+ownership is selected by its architecture/embedding profile. These transitions have separate outcome
+and cleanup rules; each profile pins entry/return event keys and control edges, masks and priorities,
+nesting/reentrancy, save/restore state, stack authority, and architecture-local effects such as
+exclusive-reservation invalidation.
 
 Safety is exposed as a profile-indexed callable trait, not one Boolean called `interruptSafe`. A
 checked operation declares the asynchronous contexts that may call it, maximum nesting/priority and
 mask state, authority footprint, reentrancy rule, permitted blocking/allocation/fault/host-call
 effects, bounded-stack and completion/progress obligations, and cleanup behavior on interruption.
-Hardware IRQ, NMI, synchronous exception and hosted signal/APC handler stacks have different
-profiles. At-fork prepare/parent/child callbacks, `RestrictedForkChild`, and
-`VforkBorrowedChild` are separately indexed lifecycle callable phases, not handler frames; a creator
-call such as `_Fork` composes its caller-context trait with the resulting child phase explicitly.
+Hardware IRQ, NMI, synchronous exception and hosted signal/APC activations have different profiles.
+Future at-fork/restricted-child/vfork callable phases are not handler frames and live in the deferred
+process extension.
 “Async-signal-safe” therefore cannot be inferred from ordinary thread safety,
 and an IRQ-safe routine cannot be reused in NMI context merely because both are asynchronous.
 
-All simultaneously active handler, callback and lifecycle callable traits compose by intersection.
-If a signal/exception handler enters
-while `RestrictedForkChild` or `VforkBorrowedChild` is active, or a fork-like transition copies a
-currently executing handler into a child phase, the child/handler retains every resource and
-obligation already carried by that phase—including the address-space borrow and `MustExecOrExit` for
-`VforkBorrowedChild`; every reachable effect must satisfy both the handler trait and the lifecycle-
-phase trait. Entry grants no extra ordinary authority. Ordinary handler return
-restores the same restricted phase. Successful exec is instead a non-returning image-replacement
-transition: it retires the handler and suspended old-image frames, discharges the child restriction,
-and resets, preserves or replaces signal dispositions, masks, pending state and alternate stacks only
-as the exact exec profile specifies. Failed exec returns into the same handler/phase product without
-losing its borrow or obligation. An admitted immediate process-exit transition is likewise
-non-returning; fatal termination releases a suspended vfork parent only through the abnormal failure
-disposition. This product rule prevents a handler from becoming an escape hatch from post-fork
-restrictions while keeping return, exec, immediate exit and fatal abort distinct.
+All simultaneously active current handler traits compose by intersection. Entry grants no extra
+ordinary authority, and ordinary handler return restores the suspended logical-thread or agent
+context. The future product with at-fork callbacks, restricted children and vfork borrows is specified
+in `docs/FUTURE_PROCESS_MODEL.md`; no current handler certificate owes those lifecycle proofs.
 
 A selected Windows SEH profile additionally distinguishes continuation at a profile-permitted
-possibly modified context, continue-search/propagation, and nonlocal unwind/catch. Unwind retires
-intervening frames one by one, runs the selected termination/cleanup handlers, and accounts for each
-frame's authority and obligations through an exact unwind-metadata and emitted-artifact witness.
+possibly modified context, continue-search/propagation, nested first-pass exceptions in filters,
+nonlocal unwind/catch and collided unwind. Ordinary unwind retires intervening frames one by one,
+runs selected termination/cleanup handlers, and accounts for each frame's authority and obligations
+through exact unwind metadata and an emitted-artifact witness. A collided unwind preserves already
+retired frames while abandoning/replacing the prior target as the pinned platform rule requires.
 Continuation proves that the context transformation is permitted; propagation preserves the live
 exception and suspended-frame product for the next search step. Neither is ordinary return, and
-continue-search is not fatal termination. Profiles that do not admit SEH-callable code have no SEH
-proof burden.
+continue-search is not fatal termination. A deliberately restricted SEH profile may instead forbid
+nested/faulting handlers only if that restriction is enforced by its closed call graph. Profiles that
+do not admit SEH-callable code have no SEH proof burden; the initial M9 Windows thread profile need
+not select it.
 
 The profile also states where interruption may occur and how every exposed intermediate state
 preserves its invariant. A logical/API transition is either proved atomic with respect to that
@@ -1411,12 +1221,15 @@ The interrupted thread's authority and obligations are suspended, not silently t
 handler. A handler receives only explicitly registered handler/device authority, and return restores
 the suspended context exactly as the profile permits. A handler cannot block or spin on a lock that
 the interrupted context may hold unless masking, lock rank, reentrancy, or another interrupt-safe
-protocol proves self-deadlock impossible. Fatal exception/process termination accounts for every
-affected resource through the selected execution domain's resource-specific abort disposition.
-Hosted process profiles instantiate §§6.5/8.1; a bare-metal profile supplies its own machine/agent/
-device failure boundary and does not depend on M6-P. Surviving shared, kernel, child, device and
-remote resources remain outside that abort unless their own profile says otherwise. It is not normal
-obligation discharge. §10.4 separately models signal routing and the
+protocol proves self-deadlock impossible. Fatal exception or root-domain abort accounts for every
+affected current resource through the selected execution domain's resource-specific abort
+disposition. A selected profile provides a total disposition for every reachable in-model resource
+class; it may not use a wildcard or call a live linear resource `indeterminate`. A bounded
+indeterminate result is admissible only for a named external resource/effect class whose pinned
+platform contract or explicit TCB rule genuinely leaves that result uncertain. A bare-metal profile
+supplies its own machine/agent/device failure boundary; future multiprocess failure domains are
+deferred to §§6.5/8.1. Surviving device and remote resources remain outside a host/CPU abort unless
+their own profile says otherwise. It is not normal obligation discharge. §10.4 separately models signal routing and the
 path from handler work to any later driver unblock or scheduler wake.
 
 ---
@@ -1496,9 +1309,9 @@ scheduler notification as device completion or memory publication.
 
 ### 9.1 Linux Thread Exit and Join
 
-This subsection is thread-only and belongs to M6-T[Linux], its M6-NX[Linux]/M6-NA[Linux] native lifecycle
-realizations, and the optional M6-X[Linux]/M6-A[Linux] parking adapters—not to an M6-P-family process wait/reap
-profile. The first real Linux task/thread join uses child-TID lifecycle semantics: thread creation registers a stable,
+This subsection is thread-only and belongs to M6-T[Linux], its M6-NX[Linux]/M6-NA[Linux] native
+lifecycle realizations, and the optional M6-X[Linux]/M6-A[Linux] parking adapters—not to a process
+wait/reap profile. The first real Linux task/thread join uses child-TID lifecycle semantics: thread creation registers a stable,
 naturally aligned 32-bit child-TID word as an atomic object; actual child exit clears it and performs
 a futex wake that can wake at most one eligible waiter; and the parent waits in a loop through the
 futex adapter using only approved atomic loads.
@@ -1538,9 +1351,8 @@ The Windows refinement models these facts explicitly:
   them only after pinned Microsoft guarantees prove the same §6.4 visibility contract.
 
 This is likewise a thread-object profile. Windows process creation, persistent process-object
-signaling, duplicable process handles, status-query rights, inheritance, jobs and resource-survivor
-rules belong to M6-PW and §8.1. A repeatable process wait neither consumes a `JoinRight` nor returns
-private process authority.
+signaling, process handles, inheritance and jobs remain deferred by §8.1. A repeatable future process
+wait can neither consume a `JoinRight` nor return private process authority.
 
 Bare metal has no futex or Win32 wait API: its parking adapter may begin with a proved
 spin/`PAUSE` or spin/`WFE` loop and later use interrupts/IPIs, while preserving the same lock
@@ -1693,8 +1505,8 @@ as:
 - visibility of a particular write to a particular agent/reference and location set;
 - transfer or return of authority over a resource;
 - effect completion and operation terminality, as separate facts;
-- result/completion-record or process-status availability and observation;
-- process-status consumption/reaping and lifecycle-object reclamation, separately;
+- result/status-record availability and observation;
+- status consumption and lifecycle-object reclamation, separately when a selected profile has them;
 - notification emission and observation;
 - permission to reuse an in-flight buffer or registration;
 - profile-defined producer/consumer capacity or queue-entry reclamation;
@@ -1709,11 +1521,10 @@ send result before a later lease-return notification; an `io_uring` SQ head can 
 slot before effect completion, while CQ-head advance reclaims a result slot only after observation;
 and a libverbs CQ notification can be acknowledged without itself being a retrieved work completion.
 No constructor or shared operation ID supplies another consequence absent a profile theorem.
-Negative controls must reject notification-as-completion, completion-as-terminal,
-completion-as-resource-return, resource-return-as-slot-return, process-observation-as-reap,
-generic/uncited process-wait-as-memory-publication, and local-completion-as-delivery. A selected
-platform relation may pass only with its exact independent witness, such as the POSIX process-memory
-synchronization rule described in §8.1.
+Prevention controls must reject notification-as-completion, completion-as-terminal,
+completion-as-resource-return, resource-return-as-slot-return and local-completion-as-delivery. A
+selected future platform relation may add another consequence only through its exact independent
+witness; no generic wait or shared operation ID supplies it.
 
 A high-level synchronization demand states the required source/destination agents and operations,
 resource footprint, scopes, consequences, progress/failure assumptions, and performance envelope —
@@ -1798,12 +1609,14 @@ required order.
 
 ## 12. Required Proof Package
 
-For every stage/profile the repository claims, the applicable theorem families below must exist.
-Rows owned by optional or future profiles (including the M6-P family/M6-PS and non-CPU domains) are conditional
-on admitting that profile; they are not hidden prerequisites for an unrelated M9 CPU-thread claim.
+For every current stage/profile the repository claims, the applicable theorem families below must
+exist. A non-CPU row is conditional on admitting that target profile. The hosted-process extension is
+not a current stage/profile and therefore has no row or hidden M9 proof requirement here.
 
-Applicability is mechanically derived from the selected demand, reachable operations, target/domain
-profiles, claimed safety/progress/performance properties and failure paths. An unselected profile or
+Applicability is derived and recorded from the selected demand, reachable operations, target/domain
+profiles, claimed safety/progress/performance properties and failure paths. Until a separate
+repository-wide applicability-closure checker is implemented, this closure is a required review
+artifact, not a claimed mechanical gate. An unselected profile or
 stronger unclaimed property creates no proof obligation. Conversely, a selected claim brings its
 entire transitive authority, ordering, lifecycle, platform, validation and negative-control closure;
 authors cannot evade it by leaving a dependency unnamed. Generic contract/library proofs are reused
@@ -1825,13 +1638,10 @@ proof demands unrelated to the program or claim under review.
 | Atomic fidelity | Approved aligned atomic loads/stores and x86 RMW/AArch64 exclusive actions match target single-copy-atomicity, width, alignment, memory-type, success, and failure premises |
 | CPU protocol synchronization | Every claimed first-profile CPU release/acquire edge has an instance/generation-matched witness tied to concrete event keys, reads-from/RMW evidence, and a target realization proof |
 | Target relation refinement | Every non-CPU profile retains its native relation/scope semantics and proves any projection into the common event envelope; no target synchronizes-with, visibility, completion, delivery, or persistence relation is manufactured through the CPU witness type |
-| Consequence separation | A relation/path witness yields only consequences admitted by its labels and target profile; publication, acceptance, consumption, completion, terminality, result/status observation, process-status consumption/reaping, notification, resource return, slot reclamation, delivery/acknowledgement, and persistence remain independent unless a profile theorem connects them; corresponding cross-kind negative controls fail |
-| Task/thread lifecycle transfer | Spawn/donate, sealed thread termination, detach, and one-shot task/thread join preserve every authority, loan, grant and obligation without claiming platform-process semantics |
-| Process identity and lifecycle | M6-P-family process/address-space/image/handle/status generations, creation, exec replacement, terminality, status availability, observation, reaping/reclamation and external-ID reuse refine only their selected platform profiles; process wait cannot manufacture task results or memory authority |
-| Process mapping/provenance refinement | Every fork-/clone-/vfork-/exec-like mapping outcome transforms RegionIds, mapping/binding generations, typed views, pointer slots and authority through a checked lifecycle witness: private descendants are generative; shared COW snapshots have only frozen concrete read grants until a pre-store allocation/rebind installs fresh exclusive backing; shared mappings never duplicate Exclusive authority; omitted/reset mappings grant no stale view; vfork has only its scoped borrow; and raw copied bytes manufacture no binding |
-| Failure-domain preservation | Graceful and forced exit apply one resource-specific survivor, close, invalidate, owner-death, orphan/reparent, continue/cancel, leak or indeterminate transition to every affected resource/effect; no local abort proves global-world invalidation or normal discharge |
-| Handle/object derivation | Every copy/alias, move, attenuation, inheritance, name import and object-specific transfer preserves local entry, intermediate description, underlying object, rights, close obligations, source disposition and failure atomicity; raw numeric equality grants nothing |
-| Lock safety | At most one live healthy or exceptional guard owns a protected region; every result transfers exactly its declared authority/obligations, recovery promotes or poisons only as the selected profile permits, checked owner handoff is linear, and contributed auxiliary resources remain accounted for, including a deferred withdrawal obligation after a non-acquisition result |
+| Consequence separation | A relation/path witness yields only consequences admitted by its labels and target profile; publication, acceptance, consumption, completion, terminality, result/status observation, notification, resource return, slot reclamation, delivery/acknowledgement and persistence remain independent unless a profile theorem connects them; corresponding cross-kind prevention controls fail |
+| Task/thread lifecycle transfer | Spawn/donate, sealed thread termination, detach, one-shot task/thread join and current whole-program root exit preserve or explicitly dispose every authority, loan, grant and obligation without claiming platform-process semantics |
+| Root/failure disposition | Graceful root exit accounts for every live thread and terminal bundle; a fatal root/agent abort applies only selected resource-specific dispositions and proves neither normal obligation discharge nor invalidation of surviving device/remote resources |
+| Lock safety | At most one live healthy guard owns invariant-backed protected authority, or one exceptional guard owns only its selected quarantined repair capability; every result transfers exactly its declared authority/obligations, repair promotes or poisons only as the selected profile permits, checked owner handoff is linear, and contributed auxiliary resources remain accounted for, including a deferred withdrawal obligation after a non-acquisition result |
 | Lock visibility | A new guard observes writes promised by the prior release under the target model |
 | Multi-lock/deadlock claims | Every demanded acquisition-order or no-deadlock trait is backed by a well-founded lock order, acyclic wait-for proof, or another explicit protocol proof; per-lock mutual exclusion alone cannot discharge it |
 | Mutex implementation refinement | Every admitted implementation's reachable core and auxiliary-resource states, initialization/destruction inverse, result-indexed atomic transitions, linearization events, packed payload, owner policy, and precisely classified progress claims refine the representation-independent mutex contract; erasing an enriched implementation yields the same applicable guard and release-obligation theorems |
@@ -1839,28 +1649,30 @@ proof demands unrelated to the program or claim under review.
 | Parking-plan refinement | Every implementation claiming an address-park adapter supplies a stable wait object, exact comparison value and retry rule, profile-observable notification result, release-before-notify order, and lost-wakeup proof; a composite-wait profile separately proves atomic registration, any/all semantics and result-indexed authority; a spin-only implementation proves progress under explicit assumptions |
 | Futex refinement | Linux `FUTEX_WAIT`/`FUTEX_WAKE` refines the narrow atomic address-park/notify contract without adding memory-order edges |
 | Platform lifecycle | Windows, Linux, x86 bare metal, and AArch64 bare metal refine generic thread/PE transitions |
-| Handler-context safety | The checked call graph proves every advertised IRQ/NMI/exception/signal/APC/trap context; every interruption point is atomic or exposes invariant-preserving restart/partial-effect obligations; entry, nesting, ordinary return, selected resume/continue-search/nonlocal-unwind, non-returning successful exec/immediate exit and fatal outcomes preserve, transform, retire or explicitly abort suspended-frame obligations exactly as their profile states; SEH unwind is tied to exact emitted unwind metadata and accounts for intervening cleanup handlers; failed exec preserves the handler×lifecycle-phase product; no entry grants more than registered handler authority; architecture-local state invalidation is accounted for; and handler lock self-deadlock is rejected without a masking/rank/reentrancy proof |
-| Restricted lifecycle-callable safety | Each at-fork callback, restricted fork-child and vfork-borrowed-child phase admits only its selected call graph and exit transitions; simultaneous callback/handler/lifecycle phases use the intersection of all traits; an `AtForkChild` callback in a restricted multithreaded child cannot call outside that restriction and callback return removes only its own phase; one call cannot discharge a child restriction; copied non-process-shared lock state grants no operation/ownership; vfork obtains no exclusive address-space authority; and failure/termination releases suspension while distinguishing normal obligation discharge from abort |
+| Handler-context safety | The checked call graph proves every advertised IRQ/NMI/exception/signal/APC/trap context; every interruption point is atomic or exposes invariant-preserving restart/partial-effect obligations; bare-metal agent-local and hosted logical-thread-local activations are not conflated; entry, nesting, ordinary return, selected resume/continue-search/nested-dispatch/nonlocal-or-collided-unwind and fatal outcomes preserve, transform, retire or explicitly abort suspended-frame obligations exactly as their profile states; selected SEH is tied to exact emitted unwind metadata and accounts for handlers/funclets; no entry grants more than registered handler authority; architecture-local state invalidation is accounted for; and handler lock self-deadlock is rejected without a masking/rank/reentrancy proof |
 | Device/domain fidelity | Effective attributes select Normal versus Device/port-I/O semantics correctly; device values/side effects and ordering/completion barriers refine the selected device specification; interrupt/control delivery does not imply completion, visibility, or scheduler wake without the exact adapter witness |
 | Trace fidelity | The explicit observable-node quotient is total, non-inventing and acyclic, preserves labels/payloads under named coalescing, and orders quotient nodes iff the selected projection accepts an admitted labelled source path between their fibers, modulo event-key renaming and independent of transitive reduction |
 | One-thread preservation | Existing sequential proofs survive as the one-thread/one-PE specialization |
 | Progress | Every implementation advertises only its proved safety-only, system-acquisition-progress, starvation-free, or bounded-wait class against Gate-11-pinned eligibility and successful-acquisition predicates, eventual-holder-release/recovery, fairness and interference premises; cancellation, timeout and deferred-withdrawal termination use a separate cleanup-liveness theorem and cannot witness acquisition progress; no retry step, livelock or terminating test is promoted into a stronger class |
-| Negative-control completeness | Planted failures reject authority from raw address/handle/PID/descriptor bytes, wake or generic/uncited process wait as memory visibility, failed acquire as a guard, deferred queue-node reuse before withdrawal, missing release, stale binding reuse, repeated unary wait as an atomic composite wait, interrupt as completion, handler entry as DMA-visible or scheduler wake, cross-consequence escalation, and dropped or cyclic causal order |
+| Prevention-class coverage | Structural/fail-to-elaborate controls, kernel theorems, build gates or external-oracle mutations cover each applicable trust-boundary class below; failed acquire as a guard, deferred-node reuse, missing release, stale binding reuse, wake-as-visibility, repeated unary wait as composite wait, interrupt-as-completion, cross-consequence escalation, and dropped/cyclic causal order are rejected at the earliest sound boundary |
 
 Safety and liveness remain separate. A safety theorem must not silently assume a fair scheduler, and
 a terminating test run is not a liveness proof.
 
-Every normative “reject,” “must fail,” or forbidden implication in this document must be entered in
-the owning stage's negative-control registry with a concrete theorem/test name before that stage can
-exit. At minimum the registry covers:
+Each selected stage/profile maintains a **class-keyed prevention registry**. One entry may cover any
+number of normative prohibitions when one type construction, theorem, build gate or mutation family
+excludes their common defect class. A new entry is required only for a previously uncovered class or
+materially distinct trust boundary. Type-level impossibilities use structural or fail-to-elaborate
+controls; emitted/native positive and negative vectors are required only at an external-oracle trust
+boundary. At minimum the registry key space covers:
 
-| Class | Required planted mutation | Owning stage/profile |
+| Class | Defect pattern that must be prevented | Owning stage/profile |
 |---|---|---|
 | Authority/provenance | raw or stale bytes/IDs manufacture a pointer, grant, guard, permit or handle right | M1/M4 or the importing profile |
 | Lock/result accounting | failed/cancelled acquire creates a guard; deferred node is reused; cleanup is credited as acquisition progress; release/destruction drops a live obligation | M5-S and implementation profile |
 | Wait/control separation | wake publishes memory; repeated unary waits simulate atomic wait-any/all; notification result is fabricated across platforms | M3/M6 adapter |
 | Interrupt/DMA and nonlocal-control separation | interrupt means device completion; handler entry means DMA visibility; handler entry means scheduler wake; an IRQ-safe call is admitted in NMI/signal/APC context; SEH continue-search is treated as fatal, unwind as ordinary return, a resumable context is modified without permission, or a retired frame drops authority/obligations or lacks matching unwind metadata | M7 or selected asynchronous-context/device profile |
-| Process/failure domain | raw PID/fd/HANDLE reuse retargets authority; wait equals `JoinRight`/reap or claims memory publication without the selected platform witness; local exit invalidates a surviving shared, child, kernel, device or remote resource | M6-P family/M6-PS |
+| Reserved future process/failure domain (no current entry/control) | raw PID/fd/HANDLE reuse retargets authority; wait equals `JoinRight`/reap or claims memory publication without a selected platform witness; local exit invalidates a surviving shared, child, kernel, device or remote resource | deferred process capability, only when selected after M9 |
 | Heterogeneous consequences | submission equals completion, local completion equals delivery, flush equals CPU fence, present acceptance equals display visibility, or one target relation is relabelled as another | owning GPU/I/O/RDMA/network/storage profile |
 | Trace projection | observable node/edge is dropped or invented, source label/path is lost, or quotienting creates a self-edge/cycle | M0/M8 |
 
@@ -1876,19 +1688,10 @@ protocol, not hand-copied expected tables.
 | x86-64 | TSO outcome enumeration; locked/fenced variants | Windows and Linux x86-64 binaries on native or hardware-virtualized CPUs | AP bring-up, `ParkedMutex32` lock/counter, RAM litmus when accelerator is credible |
 | AArch64 | Weak-memory outcome enumeration; plain, acquire/release, barrier, exclusive variants | Linux AArch64 binaries on native or KVM-backed systems | PE bring-up, `ParkedMutex32` lock/counter, RAM litmus when backend is credible |
 
-Hosted-process validation is separate from Spike 8/M9's thread acceptance. `M6-PL` and `M6-PW`
-independently own the applicable lifecycle row; neither platform waits for the other. The last row is
-the optional M6-PS process-shared synchronization extension and is not required for either lifecycle
-profile to exit:
-
-| Process profile | Model-side | Emitted/native negative and positive controls |
-|---|---|---|
-| M6-PL POSIX/Linux process lifecycle | result-indexed fork/clone/vfork creation and failure, per-mapping private/shared/omit/zero dispositions plus RegionId/view/slot/authority refinement and at-fork ordering, selected `clone`/`clone3` share sets, restricted multithreaded child, callback/handler×child-phase products, `vfork` borrow, exec/spawn replacement with opaque-versus-verified image selection, descriptor inheritance, terminal/status/reap sequence, POSIX memory relations, PID/pidfd generations, failure dispositions and `SCM_RIGHTS` outcomes | Target-specific M6-PL-X/A binaries validate the selected lifecycle/channel profile; a verified replacement proves its application artifact/entry witness, while an opaque image receives no internal linear authority and requires no child-code theorem. Controls reject fork-failure-creates-child, vfork-failure-leaves-parent-suspended, copied-pointer-bytes-manufacture-view, fork-duplicates-exclusive-shared-mapping-authority, COW-direct-write-through-shared-snapshot, COW-store-without-generation-rebind, `MADV_DONTFORK`-retained-view, `MADV_WIPEONFORK`-preserves-bytes-or-slots, unsupported clone/`FD_CLOFORK` claims, stale PID/fd, copied-lock operation/guard, atfork-child-unsafe-call, atfork-child-return-clears-restriction, handler-entry-grants-parent-world, unsafe-child-call, handler-return-clears-child-phase, exec-failure-retires-product, verified-app-entry-before-witness, opaque-image-receives-internal-authority, `WNOWAIT`-as-reap, vfork-private-world, uncited-wait-publication and exit-invalidates-shared-object mutations |
-| M6-PW Windows process lifecycle | result-indexed distinct process/address space/primary thread creation, OS bootstrap versus optional verified application entry, opaque-child alternative, separate `PROCESS_INFORMATION` process/thread handles and close obligations, process-object/status persistence, asynchronous termination requests, rights-bearing observation/query handles, exact inheritance, job membership/cascade policy, object survival, `DuplicateHandle` and object-specific transfer | M6-PW-X validates creation failure with no child/handles, OS bootstrap before loader scheduling, an exact application artifact/ABI witness only for verified children, opaque children with channel-only authority, repeated waits, asynchronous external termination versus later terminal/signaled state, independent handle rights, inheritance, source-close-on-error, socket transfer and job-witnessed cascades; raw PID/HANDLE alias, CreateProcess-failure-creates-child, loader-runs-before-bootstrap-witness, verified-app-entry-before-witness, opaque-child-receives-internal-authority, process-handle-equals-thread-handle, termination-request-equals-terminal-now, wait-as-join/unproved-publication and parentage-alone-cascades mutations fail |
-| M6-PS POSIX/Linux process-shared synchronization semantics | Process-shared wait-key identity, robust-list owner-death transition, recovery/poison authority and surviving shared backing compose with the selected process and portable-mutex profiles | Target-specific M6-PS-X/A binaries validate process-shared wait/wake and robust recovery; copied guard, owner-death-as-release, global invalidation and reuse-before-recovery mutations fail |
-
-The M6-PW-X negative controls additionally reject using `PROCESS_INFORMATION` output after failed
-`CreateProcess` and interpreting stale `GetLastError` after success.
+Hosted-process validation is post-M9 future work. It adds no current model-side row, emitted/native
+control, reference intake or acceptance dependency. When Decision 12 is opened by a consumer,
+`docs/FUTURE_PROCESS_MODEL.md` requires a capability-indexed validation matrix rather than restoring
+an all-or-nothing platform table here.
 
 Validation rules:
 
@@ -1901,8 +1704,9 @@ Validation rules:
 - native validation runs only on CPUs covered by the pinned vendor/profile sources; other vendors
   report functional execution separately as `not-validated` for memory consistency;
 - harness timeouts distinguish deadlock/hang from a forbidden memory outcome;
-- negative controls deliberately remove or weaken a barrier/atomic/authority edge and must make the
-  appropriate proof or test fail;
+- where an external oracle is used, its class-level negative controls deliberately remove or weaken
+  a barrier/atomic/authority edge and must make the appropriate session fail; structural defects are
+  rejected earlier by their type, theorem, or build prevention and need no duplicate native mutation;
 - harness correctness is verified independently enough that a stale result or serialized worker
   protocol cannot silently pass the model.
 
@@ -1936,31 +1740,25 @@ profile.
 
 | Stage | Deliverable | Depends on | Exit criterion |
 |---|---|---|---|
-| M0 | Thin well-formed event/graph envelope and target projection interfaces: generative identities, a minimal kind-indexed agent/reference/location/event/relation interface, CPU graph well-formedness, and target projection witnesses | current memory hooks | Existing x86/AArch64 accesses instantiate `CpuGraph.WellFormed`; one minimal opaque extension kind demonstrates that the public types are not CPU-closed, without requiring rebinding, arbitrary consequence cardinalities, round trips, or guessed future-domain protocols. Dynamic binding, labelled paths, consequences, and negative controls become mandatory when the selected non-CPU profile actually admits them |
-| M1 | Provenanced regions, typed views, indexed authority/obligation transitions, abstract relational ABI/boundary entry-and-exit binding interface, and canonical state normal forms plus simplification support | M0 | Unauthorized, stale, or byte-reloaded pointers without a live typed-view binding cannot be dereferenced; hierarchical allocation composes through the canonical normal forms; the abstract seam represents entry-origin, precondition, target-admissibility and artifact-connection obligations without claiming a concrete target, and represents erased/fresh exit identities relationally (or restricts functional result projections to proved non-authorizing physical scalars); false/empty entry/world relations, vacuous admissibility, weak artifact relations and identity-minting projections confer no execution authority; automation discharges representative indexed binds and abstract boundary compositions within a pinned elaboration time/memory budget and regression threshold |
-| M2-X | x86 WB/TSO machine, atomics, fences, enumeration | M0 | x86 litmus theorems, one-thread theorem, decode/emission and relocation fidelity, and silicon validation |
-| M2-A | AArch64 Normal-memory model, acquire/release, barriers, exclusives | M0 | Arm litmus theorems, one-PE theorem, decode/emission and relocation fidelity, and native validation |
-| M2-B[p] | One concrete relational boundary/ABI/loading/linking realization for exact profile `p` | M1 and the selected M2-X or M2-A ISA | For the selected entry kind and signature/result subset, exact physical-to-logical entry and relational exit/after-world binding, stack/register/save rules, target admissibility, relocation/link or loader origin, artifact identity and whole-program composition are proved; fresh logical identities remain relational and planted wrong-stack/save, unmet-precondition, erased-identity reconstruction and weak-artifact mutations fail. Ordinary-call, syscall, loader-root and handler profiles are independent; unwind/PAC/BTI/SEH obligations apply only when selected by `p` |
-| M3 | Single-address-space logical-thread/PE scheduler and lifecycle, narrow address-parking contract, and extension seams for composite waits and target-control delivery | M0 | Two-thread/PE stepping, park-if-equal/notify, task/thread spawn/join and execution-agent state preservation; the stage makes no fork/exec/CreateProcess, process wait/reap, handle-table or multi-address-space claim; notification results remain platform-indexed, composite waits cannot be faked by repeated unary waits, and interrupt delivery cannot masquerade as scheduler wake |
+| M0 | Thin well-formed event/graph envelope and target projection interfaces: generative identities, dynamic binding generations/aliasing, profile-indexed agent/reference/location/event/relation/consequence families, labelled path and trace-projection witnesses | current memory hooks | Existing x86/AArch64 accesses plus an opaque non-CPU sentinel instantiate the envelope; the sentinel has target-private agents/locations, a dynamic rebind, unrelated abstract relation labels, and independent zero/one/many abstract consequences, but no queue, submission, completion or reclamation vocabulary borrowed from a future API; round trips preserve identities, captured bindings, locations, labels, path witnesses and exact consequences, while malformed combinations, omissions, stale-rebind redirection, label forgery and consequence escalation fail without predefining real future-domain semantics |
+| M1 | Provenanced regions, typed views, indexed authority/obligation transitions, abstract relational ABI/boundary entry-and-exit binding interface, canonical boundary-profile registry shape, and canonical state normal forms plus simplification support | M0 | Unauthorized, stale, or byte-reloaded pointers without a live typed-view binding cannot be dereferenced; hierarchical allocation composes through the canonical normal forms; the abstract seam represents entry-origin, precondition, target-admissibility and artifact-connection obligations without claiming a concrete target, permits freshness-proved generation from the logical pre-world while forbidding physical identity reconstruction, and defines the closed registry evidence every concrete profile must consume; false/empty entry/world relations, vacuous admissibility, unconstrained ghost ordering and weak artifact relations confer no execution authority; automation discharges representative indexed binds and abstract boundary compositions within a pinned elaboration time/memory budget and regression threshold |
+| M2-X | x86 WB/TSO machine, atomics, fences and bounded validation enumeration | M0 | execution soundness, exact enumeration against an independently defined bounded operational reachability relation, equality with the pinned model for registered/certificate-selected finite litmus scopes, one-thread preservation, decode/emission/relocation fidelity and silicon containment; broader adequacy only for the exact stronger claims that consume it |
+| M2-A | AArch64 Normal-memory model, acquire/release, barriers, exclusives and bounded validation enumeration | M0 | execution soundness, exact enumeration against an independently defined bounded operational reachability relation, equality with the pinned Arm model for registered/certificate-selected finite litmus scopes, one-PE preservation, decode/emission/relocation fidelity and native containment; broader adequacy only for the exact stronger claims that consume it |
+| M2-B[p] | One concrete relational boundary/ABI/loading/linking realization for exact profile `p` | M1 and the selected M2-X or M2-A ISA | A closed boundary-profile registry entry enumerates the selected entry kind, reachable result/outcome subset, caller/loader/platform origin, admissibility, source/TCB rule, artifact link and prevention-class coverage. Exact physical-to-logical entry and exit/after-world binding, stack/register/save rules and whole-program composition are proved; freshness-proved logical generation is allowed but erased identity reconstruction, ghost-only establishment, wrong-stack/save, unmet-precondition and weak-artifact mutations fail. Ordinary-call, syscall, loader-root and handler profiles are independent; unwind/PAC/BTI/SEH obligations apply only when selected by `p` |
+| M3 | One-host-process CPU logical-thread/PE scheduler and lifecycle, narrow address-parking contract, and extension seams for composite waits and target-control delivery | M0 | Two-thread/PE stepping, park-if-equal/notify, task/thread spawn/join and execution-agent state preservation; the stage makes no fork/exec/CreateProcess, process wait/reap or process-handle-table claim and does not constrain target-indexed GPU/device/IOMMU address domains; notification results remain platform-indexed, composite waits cannot be faked by repeated unary waits, and interrupt delivery cannot masquerade as scheduler wake |
 | M4 | Cross-thread authority partition and task/thread lifecycle transfer | M1, M3 | Global access-mode/no-race theorems plus exact loan return, sealed thread terminal bundle, detach, and one-shot task/thread join conservation |
 | M5-S | Representation-independent portable mutex contract with stable core plus contributed auxiliary resources, extensible acquisition/recovery results, profile-owned owner identity, typed obligations, pinned progress taxonomy, and implementation-refinement interface | M4 | Fresh-instance init, result-indexed try/blocking acquire, healthy/exceptional guard boundary, optional checked owner handoff, release visibility, exact auxiliary-node return or typed deferred-withdrawal accounting on every non-acquisition path, full return before destruction, and stale-handle/grant rejection are stated without fixing a word width, encoding, parking API, algorithm, or queue-node policy; a concrete implementation discharges the contract only through checked representation, target-event, lifecycle, cleanup, and claimed-progress proofs |
 | M5-L | Standard-library `ParkedMutex32` abstract protocol and portable refinement | M3, M5-S | One reusable 32-bit state encoding, its fast/slow transitions, linearization points, waiter projection, exact wait values, release transition, wake policy, retry behavior, healthy-only results, thread affinity, no-auxiliary-resource/payload invariant, and a Gate-11-defined progress theorem or explicit safety-only classification are pinned and proved to refine M5-S; no theorem exports those representation constants or progress class as generic mutex facts |
 | M5-X | x86 `ParkedMutex32` realization and visibility theorem | M2-X, M5-L | The standard 32-bit library protocol implements M5-S under x86 TSO; specialized implementations use the same refinement interface and prove their own target realization |
 | M5-A | AArch64 `ParkedMutex32` realization and visibility theorem | M2-A, M5-L | The standard 32-bit library protocol implements M5-S under the AArch64 model; specialized implementations use the same refinement interface, and LSE requires a later profile extension |
-| M6-T[Linux] | Linux hosted task/thread lifecycle and join semantics | M4 | Result-indexed thread creation, lifecycle visibility, one-shot logical task/thread join, runnable/blocked state, TID/child-TID lifetime, sealed terminal bundles and API outcomes refine the generic thread contracts without claiming a native ISA adapter |
-| M6-T[Windows] | Windows hosted task/thread and persistent thread-object/wait semantics | M4 | Result-indexed thread creation, lifecycle visibility, one-shot logical task/thread join, runnable/blocked state, thread-object/handle/status/close lifetime, sealed terminal bundles and API outcomes refine the generic thread contracts without claiming a native ISA adapter |
-| M6-PL | POSIX/Linux hosted-process system, lifecycle, failure-domain and IPC/descriptor-object semantic profile | M1, M3, M4, M6-T[Linux] | Decisions 12/13 fix the selected SystemState and restricted-child/callable seams; model-side proofs cover process/address-space/image/descriptor/status generations, result-indexed fork/clone/vfork/exec/spawn, mapping/view/slot/authority transformation, terminality versus observation/reaping/reclamation, PID reuse/pidfds, explicit IPC/shared mappings, resource-specific exit survival, POSIX memory-synchronization relations and exact descriptor/object derivation in its §13 row. It is not a Spike 8/M9 prerequisite, cannot borrow `JoinRight`, and does not claim native or M6-PS robust/process-shared synchronization |
-| M6-PL-X / M6-PL-A | Linux process-profile target realization and native validation | M6-PL and respectively M2-X/M2-B[Linux-x86-syscall] or M2-A/M2-B[Linux-AArch64-svc]; matching ELF-root M2-B only for verified images | The applicable native x86-64 or AArch64 controls in the M6-PL §13 row pass; each architecture independently proves process syscall/lifecycle, atomic/publication and emission connection without requiring private parking or an ordinary-call ABI. A selected libc/helper path additionally depends on its ordinary-call M2-B profile. Every selected verified exec/spawn image additionally proves its matching ELF-root application-entry witness; an opaque image proves only lifecycle/channels and receives no internal child authority |
-| M6-PW | Windows hosted-process system, lifecycle, failure-domain and IPC/handle-object semantic profile | M1, M3, M4, M6-T[Windows] | Decision 12 fixes the selected SystemState/profile; model-side proofs cover process/address-space/image/handle/status generations, result-indexed CreateProcess failure/success, universal OS-bootstrap before loader scheduling, optional verified application entry versus opaque-child lifecycle/channel semantics, terminality, distinct process/primary-thread handle obligations, persistent process-object observation, PID/HANDLE reuse, inheritance/job-witnessed cascades, explicit IPC/shared mappings, resource-specific exit survival and exact handle/object derivation in its §13 row. It advances independently of M6-PL, is not a Spike 8/M9 prerequisite and cannot borrow `JoinRight` |
-| M6-PW-X | Windows x86-64 process-profile target realization and native validation | M6-PW, M2-X, M2-B[Windows-x64-call], M2-B[PE32+-x64-bootstrap]; M2-B[PE32+-x64-application-entry] only for verified children | The native Windows controls in the M6-PW §13 row pass; process API, handle/wait/termination and emission paths refine the semantic profile without requiring the unrelated `WaitOnAddress` adapter; every successful creation has an OS-bootstrap witness before loader scheduling, while only a selected verified child additionally binds fresh image/load generation and logical application state to exact artifact bytes before application entry |
-| M6-NX[Linux] | Linux x86-64 native hosted-thread/lifecycle realization | M2-X, M2-B[Linux-x86-syscall], M6-T[Linux] | Native thread creation/exit/join and child-TID set/clear refine the semantic profile without requiring futex parking or an ordinary-call ABI; a selected libc helper adds M2-B[SysV-x86-call]. If the selected Linux thread profile admits a signal/cancellation surface, its exact native boundary profile, outcomes and negative controls also pass |
-| M6-NX[Windows] | Windows x86-64 native hosted-thread/object realization | M2-X, M2-B[Windows-x64-call], M2-B[Windows-x64-thread-start], M6-T[Windows] | Native thread creation/exit, thread-object wait/status and handle close refine the semantic profile without requiring address parking; every selected APC/exception/cancellation surface additionally validates its exact native boundary profile and result-indexed return/resume/propagation/unwind/fatal paths, including emitted SEH metadata where applicable |
-| M6-NA[Linux] | Linux AArch64 native hosted-thread/lifecycle realization | M2-A, M2-B[Linux-AArch64-svc], M6-T[Linux] | Native thread creation/exit/join and child-TID set/clear refine the semantic profile without requiring futex parking or an ordinary-call ABI; a selected libc helper adds M2-B[AAPCS64-call]. If the selected Linux thread profile admits a signal/cancellation surface, its exact native boundary profile, outcomes and negative controls also pass |
+| M6-T[Linux] | Linux hosted task/thread lifecycle, join and root-exit semantics | M4 | Result-indexed thread creation, lifecycle visibility, one-shot logical task/thread join, runnable/blocked state, TID/child-TID lifetime, sealed terminal bundles and API outcomes refine the generic thread contracts; any admitted graceful whole-program exit proves all-thread and terminal-bundle conservation without claiming a native ISA adapter |
+| M6-T[Windows] | Windows hosted task/thread, persistent thread-object/wait and root-exit semantics | M4 | Result-indexed thread creation, lifecycle visibility, one-shot logical task/thread join, runnable/blocked state, thread-object/handle/status/close lifetime, sealed terminal bundles and API outcomes refine the generic thread contracts; any admitted graceful whole-program exit proves all-thread and terminal-bundle conservation without claiming a native ISA adapter |
+| M6-NX[Linux] | Linux x86-64 native hosted-thread/lifecycle realization | M2-X, M2-B[Linux-x86-syscall], M6-T[Linux] | Native thread creation/exit/join and child-TID set/clear refine the semantic profile; whole-program root termination lowers to the selected `exit_group` contract and proves §6.4 accounting, not thread-only `sys_exit`. No futex parking or ordinary-call ABI is required unless selected. A selected libc helper or signal/cancellation surface adds only its exact M2-B/Decision-13 closure |
+| M6-NX[Windows] | Windows x86-64 native hosted-thread/object realization | M2-X, M2-B[Windows-x64-call], M2-B[Windows-x64-thread-start], M6-T[Windows] | Native thread creation/exit, thread-object wait/status and handle close refine the semantic profile; whole-program root termination lowers to selected `ExitProcess` semantics and proves §6.4 accounting. Base M9's closed imports/dynamic resolution/call graph exclude emitted calls to `TerminateThread`/`SuspendThread`, while a named environment/TCB or harness-isolation premise excludes debugger/other-process forced stop and suspension; without both, the surface is selected and adds its exact abort/liveness disposition. APC and SEH similarly add their exact boundary, metadata and Decision-13 closure only when selected |
+| M6-NA[Linux] | Linux AArch64 native hosted-thread/lifecycle realization | M2-A, M2-B[Linux-AArch64-svc], M6-T[Linux] | Native thread creation/exit/join and child-TID set/clear refine the semantic profile; whole-program root termination lowers to the selected `exit_group` contract and proves §6.4 accounting, not thread-only `sys_exit`. No futex parking or ordinary-call ABI is required unless selected. A selected libc helper or signal/cancellation surface adds only its exact M2-B/Decision-13 closure |
 | M6-X[Linux] | Linux x86-64 process-private address-parking adapter | M2-X, M2-B[Linux-x86-syscall], M3 | Native 32-bit `FUTEX_WAIT`/`FUTEX_WAKE` satisfy exact wait-word lifetime, error, atomic-mode, alignment and x86 single-copy-atomicity obligations without claiming thread creation/join certification |
 | M6-X[Windows] | Windows x86-64 address-parking adapter | M2-X, M2-B[Windows-x64-call], M3 | `WaitOnAddress` and `WakeByAddress*` satisfy exact comparison-width, registration, result, handle-independent, alignment and x86 atomicity obligations without claiming thread/object lifecycle certification |
 | M6-A[Linux] | Linux AArch64 process-private address-parking adapter | M2-A, M2-B[Linux-AArch64-svc], M3 | Native 32-bit `FUTEX_WAIT`/`FUTEX_WAKE` satisfy exact wait-word lifetime, error, atomic-mode, alignment and AArch64 single-copy-atomicity obligations without claiming thread creation/join certification |
-| M6-PS | Optional POSIX/Linux process-shared synchronization and robust-owner-death semantic profile | M5-S, M6-PL | Decision 14 extends the private parking/mutex semantics with shared backing/key and robust-list rules; owner-thread exit and the selected Linux exec transition produce their exact abstract owner-death/wake effects, while forked children inherit neither a guard nor lock ownership; exceptional acquisition/recovery/poison, surviving shared backing and eventual destruction refine the selected process and portable-mutex profiles. It makes no native-architecture claim and is not an M6-PL lifecycle exit requirement or a Spike 8/M9 prerequisite |
-| M6-PS-X / M6-PS-A | Linux process-shared/robust target realization and native validation | M6-PS and respectively M6-PL-X/M6-NX[Linux]/M6-X[Linux] or M6-PL-A/M6-NA[Linux]/M6-A[Linux] | The applicable native x86-64 or AArch64 controls in the M6-PS §13 row pass; each architecture independently proves owner-thread-exit/exec, shared futex-key/backing, robust-list ABI, atomics/publication and emitted-code connection to the semantic profile. Completion on one architecture says nothing about the other |
 | M6-LX[Linux] | Linux x86 standard-library blocking-lock integration | M5-X, M6-X[Linux] | `ParkedMutex32` refines Linux futex, including release-before-notify, lost-wakeup and spurious-return cases; the adapter interface remains open to other proved mutex libraries |
 | M6-LX[Windows] | Windows x86 standard-library blocking-lock integration | M5-X, M6-X[Windows] | `ParkedMutex32` refines `WaitOnAddress`/`WakeByAddress*`, including release-before-notify, lost-wakeup and spurious-return cases; the adapter interface remains open to other proved mutex libraries |
 | M6-LA[Linux] | Linux AArch64 standard-library blocking-lock integration | M5-A, M6-A[Linux] | `ParkedMutex32`, through AArch64-specific atomics and Linux futex, including release-before-notify, lost-wakeup and spurious-return cases, refines the portable mutex and parking contracts; the adapter interface remains open to other proved mutex libraries |
@@ -1988,12 +1786,9 @@ Execution discipline:
   and AArch64 in the same change, preventing silent TSO defaults;
 - an ISA or platform refinement may advance independently once its own dependencies are complete;
   no cross-target dependency is added merely for scheduling convenience;
-- each independently breakable trust boundary—descriptor projection, encoding/relocation,
-  consistency, and harness behavior—has a connection theorem and generated positive/negative test
-  family. Generic descriptor-class theorems and mutation generators are reused across ordinary
-  instructions; bespoke per-instruction controls are required only for exceptional semantic forms
-  such as implicit-lock `XCHG`, barrier scopes, and failed `STXR`, or when a new instruction crosses
-  one of those trust boundaries in a genuinely new way;
+- each semantic increment links to an existing class-keyed prevention entry or adds one only for a
+  new defect class/trust boundary; emitted/native controls are added where an external oracle can
+  actually observe the defect;
 - a stage is complete only on its stated exit criterion, not because representative examples pass.
 
 ---
@@ -2011,23 +1806,33 @@ The following are deliberate stop-and-design gates:
    event/transition payload, relation and consequence families; target-indexed binding keys, binding
    generations, resolved binding witnesses and bind/unbind/rebind/alias laws; well-formed
    projections; labelled path and
-   `TraceProjection` witnesses; and whether bounded enumeration uses one graph engine or per-target
-   engines connected to the envelope. Real asynchronous, GPU, RDMA, network, or storage relation and
+    `TraceProjection` witnesses; and whether bounded enumeration uses one graph engine or per-target
+    engines connected to the envelope. That choice requires each runner to be exact against an
+    independently defined bounded operational reachability relation and to match registered/
+    certificate-selected finite outcome sets; it creates no general graph-surjectivity claim unless
+    that stronger model-checker property is explicitly advertised or a stronger theorem consumes the
+    enumeration. Real asynchronous, GPU, RDMA, network, or storage relation and
    consequence constructors are introduced only after that profile's reference intake. Existing CPU
-   projections and one deliberately meaningless extension kind instantiate the minimal public seam
-   before M0 exits, proving only that agents, locations, events, and relations are kind-indexed rather
-   than CPU-closed. Rebinding, labelled paths, consequence cardinalities, round trips, and their
-   negative controls are applicability-closed obligations of the first selected profile that uses
-   them; M0 does not speculate about a producer/consumer ring, SQ/CQ correlation, GPU dependency, or
-   another future-domain architecture merely to prove extensibility.
+   projections and a deliberately meaningless non-CPU extension sentinel must nevertheless
+   instantiate the public seam before M0 exits. The sentinel tests type openness, dynamic rebinding,
+   labelled paths and consequence non-implication using opaque constructors; it must not encode a
+   producer/consumer ring, SQ/CQ correlation, GPU dependency or any other guessed future-domain
+   architecture. Thus M0 cannot silently equate every agent with a CPU thread, every location with a
+   numeric address, every binding with a timeless lookup, or every causal order with transitive CPU
+   happens-before.
 3. **Indexed authoring and boundary entry/exit surface:** how `BlockM` prevents arbitrary permission/
-   obligation replacement while retaining usable errors; how a placement-free logical boundary uses
-   a relation from physical entry state to arguments, a binding and the live world rather than
-   functionally decoding erased provenance/generations; how a caller/link witness or a loader/platform
-   start transition establishes that exact entry tuple and precondition; whether result/outcome/after-
-   world binding is relational, or which proved physical/scalar results may remain functional while
-   every fresh erased identity and authority change lives only in the relational after-world; the
-   abstract target-admissibility and artifact-identity interfaces later concrete profiles must prove;
+    obligation replacement while retaining usable errors; how a placement-free logical boundary uses
+    a relation from physical entry state to arguments, a binding and the live world rather than
+    functionally decoding erased provenance/generations; how a caller/link witness or a loader/platform
+    start transition establishes that exact entry tuple and precondition; whether result/outcome/after-
+    world binding is relational, or which proved physical/scalar results may remain functional;
+    how a freshness-proved logical transition may deterministically allocate identities from the live
+    logical pre-world without decoding them from physical bits; the abstract target-admissibility and
+    artifact-identity interfaces later concrete profiles must prove; the machine-readable closed
+    boundary-profile registry keyed by exact profile, including selected entry/result subset,
+    reachable outcomes, caller/loader/platform origin, authoritative source or TCB rule, non-vacuity,
+    admissibility, artifact connection and structural prevention-class coverage; the rule that
+    emission consumes such a closed entry and unconstrained ghost ordering alone establishes none;
    the canonical state normal forms and simplification/automation interface; and the representative-
    program elaboration time/memory budget and regression threshold. M1 fixes this abstract seam but
    does not admit a concrete ABI, loader, syscall, handler or artifact by itself.
@@ -2062,72 +1867,57 @@ The following are deliberate stop-and-design gates:
     acquisition progress separately from cancellation/timeout/deferred-withdrawal cleanup liveness,
     and destruction's exact resource inverse. Cleanup cannot witness acquisition progress. The first profile may omit robust outcomes, handoff,
     and queue-node implementations only as explicit specializations, not by closing their type seams.
-12. **Hosted process/system seam:** before any M6-P-family profile, pin the common information
-    boundary and the independently selected POSIX/Linux or Windows refinement for generative process, image, address-space, namespace,
-    handle-entry, open-description/object, status and failure-domain identities; fork/clone/vfork
-    mapping dispositions and their RegionId/view/slot/authority transformations,
-    exec/spawn/CreateProcess consequences and result-indexed failures; OS-bootstrap transitions;
-    opaque-environment versus verified-child/image selection; application artifact/root-entry
-    witnesses and initial logical/physical state only for verified execution; observation versus status consumption/reaping; parent,
-    reaper and job/group relations; external-ID reuse; resource-specific exit dispositions; explicit
-    IPC/shared-memory result channels; and copy/move/attenuation/inheritance/name/object-specific
-    handle derivation with result-indexed source disposition and failure atomicity. This decision does
-    not turn the single-address-space M3 machine into a process model or reuse `JoinRight` as an OS
-    process-wait resource.
+12. **Deferred hosted-process extension:** this decision is deliberately unopened and is not a
+    current stage-entry gate. After M9, a concrete consumer may open it only by selecting the smallest
+    capability-indexed platform surface, reference hashes, profile-closure representation and
+    validation matrix described in `docs/FUTURE_PROCESS_MODEL.md`. Until then no `fork`, exec,
+    `CreateProcess`, process wait/reap, cross-process channel or process-shared synchronization type,
+    theorem, source intake or runner is required. The current public seams preserve only the negative
+    compatibility boundaries: threads are not processes, `JoinRight` is not an OS process wait, raw
+    IDs/bytes mint no authority, and no cross-process claim exists without an explicit future channel.
 13. **Asynchronous-context callable seam:** before admitting interrupt-, exception-, signal-, APC-,
-    trap-, cancellation-, at-fork-callback-, restricted-fork-child-, or vfork-borrowed-child-callable
-    code, pin the profile-indexed handler contexts and lifecycle phases, their product/intersection
-    rule whenever handler, at-fork callback and restricted lifecycle phases overlap, including
-    `AtForkChild × RestrictedForkChild` and callback return removing only its own phase;
+    trap- or cancellation-callable code, pin the profile-indexed handler contexts, including
+    bare-metal agent-local versus hosted logical-thread-local ownership and migration;
     identities, ordinary-returning transitions, any selected resume/continue-search/propagation/
-    nonlocal-unwind transitions (including frame-by-frame cleanup and exact unwind-metadata evidence),
-    non-returning exec/immediate-exit transitions and fatal transitions, masks/priorities/nesting,
+    nested-dispatch/nonlocal-or-collided-unwind transitions (including frame-by-frame cleanup,
+    handler/funclet metadata and exact emitted-artifact evidence), fatal transitions, masks/priorities/nesting,
     suspended versus handler
     authority, stack and architecture-local state, permitted blocking/allocation/fault/host-call
     effects, reentrancy and lock-order rules, cleanup/abort dispositions, and progress/stack bounds.
     Safety in one context/phase cannot be generalized to another without a refinement proof.
-14. **Process-shared futex and robust-recovery seam:** before M6-PS, extend—not silently reuse—the
-    private futex decision with the exact shared backing/key identity across mappings/processes,
-    wait-word and mapping lifetime, supported operations/errors/interruption, robust-list registration
-    and traversal, owner identity/generation and the distinct owner-thread-exit/exec/fork lifecycle
-    transitions, wake behavior, exceptional
-    acquisition/recovery/consistent/poison states, and failure/leak behavior when cleanup cannot be
-    completed. The M6-X[Linux]/M6-A[Linux] private adapters alone prove none of these facts.
+14. **Deferred process-shared synchronization:** this reserved decision opens only with Decision 12
+    and a selected `P-SHARED-SYNC` capability. The current private futex adapters prove no shared-key,
+    robust-list, owner-death, quarantined repair, consistent/promotion or poison fact. Keeping the
+    exceptional result extension seam open in M5-S is the only current obligation.
 
 These decisions are hard stage-entry gates for normative implementation and theorem statements:
 
 | Stage entry | Decisions that must be accepted and recorded first |
 |---|---|
 | M0 | Common event representation (2) |
-| M1 | Indexed authoring and abstract boundary entry/exit surface, relational fresh-result/after-world binding, normal forms, automation, and elaboration budget (3) |
+| M1 | Indexed authoring and abstract boundary entry/exit surface, logical generative/relational fresh-result binding, closed profile-registry shape, normal forms, automation, and elaboration budget (3) |
 | M2-X | x86 vendor profile (9) and x86-64 memory/ISA §15.1 intake; no unselected concrete call ABI is required |
 | M2-A | AArch64 formal profile (1) and complete AArch64 memory/ISA §15.1 intake; no unselected concrete call ABI is required |
-| M2-B[p] | Indexed boundary decision (3), exact Boundary ABI/loading/linking intake for profile `p`, its selected entry/signature/result subset and artifact/link negative controls; Decision 13 only when `p` admits an asynchronous/SEH-callable surface |
+| M2-B[p] | Indexed boundary decision (3), one closed registry entry, exact Boundary ABI/loading/linking intake for profile `p`, its selected entry/signature/result subset and class-keyed artifact/link prevention controls; Decision 13 only when `p` admits an asynchronous/SEH-callable surface |
 | M3 | Scheduler wait/control seams (10) |
 | M5-S | Portable mutex refinement seam (11), after the M4 ownership/obligation surface is fixed |
 | M5-L (inherited by the standard-library M5-X and M5-A realizations) | The `ParkedMutex32` protocol (8), after the portable M5-S contract is fixed and before either standard-library architecture realization starts |
-| M6-T[Linux] | Linux hosted-thread §15.1 intake and Decision 13 for every asynchronous surface admitted by this profile |
-| M6-T[Windows] | Windows thread-object wait subprofile (4a), Windows hosted-thread §15.1 intake, and Decision 13 for every exception/signal/APC/cancellation/other asynchronous surface admitted by this profile |
-| M6-PL | Hosted process/system seam (12), asynchronous-context seam (13) for at-fork/restricted-fork/vfork phases, and the POSIX plus Linux process §15.1 intake decisions |
-| M6-PW | Hosted process/system seam (12) and the Windows process §15.1 intake decisions; asynchronous-context seam (13) for every exception/signal/APC/cancellation/other asynchronous surface this selected profile admits |
-| M6-PL-X / M6-PL-A | The accepted M6-PL semantic profile plus respectively M2-X/M2-B[Linux-x86-syscall] or M2-A/M2-B[Linux-AArch64-svc], exact process-syscall/lifecycle intake and native emission validation; selected helper calls and verified image roots add only their exact M2-B profiles; no private-parking gate unless used |
-| M6-PW-X | The accepted M6-PW semantic profile plus M2-X/M2-B[Windows-x64-call]/M2-B[PE32+-x64-bootstrap], exact process API/lifecycle intake and native emission validation; a verified application entry adds its exact PE entry profile; no address-parking gate unless used |
+| M6-T[Linux] | Linux hosted-thread §15.1 intake and Decision 13 only for asynchronous surfaces selected by this profile |
+| M6-T[Windows] | Windows thread-object wait subprofile (4a), Windows hosted-thread §15.1 intake, and Decision 13 only for exception/signal/APC/cancellation surfaces selected beyond the base M9 profile |
 | M6-NX[Linux] | M6-T[Linux], M2-X/M2-B[Linux-x86-syscall], Linux native thread/lifecycle intake; selected libc/thread-start paths add only their exact M2-B profiles; Decision 13 native validation only for selected asynchronous surfaces |
 | M6-NX[Windows] | M6-T[Windows], thread-object wait subprofile (4a), M2-X/M2-B[Windows-x64-call] and exact selected thread-start profile, Windows native thread/object lifecycle intake; Decision 13 native validation for every selected APC/exception/cancellation surface, including applicable SEH unwind evidence |
 | M6-NA[Linux] | M6-T[Linux], M2-A/M2-B[Linux-AArch64-svc], Linux native thread/lifecycle intake; selected libc/thread-start paths add only their exact M2-B profiles; Decision 13 native validation only for selected asynchronous surfaces |
 | M6-X[Linux] | Futex error profile (7), M3, x86 architecture, M2-B[Linux-x86-syscall], and exact process-private futex intake |
 | M6-X[Windows] | Windows address-wait subprofile (4b), M3, x86 architecture, M2-B[Windows-x64-call], and exact address-wait intake |
 | M6-A[Linux] | Futex error profile (7), M3, AArch64 architecture, M2-B[Linux-AArch64-svc], and exact process-private futex intake |
-| M6-PS | Portable mutex seam (11), hosted process/system seam (12), process-shared futex/robust seam (14), and exact process-shared/robust semantic §15.1 intake |
-| M6-PS-X / M6-PS-A | The accepted M6-PS semantic profile plus respectively M6-PL-X/M6-NX[Linux]/M6-X[Linux] or M6-PL-A/M6-NA[Linux]/M6-A[Linux], and exact native robust-list/futex ABI and emission-validation intake |
 | M7-X | x86 AP startup (5), asynchronous-context seam (13), x86 bare-metal/interrupt intake, and applicable Boundary ABI/loading/linking intake for every concrete entry/exit realization |
 | M7-A | AArch64 secondary startup (6), asynchronous-context seam (13), AArch64 bare-metal/interrupt intake, and applicable Boundary ABI/loading/linking intake for every concrete entry/exit realization |
 
 These rows are not an exemption mechanism: every stage that first admits a concrete call, syscall,
-loader/root, thread/process start, callback, unwind, exception or handler boundary must also complete
+loader/root, thread start, callback, unwind, exception or handler boundary must also complete
 the applicable Boundary ABI/loading/linking intake. Every stage admitting an asynchronous execution
-surface completes Decision 13 even if that surface belongs to an ordinary hosted realization rather
-than M6-PW or bare metal.
+surface completes Decision 13 for that selected surface even if it belongs to an ordinary hosted
+realization rather than bare metal.
 
 Exploratory prototypes may run before a gate only when marked nonnormative and isolated from the
 public semantic API. They do not fix public type shapes, establish accepted theorem statements,
@@ -2142,22 +1932,19 @@ stage starts, `references.json` must pin and hash authoritative material for:
 
 | Surface | Required source family |
 |---|---|
-| Boundary ABI, loading and linking | Exact selected System V AMD64 psABI/ELF, Microsoft x64 plus PE/COFF unwind/exception, and AAPCS64/AAELF64 revisions as applicable; architecture/platform syscall and exception entry/return conventions; stack/red-zone/shadow-space/probe and unwind rules; loader relocation, symbol resolution, TLS/FLS, indirect-call and module/load-generation rules; CET/PAC/BTI or other selected control-flow protection; and the linker/artifact evidence required to establish each relational entry-origin tuple and every relational fresh-result/outcome/after-world binding rather than decode erased logical identity from physical bits |
+| Boundary ABI, loading and linking | Exact selected System V AMD64 psABI/ELF, Microsoft x64 plus PE/COFF unwind/exception, and AAPCS64/AAELF64 revisions as applicable; architecture/platform syscall and exception entry/return conventions; stack/red-zone/shadow-space/probe and unwind rules; loader relocation, symbol resolution, TLS/FLS, indirect-call and module/load-generation rules; CET/PAC/BTI or other selected control-flow protection; and the source/TCB, non-vacuity, admissibility and linker/artifact evidence required by the closed boundary-profile registry to establish each entry-origin tuple and fresh logical result/outcome/after-world binding without decoding erased identity from physical bits |
 | x86-64 | the exact registered Intel SDM edition/revision for an Intel-only profile; additionally the exact matching AMD64 Architecture Programmer's Manual revision before AMD CPUs are eligible: WB/TSO rules, locked operations/fences, memory types, multiprocessor initialization, and every applicable architectural erratum with an explicit disposition |
 | AArch64 | the exact Arm Architecture Reference Manual edition/revision, selected feature profile and shareability assumptions, applicable errata with an explicit disposition, the matching official A-profile `aarch64.cat` revision and content hash, and the herd7 release/commit and hash |
-| Linux hosted thread lifecycle | exact kernel, UAPI, libc and Linux man-pages definitions for clone/child-TID lifecycle, thread creation/exit/join, result branches and atomic publication, without importing a futex parking profile |
+| Linux hosted thread lifecycle | exact kernel, UAPI, libc and Linux man-pages definitions for the selected thread-creating clone subset, child-TID lifecycle, thread creation/exit/join, result branches and atomic publication, plus root `exit_group` versus thread-only `sys_exit`, without importing process creation or a futex parking profile |
 | Linux process-private address parking | exact kernel/UAPI/libc/man-pages profile for private aligned 32-bit futex wait/wake, comparison/block atomicity, supported errors/interruption, mapping and registered wait-word lifetime, wake result and retry behavior |
-| Windows hosted thread/object lifecycle | exact supported Windows profile and Microsoft documentation for thread creation/exit, thread-object wait/status, access/handle lifetime, result branches and publication guarantees, without importing address parking |
+| Windows hosted thread/object lifecycle | exact supported Windows profile and Microsoft documentation for thread creation/exit, thread-object wait/status, access/handle lifetime, result branches, publication guarantees and root `ExitProcess` accounting, without importing address parking or `CreateProcess`; the base M9 reachable-import/dynamic-resolution/call closure must show emitted `TerminateThread`/`SuspendThread` calls, APC and SEH surfaces absent (review-derived until an applicability checker enforces it), and a named environment/TCB or harness-isolation premise must exclude debugger/other-process forced stop/suspension; otherwise the selected surface must provide thread-domain abort and liveness/lock-holder dispositions rather than pretend unlock |
 | Windows address parking | exact minimum supported Windows version and Microsoft documentation for `WaitOnAddress`/`WakeByAddress*`, comparison widths, registration/lifetime, timeout/error/spurious-return behavior and observable wake results |
-| POSIX process lifecycle | exact Issue/edition anchors for XBD §4.15.2 process-memory synchronization rules (including successful `fork`/`wait`/`waitid`/`waitpid`), `fork`, `_Fork`, creation errors and result branches, `pthread_atfork` ordering on both creation success and failure, async-signal-safe and restricted-child rules, signal disposition/mask/pending-signal inheritance across creation and reset/preservation across exec, `posix_spawn` ordered file actions and pre-return versus child-status failure, `_Exit`, status/wait/`WNOWAIT`, `SIGCHLD` ignore/`SA_NOCLDWAIT`, mapping private/shared behavior, descriptor/open-description inheritance, and Issue-8 `FD_CLOFORK`/close-on-fork semantics when selected |
-| Linux process extensions | exact kernel/UAPI/libc/man-pages profile for libc `fork` wrapper/at-fork behavior and errors, `clone`/`clone3` sharing flags/errors, `vfork` success/failure, `MADV_DONTFORK`/`MADV_WIPEONFORK` mapping dispositions, signal delivery while fork/vfork child restrictions are active, `_exit`/`execve`/`exit_group`, PID namespaces/reuse and pidfds, wait/reaping/reparenting/subreapers/auto-reap, the explicit unsupported disposition for POSIX features such as `FD_CLOFORK` when absent, `SCM_RIGHTS`, ancillary truncation/limits and close-on-receive behavior |
-| POSIX/Linux process-shared synchronization | exact POSIX process-shared/robust mutex contract and exact Linux shared-futex backing/key identity, mapping/wait-word lifetime, robust-list ABI plus owner-thread-exit/exec traversal and fork-child disposition, owner-death wake, errors, recovery/consistent/poison transitions and failure/leak behavior for Decision 14/M6-PS and its M6-PS-X/A realizations |
-| Windows process lifecycle | exact supported Windows profile and Microsoft documentation for result-indexed `CreateProcess` failure/success, branch-valid output interpretation (`GetLastError` only after zero `BOOL`; failed-call `PROCESS_INFORMATION` grants nothing), process/thread ID and HANDLE namespace lifetime/reuse, `PROCESS_INFORMATION` process/thread handles and independent close obligations, loader/root initialization, `ExitProcess`, self-versus-external `TerminateProcess`, request acceptance versus later terminal/status/signaled state, pending-I/O completion/cancellation disposition, process-object/status lifetime, process access and wait/query rights, handle inheritance and attribute lists, jobs/nesting/breakaway plus `TerminateJobObject` and kill-on-close policies, `DuplicateHandle` including source-close-on-error, and object-specific transfer such as `WSADuplicateSocket` |
+| Deferred hosted-process extension | no current intake. After M9, Decision 12 pins only the source families for the consumer-selected capabilities in `docs/FUTURE_PROCESS_MODEL.md`; POSIX/Linux and Windows constructors, process-shared synchronization and transfer mechanisms are not bundled or pre-required |
 | x86 bare metal | Intel startup/APIC material and selected platform/device specifications |
 | AArch64 bare metal | Arm PSCI, exception-level, GIC, translation/memory-attribute, and selected platform/device specifications |
 | RISC-V future profile | Exact unprivileged ISA, platform and extension profile; matching formal RVWMO artifact/tool hashes; preserved-program-order and dependency rules; `FENCE` predecessor/successor domain sets; AMO and LR/SC `.aq`/`.rl` semantics; and any separately selected Ztso profile |
 | DMA and interrupt future profiles | Exact OS DMA API or bare-metal architecture, interconnect, IOMMU, interrupt controller and device revisions; coherent versus streaming rules, directions, cache-maintenance and barrier contracts, cache granules, binding/I/O-address generations, ownership handoffs, doorbells, signal routing/acknowledgement, and distinct completion/visibility evidence |
-| Asynchronous callable contexts | Exact architecture and platform contracts for each admitted hardware IRQ, NMI, synchronous exception, hosted signal/APC, trap and cancellation handler context, plus each at-fork callback, restricted fork-child and vfork-borrowed-child lifecycle phase: entry and ordinary return; every selected resume/continue-search/propagation/nonlocal-unwind outcome, intervening termination/cleanup handler and exact unwind-metadata rule; non-returning successful exec/image replacement or immediate exit; fatal abort and other phase-exit state; masks/priorities/nesting, stacks, reservation effects, callable/async-signal-safe surface, reentrancy, blocking/allocation/fault rules; and exact exec effects on caught dispositions, masks, pending state and alternate stacks plus cleanup/failure-domain behavior |
+| Asynchronous callable contexts | Exact architecture and platform contracts for each admitted hardware IRQ, NMI, synchronous exception, hosted signal/APC, trap and cancellation context: agent-local versus logical-thread-local ownership/migration; entry and ordinary return; every selected resume/continue-search/propagation, nested first-pass dispatch and nonlocal/collided-unwind outcome; intervening handlers/funclets and exact `.pdata`/`.xdata` flags, handler RVAs, scope data, chained entries and emitted unwind opcodes (including nonvolatile GPR/XMM saves actually emitted); fatal state; masks/priorities/nesting, stacks, reservation effects, callable surface, reentrancy, blocking/allocation/fault rules and cleanup/failure disposition. Selected Windows VEH/VCH ordering, debugger interaction, loader-lock/`DllMain`, and TLS/FLS callback/destructor behavior are included only when reachable |
 | Optimistic-concurrency and reclamation future profiles | Exact seqcount/seqlock contract and memory/compiler profile; separately, exact RCU, hazard-pointer, or epoch scheme with typed publication/protection, grace/quiescence, retirement, reclamation, and progress rules |
 | WebAssembly threads future profile | Separate exact Core Wasm threads/atomics snapshot plus embedding profile; sequentially consistent atomic rules; full-defined-racy versus proved-DRF-subset choice and tearing; `memory.atomic.wait32`/`wait64` and notify outcomes, traps and non-spurious/queue-order rules; multi-memory identity; concurrent shared `memory.grow` size RMW/ordering, maximum, success/failure, zero-initialization and embedding buffer/view-length behavior; shared-memory/agent lifecycle; host-call reentrancy; trap/termination and embedding interruption/cancellation; blocking eligibility, asynchronous embedding APIs, and engine-validation matrix |
 | SPIR-V/Vulkan future profile | Exact Vulkan/SPIR-V editions and feature profile, immutable Vulkan-Docs/SPIRV-Headers revisions, matching Khronos memory-model/formal-artifact revision, validator/tool hashes and errata; Resource Memory Association, Sparse Resources, Memory Aliasing, descriptor consumption/update-after-bind/partially-bound rules, device-group binding and external-memory identity; coherent/noncoherent host mapping and `nonCoherentAtomSize` rules including `vkFlushMappedMemoryRanges` and `vkInvalidateMappedMemoryRanges`; WSI acquire/present, image ownership/layout, semaphore/fence participation, presentation-engine and queue/device/surface-loss consequences; and the separation between API execution dependencies, presentation consequences and shader memory-model relations |
@@ -2167,7 +1954,7 @@ stage starts, `references.json` must pin and hash authoritative material for:
 | Network/IPC/storage future profiles | Selected protocol and OS IPC specifications, shared-object identity rules, filesystem/mount/device-cache persistence contract, and explicit loss, failure, crash, and recovery assumptions |
 | Hosted synchronization extensions | Exact selected POSIX robust-mutex and Windows abandoned-mutex contracts kept as distinct recovery profiles; Linux futex2/`futex_waitv` and Windows multiple-object wait rules; result-indexed ownership, interruption and cancellation; and exact MCS/qspinlock sources plus node provenance, affinity, nesting and progress assumptions before those implementations are admitted |
 | CPU synchronization-library extensions | Exact selected POSIX/platform and algorithm contracts for read/write locks, condition variables and semaphores: authority/invariant ownership, read versus write admission, predicate publication and spurious/lost wake rules, waiter/cancellation lifetime, permit accounting, destruction, exceptional owner/failure outcomes and separately claimed progress/fairness |
-| Linux restartable-sequence future profile | Exact kernel UAPI and implementation (including `include/linux/rseq.h` lifecycle transitions and fork/exec call sites), libc/`librseq` ownership and ABI, architecture code-generation rules, registered CPU/memory-concurrency IDs, non-`CLONE_VM` fork versus `CLONE_VM` clone/vfork child state, exec success/failure, migration/preemption/signal and `membarrier` behavior, commit/abort layout, restart-safety obligations, validation, and fallback progress |
+| Linux restartable-sequence future profile | Exact kernel UAPI and implementation, libc/`librseq` ownership and ABI, architecture code-generation rules, registered CPU/memory-concurrency IDs, migration/preemption/signal and `membarrier` behavior, commit/abort layout, restart-safety obligations, validation and fallback progress; fork/clone/vfork/exec interactions are added only if a Decision-12 process capability is separately selected |
 | Direct user-scheduling future profile | Exact available implementation and ABI for any user-directed switch/handoff mechanism, including timeout/signal/exit races, generation and accounting rules, control causality and separate publication; historical Google `SwitchTo` and unmerged `FUTEX_SWAP` material is prior art only, not an implementable Linux contract |
 
 Each Lean declaration cites the narrowest applicable registered anchor. A hardware observation or
@@ -2186,9 +1973,7 @@ QEMU behavior is validation evidence, not a substitute for the architecture/OS c
 | Provenanced pointers and borrowing | §6, M1/M4 |
 | Pointer-valued fields and hierarchical allocation | §§6.1.1–6.2, M1 |
 | Cross-thread donation and join | §6.4, M3/M4 |
-| Hosted process identity, lifecycle and failure containment | §§6.5, 8.1, independently selected M6-PL/M6-PW semantic profiles plus M6-PL-X/A or M6-PW-X native realization |
-| IPC and handle/object derivation | §§6.5, 8.1, independently selected M6-PL/M6-PW semantic profiles plus the applicable native realization |
-| Process-shared synchronization and robust recovery | §§6.5, 7, 9, M6-PS plus independently completed M6-PS-X/A realizations |
+| Hosted process creation/lifecycle, cross-process IPC and process-shared robust recovery | Explicitly deferred beyond M9 by §§6.5/8.1 and Decision 12; compatibility constraints and consumer-triggered intake are centralized in `docs/FUTURE_PROCESS_MODEL.md` |
 | Lock invariants and implementation freedom | §7, M5-S/M5-L/M5-X/M5-A |
 | Must-unlock obligations | §7.3, M5-S |
 | Linux hosted thread/join lifecycle | §§8–9, M6-T[Linux] plus independently selected M6-NX[Linux]/M6-NA[Linux] native realizations |

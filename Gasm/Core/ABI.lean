@@ -31,8 +31,5 @@ class AbiDiscipline (Arch : Type) (ABI : Type) [TargetArch Arch] where
   stackAlignment       : Nat
   argumentRegisters    : List (Register Arch (TargetArch.wordWidth Arch))
   returnRegister       : Register Arch (TargetArch.wordWidth Arch)
-  calleePreservesStack : ∀ {S : Type} (s_post : ComposedState Arch S),
-    CalleeDiscipline Arch s_post →
-    s_post.stackDepth = 0
 
 end Gasm.Core

@@ -123,6 +123,8 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**Canonical Memory & Concurrency Model**](MEMORY_MODEL.md): Common event graph, x86-TSO and
   AArch64 weak memory, borrowing, locks/obligations, scheduler, futex/Windows parking, and both
   bare-metal SMP paths, with staged exit criteria.
+- [**Deferred Hosted-Process Extension**](FUTURE_PROCESS_MODEL.md): Post-M9 compatibility constraints
+  and consumer-triggered design notes; not a current stage or proof dependency.
 - [**Spikes & Integration Roadmap**](SPIKES.md): Spike progression, continuous testing, and stop-and-design invariant.
 - [**Review Protocol & Citation Laws**](REVIEW.md): `REF:` syntax, repository laws, and automated backlog tool.
 - [**Continuous Integration**](CI.md): the GitHub Actions gate inventory, Windows/Linux platform matrix, caching soundness argument, and cost split.
@@ -133,9 +135,9 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**Linear Obligations & Causality**](OBLIGATIONS_AND_CAUSALITY.md): Current generic tokens and
   vector clocks versus the required typed obligations and labelled causal relations.
 - [**Stack Discipline & Jump Typing**](STACK_DISCIPLINE.md): Stack-indexed basic blocks and local jump obligations automating stack preservation.
-- [**Composable Boundary ABI Contexts**](ABI_CONTEXT.md): Reviewed design and honest implementation
-  inventory for placement-free resource contracts, target-resolved footprints, scoped allocation,
-  cancellation handles, and zero-overhead erasure.
+- [**Composable Boundary ABI Contexts**](ABI_CONTEXT.md): Placement-free logical contracts,
+  relational target realizations, exact export/link/component certificates, proof-economy rules, and
+  an honest inventory of the remaining resource-world and concrete-profile work.
 - [**Proof-Carrying Assembly DSL**](PROOF_CARRYING_ASSEMBLY.md): Current typed assembly pieces and
   design-only capability/memory-discipline boundaries.
 - [**Equivalence Proofs**](EQUIVALENCE_PROOFS.md): Split Theorem Principle (`Functional Equivalence`, `Callability & ABI`, `Memory Safety`) and layered function proof composition.

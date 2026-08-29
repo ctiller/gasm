@@ -61,17 +61,16 @@ Checked assembly needs typed, generational resources in an indexed authoring con
 - profile-specific mutex recovery and contributed queue-node withdrawal obligations;
 - `MustReturnLoan loan issuer holder region`;
 - `MustJoin child joinRight` or an explicit detach transition for a logical task/thread;
-- process-status observation grants, a platform-specific reap/status-consumption right where one
-  exists, and independently owned status/process-object resources;
-- generational `MustCloseHandle` obligations indexed by local entry, underlying object and rights,
-  plus result-indexed copy/alias, move, attenuation, inheritance and object-specific derivations;
+- generational close obligations for selected current thread-object or other platform handles;
 - allocation and typed-view destruction obligations.
 
 The matching capability, guard, and obligation are separate resources. An ordinary healthy acquire
 updates them atomically. A not-acquired outcome transfers no guard or protected authority; every
 acquisition-scoped loan is either returned before that result or remains governed by an explicit
-deferred-withdrawal obligation that prevents reuse. A selected robust/abandoned profile can instead
-grant exceptional ownership plus its exact recovery/repair obligation. Release requires and
+deferred-withdrawal obligation that prevents reuse. A selected future robust/abandoned profile can
+instead grant a quarantined `RecoveryGuard`, exact repair capability and `MustResolveRecovery`; it
+does not grant healthy invariant-backed authority. Checked repair promotes to the healthy guard,
+while release without repair follows the selected poison branch. Release requires and
 consumes the owner- and generation-matched guard, protected authority, must-release obligation, and
 any result-specific prerequisite.
 
@@ -79,25 +78,26 @@ Ordinary return exports exactly the postcondition promised by its callable contr
 seals a terminal bundle accounting for every authority, loan, grant, guard, and obligation; an
 obligation-free capability cannot be stranded in a dead thread. Detach is legal only for an empty
 join-owned bundle or an atomic transfer to an explicitly named live recipient/system sink whose
-lifetime and cleanup contract remain tracked. `JoinRight` is not a process wait, process-object
-handle, status-observation grant, or reap right.
+lifetime and cleanup contract remain tracked. `JoinRight` is not a process wait, process-object handle,
+status-observation grant, or reap right.
 
-M3 provides only the single-address-space logical-thread/PE machine; M4 supplies authority partition,
-sealed terminal-bundle and one-shot join conservation; M6-T supplies hosted thread refinements. Each
-separately gated M6-P family transition (Linux M6-PL or Windows M6-PW) is indexed
-by a generative `ProcessInstanceId` and `FailureDomainId`. It produces only its platform
-terminal/status facts and
-applies one declared disposition to each affected resource: private resources may close or become
-invalid, while shared mappings, refcounted objects, children, device operations and remote effects
-may survive, recover, orphan, continue, leak or become indeterminate. Results or authority cross a
-process boundary only through an explicit IPC/shared-memory/object-transfer channel. Forced
-termination is therefore not a global world invalidation and neither graceful nor forced exit
-proves that live guards and obligations were normally discharged. Optional process-shared robust
-owner-death recovery belongs to M6-PS, not to ordinary M6-PL lifecycle exit.
+M3 provides only one root host process's CPU logical-thread/PE domain (or a bare-metal machine); it
+does not constrain separate GPU/device/IOMMU address domains. M4 supplies authority partition,
+sealed terminal-bundle and one-shot join conservation; M6-T supplies hosted thread refinements.
+Graceful whole-program root exit additionally accounts for every live thread context and every
+sealed-but-unconsumed terminal bundle. A live guard, outstanding loan/withdrawal or any unconsumed
+`JoinRight` rejects exit unless its own checked discharge/transfer/detach transition runs. M6-NX/
+M6-NA connects that rule to `exit_group`, `ExitProcess` or the selected bare-metal stop. Fatal
+root/agent abort is resource-specific, not normal discharge or global invalidation of surviving
+device/remote effects.
+
+Multiprocess identities, wait/reap/status resources, cross-process handle derivation and
+process-shared robust owner death are post-M9 work under `docs/FUTURE_PROCESS_MODEL.md`. They add no
+current obligation constructor or proof.
 
 Scheduler-owned wait registrations are not author-visible obligations. The selected scheduler or
 platform transition must account for their removal or retention on wake, timeout,
-interruption/cancellation and thread/process termination; no blanket exit rule supplies it.
+interruption/cancellation and thread/root termination; no blanket exit rule supplies it.
 
 The checked surface must close over safe constructors. A public operation that can arbitrarily
 replace `ComposedState.perms` or `.obligations` is outside that surface. See
@@ -168,8 +168,7 @@ This note can be promoted from design boundary to implemented contract only when
 - typed obligations and closed indexed transitions replace stringly value-level protocol tokens;
 - the M3 thread-domain machine has separate per-thread/PE states and true task/thread exit/join;
 - M4 proves authority partition and sealed terminal-bundle/join conservation across that lifecycle;
-- any multiprocessing claim additionally uses the selected M6-PL/M6-PW process/system topology,
-  generative identities, status/observation/reap split and resource-specific failure dispositions;
+- multiprocess work remains explicitly deferred until Decision 12 opens a consumer-selected profile;
 - x86 and AArch64 synchronization edges are derived from their respective memory models;
 - futex/parking transitions preserve their non-fence semantics;
 - trace projection satisfies the bidirectional fidelity theorem; and

@@ -86,14 +86,10 @@ def rdataPayload : ByteArray :=
   respRootBytes ++ respStatusBytes ++ resp404Bytes ++ resp400Bytes ++ resp414Bytes
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
-/-- Symbolic program definition for Spike 4 x86_64 Linux HTTP 1.1 Server.
-    Stack Layout (total 320 bytes allocated, maintaining (RSP - 320) % 16 == 0):
-      [RSP + 0x20..0x27]  : server socket descriptor (8 bytes)
-      [RSP + 0x28..0x2F]  : client socket descriptor (8 bytes)
-      [RSP + 0x30..0x3F]  : sockaddr_in buffer (16 bytes)
-      [RSP + 0x40..0x13F] : HTTP request recv buffer (256 bytes -- widened in lockstep with the
-                             Windows target, REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md)
--/
+/-- Symbolic Linux x86-64 entry point for the proof-connected Spike 4 runtime ABI.
+    The five calls use the profile-owned Gasm runtime entry and identify the listen, accept,
+    receive, respond, and close phases in `r10`. Socket state, bounded scratch storage, parsing,
+    routing, and request-scope recovery are supplied by that selected runtime profile. -/
 def spike4SymbolicProgram : List SymbolicInstr := [
   -- Five explicit request-scope phases provided by the selected Gasm runtime.
   instr (xor_r32 .r10d .r10d),

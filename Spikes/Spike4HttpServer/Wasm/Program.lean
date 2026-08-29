@@ -236,16 +236,10 @@ def wasmValidLineResponseInstrs : List WasmInstr :=
                 .local_set 4 ] ] ] ]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
-/-- WASM instruction sequence for Spike 4 HTTP 1.1 Server:
-    Local 0: server_fd (i32)
-    Local 1: client_fd (i32)
-    Local 2: bytes_recv (i32)
-    Local 3: resp_ptr (i32)
-    Local 4: resp_len (i32)
-    Local 5: path_ptr (i32) -- request-target pointer chosen by the method-token check, 0 if the
-             method was not recognised
-    Locals 6--11: bounded request-line scanner scratch state (see `wasmRequestLineValidationInstrs`)
--/
+/-- WASM entry point for the proof-connected Spike 4 runtime ABI. Each of the five calls passes
+    the connection handle, bounded scratch pointer and capacity, and one lifecycle phase. The
+    selected host profile owns socket state, streaming parsing, routing, and request-scope
+    recovery; this wrapper therefore requires no Wasm locals. -/
 def spike4WasmInstructions : List WasmInstr := [
   -- The four leading arguments are connection, bounded scratch, capacity, and lifecycle phase.
   .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,

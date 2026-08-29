@@ -497,16 +497,21 @@ def runScanWorker (target : Name) : IO UInt32 := do
       let env2 ← importModules #[{module := target}] {} (trustLevel := 0) (loadExts := false)
       let mut scanned : Nat := 0
       let mut gatedItems : Array Json := #[]
-      for (name, info) in env2.constants.toList do
-        if isReportableForModule env2 name info target then
-          scanned := scanned + 1
-          let axs ← collectAxiomsFor env2 ctx name
-          let gatingAxs := axs.filter (fun a => !isStandardAxiom a)
-          if gatingAxs.size > 0 then
-            let axJson := gatingAxs.map (fun a =>
-              Json.mkObj [("name", (toString a : Json)), ("label", (axiomLabel a : Json))])
-            gatedItems := gatedItems.push (Json.mkObj [
-              ("decl", (toString name : Json)), ("axioms", Json.arr axJson)])
+      for i in [:env2.header.moduleNames.size] do
+        if env2.header.moduleNames[i]! == target then
+          if let some md := env2.header.moduleData[i]? then
+            for name in md.constNames do
+              if let some info := env2.find? name then
+                if isReportableKind info && !name.isInternal then
+                  scanned := scanned + 1
+                  let axs ← collectAxiomsFor env2 ctx name
+                  let gatingAxs := axs.filter (fun a => !isStandardAxiom a)
+                  if gatingAxs.size > 0 then
+                    let axJson := gatingAxs.map (fun a =>
+                      Json.mkObj [("name", (toString a : Json)), ("label", (axiomLabel a : Json))])
+                    gatedItems := gatedItems.push (Json.mkObj [
+                      ("decl", (toString name : Json)), ("axioms", Json.arr axJson)])
+          break
       pure (Json.mkObj [("ok", (true : Json)), ("scanned", (scanned : Json)), ("gated", Json.arr gatedItems)])
     catch e =>
       pure (Json.mkObj [("ok", (false : Json)), ("error", (e.toString : Json))])
@@ -573,22 +578,27 @@ def runGate : IO UInt32 := do
   let mut offenders : Array Offender := #[]
   let mut matchedKeys : Std.HashSet String := {}
 
-  for (name, info) in env.constants.toList do
-    if isReportable env name info then
-      scanned := scanned + 1
-      let axs ← collectAxiomsFor env ctx name
-      let gatingAxs := axs.filter (fun a => !isStandardAxiom a)
-      if gatingAxs.size > 0 then
-        gated := gated + 1
-        let declModule := (originatingModule env name).getD Name.anonymous
-        let key := matchKey declModule (toString name)
-        match byKey[key]? with
-        | some _ =>
-          compliant := compliant + 1
-          matchedKeys := matchedKeys.insert key
-        | none =>
-          let axiomPairs := gatingAxs.map (fun a => (toString a, axiomLabel a))
-          offenders := offenders.push { declModule := declModule, declName := toString name, axioms := axiomPairs }
+  for i in [:env.header.moduleNames.size] do
+    let modName := env.header.moduleNames[i]!
+    if (`Gasm).isPrefixOf modName || (`Stdlib).isPrefixOf modName || (`Spikes).isPrefixOf modName then
+      if let some md := env.header.moduleData[i]? then
+        for name in md.constNames do
+          if let some info := env.find? name then
+            if isReportableKind info && !name.isInternal then
+              scanned := scanned + 1
+              let axs ← collectAxiomsFor env ctx name
+              let gatingAxs := axs.filter (fun a => !isStandardAxiom a)
+              if gatingAxs.size > 0 then
+                gated := gated + 1
+                let declModule := modName
+                let key := matchKey declModule (toString name)
+                match byKey[key]? with
+                | some _ =>
+                  compliant := compliant + 1
+                  matchedKeys := matchedKeys.insert key
+                | none =>
+                  let axiomPairs := gatingAxs.map (fun a => (toString a, axiomLabel a))
+                  offenders := offenders.push { declModule := declModule, declName := toString name, axioms := axiomPairs }
 
   -- docs/REVIEW.md §4.1.1: close the import-closure blind spot. `discovered` is
   -- the on-disk ground truth; `baselineModules` is what the single import

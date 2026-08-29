@@ -1,14 +1,15 @@
 # Target Specification: Linux Platform
 
 **Concurrency status (2026-08-28): unimplemented.** The x86-64 and AArch64 syscall dispatchers do
-not implement `clone` or futex operations, and currently map thread exit and process exit through a
-single whole-machine termination path. M3 is only the single-address-space logical-thread/PE model;
+not implement `clone` or futex operations, and currently map thread exit and root exit through a
+single whole-machine termination path. Through M9, M3 has one root host process and one host CPU
+virtual-address domain with multiple logical threads; this does not constrain separate GPU/device/
+IOMMU/resource address domains or agents.
 M6-T[Linux] adds hosted thread semantics, M6-NX[Linux]/M6-NA[Linux] independently realize native
 thread/child-TID lifecycle, and optional M6-X[Linux]/M6-A[Linux] add only the architecture-specific
-process-private 32-bit `FUTEX_WAIT`/`FUTEX_WAKE` adapters. The separately gated M6-PL stage owns real
-process creation, image/address-space replacement, status observation/reaping and IPC/handle
-semantics; M6-PL-X/A owns native ABI/emission realization. Optional process-shared futex/robust-
-owner-death semantics belong to M6-PS and native realization to M6-PS-X/A. The thread-only
+process-private 32-bit `FUTEX_WAIT`/`FUTEX_WAKE` adapters. Process creation/image replacement,
+wait/reap, cross-process IPC and process-shared robust synchronization are post-M9 work under
+`docs/FUTURE_PROCESS_MODEL.md` and add no current profile or gate. The thread-only
 executable checks are in `docs/SPIKES/SPIKE8_MULTITHREADING.md`.
 
 This document defines the calling conventions, system call ABIs, kernel interface state models, ELF64 binary emission standards, and module architecture for the **Linux platform target** in `gasm`.
@@ -33,10 +34,12 @@ For standard subroutine execution, `gasm` models the System V AMD64 ABI discipli
 - **Red Zone**: 128 bytes below `RSP` reserved for leaf functions
 
 This current `AbiDiscipline` is structural register/stack vocabulary, not by itself a certified call
-boundary. M1 supplies the abstract relational entry/exit seam; a selected M2-B[SysV-x86-call] realization
-must connect exact logical arguments, bindings, the live world and precondition to the physical entry,
-then prove result/after-world, target admissibility and artifact/link identity. The tables above are
-necessary premises for that certificate, not a substitute for it.
+boundary. The landed generic `ContextBoundaryRealization`, `EstablishedBoundaryEntry`, and
+`VerifiedExportSet` types provide the relational and final-artifact certificate shapes, but no
+concrete SysV call profile is implemented. A selected M2-B[SysV-x86-call] realization consumes the
+canonical boundary-profile closure rule in `docs/MEMORY_MODEL.md` §3. The table above is a necessary
+premise, not a substitute for that closed registry entry, relational execution theorem and artifact
+connection.
 
 ### 1.2 System Call ABIs Across Architectures
 
@@ -69,21 +72,21 @@ Standard stream descriptors (FD 0 stdin, FD 1 stdout, FD 2 stderr) map directly 
   current hook does not enforce capability-based memory safety.
 
 ### 2.3 Semantic Syscall Interception
-`Gasm.Targets.Linux.Syscall` provides a `SyscallInterceptor` / dispatch hook that intercepts `syscall` execution in `runAsmTrace`:
-- Reads `RAX` for syscall number (`SYS_read=0`, `SYS_write=1`, `SYS_open=2`, `SYS_close=3`, `SYS_mmap=9`, `SYS_munmap=11`, `SYS_socket=41`, `SYS_accept=43`, `SYS_sendto=44`, `SYS_bind=49`, `SYS_listen=50`, `SYS_exit=60`).
+`Gasm.Targets.Linux.Syscall` provides `linuxSyscallIntercept` and its `linuxCallIntercept` wrapper:
+- Reads `RAX` for syscall number (`SYS_read=0`, `SYS_write=1`, `SYS_open=2`, `SYS_close=3`, `SYS_mmap=9`, `SYS_munmap=11`, `SYS_socket=41`, `SYS_accept=43`, `SYS_bind=49`, `SYS_listen=50`, `SYS_exit=60`, `SYS_exit_group=231`). The simulated socket-send path currently uses `SYS_write` on FDs at or above 100; no `SYS_sendto` hook is declared or dispatched.
 - Reads argument registers (`RDI, RSI, RDX, R10, R8, R9`).
-- Emits strongly typed effect events (`ConsoleEvent.out`, `ConsoleEvent.err`, `ProcessEvent.exit`, `NetworkEvent.send`).
+- Emits strongly typed effect events (`ConsoleEvent.out`, `ConsoleEvent.err`, `ProcessEvent.exit`, `NetEvent.send`).
 - Updates `RAX` with return value / bytes written / error code, and advances `RIP`.
 
-The current `SYS_exit=60` path is legacy single-thread whole-machine behavior. Linux `sys_exit`
-terminates only the calling thread once M6-T[Linux] exists. M6-PL models selected whole-process
-semantics; M6-PL-X/A validates the native `exit_group` lowering and qualifies terminal events by
-`ProcessInstanceId`.
+The current `SYS_exit=60` path is legacy single-thread whole-machine behavior. Once M6-T[Linux]
+exists, Linux `sys_exit` terminates only the caller; graceful whole-program root exit uses the
+selected `exit_group` lowering in M6-NX/M6-NA and proves the all-thread/terminal-bundle accounting in
+`docs/MEMORY_MODEL.md` §6.4. This root rule is not a multiprocess model.
 
 Physical syscall result registers and `errno` branches are non-authorizing observations. The selected
 M2-B[Linux-x86-syscall] or M2-B[Linux-AArch64-svc] profile relates them to a result-indexed logical
-after-world and composes with any selected M6 lifecycle, parking or process semantics; raw result/PID/
-fd bits cannot mint thread/process identities, grants, handles or obligations.
+after-world and composes with selected thread lifecycle or parking semantics under the canonical
+boundary-profile closure rule; raw result/TID/fd bits cannot mint identities, grants or obligations.
 
 ### 2.4 Required thread, task join, and futex refinement
 
@@ -103,39 +106,23 @@ stable 32-bit parking word or another supported adapter, with a proof of its ret
 refinement. Futex wake changes scheduler state but is not a memory fence; publication remains an
 x86- or AArch64-proved atomic release/acquire protocol.
 
+“Process-private” here means the singleton host CPU address-domain key; it does not prove process
+creation or shared-futex semantics. The selected kernel/version and signal profile pins every
+reachable interruption/restart result. A v1 profile may mechanically exclude signal delivery, but it
+may not infer an `EINTR` rule merely from whether a user handler is installed.
+
 This subsection is thread-only. `JoinRight` is the one-shot logical task/thread result contract; it
 is not a process wait or reap right, and child-TID clear-and-wake does not return private process
 authority.
 
-### 2.5 Hosted-process and robust-synchronization boundary (M6-PL/M6-PS)
+### 2.5 Deferred hosted-process boundary
 
-M6-PL must introduce generative process, address-space, image, PID/namespace, descriptor/open-
-description/object, status and failure-domain identities before modeling `fork`/`_Fork`/`vfork`,
-`execve`/spawn, `exit_group`, wait/status observation, `WNOWAIT`, reaping/reparenting, pidfds,
-shared mappings or `SCM_RIGHTS`. Process exit applies a declared survivor/close/invalidate/orphan/
-continue disposition per resource; it neither globally invalidates the world nor normally
-discharges every marked obligation. Handle transfer distinguishes descriptor alias creation,
-rights, source disposition, partial failure and close obligations. The selected POSIX feature profile
-also decides close-on-fork behavior; a Linux realization must expose its lack of `FD_CLOFORK` support
-rather than claim Issue-8 descriptor inheritance wholesale.
-
-Creation is result-indexed: a failed fork/clone/vfork creates no child identity, status/reap right,
-borrow or parent suspension. Successful fork applies the selected disposition per mapping, including
-Linux `MADV_DONTFORK` omission and `MADV_WIPEONFORK` child zeroing instead of a blanket private-memory
-copy rule.
-
-M6-PL owns those logical success/failure and fresh-identity transitions. M6-PL-X/A relates the exact
-physical fork/clone/vfork/exec/spawn return and error state to that after-world; raw PID/fd/result bits
-never reconstruct a `ProcessInstanceId`, mapping/view generation, descriptor entry, status/reap right,
-borrow or obligation. The native process proof does not depend on the private futex adapter unless its
-selected implementation actually uses that adapter.
-
-M6-PS is a later optional semantic composition of M6-PL with the portable mutex profile. It owns
-process-shared futex keying, robust-list owner-death, exceptional recovery/poison authority and
-surviving shared backing; M6-PS-X/A independently connect those facts to the selected architecture,
-native ABI and emitted code. None of those guarantees is implied by the M6-X[Linux]/M6-A[Linux]
-process-private futex adapters or by ordinary process termination, and completing one architecture
-does not certify the other.
+`fork`/`_Fork`/`vfork`, process-creating clone variants, exec/spawn, wait/reap/pidfds,
+`SCM_RIGHTS`, cross-process mappings and robust process-shared futexes are not current Linux target
+profiles. They add no M0–M9 proof, source-intake or native-validation requirement. A concrete
+post-M9 consumer opens only its selected capability under Decision 12 and
+`docs/FUTURE_PROCESS_MODEL.md`; the private futex and root `exit_group` work above establish none of
+those facts.
 
 ---
 

@@ -40,16 +40,6 @@ graph TD
 ## 2. The Abstract Page Source Typeclass (`PageSource`)
 
 SmolAlloc is decoupled from specific operating system system calls via the `PageSource` typeclass.
-`PageSource.fetchPages` is fallible because physical and configured resources are finite. SmolAlloc
-must propagate that failure; clients must not prove total success by assuming that every finite
-request can be backed.
-
-The boundary-context design requires the allocator used by a routine to be an explicit logical
-capability, not an unmodeled process global; this connection is not yet wired into callability. A
-request path will be able to bind SmolAlloc together with a finite accounting ledger, while a
-non-request path may bind it directly without accounting overhead. Allocation failure, scoped
-cleanup, and the live/peak/cumulative ledger rules are specified in
-[Composable Boundary ABI Contexts](ABI_CONTEXT.md#7-finite-allocation-and-request-accounting).
 
 ### 2.1 Typeclass Definition
 ```lean
@@ -104,8 +94,9 @@ When freeing payload pointer $P$:
 - **Payload-Leak Requirement**: A completed allocator client must discharge every payload `free`
   obligation. The current specification also retains value-level page tokens marked
   `isDroppableOnExit`; it does not prove an empty total ledger or automatic page teardown. The
-  selected M6-PL/M6-PW profile must replace that marker with a process/address-space-indexed,
-  platform-proved resource disposition.
+  current root profile must replace that marker with a typed root-lifetime resource and the selected
+  platform teardown proof under `docs/MEMORY_MODEL.md` §6.4. Future multiprocess qualification is
+  deferred to `docs/FUTURE_PROCESS_MODEL.md`.
 
 ### 4.2 FreeList Re-use Theorem
 The formal specification proves that deallocating a block of size $S$ guarantees that a subsequent allocation request of size $S' \le S$ successfully reuses the freed block without requesting new pages from the underlying `PageSource`.

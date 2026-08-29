@@ -1,12 +1,14 @@
 # Composable Boundary ABI Contexts
 
-**Status (2026-08-29): reviewed staging design; enforcement incomplete.**
+**Status (2026-08-29): generic certificate substrate implemented; callable enforcement incomplete.**
 `Gasm.Core.AbiContext` contains nominal, placement-free, argument/result/outcome-dependent context
-contracts; explicit required and emitted obligation projections; and an implementation-indexed
-target/environment realization interface. It does **not** implement heterogeneous rows, target
-argument classification, concrete physical execution profiles, adapters, or the whole-program
-connection theorem. None of its declarations is sufficient to construct or emit a
-`VerifiedProgram`.
+contracts; relational target/environment realizations; exact export sets; and component/link
+certificates. `Gasm.Core.Platform` carries the same export-set evidence into the universal
+`VerifiedProgram` root and composes fixed artifact, provider, entry, admissibility and behavior
+certificates. The tree does **not** yet implement heterogeneous rows, the M1 authority/obligation
+world connection, target argument classification, substantive concrete physical execution profiles,
+adapters, a mechanically derived applicability-key closure, or the closed per-call link theorem.
+Constructing one boundary realization remains insufficient to authorize a call or emission.
 
 This document owns logical context requirements at call boundaries and their realization by calling
 mechanisms. [The memory and concurrency model](MEMORY_MODEL.md) owns the common logical world,
@@ -261,20 +263,26 @@ missing refinements fail closed.
 
 ## 10. Whole-program connection obligations
 
-Before ABI contexts may participate in `VerifiedProgram`, the implementation must prove:
+Before a substantive callable ABI context may authorize a reachable call from a `VerifiedProgram`,
+the implementation must prove the applicable items below. A target whose exact callable table is
+empty incurs no per-call boundary proof:
 
-- coherent nominal-key registration and heterogeneous row well-formedness;
-- normalization, framing, identity, associativity, commutativity, and controlled-sharing laws;
+- coherent nominal-key registration and heterogeneous row well-formedness for the selected row;
+- reusable normalization, framing, identity, associativity, commutativity, and controlled-sharing
+  laws, with canonical empty/singleton certificates rather than replay at trivial consumers;
 - caller-side establishment of the exact entry relation and logical precondition at every direct or
   indirect call site;
-- exact argument/result/outcome-dependent obligation conservation for every call;
+- exact argument/result/outcome-dependent obligation conservation for every call whose selected
+  contract transfers, creates, restricts or discharges such resources;
 - implementation/artifact identity and exact connection to emitted code;
 - full-signature target classification and physical realization correctness;
 - target-profile physical admissibility and emitted-execution fidelity;
-- finite-resource success/failure totality and accounting completeness;
-- cancellation and asynchronous-entry rules through the memory/concurrency model;
-- adapter/refinement soundness and protocol-version fidelity;
-- ghost erasure and zero runtime work for omitted runtime requirements; and
+- finite-resource success/failure totality and accounting completeness when the contract allocates
+  or grows a finite resource;
+- cancellation and asynchronous-entry rules through the memory/concurrency model when either
+  surface is selected;
+- adapter/refinement soundness and protocol-version fidelity when an adapter/version edge is used;
+- ghost erasure and zero runtime work for selected erased requirements; and
 - correct root-context establishment for every admitted entry environment.
 
 These are ownership-scoped obligations, not a checklist replayed at every call or program.
@@ -289,14 +297,15 @@ if it demands a fact on a path where the corresponding feature is absent. Proof 
 permits omitting a necessary boundary fact; it determines where that fact is established and how it
 is reused.
 
-The whole-program API therefore consumes named certificates and has one composition law: derive the
-applicable certificate keys from the selected platform, imports/exports, capabilities, entry kind,
-reachable effects, and advertised guarantees; require one certificate for every key; check that all
-certificates name the same final artifact and compatible boundary indices; then construct
-`VerifiedProgram`. ABI-context realization is one certificate family in that set, not a reason for
-the root program proof to reopen target classification, provider linkage, or library transition
-proofs. A program with no callable context boundary has no such key; a published or reachable
-boundary cannot omit it.
+The current whole-program API composes a fixed set of named artifact, provider, entry,
+admissibility and behavior certificates, and carries an exact `VerifiedExportSet`. Its dependent
+indices force agreement on the final artifact, platform and capability selection. It does **not**
+yet derive an applicability-key closure. The completed gate must derive those keys from the selected
+platform, imports/exports, capabilities, entry kind, reachable effects and advertised guarantees;
+require one certificate for every applicable key; and reject unrelated speculative keys. ABI-context
+realization is one certificate family in that eventual set, not a reason for the root program proof
+to reopen target classification, provider linkage or library transition proofs. A program with no
+callable context boundary has no per-call key; a published or reachable boundary cannot omit one.
 
 `VerifiedProgram` must carry universal connection proofs for every admitted initial state and
 environment behavior. No legacy constructor, compatibility API, allowlist, axiom, `sorry`, or

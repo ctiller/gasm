@@ -502,7 +502,7 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   jmp_near_label "free_nodes_loop",
 
   -- 10. Current single-thread root-program termination via sys_exit(0); this does not prove
-  --     M6-PL whole-process teardown or release the retained arena:
+  --     all-thread root-lifetime teardown or release the retained arena:
   label "cleanup_and_exit",
   instr (xor_r32 .edi .edi),
   instr (mov_r32 .eax 60),

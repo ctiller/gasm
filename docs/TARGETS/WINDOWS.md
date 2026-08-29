@@ -1,13 +1,13 @@
 # Target Specification: Windows (MS x64 Fastcall & PE/COFF)
 
 **Concurrency status (2026-08-28): unimplemented.** The current Win32 hook set has no thread
-creation, thread exit, wait, handle-lifecycle, or wait-on-address operations, and it has no genuine
-multi-process topology. M3 is only the single-address-space logical-thread model; M6-T[Windows] adds
-hosted thread/object semantics, M6-NX[Windows] its native lifecycle/object realization, and
-M6-X[Windows] only its optional x86-64 wait/parking adapter. The separately
-gated semantic M6-PW stage owns `CreateProcess`, process/address-space/image identity, process-object status and
-observation, handle inheritance/derivation, jobs and resource-specific failure dispositions;
-M6-PW-X owns native ABI/emission realization. Thread-only validation belongs to
+creation, thread exit, wait, handle-lifecycle, or wait-on-address operations. Through M9, M3 has one
+root host process and one host CPU virtual-address domain with multiple logical threads; this does not
+constrain separate GPU/device/IOMMU/resource domains. M6-T[Windows] adds hosted thread/object
+semantics, M6-NX[Windows] its native lifecycle/object realization, and M6-X[Windows] only its optional
+x86-64 wait/parking adapter. `CreateProcess`, process handles/waits, inheritance, jobs, cross-process
+transfer and process-shared recovery are post-M9 work under `docs/FUTURE_PROCESS_MODEL.md`.
+Thread-only validation belongs to
 `docs/SPIKES/SPIKE8_MULTITHREADING.md`.
 
 This document defines the machine state model, Microsoft x64 calling convention, PE/COFF binary emission, and SEH unwind table requirements for **64-bit Windows**.
@@ -81,8 +81,10 @@ This is a target requirement, not a current enforcement claim. The tree has neit
 `WindowsCallerDiscipline` declaration nor an `asmCall` constructor. Its current
 `AbiDiscipline X86_64 WindowsFastcall` instance records GPR lists, shadow-space size and stack
 alignment, but does not model XMM state or prove every call site's complete physical admissibility.
-The relational ABI/link gate in `docs/MEMORY_MODEL.md` M1 and M2-B[Windows-x64-call] realization
-must close that gap before a call is certified.
+The landed generic `ContextBoundaryRealization`, `EstablishedBoundaryEntry`, and
+`VerifiedExportSet` types provide relational and final-artifact certificate shapes, but no concrete
+Windows call profile or `AbiDiscipline` integration is implemented. M2-B[Windows-x64-call] consumes
+the canonical boundary-profile closure rule in `docs/MEMORY_MODEL.md` §3 before a call is certified.
 
 ### 1.3 Strict Prohibition of Red Zone
 Windows x64 defines no red zone. Storage below the current `RSP` is volatile and unowned by the
@@ -106,44 +108,36 @@ M2-B[Windows-x64-call] owns the API-call relation and M2-B[Windows-x64-thread-st
 OS-to-thread-function entry/artifact binding. M6-NX[Windows] composes those certificates with the
 M6-T[Windows] lifecycle semantics; none substitutes for another.
 
+Graceful root `ExitProcess` additionally accounts for every live thread context and every sealed but
+unconsumed terminal bundle under `docs/MEMORY_MODEL.md` §6.4. A live guard, outstanding loan or any
+unconsumed `JoinRight` rejects that transition; stopping all threads is not proof of cleanup. Base
+M9's closed import/dynamic-resolution/call profile excludes emitted `TerminateThread` and
+`SuspendThread` calls; a separately named environment/TCB or harness-isolation premise excludes a
+debugger or other process from forcing those transitions. The first fact is review-derived until an
+applicability checker enforces it; an artifact check cannot prove the second. Without both, a selected
+forced-thread-stop profile needs a thread-domain abort disposition and may never pretend a held lock
+was released, while a selected external-suspend profile exposes suspended-holder effects and weakens
+liveness/deadlock claims accordingly.
+
 Wait operations retain handle lifetime and represent success, timeout, and failure. The standard
 `ParkedMutex32` adapter uses a four-byte `WaitOnAddress` comparison and rechecks the user-space
 atomic state after every return. A specialized mutex must prove the comparison width, representation
 lifetime, retry rule, and lost-wakeup behavior of any adapter it claims. Wake-to-resume is scheduler
 causality, not memory synchronization.
 
-### 1.5 Process and asynchronous-context boundary (M6-PW/M6-PW-X)
+APCs, exceptions and other asynchronous entries use Decision 13 only when reachable. Hosted APC/
+signal activations belong to their logical thread and migrate with it; they do not reuse bare-metal
+per-agent handler stacks. They inherit no ordinary authority, blocking, allocation, fault,
+reentrancy, stack or progress permission, so an ordinary `ParkedMutex32` proof is not automatically
+APC-safe. The base M9 thread profile selects none of these surfaces.
 
-Windows process creation, address-space/image generations, persistent signaled process objects,
-duplicable status/observation handles, exact inheritance, jobs, object survival, process-ID/handle
-reuse, `DuplicateHandle` and object-specific transfer belong to M6-PW. Process terminality, status
-availability/query, notification, repeated wait and final handle/object reclamation remain separate.
-Termination applies a selected disposition to each private or shared resource and external effect;
-it does not return a task terminal bundle or globally invalidate surviving objects.
+### 1.5 Deferred hosted-process boundary
 
-Creation failure produces no child/object/returned-handle authority. Success creates distinct process
-and primary-thread objects, PID/TID generations, and separate `PROCESS_INFORMATION.hProcess`/
-`hThread` handle entries with independent close obligations. M6-PW states these semantics. M6-PW-X
-composes M2-B[Windows-x64-call] with M2-B[PE32+-x64-bootstrap] to prove the selected OS-bootstrap
-state before the loader may schedule the child, including the selected `CREATE_SUSPENDED`/runnable-
-before-return behavior. Only a selected verified-child profile additionally selects
-M2-B[PE32+-x64-application-entry] to connect a later application entry and its logical world to exact artifact bytes; an
-opaque child receives no internal linear authority and requires no application-code theorem.
-
-M6-PW owns the logical result-indexed success/failure transition. M6-PW-X must relate the physical
-`BOOL`, `GetLastError`, and `PROCESS_INFORMATION` outputs to its after-world: failure creates no child,
-handle entry or close obligation; success creates fresh process/thread identities, handle-entry
-generations and independent `MustClose` obligations through that relation. Raw PID, TID or `HANDLE`
-bits cannot manufacture any of them. `GetLastError` is interpreted for this operation only on a zero
-`BOOL`; a stale last-error value after success proves nothing, and every `PROCESS_INFORMATION` bit on
-failure is unusable. This process certificate does not depend on `WaitOnAddress`
-unless the selected implementation actually uses address parking.
-
-APCs, exceptions and other asynchronous entries use the separately pinned asynchronous-context
-callable seam. They do not inherit an ordinary thread's authority, blocking, allocation, fault,
-reentrancy, stack or progress permissions. A normal `ParkedMutex32` proof is therefore not
-automatically APC-safe. M6-PS is the optional POSIX/Linux process-shared robust profile and is not
-implied by this Windows process-object model.
+`CreateProcess`, process-object waits/status, handle inheritance/transfer, jobs and cross-process
+shared objects are not current Windows target profiles. They add no M0–M9 proof, source-intake or
+native-validation requirement. A concrete post-M9 consumer opens only its selected capability under
+Decision 12 and `docs/FUTURE_PROCESS_MODEL.md`; root `ExitProcess`, thread-object waits and
+`WaitOnAddress` establish none of those process-model facts.
 
 ---
 
@@ -159,6 +153,10 @@ Every non-leaf x64 function that allocates stack space or saves non-volatile reg
   - `UWOP_ALLOC_SMALL` / `UWOP_ALLOC_LARGE`: Stack frame allocation.
   - `UWOP_PUSH_NONVOL`: Callee-saved register pushes (including `RSI`, `RDI`).
   - `UWOP_SET_FPREG`: Frame pointer establishment (`MOV RBP, RSP`).
+  - `UWOP_SAVE_NONVOL(_FAR)` and `UWOP_SAVE_XMM128(_FAR)` whenever emitted code saves
+    nonvolatile GPR or XMM state outside the push forms.
+  - `UNWIND_INFO` flags, handler RVA and language-specific scope data for selected handlers, plus
+    chained info and separate funclet `RUNTIME_FUNCTION` entries where the selected profile uses them.
 
 The current PE emitter serializes only `.text`, `.rdata`, and `.idata`; it has no `.pdata`/`.xdata`
 emission or verified derivation from prologues. The rule above is the required future target profile,
@@ -167,12 +165,14 @@ controls are implemented, no non-leaf/unwind-safety claim may cite this section 
 
 A selected SEH-callable profile must also distinguish its nonlocal control outcomes. A filter or
 handler may request continuation at a profile-permitted (possibly modified) machine context,
-continue search/propagation, or unwind to a selected handler while intervening termination/cleanup
-handlers run. Unwinding retires frames one at a time and accounts for every frame-local authority and
-obligation according to the emitted unwind metadata and handler contract. None of these outcomes is
-ordinary function return, and continue-search is not by itself fatal termination. Profiles that do
-not admit SEH-callable code incur no such proof; profiles that do must connect every admitted outcome
-to the exact `.pdata`/`.xdata`, entry/exit ABI, and emitted artifact.
+continue search/propagation, enter nested first-pass dispatch from a filter, unwind to a selected
+handler, or collide with an in-progress unwind. Unwinding retires frames one at a time and accounts
+for every frame-local authority and obligation according to emitted metadata and the handler/funclet
+contract; collided unwind preserves already retired frames and replaces/abandons the previous target
+only as the pinned rule permits. None is ordinary return, and continue-search is not fatal
+termination. A restricted profile may forbid nesting/faulting handlers only through an enforceable
+closed call graph. Profiles that do not admit SEH-callable code incur no such proof; profiles that do
+must connect every outcome to exact `.pdata`/`.xdata`, entry/exit ABI and emitted artifact.
 
 ---
 

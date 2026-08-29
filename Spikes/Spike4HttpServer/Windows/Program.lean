@@ -91,19 +91,11 @@ def rdataPayload : ByteArray :=
   respRootBytes ++ respStatusBytes ++ resp404Bytes ++ resp400Bytes ++ resp414Bytes
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
-/-- Symbolic program definition for Spike 4 x86_64 Windows HTTP 1.1 Server.
-    Stack Layout (total 736 bytes allocated, maintaining (RSP - 736) % 16 == 0):
-      [RSP + 0x00..0x1F]  : shadow space (32 bytes)
-      [RSP + 0x20..0x27]  : server socket descriptor (8 bytes)
-      [RSP + 0x28..0x2F]  : client socket descriptor (8 bytes)
-      [RSP + 0x30..0x3F]  : sockaddr_in buffer (16 bytes)
-      [RSP + 0x40..0x13F] : HTTP request recv buffer (256 bytes -- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md,
-                             widened from a prior 128-byte allocation that left no safety margin for real-world
-                             requests with several headers; recv's `len` argument below always equals this buffer's
-                             size, so the write can never exceed it)
-      [RSP + 0x140..0x2D7]: WSADATA buffer (408 bytes -- pushed out to offset 0x140, which exceeds the 8-bit
-                             displacement range of `lea_rsp`, hence `lea_rsp32` below for its pointer)
--/
+/-- Symbolic Windows x86-64 entry point for the proof-connected Spike 4 runtime ABI.
+    It reserves the mandatory 32-byte Windows x64 shadow space and invokes the one imported
+    verified request component once for each lifecycle phase (listen, accept, receive, respond,
+    close). Socket state, bounded scratch storage, parsing, routing, and request-scope recovery are
+    owned by the selected runtime profile, not duplicated in this ISA wrapper. -/
 def spike4SymbolicProgram : List SymbolicInstr := [
   -- The selected OS + Gasm-runtime profile owns the request lifecycle.  Five explicit phases
   -- make the resource scope and its recovery boundary visible while keeping parsing/routing in

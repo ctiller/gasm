@@ -103,12 +103,12 @@ structure ComposedState (Arch : Type) (ApiStateType : Type) where
 - **Audited Observable Tracing for External Subsystems**: Where interaction with external subsystems (OS APIs, allocators, peripherals) is modeled, formal theorems MUST prove that observable effects or calls (e.g., `VirtualAlloc`, `WriteFile`) actually occur in the execution trace.
 
 ### Law 9: Universal Quantification & Input Completeness Mandate (The Anti-Pointwise Law)
-> **The sole whole-program verification contract (`VerifiedProgram`) MUST be universally quantified across the canonical `Environment`. Pointwise verification over a caller-selected domain or single hardcoded test vectors is unrepresentable and strictly prohibited.**
+> **The sole whole-program verification contract (`VerifiedProgram`) MUST be universally quantified across the canonical `Environment`. Pointwise verification over a caller-selected domain or single hardcoded test vector is unrepresentable and strictly prohibited.**
 
 - **No Single-Point Bypasses**: Instantiating a whole-program contract with a static, hardcoded sample vector (e.g. testing only a fixed 63-byte buffer) and asserting equivalence solely on that point constitutes mock verification and fails code review.
 - **Dynamic Syscall Soundness**: Any binary program that queries the operating system via syscalls (`ReadFile`, `recv`, `fd_read`) must mathematically prove that for **all possible byte buffers** returned by the host environment, its machine code computes the exact transformation mandated by the high-level specification.
 - **Genuine Algorithmic Realization**: Low-level machine subroutines (compression, sorting, tokenization, serialization) must implement the actual algorithmic state transitions in machine code (e.g. dynamic sliding-window searches, bitwise Huffman bit-packers, in-place pointer swaps), rather than falling back to uncompressed passthrough wrappers or hardcoded literals.
-- **`read` is the universal binder (the enforcement vector for this law)**: every monadic input operation in a specification (`readFile`, `recv`, `accept`, console reads — all forms of `read`) binds an arbitrary result, and the verification contract MUST be parametric in that result: the continuation after a read is proven correct for **any** returned `ByteArray` — any contents, any length, including partial reads, empty reads, and EOF. Contracts that pin a read's result to a concrete vector are unrepresentable as verified. Because `read` may return any chunking of the input, robustness to input chunking is itself a forced universal obligation — the input-side dual of the output coalescing congruence (`docs/SYSTEM_EFFECTS.md` §6.1, §6.4). **Status**: closing the three known evasion shapes this way — hardcoded-output stubs (a spec that reads cannot be satisfied by a constant), domain-shrinking via purpose-built input enums (the read binds the real byte-array domain), and pointwise evaluation (no evaluator can discharge a claim over a bound variable) — is what this contract shape delivers ONCE implemented; it is not a description of current enforcement. No contract in the tree binds `read` this way today: every `VerifiedProgram` closes over a free `Env`, and Spike5's operations quantify over a one-constructor enum rather than a real byte-array domain. `docs/READ_BINDER_CONTRACT.md` owns the remaining design; until it lands, this bullet is the review standard, not a report of current enforcement.
+- **`read` is the universal binder (the enforcement vector for this law)**: every monadic input operation in a specification (`readFile`, `recv`, `accept`, console reads — all forms of `read`) binds an arbitrary result, and the verification contract MUST be parametric in that result: the continuation after a read is proven correct for **any** returned `ByteArray` — any contents, any length, including partial reads, empty reads, and EOF. Contracts that pin a read's result to a concrete vector are unrepresentable as verified. Because `read` may return any chunking of the input, robustness to input chunking is itself a forced universal obligation — the input-side dual of the output coalescing congruence (`docs/SYSTEM_EFFECTS.md` §6.1, §6.4). **Status**: `Gasm.Core.Platform.VerifiedProgram` now quantifies over the canonical `Environment`, and the standalone read-binder shape plus bounded chunk wiring exist. Repository-wide enforcement that every reachable read consumes that obligation together with destination-buffer authority is still incomplete; `docs/READ_BINDER_CONTRACT.md` owns that remaining work. The universal root record therefore closes caller-selected environment narrowing, but does not by itself prove that every internal read continuation is correctly wired.
 
 ### Law 10: Kernel-Checked Gates & the `native_decide` Restriction (Exhaustive Finite Domains Only)
 > **A verification obligation may be discharged by `decide`, `native_decide`, or `bv_decide` if and only if the proposition is universally quantified over its entire, finite domain — the three are admissible in the same restricted sense, at ascending trust cost (rungs 2–4 below). Any of the three on a single ground instance — or on any proposition whose input domain is infinite or merely sampled — can NEVER satisfy a verification obligation.**
@@ -369,39 +369,44 @@ semantic dependency. This proportionality audit never weakens adversarial review
 mechanism: all reachable error, interruption, cancellation, failure and stale-identity paths remain in
 scope, but an unselected mechanism or guarantee does not.
 
-For a `VerifiedProgram`, reviewers MUST reconstruct the certificate composition rather than treating
-the final record as one opaque proof. Check that the applicability closure has exactly the required
-keys; each certificate is owned at the highest reusable layer; all certificates refer to the same
-platform, final artifact, capability composition, and relevant entry/exit relations; and the generic
-composition rule—not handwritten per-program glue—produces emission authority. A monolithic theorem
-that re-proves link, ISA, provider, or library facts is an undue burden finding even when true. A
-certificate with no applicability key is speculative burden; a reachable key without a certificate
-is a soundness gap.
+Reviewers MUST include a **Proof Applicability Table** when the change adds or changes an obligation,
+selected profile, reachable effect/failure path, advertised guarantee, or stage dependency. Otherwise
+the review may record `N/A — no applicability change` with one sentence identifying the unchanged
+closure; unrelated existing optional profiles are not copied into the review.
+
+| Requested proof / gate | Unsafe behavior, platform rule, or selected claim that triggers it | Reusable base vs. implementation delta | Status (`Required` / `Already discharged` / `Undue burden` / `Missing`) |
+| :--- | :--- | :--- | :--- |
+
+Many normative clauses may map to one prevention-class entry when one type restriction, kernel
+theorem, build gate or external-oracle control excludes their common defect. Require a new control
+only for a new defect class or materially distinct trust boundary; never demand an emitted-binary
+mutation for a behavior already unrepresentable by construction.
+
+When a change adds or alters a `VerifiedProgram` certificate, its composition rule, or the selected
+platform/capability/artifact surface, reviewers MUST also reconstruct that composition. Check that
+each fixed certificate is owned at the highest reusable layer, all dependent indices identify the
+same final artifact/platform/capability selection, and no handwritten per-program glue re-proves a
+shared link, provider, entry or target fact. Also distinguish the current fixed certificate set from
+the future mechanically derived applicability-key closure: reviewers must neither omit a selected
+fact nor claim that derivation already exists. Such a review includes this table; an unrelated change
+records `N/A — no VerifiedProgram composition change` rather than replaying it:
+
+| Applicable certificate | Owning/reused theorem | Artifact/platform/capability indices | Local delta | Composition status |
+| :--- | :--- | :--- | :--- | :--- |
 
 For reachable internal control flow, reviewers MUST require typed target establishment. A string
-label, displacement, target index, or stack-depth equality is not a block contract. Each edge proves
-the selected destination's complete entry relation, including ghost world transfer; indirect edges
-also prove closed-set resolution. Reviewers should demand only these local edge obligations plus the
-generic CFG composition theorem—not duplicated whole-path executions or a separate proof for each
-unrolling of a loop.
+label, displacement, target index, or stack-depth equality is not a block contract. Each selected
+edge proves the destination's complete entry relation, including ghost-world transfer; indirect
+edges also prove closed-set resolution. Demand only these local edge obligations plus the generic
+CFG composition theorem—not duplicated whole-path executions or a proof for each loop unrolling.
 
 The implemented spikes are normative exemplars for proof authors. The trust-repair exit gate MUST
 inspect every implemented spike and establish that it uses the general composition rule, shares
 certificates at their proper ownership boundary, and retains only a minimal spike-local refinement
 delta. Compilation and possession of a `VerifiedProgram` do not pass this gate when the proof is
 monolithic, duplicated across targets, or depends on stronger hypotheses than the advertised
-contract. Review must report exemplar factoring separately from semantic correctness so a green
-build cannot conceal a proof-economy regression.
-
-Reviewers MUST include a **Proof Applicability Table**:
-
-| Requested proof / gate | Unsafe behavior, platform rule, or selected claim that triggers it | Reusable base vs. implementation delta | Status (`Required` / `Already discharged` / `Undue burden` / `Missing`) |
-| :--- | :--- | :--- | :--- |
-
-For whole-program changes, append a **VerifiedProgram Composition Table**:
-
-| Applicable certificate key | Owning/reused theorem | Artifact/platform/capability indices | Local delta | Composition status |
-| :--- | :--- | :--- | :--- | :--- |
+contract. Review reports exemplar factoring separately from semantic correctness so a green build
+cannot conceal a proof-economy regression.
 
 For a trust-repair completion review, append an **Exemplar Factoring Table** covering every
 implemented spike:

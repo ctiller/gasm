@@ -292,13 +292,15 @@ def compose {P : Type} [Platform P] {capabilities : CapabilityComposition P}
 end VerifiedProgram
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- Serialization is available only from the sole universal proof authority. -/
+/-- Canonical proof-gated production serialization from the sole universal whole-program authority.
+    Lower-level target serializers remain public migration debt and confer no verification claim. -/
 def emitVerifiedProgram {P : Type} [Platform P] {capabilities : CapabilityComposition P}
     (program : VerifiedProgram P capabilities) : Except String ByteArray :=
   Platform.emit program.artifact
 
-/-- Marker for the only legitimate raw-emission use: a target's encoder fuzzer.
-    Production target profiles deliberately do not receive this instance. -/
+/-- Marker for the only legitimate raw-emission use through this platform-neutral API: a target's
+    encoder fuzzer. Production target profiles deliberately do not receive this instance. This does
+    not yet make the older target-local serializer functions private. -/
 class FuzzingEmitter (P : Type) [Platform P] where
   emitUnchecked : Platform.Artifact (P := P) → Except String ByteArray
 
