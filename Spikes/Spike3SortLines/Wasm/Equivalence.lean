@@ -98,9 +98,9 @@ theorem spike3_wasm_canonical_effect_trace_equivalence :
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- The operational target is parameterized by the canonical environment, not a Bool or a finite
     collection of samples. `environmentInputLines` is its shared executable byte-stream model. -/
-def spike3WasmTraceFor (environment : Environment) : List AnyEvent :=
-  runWasiTrace spike3WasmInstructions spike3DataSegments environment.stdin
-    ["fd_read", "fd_write", "proc_exit"] environment.incomingRequests
+def spike3WasmTraceFor (environment : Environment) : WasiObservable AnyEvent :=
+  (runWasiOutcome spike3WasmInstructions spike3DataSegments environment.stdin
+    ["fd_read", "fd_write", "proc_exit"] environment.incomingRequests spike3WasiResources).observable
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- The exact byte-level input observation which the whole-program sort specification consumes. -/
@@ -109,8 +109,8 @@ def spike3WasmInputFor (environment : Environment) : List (List UInt8) :=
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- The independent, byte-total specification attached to the canonical environment. -/
-def spike3WasmSpec (environment : Environment) : List AnyEvent :=
-  spike3ByteSortSpec environment
+def spike3WasmSpec (environment : Environment) : WasiObservable AnyEvent :=
+  .exited 0 (spike3ByteSortSpec environment)
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
 /-- The Spike 3 WASI profile preserves the environment verbatim at the platform boundary. This
@@ -125,22 +125,62 @@ theorem spike3_wasi_platform_loads_environment
     universal simulation theorem, over arbitrary bytes, before an emitted Spike 3 artifact can be
     classified as verified.  This is a constructor, not a compatibility escape hatch: its only
     proof input is precisely the `VerifiedProgram` trace obligation. -/
+def spike3WasiArtifact : WasiArtifact where
+  module := spike3WasmModule
+  typeSignatures := spike3TypeSignatures
+  instructions := spike3WasmInstructions
+  dataSegments := spike3DataSegments
+  imports := ["fd_read", "fd_write", "proc_exit"]
+  resources := spike3WasiResources
+
+def spike3WasiExports : VerifiedExportSet Unit Unit WasiPlatform
+    wasiBoundarySpec wasiBoundarySemantics :=
+  VerifiedExportSet.withoutCallableEntries Unit Unit WasiPlatform
+    wasiBoundarySpec wasiBoundarySemantics spike3WasiArtifact
+    (by
+      change (["_start", "memory"] : List String).Nodup
+      decide)
+    (by
+      change ([] : List Export) = []
+      rfl)
+    (by rfl)
+
 def spike3VerifiedWasmProgram
     (traceEquivalence : ∀ environment : Environment,
       spike3WasmTraceFor environment = spike3WasmSpec environment) :
-    VerifiedProgram Spike3WasiPreview1Platform AnyEvent spike3WasiCapabilities := {
+    VerifiedProgram Spike3WasiPreview1Platform spike3WasiCapabilities := {
   name := "Spike 3: Byte-stream line sorter (WebAssembly / WASI Preview 1)"
-  artifact := {
-    encoded := spike3EncodedWasmArtifact
-    instructions := spike3WasmInstructions
-    dataSegments := spike3DataSegments
-    imports := ["fd_read", "fd_write", "proc_exit"]
-  }
+  artifact := spike3WasiArtifact
+  exports := spike3WasiExports
+  exportsArtifact := rfl
+  artifactConnection := by
+    change
+      spike3WasmModule.functions.head?.map (fun fn => fn.body) = some spike3WasmInstructions ∧
+      spike3WasmModule.dataSegments = spike3DataSegments ∧
+      spike3WasmModule.imports.map (fun imported => imported.name) =
+        ["fd_read", "fd_write", "proc_exit"]
+    constructor
+    · rfl
+    constructor <;> rfl
   spec := spike3WasmSpec
   importsCovered := by
     intro imported himported
     change imported ∈ ["fd_read", "fd_write", "proc_exit"] at himported
-    exact himported
+    trivial
+  capabilitiesConnection := by
+    change
+      spike3WasmModule.functions.head?.map (fun fn => fn.body) = some spike3WasmInstructions ∧
+      spike3WasmModule.dataSegments = spike3DataSegments ∧
+      spike3WasmModule.imports.map (fun imported => imported.name) =
+        ["fd_read", "fd_write", "proc_exit"]
+    constructor
+    · rfl
+    constructor <;> rfl
+  entryContext := fun _ => ()
+  entryEstablished := by intros; trivial
+  platformAdmissible := by
+    intro
+    exact ⟨spike3EncodedWasmBytes, spike3WasmEncoderOk⟩
   traceEquivalence := by
     intro environment
     exact traceEquivalence environment
