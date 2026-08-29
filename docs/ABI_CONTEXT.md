@@ -304,6 +304,12 @@ protocol refinement; neither names nor ABI labels constitute such a proof.
 while retaining its separate whole-process root theorem. A root such as WASI `_start` is not
 misrepresented as an ordinary library call merely because it is physically exported.
 
+Proofs are charged where the risk appears. `VerifiedExportSet.empty` discharges artifacts with no
+public surface from three target-owned empty-table facts, and `withoutCallableEntries` handles an
+executable public manifest with no auxiliary call boundary. Ordinary callers do not re-prove
+layout, relocation, or joint-admissibility facts; those belong to final linking. Conversely, a
+published callable entry cannot evade its boundary realization merely to reduce proof work.
+
 ## 12. Current implementation boundary
 
 Implemented in `Gasm.Core.AbiContext`:

@@ -187,6 +187,55 @@ structure VerifiedExportSet
       (entry.physicalEntry, entry.realization.implementation,
         entry.realization.signature, entry.realization.entryKind))
 
+namespace VerifiedExportSet
+
+/- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
+/-- Canonical certificate for a target artifact with no public surface.  The
+    caller proves the three target-owned facts once; no per-export evidence is
+    manufactured or demanded. -/
+def empty
+    (World Key Target : Type)
+    (spec : BoundaryContextSpec World Key)
+    (target : TargetBoundarySemantics Target)
+    (artifact : target.Artifact)
+    (publicEmpty : target.publicEntries artifact = [])
+    (callableEmpty : target.callableEntries artifact = [])
+    (joint : target.jointlyAdmissible artifact []) :
+    VerifiedExportSet World Key Target spec target where
+  artifact := artifact
+  publicManifest := []
+  entries := []
+  uniqueLookup := by simp
+  exactPublicTable := publicEmpty.symm
+  exactCallableTable := callableEmpty.symm
+  sameArtifact := by simp
+  jointlyAdmissible := joint
+
+/- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
+/-- Canonical certificate when an executable has a physical public manifest
+    (for example `_start` and a Wasm memory) but no auxiliary callable library
+    boundary.  Only lookup uniqueness and the target's two global facts remain
+    to prove. -/
+def withoutCallableEntries
+    (World Key Target : Type)
+    (spec : BoundaryContextSpec World Key)
+    (target : TargetBoundarySemantics Target)
+    (artifact : target.Artifact)
+    (unique : ((target.publicEntries artifact).map target.lookupKey).Nodup)
+    (callableEmpty : target.callableEntries artifact = [])
+    (joint : target.jointlyAdmissible artifact []) :
+    VerifiedExportSet World Key Target spec target where
+  artifact := artifact
+  publicManifest := target.publicEntries artifact
+  entries := []
+  uniqueLookup := unique
+  exactPublicTable := rfl
+  exactCallableTable := callableEmpty.symm
+  sameArtifact := by simp
+  jointlyAdmissible := joint
+
+end VerifiedExportSet
+
 /- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
 /-- A non-total library/component is exactly a nonempty jointly verified
     callable export set, with no fabricated whole-process root theorem. -/

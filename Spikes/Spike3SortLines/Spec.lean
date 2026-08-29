@@ -130,7 +130,7 @@ def readAllLines [Monad m] [MonadConsole m] : m (List String) :=
     the reader rather than a per-vector check. -/
 theorem readAllLinesFueled_trace {Event : Type} [Inject ConsoleEvent Event]
     (lines : List String) (fuel : Nat) (h : lines.length < fuel)
-    (evs : List Event) (reqs : List String) :
+    (evs : List Event) (reqs : List ByteArray) :
     (readAllLinesFueled (m := TraceM Event) fuel)
         { events := evs, stdinLines := lines, incomingRequests := reqs }
       = (some lines, { events := evs, stdinLines := [], incomingRequests := reqs }) := by
