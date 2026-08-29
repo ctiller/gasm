@@ -63,6 +63,36 @@ structure JumpFramePreserved {Arch : Type} [TargetArch Arch]
   causalClock : target.causalClock = source.causalClock
   eventHistory : target.eventHistory = source.eventHistory
 
+namespace JumpFramePreserved
+
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- Frame preservation is reflexive, so a block may refine only its entry
+    predicate without paying for an artificial state rewrite. -/
+theorem refl {Arch : Type} [TargetArch Arch] {State : Type}
+    (state : ComposedState Arch State) : JumpFramePreserved state state where
+  machine := rfl
+  stackDepth := rfl
+  permissions := rfl
+  obligations := rfl
+  causalClock := rfl
+  eventHistory := rfl
+
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- The frame law used by CFG composition: adjacent ghost-world transfers
+    compose without reopening either block's local proof. -/
+theorem trans {Arch : Type} [TargetArch Arch] {A B C : Type}
+    {a : ComposedState Arch A} {b : ComposedState Arch B} {c : ComposedState Arch C}
+    (ab : JumpFramePreserved a b) (bc : JumpFramePreserved b c) :
+    JumpFramePreserved a c where
+  machine := bc.machine.trans ab.machine
+  stackDepth := bc.stackDepth.trans ab.stackDepth
+  permissions := bc.permissions.trans ab.permissions
+  obligations := bc.obligations.trans ab.obligations
+  causalClock := bc.causalClock.trans ab.causalClock
+  eventHistory := bc.eventHistory.trans ab.eventHistory
+
+end JumpFramePreserved
+
 /- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
 /-- Evidence for one direct control-flow edge. -/
 structure BlockEdge {Arch : Type} [TargetArch Arch] {Source : Type}
@@ -84,6 +114,41 @@ structure ConditionalBlockEdge {Arch : Type} [TargetArch Arch] {Source : Type}
   framePreserved : JumpFramePreserved source targetState
   depthEstablished : target.expectedDepth = targetState.stackDepth
   entryEstablished : enabled → target.accepts targetState
+
+namespace BlockEdge
+
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- General edge-composition law. Constructing the second edge already demands
+    the first target's entry contract, while the result exposes only the final
+    target and the transitively preserved frame. -/
+def trans {Arch : Type} [TargetArch Arch] {Source : Type}
+    {source : ComposedState Arch Source}
+    (first : BlockEdge source) (second : BlockEdge first.targetState) :
+    BlockEdge source where
+  target := second.target
+  targetState := second.targetState
+  framePreserved := first.framePreserved.trans second.framePreserved
+  depthEstablished := second.depthEstablished
+  entryEstablished := second.entryEstablished
+
+end BlockEdge
+
+namespace ConditionalBlockEdge
+
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- Once target-owned condition semantics selects an edge, it becomes an
+    ordinary typed edge and participates in the same composition theorem. -/
+def activate {Arch : Type} [TargetArch Arch] {Source : Type}
+    {source : ComposedState Arch Source} {enabled : Prop}
+    (edge : ConditionalBlockEdge source enabled) (selected : enabled) :
+    BlockEdge source where
+  target := edge.target
+  targetState := edge.targetState
+  framePreserved := edge.framePreserved
+  depthEstablished := edge.depthEstablished
+  entryEstablished := edge.entryEstablished selected
+
+end ConditionalBlockEdge
 
 /- REF: docs/API_STATE_MODELS.md#4-basicblock-structure-target-parametric-terminators -/
 /-- Architecture-defined control-flow terminator family indexed over the terminal state. -/
