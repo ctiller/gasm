@@ -22,6 +22,9 @@ import Gasm.Effects.Trace
 import Gasm.Targets.Wasm.Types
 import Gasm.Targets.Wasm.AST
 import Gasm.Targets.WASI.ABI
+import Spikes.Spike3SortLines.Input
+import Spikes.Spike3SortLines.Model
+import Spikes.Spike3SortLines.Platform
 import Spikes.Spike3SortLines.Spec
 import Spikes.Spike3SortLines.Wasm.Program
 import Spikes.Spike3SortLines.Wasm.Outcome
@@ -92,26 +95,42 @@ theorem spike3_wasm_canonical_effect_trace_equivalence :
   (runWasiTraceState spike3WasmInstructions spike3DataSegments defaultSampleInput ["fd_read", "fd_write", "proc_exit"])
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
-/-- Test environment domain for Spike 3 WebAssembly execution. -/
-inductive Spike3SampleEnv where
-  | canonical
+/-- The independent, byte-total specification attached to the canonical environment. -/
+def spike3WasmSpec (environment : Environment) : List AnyEvent :=
+  spike3ByteSortSpec environment
 
-/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
-instance : WasiEnvironmentLoader Spike3SampleEnv where
-  loadWasiEnvironment _ := (defaultSampleInput, [])
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- The Spike 3 WASI profile preserves the environment verbatim at the platform boundary. This
+    establishes the loading premise required before the target trace can be coupled to the
+    byte-stream specification. -/
+theorem spike3_wasi_platform_loads_environment
+    (artifact : Spike3WasiArtifact) (environment : Environment) :
+    Platform.load (P := Spike3WasiPreview1Platform) artifact environment = environment := rfl
 
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- First-class verified WebAssembly program instance for Spike 3. -/
-def spike3VerifiedWasmProgram : VerifiedWasmProgram Spike3SampleEnv AnyEvent := {
-  name             := "spike3_sort_lines_wasm"
-  module           := spike3WasmModule
-  typeSignatures   := spike3TypeSignatures
-  instructions     := spike3WasmInstructions
-  dataSegments     := spike3DataSegments
-  imports          := ["fd_read", "fd_write", "proc_exit"]
-  resources        := spike3WasiResources
-  spec             := fun _ => specOutcomeCanonical
-  traceEquivalence := fun _ => spike3_wasm_canonical_effect_trace_equivalence
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- The sole admitted shape for the remaining semantic work: a caller must supply the actual
+    universal simulation theorem, over arbitrary bytes, before an emitted Spike 3 artifact can be
+    classified as verified.  This is a constructor, not a compatibility escape hatch: its only
+    proof input is precisely the `VerifiedProgram` trace obligation. -/
+def spike3VerifiedWasmProgram
+    (traceEquivalence : ∀ environment : Environment,
+      spike3WasmTraceFor environment = spike3WasmSpec environment) :
+    VerifiedProgram Spike3WasiPreview1Platform AnyEvent spike3WasiCapabilities := {
+  name := "Spike 3: Byte-stream line sorter (WebAssembly / WASI Preview 1)"
+  artifact := {
+    encoded := spike3EncodedWasmArtifact
+    instructions := spike3WasmInstructions
+    dataSegments := spike3DataSegments
+    imports := ["fd_read", "fd_write", "proc_exit"]
+  }
+  spec := spike3WasmSpec
+  importsCovered := by
+    intro imported himported
+    change imported ∈ ["fd_read", "fd_write", "proc_exit"] at himported
+    exact himported
+  traceEquivalence := by
+    intro environment
+    exact traceEquivalence environment
 }
 
 end Spikes.Spike3SortLines.Wasm
