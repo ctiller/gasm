@@ -28,6 +28,7 @@ import Spikes.Spike1Hello.Windows.Program
 namespace Spikes.Spike1Hello.Windows
 
 open Gasm.Core
+open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.Targets
@@ -91,16 +92,17 @@ def spike1WindowsArtifact : WindowsX86_64Artifact := {
   instructions := spike1Instructions
 }
 
-/-- Sole universal whole-program contract for Spike 1 (Windows Hello World). -/
-def spike1VerifiedProgram :
-    VerifiedProgram (WindowsX86_64 AnyEvent) (standardWindowsHostCapabilities AnyEvent) := {
-  name             := "Spike 1: Windows Hello World"
-  artifact         := spike1WindowsArtifact
-  exports          := VerifiedExportSet.empty _ _ _ _ _ () rfl rfl rfl
-  exportsArtifact  := rfl
+def spike1WindowsArtifactCertificate :
+    ProgramArtifactCertificate (WindowsX86_64 AnyEvent) where
+  artifact := spike1WindowsArtifact
+  exports := VerifiedExportSet.empty _ _ _ _ _ () rfl rfl rfl
+  exportsArtifact := rfl
   artifactConnection := by rfl
-  spec             := fun _ => runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit)
-  importsCovered   := by
+
+def spike1WindowsProviderCertificate :
+    ProgramProviderCertificate (WindowsX86_64 AnyEvent)
+      (standardWindowsHostCapabilities AnyEvent) spike1WindowsArtifact where
+  importsCovered := by
     intro imported himported
     change imported ∈ [GetStdHandleDef, ReadFileDef, WriteFileDef, ExitProcessDef,
       VirtualAllocDef, VirtualFreeDef] at himported
@@ -130,10 +132,17 @@ def spike1VerifiedProgram :
       constructor
       · native_decide
       · rfl
-  entryContext     := fun _ => ()
-  entryEstablished := by
-    intro environment
-    trivial
+
+def spike1WindowsEntryCertificate :
+    ProgramEntryCertificate (WindowsX86_64 AnyEvent)
+      (standardWindowsHostCapabilities AnyEvent) spike1WindowsArtifact where
+  entryContext := fun _ => ()
+  entryEstablished := by intro; trivial
+
+def spike1WindowsAdmissibilityCertificate :
+    ProgramAdmissibilityCertificate (WindowsX86_64 AnyEvent)
+      (standardWindowsHostCapabilities AnyEvent) spike1WindowsArtifact
+      spike1WindowsEntryCertificate where
   platformAdmissible := by
     intro environment
     change (@runProgramOutcomeWithLoops AnyEvent (standardWindowsRuntime AnyEvent)
@@ -144,6 +153,12 @@ def spike1VerifiedProgram :
     rw [spike1_outcome_external_input_frame]
     simp only [NativeRunOutcome.withExternalInputs_isAdmissible]
     exact spike1TerminationCertificate.isAdmissible
+
+def spike1WindowsBehaviorCertificate :
+    ProgramBehaviorCertificate (WindowsX86_64 AnyEvent)
+      (standardWindowsHostCapabilities AnyEvent) spike1WindowsArtifact
+      spike1WindowsEntryCertificate where
+  spec := fun _ => runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit)
   traceEquivalence := by
     intro environment
     change (@runProgramOutcomeWithLoops AnyEvent (standardWindowsRuntime AnyEvent)
@@ -158,6 +173,13 @@ def spike1VerifiedProgram :
     change runAsmTrace (Event := AnyEvent) spike1Instructions spike1Executable.load = _
     have h := spike1_canonical_effect_trace_equivalence
     simpa only [beq_iff_eq] using h
-}
+
+/-- Sole universal whole-program contract for Spike 1 (Windows Hello World). -/
+def spike1VerifiedProgram :
+    VerifiedProgram (WindowsX86_64 AnyEvent) (standardWindowsHostCapabilities AnyEvent) :=
+  VerifiedProgram.compose "Spike 1: Windows Hello World"
+    spike1WindowsArtifactCertificate spike1WindowsProviderCertificate
+    spike1WindowsEntryCertificate spike1WindowsAdmissibilityCertificate
+    spike1WindowsBehaviorCertificate
 
 end Spikes.Spike1Hello.Windows

@@ -29,6 +29,7 @@ import Spikes.Spike1Hello.Linux.Program
 namespace Spikes.Spike1Hello.Linux
 
 open Gasm.Core
+open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.Targets
@@ -74,16 +75,17 @@ def spike1LinuxArtifact : LinuxX86_64Artifact := {
   instructions := spike1Instructions
 }
 
-/-- Sole universal whole-program contract for Spike 1 (Linux Hello World). -/
-def spike1VerifiedProgram :
-    VerifiedProgram (LinuxX86_64 AnyEvent) (linuxHostCapabilities AnyEvent) := {
-  name             := "Spike 1: Linux Hello World"
-  artifact         := spike1LinuxArtifact
-  exports          := VerifiedExportSet.empty _ _ _ _ _ () rfl rfl rfl
-  exportsArtifact  := rfl
+def spike1LinuxArtifactCertificate :
+    ProgramArtifactCertificate (LinuxX86_64 AnyEvent) where
+  artifact := spike1LinuxArtifact
+  exports := VerifiedExportSet.empty _ _ _ _ _ () rfl rfl rfl
+  exportsArtifact := rfl
   artifactConnection := by rfl
-  spec             := fun _ => runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)
-  importsCovered   := by
+
+def spike1LinuxProviderCertificate :
+    ProgramProviderCertificate (LinuxX86_64 AnyEvent)
+      (linuxHostCapabilities AnyEvent) spike1LinuxArtifact where
+  importsCovered := by
     intro imported h
     change imported ∈ [] at h
     contradiction
@@ -91,10 +93,17 @@ def spike1VerifiedProgram :
     intro provider h
     change provider ∈ [] at h
     contradiction
-  entryContext     := fun _ => ()
-  entryEstablished := by
-    intro environment
-    trivial
+
+def spike1LinuxEntryCertificate :
+    ProgramEntryCertificate (LinuxX86_64 AnyEvent)
+      (linuxHostCapabilities AnyEvent) spike1LinuxArtifact where
+  entryContext := fun _ => ()
+  entryEstablished := by intro; trivial
+
+def spike1LinuxAdmissibilityCertificate :
+    ProgramAdmissibilityCertificate (LinuxX86_64 AnyEvent)
+      (linuxHostCapabilities AnyEvent) spike1LinuxArtifact
+      spike1LinuxEntryCertificate where
   platformAdmissible := by
     intro environment
     change (runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
@@ -104,6 +113,12 @@ def spike1VerifiedProgram :
     rw [spike1_outcome_external_input_frame]
     simp only [NativeRunOutcome.withExternalInputs_isAdmissible]
     exact spike1TerminationCertificate.isAdmissible
+
+def spike1LinuxBehaviorCertificate :
+    ProgramBehaviorCertificate (LinuxX86_64 AnyEvent)
+      (linuxHostCapabilities AnyEvent) spike1LinuxArtifact
+      spike1LinuxEntryCertificate where
+  spec := fun _ => runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)
   traceEquivalence := by
     intro environment
     change (runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
@@ -117,6 +132,13 @@ def spike1VerifiedProgram :
     change runAsmTrace (Event := AnyEvent) spike1Instructions spike1Executable.load = _
     have h := spike1_canonical_effect_trace_equivalence
     simpa only [beq_iff_eq] using h
-}
+
+/-- Sole universal whole-program contract for Spike 1 (Linux Hello World). -/
+def spike1VerifiedProgram :
+    VerifiedProgram (LinuxX86_64 AnyEvent) (linuxHostCapabilities AnyEvent) :=
+  VerifiedProgram.compose "Spike 1: Linux Hello World"
+    spike1LinuxArtifactCertificate spike1LinuxProviderCertificate
+    spike1LinuxEntryCertificate spike1LinuxAdmissibilityCertificate
+    spike1LinuxBehaviorCertificate
 
 end Spikes.Spike1Hello.Linux
