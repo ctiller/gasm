@@ -218,6 +218,143 @@ def emitSmolMallocWasm (localSize : Nat) (localAligned : Nat) (localHeader : Nat
   ]
 ]
 
+/- REF: docs/STDLIB_SMOLALLOC.md#3-block-structure-freelist-state-model -/
+/-- Fallible WebAssembly bump allocation.
+
+    This is the resource-bounded counterpart of `emitSmolMallocWasm`.  It never performs a
+    header or bump-pointer store unless the complete allocation range fits the currently
+    instantiated linear memory.  On exhaustion (including `i32` address wraparound) it leaves
+    `localHeader` equal to zero and therefore returns the null pointer.  A caller must test that
+    result and select its specified failure behaviour; it must not dereference null and let the
+    interpreter turn an ordinary finite-resource condition into an unclassified Wasm trap.
+
+    `localCur` is scratch after the free-list search and is reused for the candidate end address.
+    The page-index comparison avoids computing `memory_size * 65536` in `i32`, which would itself
+    wrap at the Wasm32 four-GiB limit. -/
+def emitSmolMallocWasmFallible (localSize : Nat) (localAligned : Nat) (localHeader : Nat)
+    (localCur : Nat) (localPrev : Nat) : List WasmInstr := [
+  .local_set localSize,
+  .local_get localSize,
+  .i32_const 7,
+  .i32_add,
+  .i32_const 0xFFFFFFF8,
+  .i32_and,
+  .local_set localAligned,
+
+  .i32_const wasmFreeListHeadAddr,
+  .i32_load 2 0,
+  .local_set localCur,
+  .i32_const 0,
+  .local_set localPrev,
+  .i32_const 0,
+  .local_set localHeader,
+
+  .block .empty [
+    .loop .empty [
+      .local_get localCur,
+      .i32_const 0,
+      .i32_eq,
+      .br_if 1,
+      .local_get localCur,
+      .i32_load 2 0,
+      .local_get localAligned,
+      .i32_ge_u,
+      .if_else .empty [
+        .local_get localCur,
+        .local_set localHeader,
+        .local_get localPrev,
+        .i32_const 0,
+        .i32_eq,
+        .if_else .empty [
+          .i32_const wasmFreeListHeadAddr,
+          .local_get localCur,
+          .i32_load 2 24,
+          .i32_store 2 0
+        ] [
+          .local_get localPrev,
+          .local_get localCur,
+          .i32_load 2 24,
+          .i32_store 2 24
+        ],
+        .local_get localCur,
+        .i32_const 0,
+        .i32_store 2 8,
+        .br 2
+      ] [
+        .local_get localCur,
+        .local_set localPrev,
+        .local_get localCur,
+        .i32_load 2 24,
+        .local_set localCur,
+        .br 0
+      ]
+    ]
+  ],
+
+  .local_get localHeader,
+  .i32_const 0,
+  .i32_eq,
+  .if_else .empty [
+    .i32_const wasmArenaBumpPtrAddr,
+    .i32_load 2 0,
+    .local_set localHeader,
+    .local_get localHeader,
+    .local_get localAligned,
+    .i32_add,
+    .i32_const 32,
+    .i32_add,
+    .local_set localCur,
+
+    -- Candidate end must not wrap and its last byte must be in a current memory page.
+    .local_get localCur,
+    .local_get localHeader,
+    .i32_lt_u,
+    .if_else .empty [
+      .i32_const 0,
+      .local_set localHeader
+    ] [
+      .local_get localCur,
+      .i32_const 1,
+      .i32_sub,
+      .i32_const 16,
+      .i32_shr_u,
+      .memory_size,
+      .i32_lt_u,
+      .if_else .empty [
+        .i32_const wasmArenaBumpPtrAddr,
+        .local_get localCur,
+        .i32_store 2 0,
+        .local_get localHeader,
+        .local_get localAligned,
+        .i32_store 2 0,
+        .local_get localHeader,
+        .i32_const 0,
+        .i32_store 2 8,
+        .local_get localHeader,
+        .i32_const 8,
+        .i32_store 2 16,
+        .local_get localHeader,
+        .i32_const 0,
+        .i32_store 2 24
+      ] [
+        .i32_const 0,
+        .local_set localHeader
+      ]
+    ]
+  ] [],
+
+  .local_get localHeader,
+  .i32_const 0,
+  .i32_eq,
+  .if_else .empty [
+    .i32_const 0
+  ] [
+    .local_get localHeader,
+    .i32_const 32,
+    .i32_add
+  ]
+]
+
 /- REF: docs/STDLIB_SMOLALLOC.md#33-deallocation-free -/
 /-- WebAssembly inline instructions to free an allocated payload pointer using SmolAlloc:
     Expects `payloadPtr : i32` on top of the stack.

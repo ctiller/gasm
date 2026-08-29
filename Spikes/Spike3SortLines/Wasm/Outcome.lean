@@ -30,6 +30,44 @@ def runSpike3WasiOutcome (stdin : ByteArray) (budget : WasiResourceBudget) : Was
     ["fd_read", "fd_write", "proc_exit"] [] budget
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
+/-- Complete finite-resource observation of the Spike 3 CLI.  The resource-failure arm is
+    deliberately separate from generic Wasm traps and fuel exhaustion: it is selected only by
+    the program's explicit `proc_exit spike3ResourceFailureExitCode`, emitted after a checked
+    SmolAlloc failure.  Consumers therefore cannot mistake an allocation limit for a successfully
+    sorted (possibly partial) output. -/
+inductive Spike3FiniteOutcome where
+  | completed (state : WasmMachineState) (signal : ControlSignal)
+  | resourceFailure (state : WasmMachineState)
+  | exited (state : WasmMachineState) (code : UInt32)
+  | trapped (state : WasmMachineState)
+  | fuelExhausted (partialState : WasmMachineState)
+  | memoryExhausted (state : WasmMachineState) (requestedPages availablePages : Nat)
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
+/-- Classifies every bounded execution without collapsing either interpreter fuel or the CLI's
+    specified allocator failure. -/
+def Spike3FiniteOutcome.ofWasi : WasiRunOutcome → Spike3FiniteOutcome
+  | .completed state signal => .completed state signal
+  | .exited state code =>
+    if code == spike3ResourceFailureExitCode then .resourceFailure state else .exited state code
+  | .trapped state => .trapped state
+  | .fuelExhausted state => .fuelExhausted state
+  | .memoryExhausted state requested available =>
+    .memoryExhausted state requested available
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
+/-- The caller-facing result for arbitrary finite stdin and an explicit finite execution budget. -/
+def runSpike3Finite (stdin : ByteArray) (budget : WasiResourceBudget) : Spike3FiniteOutcome :=
+  Spike3FiniteOutcome.ofWasi (runSpike3WasiOutcome stdin budget)
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
+/-- The allocator-failure process exit is definitionally classified as the deterministic resource
+    result, never as clean completion or a generic trap. -/
+theorem spike3_resource_exit_is_observable (state : WasmMachineState) :
+    Spike3FiniteOutcome.ofWasi (.exited state spike3ResourceFailureExitCode) =
+      .resourceFailure state := by
+  simp [Spike3FiniteOutcome.ofWasi]
+
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
 /-- Finite platform capability used by an invocation of the line sorter.  Arbitrary stdin bytes
     are still passed to the program; if they demand more than this capability supplies, the

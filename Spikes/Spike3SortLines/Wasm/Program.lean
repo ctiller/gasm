@@ -30,6 +30,26 @@ open Gasm.Targets.Wasm
 open Gasm.Targets.WASI
 open Stdlib.SmolAlloc
 
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
+/-- Deterministic process result for a finite linear-memory allocation failure.
+    The sorter emits no sorted output before all of its allocation-dependent ingestion and table
+    construction has completed, so this exit is an all-or-nothing observable outcome rather than
+    a partial successful sort. -/
+def spike3ResourceFailureExitCode : UInt32 := 75
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
+/-- Stops the WASI program with its specified resource-failure outcome when a fallible SmolAlloc
+    call returned null.  `proc_exit` returns `.ret` from the host hook, so evaluation of the
+    surrounding structured body stops before any null pointer can be dereferenced. -/
+def emitSpike3RequireAllocation (localPtr : Nat) : List WasmInstr := [
+  .local_get localPtr,
+  .i32_eqz,
+  .if_else .empty [
+    .i32_const spike3ResourceFailureExitCode,
+    .call 2
+  ] []
+]
+
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Type signatures for WASI Preview 1 imports:
     0: fd_read (i32, i32, i32, i32) -> i32
@@ -114,8 +134,8 @@ def spike3WasmInstructions : List WasmInstr := Id.run do
   ]
   -- Allocate initial line buffer: lineBufPtr = smol_malloc(64)
   code := code ++ [ .i32_const 64 ]
-  code := code ++ emitSmolMallocWasm 23 24 25 26 27
-  code := code ++ [ .local_set 6 ]
+  code := code ++ emitSmolMallocWasmFallible 23 24 25 26 27
+  code := code ++ [ .local_set 6 ] ++ emitSpike3RequireAllocation 6
 
   -- 3. Ingestion Loop: read stdin chunks via fd_read(0, 0x00, 1, 0x08)
   code := code ++ [
@@ -196,8 +216,9 @@ def spike3WasmInstructions : List WasmInstr := Id.run do
                 .local_get 7,
                 .i32_const 1,
                 .i32_add
-              ] ++ emitSmolMallocWasm 23 24 25 26 27 ++ [
-                .local_set 12, -- ptr1 = exact string buffer
+              ] ++ emitSmolMallocWasmFallible 23 24 25 26 27 ++ [
+                .local_set 12 -- ptr1 = exact string buffer
+              ] ++ emitSpike3RequireAllocation 12 ++ [
 
                 -- Copy lineLen bytes from lineBufPtr to ptr1
                 .i32_const 0,
@@ -233,8 +254,9 @@ def spike3WasmInstructions : List WasmInstr := Id.run do
 
                 -- Allocate LineNode (16 bytes) via smol_malloc(16)
                 .i32_const 16
-              ] ++ emitSmolMallocWasm 23 24 25 26 27 ++ [
-                .local_set 21, -- curNode = allocated node
+              ] ++ emitSmolMallocWasmFallible 23 24 25 26 27 ++ [
+                .local_set 21 -- curNode = allocated node
+              ] ++ emitSpike3RequireAllocation 21 ++ [
                 -- [curNode + 0] = ptr1
                 .local_get 21,
                 .local_get 12,
@@ -290,8 +312,9 @@ def spike3WasmInstructions : List WasmInstr := Id.run do
                     .i32_mul,
                     .local_set 8,
                     .local_get 8
-                  ] ++ emitSmolMallocWasm 23 24 25 26 27 ++ [
-                    .local_set 12, -- ptr1 = newBuf
+                  ] ++ emitSmolMallocWasmFallible 23 24 25 26 27 ++ [
+                    .local_set 12 -- ptr1 = newBuf
+                  ] ++ emitSpike3RequireAllocation 12 ++ [
                     -- Copy lineLen bytes from lineBufPtr to ptr1
                     .i32_const 0,
                     .local_set 17,
@@ -359,8 +382,9 @@ def spike3WasmInstructions : List WasmInstr := Id.run do
         .local_get 5,
         .i32_const 8,
         .i32_mul
-      ] ++ emitSmolMallocWasm 23 24 25 26 27 ++ [
-        .local_set 9, -- sortTable
+      ] ++ emitSmolMallocWasmFallible 23 24 25 26 27 ++ [
+        .local_set 9 -- sortTable
+      ] ++ emitSpike3RequireAllocation 9 ++ [
 
         -- Populate sort table from linked list
         .local_get 3,
