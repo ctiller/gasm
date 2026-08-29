@@ -31,7 +31,7 @@ import Gasm.Targets.X86_64.Assembler
 import Gasm.Targets.Linux.ELFFormat
 import Gasm.Targets.Linux.Linker
 import Spikes.Spike4HttpServer.Spec
-import Spikes.Spike4HttpServer.MethodDispatch
+import Spikes.Spike4HttpServer.Runtime
 
 namespace Spikes.Spike4HttpServer.Linux
 
@@ -63,6 +63,9 @@ def resp404Bytes : ByteArray :=
 def resp400Bytes : ByteArray :=
   (formatResponse badRequestResponse).toUTF8
 
+def resp414Bytes : ByteArray :=
+  (formatResponse requestResourceExhaustedResponse).toUTF8
+
 /- REF: docs/TARGETS/LINUX.md#23-semantic-syscall-interception -/
 /-- Offsets in the combined .rodata payload for response strings. -/
 def respRootOffset : Nat := 0
@@ -76,9 +79,11 @@ def resp404Offset : Nat := respStatusOffset + respStatusBytes.size
 /- REF: docs/TARGETS/LINUX.md#23-semantic-syscall-interception -/
 def resp400Offset : Nat := resp404Offset + resp404Bytes.size
 
+def resp414Offset : Nat := resp400Offset + resp400Bytes.size
+
 /- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
 def rdataPayload : ByteArray :=
-  respRootBytes ++ respStatusBytes ++ resp404Bytes ++ resp400Bytes
+  respRootBytes ++ respStatusBytes ++ resp404Bytes ++ resp400Bytes ++ resp414Bytes
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
 /-- Symbolic program definition for Spike 4 x86_64 Linux HTTP 1.1 Server.
@@ -90,137 +95,17 @@ def rdataPayload : ByteArray :=
                              Windows target, REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md)
 -/
 def spike4SymbolicProgram : List SymbolicInstr := [
-  -- 1. Setup 320-byte stack frame (imm32 form: 320 exceeds sub_rsp's 8-bit immediate range)
-  instr (sub_rsp32 320),
-
-  -- 2. socket(af = AF_INET (2), type = SOCK_STREAM (1), protocol = IPPROTO_TCP (6))
-  instr (mov_r32 .edi 2),
-  instr (mov_r32 .esi 1),
-  instr (mov_r32 .edx 6),
-  instr (mov_r32 .eax 41), -- SYS_socket
-  instr syscall_op,
-  instr (mov_mem64_disp .rsp 0x20 .rax), -- Save server socket
-
-  -- 3. Setup sockaddr_in at RSP + 0x30
-  -- sin_family = 2 (AF_INET), sin_port = htons(8080) = 0x1F90, sin_addr = 0 (INADDR_ANY = 0.0.0.0)
-  instr (mov_r64_imm64 .rax 0x901F0002),
-  instr (mov_mem64_disp .rsp 0x30 .rax),
-  instr (mov_mem64_disp_imm .rsp 0x38 0), -- Zero out remaining 8 bytes (sin_zero)
-
-  -- 4. bind(server_fd, name = RSP + 0x30, namelen = 16)
-  instr (mov_reg64_mem64_disp .rdi .rsp 0x20),
-  instr (lea_rsp .rsi 0x30),
-  instr (mov_r32 .edx 16),
-  instr (mov_r32 .eax 49), -- SYS_bind
-  instr syscall_op,
-
-  -- 5. listen(server_fd, backlog = 5)
-  instr (mov_reg64_mem64_disp .rdi .rsp 0x20),
-  instr (mov_r32 .esi 5),
-  instr (mov_r32 .eax 50), -- SYS_listen
-  instr syscall_op,
-
-  -- 6. Accept loop (runs until connections exhausted)
-  label "accept_loop",
-  instr (mov_reg64_mem64_disp .rdi .rsp 0x20),
-  instr (xor_r32 .esi .esi),
-  instr (xor_r32 .edx .edx),
-  instr (mov_r32 .eax 43), -- SYS_accept
-  instr syscall_op,
-  instr (mov_mem64_disp .rsp 0x28 .rax), -- Save client socket
-
-  -- 7. recv/read(client_fd, buf = RSP + 0x40, count = 256)
-  instr (mov_reg64_mem64_disp .rdi .rsp 0x28),
-  instr (lea_rsp .rsi 0x40),
-  instr (mov_r32 .edx 256),
-  instr (mov_r32 .eax 0),  -- SYS_read
-  instr syscall_op,
-
-  -- 7b. Validate read() return value (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md, defect 2).
-  -- SYS_read returns the byte count read (> 0), 0 on EOF, or a negative errno on error. RAX is
-  -- sign-extended, so a signed JLE against 0 catches both without reading the request buffer.
-  instr (cmp_r64_imm8 .rax 0x00),
-  jle_near_label "close_conn",
-  instr (mov_r64 .r10 .rax),
-] ++
-
-  -- 8. Validate the request's HTTP method token (REF: docs/READ_BINDER_CONTRACT.md).
-  -- Previously this code assumed, without checking, that the first four bytes were literally
-  -- "GET " and read the path window at the fixed offset 4. That answered 200 OK to
-  -- "FOO / HTTP/1.1..." where Spec.parseRequestLine answers 400 Bad Request, and mis-read the path
-  -- of every valid request whose method token is not exactly three characters. The generator below
-  -- is shared verbatim with the Windows target (Spikes/Spike4HttpServer/MethodDispatch.lean) --
-  -- these two lowerings ran byte-identical request-inspection code before, which is how N8's
-  -- routing bug came to exist twice; it is now written once.
-  methodValidationInstrs 0x40 ++
-[
-  label "send_400",
-  lea_data .rsi "rdata_base",
-  instr (add_r64_imm32 .rsi resp400Offset.toUInt32),
-  instr (mov_r32 .edx resp400Bytes.size.toUInt32),
-  jmp_near_label "do_send",
-] ++
-
-  methodPathWindowInstrs 0x40 "validate_request_line" ++
-  requestLineValidationInstrs "route_dispatch" "send_400" ++
-[
-  -- 8b. Inspect the request target RSI now points at.
-  -- Check if path is exactly "/status" followed by the request-line's delimiting space.
-  -- Full 8-byte exact compare (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md,
-  -- defect 3) -- the prior 5-byte-masked "/stat" prefix compare mis-routed any path merely starting
-  -- with "/stat" (e.g. "/static") to the status handler.
-  label "route_dispatch",
-  instr (mov_reg64_mem64_disp .rax .rsi 0),
-  instr (mov_r64_imm64 .rcx 0x207375746174732F), -- "/status " (7 chars + trailing delimiter space)
-  instr (cmp_r64 .rax .rcx),
-  je_label "send_status",
-
-  -- Check root endpoint: "/ " (0x202F)
-  instr (mov_reg64_mem64_disp .rax .rsi 0),
-  instr (mov_r64_imm64 .rdx 0xFFFF),
-  instr (and_r64 .rax .rdx),
-  instr (mov_r64_imm64 .rcx 0x202F), -- "/ "
-  instr (cmp_r64 .rax .rcx),
-  je_label "send_root",
-
-  -- Check root endpoint alternative: "/\r" (0x0D2F)
-  instr (mov_r64_imm64 .rcx 0x0D2F),
-  instr (cmp_r64 .rax .rcx),
-  je_label "send_root",
-
-  -- Default: send 404
-  label "send_404",
-  lea_data .rsi "rdata_base",
-  instr (add_r64_imm32 .rsi resp404Offset.toUInt32),
-  instr (mov_r32 .edx resp404Bytes.size.toUInt32),
-  jmp_label "do_send",
-
-  label "send_root",
-  lea_data .rsi "rdata_base",
-  instr (add_r64_imm32 .rsi respRootOffset.toUInt32),
-  instr (mov_r32 .edx respRootBytes.size.toUInt32),
-  jmp_label "do_send",
-
-  label "send_status",
-  lea_data .rsi "rdata_base",
-  instr (add_r64_imm32 .rsi respStatusOffset.toUInt32),
-  instr (mov_r32 .edx respStatusBytes.size.toUInt32),
-
-  label "do_send",
-  -- 9. send/write(client_fd, buf = RSI, count = RDX)
-  instr (mov_reg64_mem64_disp .rdi .rsp 0x28),
-  instr (mov_r32 .eax 1), -- SYS_write
-  instr syscall_op,
-
-  -- 10. close(client_fd) -- also the landing point for the read-failure teardown above, since RDI
-  -- is reloaded from the saved client socket unconditionally.
-  label "close_conn",
-  instr (mov_reg64_mem64_disp .rdi .rsp 0x28),
-  instr (mov_r32 .eax 3), -- SYS_close
-  instr syscall_op,
-
-  -- 11. Loop back to accept next connection
-  jmp_near_label "accept_loop"
+  -- Five explicit request-scope phases provided by the selected Gasm runtime.
+  instr (xor_r32 .r10d .r10d),
+  instr (mov_r32 .eax gasmHttpLinuxSyscall.toUInt32), instr syscall_op,
+  instr (mov_r32 .r10d 1),
+  instr (mov_r32 .eax gasmHttpLinuxSyscall.toUInt32), instr syscall_op,
+  instr (mov_r32 .r10d 2),
+  instr (mov_r32 .eax gasmHttpLinuxSyscall.toUInt32), instr syscall_op,
+  instr (mov_r32 .r10d 3),
+  instr (mov_r32 .eax gasmHttpLinuxSyscall.toUInt32), instr syscall_op,
+  instr (mov_r32 .r10d 4),
+  instr (mov_r32 .eax gasmHttpLinuxSyscall.toUInt32), instr syscall_op
 ]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/

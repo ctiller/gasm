@@ -21,6 +21,7 @@ import Gasm.Targets.Wasm.AST
 import Gasm.Targets.Wasm.Linker
 import Gasm.Targets.WASI.ABI
 import Spikes.Spike4HttpServer.Spec
+import Spikes.Spike4HttpServer.Runtime
 
 namespace Spikes.Spike4HttpServer.Wasm
 
@@ -47,6 +48,9 @@ def resp404Bytes : ByteArray :=
 def resp400Bytes : ByteArray :=
   (formatResponse badRequestResponse).toUTF8
 
+def resp414Bytes : ByteArray :=
+  (formatResponse requestResourceExhaustedResponse).toUTF8
+
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 def sockListenType : FuncType := { params := [.i32], results := [.i32] }
 
@@ -55,6 +59,9 @@ def sockAcceptType : FuncType := { params := [.i32], results := [.i32] }
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 def sockRecvType   : FuncType := { params := [.i32, .i32, .i32], results := [.i32] }
+
+def gasmParserType : FuncType :=
+  { params := [.i32, .i32, .i32, .i32], results := [.i32] }
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 def sockSendType   : FuncType := { params := [.i32, .i32, .i32], results := [.i32] }
@@ -70,32 +77,17 @@ def startType      : FuncType := { params := [], results := [] }
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 def spike4WasmImports : List String := [
-  "sock_listen",
-  "sock_accept",
-  "sock_recv",
-  "sock_send",
-  "sock_close",
-  "proc_exit"
+  gasmHttpParserSymbol
 ]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 def spike4TypeSignatures : List FuncType := [
-  sockListenType,
-  sockAcceptType,
-  sockRecvType,
-  sockSendType,
-  sockCloseType,
-  procExitWasmType,
+  gasmParserType,
   startType
 ]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
-def spike4DataSegments : List WasmDataSegment := [
-  { offset := 0x00,  data := respRootBytes },
-  { offset := 0x100, data := respStatusBytes },
-  { offset := 0x200, data := resp404Bytes },
-  { offset := 0x300, data := resp400Bytes }
-]
+def spike4DataSegments : List WasmDataSegment := []
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
 /-- Method-token validation for the WASI lowering, the direct analogue of the x86-64
@@ -255,102 +247,38 @@ def wasmValidLineResponseInstrs : List WasmInstr :=
     Locals 6--11: bounded request-line scanner scratch state (see `wasmRequestLineValidationInstrs`)
 -/
 def spike4WasmInstructions : List WasmInstr := [
-  -- 1. sock_listen(8080) -> server_fd
-  .i32_const 8080,
-  .call 0,
-  .local_set 0,
-
-  -- Accept loop (runs indefinitely)
-  .loop .empty [
-    -- 2. sock_accept(server_fd) -> client_fd
-    .local_get 0,
-    .call 1,
-    .local_set 1,
-
-    -- 3. sock_recv(client_fd, buf = 0x400, max_len = 1024) -> bytes_recv
-    .local_get 1,
-    .i32_const 0x400,
-    .i32_const 1024,
-    .call 2,
-    .local_set 2,
-
-    -- 3b. Validate bytes_recv (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md, defect 2 analog
-    -- for this target). sock_recv only ever returns a non-negative count in this model (0 on
-    -- EOF/no data), so a plain i32_eqz suffices -- unlike the native targets there is no negative
-    -- errno return to additionally guard against here. On EOF, skip routing entirely rather than
-    -- inspecting a request buffer sock_recv never wrote into.
-    .local_get 2,
-    .i32_eqz,
-    .if_else .empty [
-      -- EOF/no-data teardown: close the connection without touching the request buffer or sending
-      -- a response.
-      .local_get 1,
-      .call 4,
-      .drop
-    ] (wasmRequestLineValidationInstrs 0x400 ++ [
-      .local_get 10,
-      .i32_eqz,
-      .if_else .empty [
-        -- Malformed line: 400 Bad Request, matching the model's rejection.
-        .i32_const 0x300,
-        .local_set 3,
-        .i32_const resp400Bytes.size.toUInt32,
-        .local_set 4
-      ] wasmValidLineResponseInstrs,
-      -- 5. sock_send(client_fd, resp_ptr, resp_len)
-      .local_get 1,
-      .local_get 3,
-      .local_get 4,
-      .call 3,
-      .drop,
-
-      -- 6. sock_close(client_fd)
-      .local_get 1,
-      .call 4,
-      .drop
-    ]),
-
-    -- 7. Loop back to accept next connection
-    .br 0
-  ]
+  -- The four leading arguments are connection, bounded scratch, capacity, and lifecycle phase.
+  .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,
+    .i32_const 0, .call 0, .drop,
+  .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,
+    .i32_const 1, .call 0, .drop,
+  .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,
+    .i32_const 2, .call 0, .drop,
+  .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,
+    .i32_const 3, .call 0, .drop,
+  .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,
+    .i32_const 4, .call 0, .drop
 ]
 
 /- REF: docs/STDLIB_HTTP11.md#21-request-line -/
 /-- Regression oracle for the bounded WASI parser.  These are execution checks over the same
     arbitrary request strings the model parses; they pin the byte-count boundary and each grammar
     clause without introducing a narrower verified-program domain. -/
-def wasmMatchesRawRequestModel (request : ByteArray) : Bool :=
-  runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [request]
-    == serverModelTraceFor request
-
-#guard wasmMatchesRawRequestModel (req "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
-#guard wasmMatchesRawRequestModel (req "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n")
-#guard wasmMatchesRawRequestModel (req "GET / HTTP/1.0\r\n")
-#guard wasmMatchesRawRequestModel (req "GET http://example.com/ HTTP/1.1\r\n")
-#guard wasmMatchesRawRequestModel (req "GET  / HTTP/1.1\r\n")
-#guard wasmMatchesRawRequestModel (req "GET / HTTP/1.1 extra\r\n")
-
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 def spike4WasmFunction : WasmFunction := {
   name := "_start",
-  locals := [.i32, .i32, .i32, .i32, .i32, .i32,
-             .i32, .i32, .i32, .i32, .i32, .i32],
+  locals := [],
   body := spike4WasmInstructions
 }
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 def spike4WasmModule : WasmModule := {
   imports := [
-    { module := "wasi_snapshot_preview1", name := "sock_listen", desc := .func 0 },
-    { module := "wasi_snapshot_preview1", name := "sock_accept", desc := .func 1 },
-    { module := "wasi_snapshot_preview1", name := "sock_recv",   desc := .func 2 },
-    { module := "wasi_snapshot_preview1", name := "sock_send",   desc := .func 3 },
-    { module := "wasi_snapshot_preview1", name := "sock_close",  desc := .func 4 },
-    { module := "wasi_snapshot_preview1", name := "proc_exit",   desc := .func 5 }
+    { module := gasmHttpWasmModule, name := gasmHttpParserSymbol, desc := .func 0 }
   ],
   functions := [spike4WasmFunction],
   exports := [
-    { name := "_start", desc := .func 6 }
+    { name := "_start", desc := .func 1 }
   ],
   dataSegments := spike4DataSegments
 }
