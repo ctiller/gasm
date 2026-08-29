@@ -93,8 +93,11 @@ class AbiDiscipline (Arch : Type) (ABI : Type) where
 ## 3. BasicBlock Structure & Typed Terminators
 
 The basic-block authoring surface checks direct, conditional, and closed-set indirect CFG
-transitions against typed entry contracts and `expectedDepth`. Connecting indirect decoding to the
-final emitted artifact and the generic whole-CFG theorem are the remaining parts of this substrate:
+transitions against typed entry contracts and `expectedDepth`. `TypedControlFlowGraph` publishes a
+finite, label-unique block set and proves every terminator target is in that set;
+`TypedControlFlowGraph.Reachable` and its composition/membership theorems provide the generic
+edge-local whole-CFG induction rule. Connecting indirect decoding and this semantic CFG to the exact
+final emitted artifact remains the final trust connection for this substrate:
 
 A jump is a local call-like proof boundary. Its source proves the destination entry relation over
 the complete logical state, not merely representation compatibility or stack depth. That relation is
@@ -102,7 +105,7 @@ the ghost-world transfer point for permissions, ownership, outstanding obligatio
 request accounting, and other erased context. The target may demand exactly the property its body
 needs; unrelated resources are carried by the frame law without being mentioned at every edge.
 
-The implementation must provide one generic CFG composition theorem: if the entry block is
+The generic CFG composition theorem states: if the entry block is
 established, every reachable direct edge establishes its typed target, every indirect edge resolves
 within a proved closed target set and establishes the selected member contract, and every return
 establishes the routine exit contract, then the whole routine preserves its contract. Loops close by

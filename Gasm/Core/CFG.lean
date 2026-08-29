@@ -190,4 +190,88 @@ structure BasicBlock (Arch : Type) [TargetArch Arch] where
   body : (state : ComposedState Arch entry.State) → entry.accepts state →
     Σ (ExitState : Type), Σ (exit : ComposedState Arch ExitState), CpuTerminator Arch exit
 
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- A finite typed CFG.  Closure is proved against the actual terminator returned
+    by every block body, so a control-flow edge cannot name an entry contract
+    that the graph did not publish. -/
+structure TypedControlFlowGraph (Arch : Type) [TargetArch Arch] where
+  blocks : List (BasicBlock Arch)
+  entry : BlockEntry Arch
+  entryInGraph : ∃ block ∈ blocks, block.entry = entry
+  uniqueLabels : (blocks.map (·.entry.label)).Nodup
+  targetsInGraph : ∀ block ∈ blocks,
+    ∀ (state : ComposedState Arch block.entry.State) (accepted : block.entry.accepts state),
+      let result := block.body state accepted
+      match result.2.2 with
+      | .jmp edge => ∃ target ∈ blocks, target.entry = edge.target
+      | .jmpIndirect edge =>
+          (∃ target ∈ blocks, target.entry = edge.edge.target) ∧
+          ∀ candidate ∈ edge.candidates,
+            ∃ target ∈ blocks, target.entry = candidate.2
+      | .jcc _ targetTrue targetFalse =>
+          (∃ target ∈ blocks, target.entry = targetTrue.target) ∧
+          ∃ target ∈ blocks, target.entry = targetFalse.target
+      | .ret .. | .sysExit .. | .halt .. => True
+
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- A control point packages exactly the evidence a block call consumes.  It is
+    the common assume/guarantee boundary for function entries and jump targets. -/
+structure BlockControlPoint (Arch : Type) [TargetArch Arch] where
+  entry : BlockEntry Arch
+  state : ComposedState Arch entry.State
+  accepted : entry.accepts state
+
+namespace TypedControlFlowGraph
+
+/-- Membership of a typed control point in a graph is membership of its complete
+    entry contract, not merely equality of a textual label. -/
+def Contains {Arch : Type} [TargetArch Arch]
+    (graph : TypedControlFlowGraph Arch) (point : BlockControlPoint Arch) : Prop :=
+  ∃ block ∈ graph.blocks, block.entry = point.entry
+
+/-- One selected jump.  The successor already carries the destination's entry
+    proof; the relation cannot represent an unchecked transfer. -/
+inductive Step {Arch : Type} [TargetArch Arch]
+    (graph : TypedControlFlowGraph Arch) :
+    BlockControlPoint Arch → BlockControlPoint Arch → Prop where
+  | jump {source : BlockControlPoint Arch}
+      (sourceInGraph : graph.Contains source)
+      (edge : BlockEdge source.state)
+      (targetInGraph : ∃ block ∈ graph.blocks, block.entry = edge.target) :
+      Step graph source ⟨edge.target, edge.targetState, edge.entryEstablished⟩
+
+/-- Reflexive-transitive typed reachability.  Induction over this relation is
+    the reusable whole-CFG proof rule: each block proves its contract once and
+    each predecessor pays only for the selected target's precondition. -/
+inductive Reachable {Arch : Type} [TargetArch Arch]
+    (graph : TypedControlFlowGraph Arch) :
+    BlockControlPoint Arch → BlockControlPoint Arch → Prop where
+  | refl (point) : Reachable graph point point
+  | tail {start middle finish}
+      (path : Reachable graph start middle) (step : Step graph middle finish) :
+      Reachable graph start finish
+
+theorem step_preserves_membership {Arch : Type} [TargetArch Arch]
+    {graph : TypedControlFlowGraph Arch} {source target : BlockControlPoint Arch}
+    (step : Step graph source target) : graph.Contains target := by
+  cases step with
+  | jump _ _ targetInGraph => exact targetInGraph
+
+theorem reachable_preserves_membership {Arch : Type} [TargetArch Arch]
+    {graph : TypedControlFlowGraph Arch} {start finish : BlockControlPoint Arch}
+    (startInGraph : graph.Contains start) (path : Reachable graph start finish) :
+    graph.Contains finish := by
+  induction path with
+  | refl => exact startInGraph
+  | tail _ step _ => exact step_preserves_membership step
+
+theorem reachable_trans {Arch : Type} [TargetArch Arch]
+    {graph : TypedControlFlowGraph Arch} {a b c : BlockControlPoint Arch}
+    (ab : Reachable graph a b) (bc : Reachable graph b c) : Reachable graph a c := by
+  induction bc with
+  | refl => exact ab
+  | tail _ step ih => exact .tail ih step
+
+end TypedControlFlowGraph
+
 end Gasm.Core
