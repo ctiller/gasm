@@ -221,22 +221,31 @@ production transition and event result; divide/memory faults cannot realize type
 Windows `ExitProcess` is intentionally not a constructor yet: its production hook returns normally
 after a linked IAT call, so it needs a profile-owned provider/IAT and returned-outcome realization.
 
-Symbolic control flow will use scoped nominal `BlockRef` values tied to entries in the existing
-`TypedControlFlowGraph`, never text labels or raw instruction offsets. A graph builder will intern a
-supplied `BasicBlock` definition into a finite closed block table and return a reference carrying the
-destination entry contract and ghost-world expectation. Composition must inject or remap identities
-without collision and distinguish sharing a reference from cloning/inlining a block. Recursive and
-mutually recursive components require a finite fixpoint-style builder rather than infinitely nested
-block values.
+The first symbolic-control-flow slice is implemented by `Gasm.Core.CFGBuilder`. `BlockRef` retains
+the exact supplied `BasicBlock` definition, whose complete dependent entry contract contains the
+nominal `BlockId`; text labels and machine addresses never participate. Interning is exact block
+membership, not merely equality of entries, so a resident block with the same ID and entry but a
+different body cannot discharge the reference. `DirectTerminator.jmpToBlock` accepts the target
+`BasicBlock` value and retains the ordinary core `BlockEdge`, including destination precondition and
+ghost-world transfer. Cloning/inlining requires constructing a block with a distinct ID.
 
-CALL/JMP authoring may accept a target `BasicBlock` value through that interning operation. The
-linker later chooses an injective aligned layout and proves that each encoded displacement resolves
-to the referenced block. An authoring form such as “back five instructions” is local syntax only: it
-must resolve immediately to a typed instruction-boundary/control-point identity in the closed CFG.
-Insertion or composition therefore cannot silently retarget it, and a raw `Nat` never authorizes a
-jump into a block interior. JMP transfers the current obligation world into the destination entry;
-CALL additionally carries return-continuation, ABI, obligation-transfer, and exceptional/cancellation
-contracts.
+`Builder.intern` is deliberately finite and acyclic: a new block's direct targets must already occur
+in the block table, while RET, process exit, and halt impose no target-closure proof. Every public
+`Builder` also carries an inductive `BuildHistory`, so direct record construction cannot bypass that
+ordering with a self- or mutually-recursive table. `Builder.finalize`
+derives the existing `TypedControlFlowGraph` fields (`entryInGraph`, `uniqueIds`, and
+`targetsInGraph`); it creates neither a parallel graph nor an execution/emission authority.
+`Builder.mapId` transports the symbolic proof through an injective identity embedding, and
+`Builder.sum` / `Builder.finAppend` compose independent scopes with proved collision-free `Sum` and
+`Fin` injections. Byte layout remains entirely deferred to the linker and operational realization.
+
+Recursive and mutually recursive components remain a later finite fixpoint-builder extension over
+the same nominal IDs. CALL/JCC/indirect forms remain unselected and therefore add no obligations in
+this slice. When added, CALL must carry return-continuation, ABI, obligation-transfer, and
+exceptional/cancellation contracts, while indirect edges must carry closed target-set resolution.
+An authoring form such as “back five instructions” must resolve immediately to a typed
+instruction-boundary/control-point identity; a raw `Nat` must never authorize entry into a block
+interior. The linker later proves that each encoded displacement resolves to that symbolic target.
 
 ## Differential certificate transport
 
