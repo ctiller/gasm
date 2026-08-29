@@ -31,6 +31,8 @@ import Gasm.Core.Verification
 import Gasm.MemoryModel.CpuGraph
 import Gasm.MemoryModel.ProgramOrder
 import Gasm.MemoryModel.FiniteSearch
+import Gasm.MemoryModel.CpuGraphNegativeControls
+import Gasm.MemoryModel.FiniteSearchNegativeControls
 
 import Gasm.Effects.Inject
 import Gasm.Effects.Console
