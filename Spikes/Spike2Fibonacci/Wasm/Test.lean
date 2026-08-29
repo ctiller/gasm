@@ -44,7 +44,8 @@ def main : IO UInt32 := do
   IO.println "[*] 2. Host Wasm Runtime Verification..."
   let wasmPath := "fib.wasm"
   if !(← (System.FilePath.mk wasmPath).pathExists) then
-    IO.FS.writeBinFile wasmPath (← IO.ofExcept (Gasm.Targets.WASI.emitVerifiedWasmBinary spike2VerifiedWasmProgram))
+    IO.FS.writeBinFile wasmPath (← IO.ofExcept
+      (Gasm.Core.Platform.emitVerifiedProgram spike2VerifiedWasmProgram))
 
   match ← tryHostRunners wasmPath (fun exitCode stdout => exitCode == 0 && stdout == formattedFibonacciWasmOutput) with
   | .passed cmd =>

@@ -557,7 +557,7 @@ theorem evalLeafInstr_external_input_frame
   | cons head tail =>
       cases head <;> simp [popI32, hstack, WasmMachineState.withExternalInputs]
 
-private def finishBlockResult : WasmRunResult → WasmRunResult
+def finishBlockResult : WasmRunResult → WasmRunResult
   | .error state => .error state
   | .ok (state, .br 0) => .ok (state, .next)
   | .ok (state, .br (depth + 1)) => .ok (state, .br depth)

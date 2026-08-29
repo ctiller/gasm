@@ -282,7 +282,7 @@ theorem evalInstrMatch_block_br0 (fuel : Nat) (bt : BlockType) (body : List Wasm
     (st st' : WasmMachineState) (h : HostCall)
     (hb : evalInstrs fuel body st h = .ok (st', .br 0)) :
     evalInstrMatch (fuel + 1) (.block bt body) st h = .ok (st', .next) := by
-  simp only [evalInstrMatch, hb]
+  simp only [evalInstrMatch, hb, finishBlockResult]
 
 /- REF: wasm-exec-instructions#blocks -/
 /-- A `block` whose body runs off the end likewise exits normally. -/
@@ -290,7 +290,7 @@ theorem evalInstrMatch_block_next (fuel : Nat) (bt : BlockType) (body : List Was
     (st st' : WasmMachineState) (h : HostCall)
     (hb : evalInstrs fuel body st h = .ok (st', .next)) :
     evalInstrMatch (fuel + 1) (.block bt body) st h = .ok (st', .next) := by
-  simp only [evalInstrMatch, hb]
+  simp only [evalInstrMatch, hb, finishBlockResult]
 
 /- REF: wasm-exec-instructions#blocks -/
 /-- **Loop re-entry.** A `.br 0` out of the body re-enters the same `loop` with one unit less fuel.
