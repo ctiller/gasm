@@ -88,6 +88,12 @@ theorem spike2_selected_termination :
       spike2Executable.load = true := by
   native_decide
 
+def spike2TerminationCertificate :
+    SelectedTerminationCertificate (Event := AnyEvent) false selectedNonInputPlatformCall
+      spike2Executable.load.rip spike2Instructions spike2Executable.load where
+  fuel := 50000
+  verifies := spike2_selected_termination
+
 theorem spike2_outcome_external_input_frame (environment : Environment) :
     runProgramOutcomeWithLoops (Event := AnyEvent) spike2Executable.load.rip
         spike2Instructions 50000
@@ -95,13 +101,10 @@ theorem spike2_outcome_external_input_frame (environment : Environment) :
       (runProgramOutcomeWithLoops (Event := AnyEvent) spike2Executable.load.rip
         spike2Instructions 50000 spike2Executable.load).withExternalInputs
           environment.stdin environment.incomingRequests := by
-  apply runProgramOutcomeLoop_external_input_frame
-    (Event := AnyEvent) selectedNonInputPlatformCall
-    (indexInstructions spike2Executable.load.rip spike2Instructions) (allowHalted := false)
-  · intro instr _
-    exact instruction_preserves_external_input_frame instr
-  · exact platformCallInterceptor_preserves_selected_external_input_frame
-  · exact spike2_selected_termination
+  exact spike2TerminationCertificate.externalInputFrame
+    (fun instr _ => instruction_preserves_external_input_frame instr)
+    platformCallInterceptor_preserves_selected_external_input_frame
+    environment.stdin environment.incomingRequests
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
@@ -123,7 +126,7 @@ def spike2VerifiedProgram :
   importsCovered   := by
     intro imported _
     trivial
-  capabilitiesConnection := by rfl
+  providersLinked := by simp [windowsHostCapabilities, windowsHostCapability]
   entryContext     := fun _ => ()
   entryEstablished := by
     intro environment
@@ -136,9 +139,7 @@ def spike2VerifiedProgram :
         environment.incomingRequests)).isAdmissible false
     rw [spike2_outcome_external_input_frame]
     simp only [NativeRunOutcome.withExternalInputs_isAdmissible]
-    exact selectedExecutionTerminates_isAdmissible false selectedNonInputPlatformCall
-      (indexInstructions spike2Executable.load.rip spike2Instructions) 50000
-      spike2Executable.load [] spike2_selected_termination
+    exact spike2TerminationCertificate.isAdmissible
   traceEquivalence := by
     intro environment
     change (runProgramOutcomeWithLoops (Event := AnyEvent) spike2Executable.load.rip
