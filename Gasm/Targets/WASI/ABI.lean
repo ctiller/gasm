@@ -491,10 +491,15 @@ structure WasiArtifact where
 /-- One exact host-import slot.  Carrying the complete import vector prevents
     an index proof for one module from being reused against another module's
     differently ordered imports. -/
+inductive WasiProviderProtocol where
+  | preview1
+  | streamingZlib (compress : Bool) (phase : Nat) (version : Nat)
+deriving DecidableEq, BEq
+
 structure WasiProvider where
+  protocol : WasiProviderProtocol
   imports : List String
   importIndex : Nat
-  implementation : WasmMachineState → WasmMachineState × ControlSignal
 
 inductive WasiPlatform
 
@@ -560,8 +565,23 @@ instance : Platform WasiPlatform where
   providerProvides := fun provider imported =>
     provider.imports[provider.importIndex]? = some imported
   providerLinked := fun artifact provider => provider.imports = artifact.imports
-  runtimeSupports := fun runtime provider => ∀ state,
-    runtime provider.imports provider.importIndex state = provider.implementation state
+  runtimeSupports := fun runtime provider =>
+    match provider.protocol with
+    | .preview1 => ∀ state,
+        runtime provider.imports provider.importIndex state =
+          wasiHostCall provider.imports provider.importIndex state
+    | .streamingZlib _ phase _ =>
+        match phase with
+        | 0 => ∀ state,
+            runtime provider.imports provider.importIndex state = (state, .next)
+        | 1 => ∀ state,
+            runtime provider.imports provider.importIndex state = (state, .next)
+        | 2 => ∀ state,
+            (runtime provider.imports provider.importIndex state).1.trapped = state.trapped
+        | 3 => ∀ state,
+            (runtime provider.imports provider.importIndex state).1.exitCode = some 0 ∧
+            (runtime provider.imports provider.importIndex state).2 = .ret
+        | _ => False
   boundaryArtifact := id
   artifactConnected := fun artifact =>
     artifact.module.functions.head?.map (fun fn => fn.body) = some artifact.instructions ∧
@@ -578,10 +598,8 @@ instance : Platform WasiPlatform where
 def wasiHostCapability : Capability WasiPlatform where
   Context := Unit
   providers :=
-    [{ imports := ["fd_write", "proc_exit"], importIndex := 0,
-       implementation := wasiHostCall ["fd_write", "proc_exit"] 0 },
-     { imports := ["fd_write", "proc_exit"], importIndex := 1,
-       implementation := wasiHostCall ["fd_write", "proc_exit"] 1 }]
+    [{ protocol := .preview1, imports := ["fd_write", "proc_exit"], importIndex := 0 },
+     { protocol := .preview1, imports := ["fd_write", "proc_exit"], importIndex := 1 }]
   establishes := fun _ _ _ _ => True
 
 def wasiHostCapabilities : CapabilityComposition WasiPlatform where
