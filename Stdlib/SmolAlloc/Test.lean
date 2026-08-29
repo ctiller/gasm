@@ -128,7 +128,7 @@ def runTests : IO UInt32 := do
 
   -- Test 5: Symbolic x86-64 Machine Equivalence Simulation
   IO.println "[Test 5/5] Testing symbolic x86-64 assembly execution, memory header inspection, & freelist chaining..."
-  let mach0 := runSmolMallocAsmState 64 0x20000000 0
+  let mach0 := runSmolMallocAsmState 64 { base := 0x20000000, endExclusive := 0x20010000 } 0
   let mach1 := runSmolFreeAsmState (mach0.gprs .rax) mach0
   let mach2 := runProgramWithLoops 0x1000 smolMallocInstructions 15 { mach1 with rip := 0x1000, gprs := fun r => if r == .rcx then 48 else mach1.gprs r }
 

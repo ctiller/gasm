@@ -41,9 +41,46 @@ open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.Assembler
 
+/- REF: docs/STDLIB_SMOLALLOC.md#2-the-abstract-page-source-typeclass-pagesource -/
+/-- A finite native arena explicitly granted to the allocator by its embedding platform.
+
+    `endExclusive` is deliberately an address rather than an inferred or default capacity: every
+    native caller must choose the bound it is prepared to recover from. -/
+structure NativeArenaCapability where
+  base         : UInt64
+  endExclusive : UInt64
+  deriving Repr, DecidableEq
+
+/-- The fresh-allocation decision implemented by `smol_malloc` after it has rounded a request and
+    added its header.  `some header` is a successful fresh allocation; `none` is exhaustion or an
+    invalid bump/end ordering. -/
+def NativeArenaCapability.allocateFresh (cap : NativeArenaCapability) (nextHeader bytes : UInt64) :
+    Option UInt64 :=
+  if nextHeader ≤ cap.endExclusive && bytes ≤ cap.endExclusive - nextHeader then
+    some nextHeader
+  else
+    none
+
+theorem NativeArenaCapability.allocateFresh_exhausted (cap : NativeArenaCapability)
+    (nextHeader bytes : UInt64)
+    (h : ¬ (nextHeader ≤ cap.endExclusive && bytes ≤ cap.endExclusive - nextHeader)) :
+    cap.allocateFresh nextHeader bytes = none := by
+  simp [NativeArenaCapability.allocateFresh, h]
+
+theorem NativeArenaCapability.allocateFresh_success (cap : NativeArenaCapability)
+    (nextHeader bytes : UInt64)
+    (h : nextHeader ≤ cap.endExclusive && bytes ≤ cap.endExclusive - nextHeader) :
+    cap.allocateFresh nextHeader bytes = some nextHeader := by
+  simp [NativeArenaCapability.allocateFresh, h]
+
 /- REF: docs/STDLIB_SMOLALLOC.md#3-block-structure-freelist-state-model -/
-/-- Symbolic x86-64 assembly routine for smol_malloc(size : rcx) -> rax.
-    Uses r11 as arena bump pointer and r10 as free list head. -/
+/-- Symbolic x86-64 assembly routine for `smol_malloc(size : rcx) -> rax`.
+
+    Register convention: `r11` is the next fresh block header, `r15` is the exclusive end of a
+    capability-provided finite arena, and `r10` is the free-list head.  A fitting recycled block
+    succeeds independently of remaining fresh capacity.  A fresh request that would cross `r15`
+    returns the null pointer in `rax` and leaves `r11`, `r10`, and memory unchanged.  There is no
+    implicit infinite-arena fallback. -/
 def smolMallocSymbolicProgram : List SymbolicInstr := [
   -- 1. Align requested size up to multiple of 8: r8 = (rcx + 7) & ~7
   instr (mov_r64 .r8 .rcx),
@@ -60,6 +97,15 @@ def smolMallocSymbolicProgram : List SymbolicInstr := [
 
   -- Fresh allocation path:
   label "fresh_alloc",
+  -- Reject an invalid bump/end ordering before subtracting, then require enough remaining bytes
+  -- for the header plus aligned payload.  The two unsigned comparisons avoid wraparound making a
+  -- crossed finite boundary look like available capacity.
+  instr (cmp_r64 .r11 .r15),
+  ja_label "fresh_exhausted",
+  instr (mov_r64 .rax .r15),
+  instr (sub_r64 .rax .r11),
+  instr (cmp_r64 .rax .r9),
+  jb_label "fresh_exhausted",
   instr (mov_r64 .rax .r11),        -- rax = current bump pointer
   instr (add_r64 .r11 .r9),         -- advance arena bump pointer: r11 += r9
   -- Initialize 32-byte header in memory at [rax]:
@@ -80,6 +126,13 @@ def smolMallocSymbolicProgram : List SymbolicInstr := [
   instr (mov_mem64_disp_imm .rax 0x08 0),      -- [rax + 0x08] = isFree (0) (retain original blockSize at [rax])
   instr (mov_mem64_disp_imm .rax 0x18 0),      -- [rax + 0x18] = nextFree = 0
   instr (add_r64_imm8 .rax 32),                -- Return payload pointer: rax = rax + 32
+  instr ret_op,
+
+  -- Fresh capacity failure: the null result is the sole failure convention.  No allocator state
+  -- or memory header has been touched on this path, so callers may clean up and retry under a
+  -- larger explicitly selected capability.
+  label "fresh_exhausted",
+  instr (xor_r32 .eax .eax),
   instr ret_op
 ]
 

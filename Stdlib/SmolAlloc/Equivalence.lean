@@ -46,13 +46,16 @@ def smolAllocInvariant (spec : SmolAllocState) (_p : TracedPageState) (mach : X8
   )
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Simulates execution of smol_malloc on an input size in RCX with initial bump pointer in R11 and freelist in R10. -/
-def runSmolMallocAsmState (size : Nat) (arenaBase : UInt64 := 0x20000000) (freeHead : UInt64 := 0) (initialMem : X86_64Memory := X86_64Mem.zero) : X86_64MachineState :=
+/-- Simulates execution of fallible `smol_malloc` on an input size in RCX.  The embedding caller
+    must supply a finite `NativeArenaCapability`; this helper deliberately has no capacity default. -/
+def runSmolMallocAsmState (size : Nat) (arena : NativeArenaCapability)
+    (freeHead : UInt64 := 0) (initialMem : X86_64Memory := X86_64Mem.zero) : X86_64MachineState :=
   let s0 : X86_64MachineState := {
     rip := 0x1000,
     gprs := fun r =>
       if r == .rcx then size.toUInt64
-      else if r == .r11 then arenaBase
+      else if r == .r11 then arena.base
+      else if r == .r15 then arena.endExclusive
       else if r == .r10 then freeHead
       else if r == .rsp then 0x7FFFFFFF0008
       else 0,
@@ -80,7 +83,7 @@ theorem smol_malloc_refinement_soundness_inst :
     let p0 : TracedPageState := {}
     (match (malloc (m := SmolTracedM) 64 8) s0 p0 with
      | some ((some specPtr, spec1), p1) =>
-       let mach1 := runSmolMallocAsmState 64 0x20000000 0
+       let mach1 := runSmolMallocAsmState 64 { base := 0x20000000, endExclusive := 0x20010000 } 0
        mach1.gprs .rax == specPtr &&
        mach1.gprs .r11 == 0x20000060 &&
        smolAllocInvariant spec1 p1 mach1
@@ -96,7 +99,7 @@ theorem smol_free_refinement_soundness_inst :
      | some ((some specPtr, spec1), p1) =>
        match (free (m := SmolTracedM) specPtr) spec1 p1 with
        | some ((_, spec2), p2) =>
-         let mach1 := runSmolMallocAsmState 64 0x20000000 0
+         let mach1 := runSmolMallocAsmState 64 { base := 0x20000000, endExclusive := 0x20010000 } 0
          let mach2 := runSmolFreeAsmState specPtr mach1
          mach2.gprs .rax == 1 &&
          smolAllocInvariant spec2 p2 mach2
@@ -115,9 +118,10 @@ theorem smol_freelist_reuse_refinement_soundness_inst :
        | some ((_, spec2), p2) =>
          match (malloc (m := SmolTracedM) 48 8) spec2 p2 with
          | some ((some ptr2, spec3), p3) =>
-           let mach1 := runSmolMallocAsmState 64 0x20000000 0
+           let mach1 := runSmolMallocAsmState 64 { base := 0x20000000, endExclusive := 0x20010000 } 0
            let mach2 := runSmolFreeAsmState ptr1 mach1
-           let mach3 := runSmolMallocAsmState 48 (mach2.gprs .r11) (mach2.gprs .r10) mach2.memory
+           let mach3 := runSmolMallocAsmState 48 { base := mach2.gprs .r11, endExclusive := mach2.gprs .r15 }
+             (mach2.gprs .r10) mach2.memory
            ptr2 == ptr1 &&
            mach3.gprs .rax == ptr2 &&
            mach3.gprs .r11 == mach2.gprs .r11 &&
@@ -128,12 +132,29 @@ theorem smol_freelist_reuse_refinement_soundness_inst :
      | _ => false) = true := by
   decide
 
+set_option maxRecDepth 10000 in
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- A fresh request exceeding a caller-provided finite arena returns the explicit null failure
+    result without advancing the bump pointer or changing the free-list head.  This is the
+    reusable native certificate consumed by clients that turn exhaustion into a recoverable
+    outcome. -/
+theorem smol_finite_arena_exhaustion_preserves_allocator_state :
+    let arena : NativeArenaCapability := { base := 0x20000000, endExclusive := 0x2000005F }
+    let mach := runSmolMallocAsmState 64 arena 0
+    mach.gprs .rax == 0 &&
+    mach.gprs .r11 == arena.base &&
+    mach.gprs .r10 == 0 &&
+    mach.gprs .r15 == arena.endExclusive := by
+  decide
+
+set_option maxRecDepth 10000 in
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Verified Simulation Instance: smol_malloc with insufficient freelist capacity falls back to fresh arena allocation. -/
 theorem smol_freelist_insufficient_capacity_fallback_inst :
-    let mach1 := runSmolMallocAsmState 64 0x20000000 0
+    let mach1 := runSmolMallocAsmState 64 { base := 0x20000000, endExclusive := 0x20010000 } 0
     let mach2 := runSmolFreeAsmState 0x20000020 mach1
-    let mach3 := runSmolMallocAsmState 128 (mach2.gprs .r11) (mach2.gprs .r10) mach2.memory
+    let mach3 := runSmolMallocAsmState 128 { base := mach2.gprs .r11, endExclusive := mach2.gprs .r15 }
+      (mach2.gprs .r10) mach2.memory
     mach3.gprs .rax == 0x20000080 &&
     mach3.gprs .r11 == 0x20000100 &&
     mach3.gprs .r10 == 0x20000000 &&
