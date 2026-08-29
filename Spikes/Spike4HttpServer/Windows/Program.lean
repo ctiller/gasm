@@ -154,6 +154,7 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   -- 0 and -1 cases without ever reading the (possibly short/uninitialized) request buffer.
   instr (cmp_r64_imm8 .rax 0x00),
   jle_near_label "close_conn",
+  instr (mov_r64 .r10 .rax),
 ] ++
 
   -- 9. Validate the request's HTTP method token (REF: docs/READ_BINDER_CONTRACT.md).
@@ -173,7 +174,8 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   jmp_near_label "do_send",
 ] ++
 
-  methodPathWindowInstrs 0x40 "route_dispatch" ++
+  methodPathWindowInstrs 0x40 "validate_request_line" ++
+  requestLineValidationInstrs "route_dispatch" "send_400" ++
 [
   -- 9b. Inspect the request target RSI now points at.
   -- Check if path is exactly "/status" followed by the request-line's delimiting space.
