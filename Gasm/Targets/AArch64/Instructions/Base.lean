@@ -115,7 +115,13 @@ structure AnyAArch64Instruction where
 instance : AArch64Instruction AnyAArch64Instruction where
   encodeWord pkg := @AArch64Instruction.encodeWord pkg.α pkg.inst pkg.instr
   encode pkg := @AArch64Instruction.encode pkg.α pkg.inst pkg.instr
-  step pkg s := @AArch64Instruction.step pkg.α pkg.inst pkg.instr s
+  -- Architectural instructions cannot observe or mutate host-owned input queues. Keep that
+  -- boundary sealed at the open existential wrapper; syscall interceptors remain the sole owner
+  -- of stdin/request consumption.
+  step pkg s :=
+    let coreInput := { s with stdinBuffer := ByteArray.empty, incomingRequests := [] }
+    let stepped := @AArch64Instruction.step pkg.α pkg.inst pkg.instr coreInput
+    { stepped with stdinBuffer := s.stdinBuffer, incomingRequests := s.incomingRequests }
   toUops pkg := @AArch64Instruction.toUops pkg.α pkg.inst pkg.instr
   toAssembly pkg := @AArch64Instruction.toAssembly pkg.α pkg.inst pkg.instr
   roundtripCases := []

@@ -83,4 +83,24 @@ instance [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEven
   interceptCall addr s :=
     Gasm.Targets.AArch64.Linux.linuxSyscallIntercept addr s
 
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Selected input-independent boundary predicate for the production AArch64 Linux dispatcher. -/
+def selectedNonInputAArch64LinuxCall :
+    Address → Gasm.Targets.AArch64.AArch64MachineState → Bool :=
+  Gasm.Targets.AArch64.Linux.selectedNonInputLinuxCall
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Owner-layer external-input congruence for the actual AArch64 Linux dispatcher instance. -/
+theorem aarch64LinuxCallInterceptor_preserves_selected_external_input_frame
+    [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
+    Gasm.Targets.AArch64.InterceptorPreservesExternalInputFrame (Event := Event)
+      selectedNonInputAArch64LinuxCall := by
+  intro address state stdin requests hselected
+  change Gasm.Targets.AArch64.Linux.linuxSyscallIntercept address
+      (state.withExternalInputs stdin requests) =
+    (Gasm.Targets.AArch64.Linux.linuxSyscallIntercept address state).map
+      (fun result => (result.1.withExternalInputs stdin requests, result.2))
+  exact Gasm.Targets.AArch64.Linux.linuxSyscallIntercept_preserves_selected_external_input_frame
+    address state stdin requests hselected
+
 end Gasm.Targets

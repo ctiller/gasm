@@ -74,6 +74,21 @@ private def getRegFin (s : AArch64MachineState) (i : Nat) : UInt64 :=
 private def setRegFin (s : AArch64MachineState) (i : Nat) (v : UInt64) : AArch64MachineState :=
   if h : i < 31 then s.setGpr64 ⟨i, h⟩ v else s
 
+@[simp] private theorem getRegFin_withExternalInputs
+    (state : AArch64MachineState) (i : Nat)
+    (stdin : ByteArray) (requests : List ByteArray) :
+    getRegFin (state.withExternalInputs stdin requests) i = getRegFin state i := by
+  unfold getRegFin
+  split <;> rfl
+
+@[simp] private theorem setRegFin_withExternalInputs
+    (state : AArch64MachineState) (i : Nat) (value : UInt64)
+    (stdin : ByteArray) (requests : List ByteArray) :
+    setRegFin (state.withExternalInputs stdin requests) i value =
+      (setRegFin state i value).withExternalInputs stdin requests := by
+  unfold setRegFin
+  split <;> rfl
+
 /-- Reads a string from AArch64Memory starting at `bufAddr` for `count` bytes. -/
 private def readStringFromMemory (m : AArch64Memory) (bufAddr : Address) (count : Nat) : String :=
   let rec loop (idx : Nat) (acc : List Char) : List Char :=
@@ -235,5 +250,82 @@ def linuxSyscallIntercept {Event : Type} [Inject ConsoleEvent Event] [Inject Pro
       let nextPc := s.syscallReturnPc
       some ({ (setRegFin s 0 0xFFFFFFFFFFFFFFDA) with pc := nextPc }, none) -- -ENOSYS (-38)
   else none
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Ordinary addresses plus the write/exit syscall subset used by input-independent AArch64
+    artifacts. Input-consuming `read` and `accept` calls are not selected. -/
+def selectedNonInputLinuxCall (address : Address) (state : AArch64MachineState) : Bool :=
+  if address == linuxSyscallEntry then
+    state.getReg64 .x8 == SYS_write || state.getReg64 .x8 == SYS_exit ||
+      state.getReg64 .x8 == SYS_exit_group
+  else true
+
+private theorem sysWriteHook_external_input_frame {Event : Type}
+    [Inject ConsoleEvent Event] [Inject NetEvent Event]
+    (state : AArch64MachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    sysWriteHook (Event := Event) (state.withExternalInputs stdin requests) =
+      let result := sysWriteHook (Event := Event) state
+      (result.1.withExternalInputs stdin requests, result.2) := by
+  unfold sysWriteHook
+  simp only [getRegFin_withExternalInputs,
+    AArch64MachineState.withExternalInputs_memory,
+    AArch64MachineState.withExternalInputs_syscallReturnPc]
+  split
+  · simp [setRegFin_withExternalInputs]
+    unfold AArch64MachineState.withExternalInputs
+    rfl
+  · split
+    · simp [setRegFin_withExternalInputs]
+      unfold AArch64MachineState.withExternalInputs
+      rfl
+    · split
+      · simp [setRegFin_withExternalInputs]
+        unfold AArch64MachineState.withExternalInputs
+        rfl
+      · simp [setRegFin_withExternalInputs]
+        unfold AArch64MachineState.withExternalInputs
+        rfl
+
+private theorem sysExitHook_external_input_frame {Event : Type}
+    [Inject ProcessEvent Event]
+    (state : AArch64MachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    sysExitHook (Event := Event) (state.withExternalInputs stdin requests) =
+      let result := sysExitHook (Event := Event) state
+      (result.1.withExternalInputs stdin requests, result.2) := by
+  unfold sysExitHook
+  simp [getRegFin_withExternalInputs]
+  unfold AArch64MachineState.withExternalInputs
+  rfl
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- The production AArch64 Linux interceptor transports arbitrary external input through exactly
+    the selected output/termination syscall outcomes. -/
+theorem linuxSyscallIntercept_preserves_selected_external_input_frame {Event : Type}
+    [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
+    ∀ address state stdin requests, selectedNonInputLinuxCall address state = true →
+      linuxSyscallIntercept (Event := Event) address (state.withExternalInputs stdin requests) =
+        (linuxSyscallIntercept (Event := Event) address state).map
+          (fun result => (result.1.withExternalInputs stdin requests, result.2)) := by
+  intro address state stdin requests hselected
+  by_cases haddress : address = linuxSyscallEntry
+  · subst address
+    by_cases hwrite : state.getReg64 .x8 = SYS_write
+    · simp [linuxSyscallIntercept,
+        hwrite, SYS_read, SYS_write,
+        sysWriteHook_external_input_frame]
+    · by_cases hexit : state.getReg64 .x8 = SYS_exit
+      · simp [linuxSyscallIntercept,
+          hwrite, hexit, SYS_read, SYS_write, SYS_openat, SYS_close, SYS_mmap,
+          SYS_munmap, SYS_socket, SYS_accept, SYS_bind, SYS_listen, SYS_exit,
+          sysExitHook_external_input_frame]
+      · have hexitGroup : state.getReg64 .x8 = SYS_exit_group := by
+          simpa [selectedNonInputLinuxCall, hwrite, hexit] using hselected
+        simp [linuxSyscallIntercept,
+          hwrite, hexit, hexitGroup, SYS_read, SYS_write, SYS_openat, SYS_close,
+          SYS_mmap, SYS_munmap, SYS_socket, SYS_accept, SYS_bind, SYS_listen,
+          SYS_exit, SYS_exit_group,
+          sysExitHook_external_input_frame]
+  · have hbeq : (address == linuxSyscallEntry) = false := by simp [haddress]
+    simp [linuxSyscallIntercept, hbeq]
 
 end Gasm.Targets.AArch64.Linux
