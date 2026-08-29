@@ -80,7 +80,7 @@ def spike5LinuxInitialState (env : Environment) :=
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- WASI's concrete Spike 5 input injection point.  `fd_read` consumes the first
     component and networking imports consume the request queue. -/
-def spike5WasiInitialInput (env : Environment) : ByteArray × List String :=
+def spike5WasiInitialInput (env : Environment) : ByteArray × List ByteArray :=
   (gzipInput env, env.incomingRequests)
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
