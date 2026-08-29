@@ -292,6 +292,42 @@ inductive Step {Arch : Type} [TargetArch Arch]
       (sameEntry : targetBlock.entry = edge.target) :
       Step graph source (targetPoint edge targetBlock sameEntry)
 
+/-- Graph closure discharges successor lookup once for all clients.  A caller
+    selecting a branch supplies only the body equation and branch fact; it does
+    not re-prove membership of that target at every use site. -/
+theorem selected_target_in_graph {Arch : Type} [TargetArch Arch]
+    {graph : TypedControlFlowGraph Arch} {source : BlockControlPoint Arch}
+    {ExitState : Type} {exit : ComposedState Arch ExitState}
+    {terminator : CpuTerminator Arch exit} {edge : BlockEdge exit}
+    (sourceInGraph : graph.Contains source)
+    (bodyResult : source.block.body source.state source.accepted =
+      ⟨ExitState, exit, terminator⟩)
+    (selected : SelectedEdge terminator edge) :
+    ∃ target ∈ graph.blocks, target.entry = edge.target := by
+  have closed := graph.targetsInGraph source.block sourceInGraph source.state source.accepted
+  rw [bodyResult] at closed
+  cases selected with
+  | direct => exact closed
+  | indirect => exact closed.1
+  | branchTrue => exact closed.1
+  | branchFalse => exact closed.2
+
+/-- Proof-economical step constructor: target lookup is derived from the one
+    graph-closure proof and the selected terminator edge. -/
+theorem Step.fromBody {Arch : Type} [TargetArch Arch]
+    {graph : TypedControlFlowGraph Arch} {source : BlockControlPoint Arch}
+    {ExitState : Type} {exit : ComposedState Arch ExitState}
+    {terminator : CpuTerminator Arch exit} {edge : BlockEdge exit}
+    (sourceInGraph : graph.Contains source)
+    (bodyResult : source.block.body source.state source.accepted =
+      ⟨ExitState, exit, terminator⟩)
+    (selected : SelectedEdge terminator edge) :
+    ∃ target, Step graph source target := by
+  rcases selected_target_in_graph sourceInGraph bodyResult selected with
+    ⟨targetBlock, targetInGraph, sameEntry⟩
+  exact ⟨targetPoint edge targetBlock sameEntry,
+    .jump sourceInGraph bodyResult edge selected targetBlock targetInGraph sameEntry⟩
+
 /-- Reflexive-transitive typed reachability.  Induction over this relation is
     the reusable whole-CFG proof rule: each block proves its contract once and
     each predecessor pays only for the selected target's precondition. -/
