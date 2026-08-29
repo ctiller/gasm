@@ -28,7 +28,7 @@ structure StreamingRequestLineState where
   line : List UInt8 := []
   pendingCR : Bool := false
   complete : Bool := false
-  deriving Repr, DecidableEq, BEq
+  deriving Repr, DecidableEq, BEq, Inhabited
 
 /- REF: docs/STDLIB_HTTP11.md#21-request-line -/
 inductive StreamingRequestLineResult where

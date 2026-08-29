@@ -120,6 +120,45 @@ def runAsmTrace {Event : Type} [ExternalCallInterceptor X86_64 Event]
     (instructions : List X86_64Instr) (s : X86_64MachineState) (fuel : Nat := 50000) : List Event :=
   runProgramTraceWithLoops s.rip instructions fuel s
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Fuel- and fault-honest native execution outcome.  The historical trace-only evaluator cannot
+    distinguish a normal stop from exhausting its recursion budget after the last emitted event;
+    verified platform admissibility uses this outcome instead. -/
+inductive NativeRunOutcome (Event : Type) where
+  | completed (state : X86_64MachineState) (events : List Event)
+  | faulted (state : X86_64MachineState) (events : List Event)
+  | fuelExhausted (state : X86_64MachineState) (events : List Event)
+
+/-- Executes exactly the same indexed instruction/interceptor transition as `runAsmTrace`, while
+    preserving why evaluation stopped. -/
+def runProgramOutcomeWithLoops {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (baseRip : UInt64) (instructions : List X86_64Instr) (fuel : Nat)
+    (initial : X86_64MachineState) : NativeRunOutcome Event :=
+  let indexed := indexInstructions baseRip instructions
+  let rec loop (fuel : Nat) (state : X86_64MachineState) (eventsRev : List Event) :
+      NativeRunOutcome Event :=
+    match fuel with
+    | 0 => .fuelExhausted state eventsRev.reverse
+    | fuel + 1 =>
+      match instructionAtRipIndexed indexed state.rip with
+      | none => .completed state eventsRev.reverse
+      | some instr =>
+        let stepped := X86_64Instruction.step instr state
+        match interceptor.interceptCall stepped.rip stepped with
+        | some (hooked, event) =>
+          let eventsRev' := match event with | some emitted => emitted :: eventsRev | none => eventsRev
+          if hooked.faulted then .faulted hooked eventsRev'.reverse
+          else loop fuel hooked eventsRev'
+        | none =>
+          if stepped.faulted then .faulted stepped eventsRev.reverse
+          else loop fuel stepped eventsRev
+  loop fuel initial []
+
+def NativeRunOutcome.isAdmissible : NativeRunOutcome Event → Prop
+  | .completed _ _ => True
+  | .faulted _ _ | .fuelExhausted _ _ => False
+
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Executes an x86-64 instruction sequence supporting branches and loops with fuel-based termination. -/
 def runProgramWithLoops (baseRip : UInt64) (instructions : List X86_64Instr) (fuel : Nat) (s : X86_64MachineState) : X86_64MachineState :=

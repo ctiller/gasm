@@ -77,7 +77,7 @@ instance {Event : Type} [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Even
     { state with incomingRequests := environment.incomingRequests }
   run := fun artifact state => runAsmTrace artifact.instructions state
   admissible := fun artifact state =>
-    (runProgramWithLoopsIntercept (Event := Event) state.rip artifact.instructions 50000 state).fault = none
+    (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).isAdmissible
   emit := fun artifact => .ok artifact.executable.emit
 
 instance {Event : Type} [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
@@ -97,7 +97,7 @@ instance {Event : Type} [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Even
     { state with incomingRequests := environment.incomingRequests }
   run := fun artifact state => runAsmTrace artifact.instructions state
   admissible := fun artifact state =>
-    (runProgramWithLoopsIntercept (Event := Event) state.rip artifact.instructions 50000 state).fault = none
+    (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).isAdmissible
   emit := fun artifact => .ok artifact.executable.emit
 
 instance {Event : Type} [Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event] :
@@ -129,6 +129,7 @@ def windowsHostCapability (Event : Type)
     Capability (WindowsX86_64 Event) where
   Context := Unit
   provides := fun _ => True
+  implementationConnected := fun artifact => Platform.artifactConnected artifact
   establishes := fun _ _ _ _ => True
 
 def windowsHostCapabilities (Event : Type)

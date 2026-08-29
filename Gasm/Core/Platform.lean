@@ -68,6 +68,11 @@ class Platform (P : Type u) where
 structure Capability (P : Type) [Platform P] where
   Context : Type
   provides : Platform.Import (P := P) → Prop
+  /-- Target-owned evidence that every import claimed by this capability is backed by an
+      implementation/artifact realization.  This is deliberately separate from entry context:
+      a caller can establish arguments and resources without thereby proving that a library
+      implementation exists. -/
+  implementationConnected : Platform.Artifact (P := P) → Prop
   establishes : Platform.Artifact (P := P) → Environment →
     Platform.State (P := P) → Context → Prop
 
@@ -77,6 +82,7 @@ namespace Capability
 def empty (P : Type) [Platform P] : Capability P where
   Context := Unit
   provides := fun _ => False
+  implementationConnected := fun _ => True
   establishes := fun _ _ _ _ => True
 
 /-- Product composition of two capability rows.  Shared physical placement is
@@ -84,6 +90,8 @@ def empty (P : Type) [Platform P] : Capability P where
 def compose {P : Type} [Platform P] (left right : Capability P) : Capability P where
   Context := left.Context × right.Context
   provides := fun imported => left.provides imported ∨ right.provides imported
+  implementationConnected := fun artifact =>
+    left.implementationConnected artifact ∧ right.implementationConnected artifact
   establishes := fun artifact environment state context =>
     left.establishes artifact environment state context.1 ∧
       right.establishes artifact environment state context.2
@@ -142,6 +150,7 @@ structure VerifiedProgram (P : Type) [Platform P] (capabilities : CapabilityComp
   spec : Environment → Platform.Observation (P := P)
   importsCovered : ∀ imported, imported ∈ Platform.imports artifact →
     capabilities.root.provides imported
+  capabilitiesConnection : capabilities.root.implementationConnected artifact
   entryEstablished : ∀ environment,
     ∃ context, capabilities.root.establishes artifact environment
       (Platform.load artifact environment) context

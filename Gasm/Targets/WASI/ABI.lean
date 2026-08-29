@@ -501,6 +501,7 @@ instance : Platform WasiPlatform where
 def wasiHostCapability : Capability WasiPlatform where
   Context := Unit
   provides := fun _ => True
+  implementationConnected := fun artifact => Platform.artifactConnected artifact
   establishes := fun _ _ _ _ => True
 
 def wasiHostCapabilities : CapabilityComposition WasiPlatform where
