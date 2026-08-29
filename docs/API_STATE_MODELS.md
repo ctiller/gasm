@@ -5,7 +5,7 @@ generic value-level permissions/obligations, vector-clock operations, and a narr
 surface exist. Path-sensitive linear enforcement, typed lock/join obligations, closed indexed
 constructors, and automatic `Callable` derivation do not. Fenced Lean below is illustrative unless
 it names a current source declaration. The canonical completion design is
-`docs/MEMORY_MODEL.md` §§6–8 and 11–14.
+`docs/MEMORY_MODEL.md` §3, §§6–8, and §§11–15.
 
 When low-level assembly routines interact with external operating system kernels, databases, GPU command processors, or hardware controllers, they cross **external execution boundaries**.
 
@@ -38,11 +38,17 @@ structure ComposedState (Arch : Type) (ApiStateType : Type) where
   eventHistory : EventTag → VectorClock      -- Monotonic event history map
 ```
 
-This sketch reflects the current field names but not a sound concurrent exit rule. The required
-thread terminator seals a result-indexed bundle accounting for all authority, loans, grants, guards,
-and obligations. Process exit is a separate transition that checks every thread context and sealed
-terminal bundle before discharging only explicitly process-scoped resources; see
-`docs/MEMORY_MODEL.md` §6.4.
+This sketch reflects the current field names but not a sound concurrent exit rule. M3 supplies the
+scheduler/thread-lifecycle seam; M4's required thread terminator seals a result-indexed bundle
+accounting for all authority, loans, grants, guards, and obligations, and M6-T proves the selected
+hosted-thread refinement. Its one-shot `JoinRight` is a
+task/thread contract, not process observation or reaping. The selected M6-PL/M6-PW profile
+separately introduces generative process/address-space/image identities, process status and
+observation resources, optional
+platform-specific reap authority, handle/object graphs and failure domains. Process termination
+applies a profile-declared disposition per resource; it neither returns arbitrary private-memory
+authority in a terminal bundle nor automatically discharges everything labelled process-scoped.
+See `docs/MEMORY_MODEL.md` §§6.4–6.5 and 8–8.1.
 
 ### Intended zero runtime overhead via proof erasure
 
@@ -67,12 +73,16 @@ def BlockM (Arch : Type) (S₁ S₂ : Type) (α : Type) : Type :=
 
 ## 3. The `Callable` Typeclass & Automatic Derivation
 
-The desired surface derives contracts for verified internal blocks and gives external boundaries
-explicit preconditions, obligations, and causal effects. Automatic derivation of this full shape is
-not implemented:
+The sketch below describes a structural transition contract useful for verified internal blocks. It
+does not by itself certify an external call, syscall, loader root, thread/process start or handler
+boundary. Those boundaries additionally require M1's relational entry-origin/precondition/world and
+result/outcome/after-world binding, then a selected concrete M2-B target-admissibility, ABI and
+artifact/link witness and, where applicable, the selected lifecycle semantic realization. Automatic
+derivation of the combined shape is not
+implemented:
 
 ```lean
-/-- Universal structural contract for invocations -/
+/-- Structural transition contract; not an external-boundary/link certificate by itself. -/
 class Callable (Arch : Type) (Target : Type) (InState : outParam Type) (OutState : outParam Type) where
   -- 1. Precondition that must hold before invocation
   Precondition          : ComposedState Arch InState → Prop
@@ -105,8 +115,17 @@ class Callable (Arch : Type) (Target : Type) (InState : outParam Type) (OutState
                             VectorClock.happensBefore ((update s).eventHistory e₁) ((update s).eventHistory e₂))
 ```
 
+For a normal call, the internal `Callable` theorem may be reused unchanged, but the caller still
+proves the exact entry relation and precondition and the linker connects that call edge to the
+selected artifact. Fresh logical identities or authority returned by OS/platform operations are
+introduced only by the relational after-world witness; raw scalar result bits cannot manufacture
+them.
+
 ### 3.1 Linux Syscall Register Poisoning (`RCX` & `R11`)
-On x86-64 Linux, executing `syscall` unconditionally clobbers `RCX` and `R11`. The Linux syscall `Callable` updates the machine state with poisoned scratch registers:
+On x86-64 Linux, executing `syscall` clobbers `RCX` and `R11` according to the selected architectural
+profile. A future M2-B[Linux-x86-syscall] boundary realization must represent those clobbers while
+relating the physical result and after-world; no such `Callable` instance or update declaration
+currently exists. The following is design-only pseudocode:
 
 ```lean
 def linuxSyscallUpdate (s : ComposedState x86_64 InState) : ComposedState x86_64 OutState :=

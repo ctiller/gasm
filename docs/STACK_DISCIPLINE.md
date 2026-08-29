@@ -1,6 +1,13 @@
 # Stack Discipline & Local Jump Obligations
 
-In `gasm`, function local stack manipulation must be strictly checked to guarantee that:
+**Status (2026-08-29): required design with a partial substrate.** `ComposedState.stackDepth`, CFG
+terminators and a minimal stack-clean predicate exist, but `BlockM` currently has unrestricted state
+replacement and no checked stack-instruction authoring surface. The selected M1/M2-B profile must
+complete the rules below. `AbiDiscipline` vocabulary and a stack-restoration fact are necessary but
+not sufficient for relational entry/exit, target admissibility, artifact/link identity or boundary
+certification.
+
+Completed function-local stack manipulation must be strictly checked to guarantee that:
 1. Every allocated byte on the stack is restored before a return instruction (`ret`).
 2. Functions satisfy their target architecture's **Application Binary Interface (ABI)** calling conventions.
 3. Stack alignment invariants (e.g. 16-byte alignment before `call` on x86-64 and AAPCS64) are preserved across all basic blocks.
@@ -9,7 +16,9 @@ In `gasm`, function local stack manipulation must be strictly checked to guarant
 
 ## 1. Concrete Stack Frame Tracking in `ComposedState`
 
-Instead of relying on unconstrained ghost counters, stack management is tracked directly within `ComposedState`:
+The current state contains a `stackDepth` field. The completed authoring surface must update it only
+through checked constructors rather than relying on an unconstrained ghost counter or arbitrary
+state replacement:
 
 ```lean
 structure ComposedState (Arch : Type) (ApiStateType : Type) where
@@ -24,7 +33,8 @@ structure ComposedState (Arch : Type) (ApiStateType : Type) where
 
 ### 1.1 Instruction Soundness on `stackDepth`
 
-Every instruction in `BlockM` that manipulates the stack pointer must satisfy exact step soundness on `stackDepth`:
+Every future checked `BlockM` instruction that manipulates the stack pointer must satisfy exact step
+soundness on `stackDepth`:
 
 - **`push reg` / `push imm`**:
   $$\text{stackDepth}' = \text{stackDepth} + \text{TargetArch.wordWidth Arch}$$
@@ -41,7 +51,9 @@ Every instruction in `BlockM` that manipulates the stack pointer must satisfy ex
 
 ## 2. Multi-ABI Calling Conventions & Stack Restoration Laws
 
-Different operating systems and architectures mandate distinct calling conventions. Rather than hardcoding one global convention into the architecture, `gasm` models calling conventions as **ABI Disciplines** parameterized over `Arch` and `ABI`:
+Different operating systems and architectures mandate distinct calling conventions. The current
+partial substrate records structural **ABI Discipline** vocabulary parameterized over `Arch` and
+`ABI`; a selected M2-B profile must add exact relational entry/exit and caller/link certification:
 
 ```lean
 class AbiDiscipline (Arch : Type) (ABI : Type) where
@@ -72,7 +84,8 @@ class AbiDiscipline (Arch : Type) (ABI : Type) where
 
 ## 3. BasicBlock Structure & Typed Terminators
 
-All basic block CFG transitions are checked against `expectedDepth` and `s_exit.stackDepth`:
+The completed basic-block authoring surface must check CFG transitions against `expectedDepth` and
+`s_exit.stackDepth`; current structures provide only part of that substrate:
 
 ```lean
 structure BasicBlock (Arch : Type) [TargetArch Arch] (InState : Type) where

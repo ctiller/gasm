@@ -22,6 +22,17 @@ index plus offset; one flat numeric offset is not a global address or alias proo
 engine/embedding profile separately proves shared-memory creation, agent lifecycle, blocking
 eligibility and differential-validation coverage.
 
+Shared `memory.grow` is also part of the threads intake rather than an ordinary allocator footnote.
+The selected threads snapshot must pin the required maximum, successful sequentially consistent
+length RMW and returned old size, and failed growth's sequentially consistent length read, `-1`
+result and unchanged extent. Concurrent successful grows must return distinct old extents and
+establish nonoverlapping newly zero-initialized ranges; the profile also states the event and bounds
+observation that permit another agent to address each range. The embedding intake separately pins
+`SharedArrayBuffer` identity/refresh behavior, fixed or resizable buffer lengths, and what existing
+typed views can address after another agent grows the memory. A successful or failed grow result does
+not manufacture exclusive authority; allocation and subdivision still require the checked
+provenance/authority protocol.
+
 The Core 3.0 pages currently registered in `references.json` do not pin the separate threads
 proposal, so the preceding paragraph is a future intake checklist, not an implemented semantic
 claim. That intake must choose whether gasm exposes the full defined-racy model or verifies a DRF

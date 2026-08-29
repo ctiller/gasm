@@ -91,7 +91,11 @@ When freeing payload pointer $P$:
 - **Allocation Rule**: Every successful call to `malloc(size)` or `malloc_aligned(size, align)` returning `some ptr` adds a linear obligation:
   $$\text{Obligation.mustFree}(\text{ptr})$$
 - **Deallocation Rule**: Calling `free(ptr)` consumes and discharges $\text{Obligation.mustFree}(\text{ptr})$.
-- **Zero Leak Theorem**: A completed program trace leaves an empty active obligation list ($\text{obligations} = []$).
+- **Payload-Leak Requirement**: A completed allocator client must discharge every payload `free`
+  obligation. The current specification also retains value-level page tokens marked
+  `isDroppableOnExit`; it does not prove an empty total ledger or automatic page teardown. The
+  selected M6-PL/M6-PW profile must replace that marker with a process/address-space-indexed,
+  platform-proved resource disposition.
 
 ### 4.2 FreeList Re-use Theorem
 The formal specification proves that deallocating a block of size $S$ guarantees that a subsequent allocation request of size $S' \le S$ successfully reuses the freed block without requesting new pages from the underlying `PageSource`.

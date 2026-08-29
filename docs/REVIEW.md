@@ -340,7 +340,41 @@ Reviewers MUST include a **Domain Gap Matrix**:
 | Spec Permitted Behavior / Input Space | Theorem Hypothesis / Bound | Gap Status (`Verified` / `Weakened` / `Uncovered`) | Justification & Impact |
 | :--- | :--- | :--- | :--- |
 
-#### C. Citation Adequacy Audit
+#### C. Proof Applicability and Burden Audit
+
+This is a repository-wide review rule, not a memory-model exception. It applies to functional
+equivalence, ABI/linking, memory/provenance, effects and observables, lifecycle, security,
+performance bounds and liveness/progress claims.
+
+Adversarial review applies to over-demand as well as under-proof. Reviewers MUST derive the applicable
+proof closure from the selected target, reachable operations/effects, advertised guarantees and
+failure paths, then check that every requested theorem has a real trigger in that closure. An unused
+architecture, optional profile, stronger progress class, or unreachable API must not become a proof
+prerequisite merely because the common framework can express it. Conversely, an author cannot avoid a
+reachable safety/platform obligation by declining to name it.
+
+For each requested proof, the review MUST identify the unsafe behavior, false advertised consequence,
+or selected platform rule that the proof excludes. “It would be reassuring,” adjacency in a roadmap,
+and membership in the same implementation stage are not proof triggers. If a bundled stage combines
+independent certificates—for example native lifecycle and optional address parking—reviewers MUST
+check dependencies against the smallest certificate actually consumed and recommend a split when
+packaging would force unrelated work. The minimum sufficient theorem is preferred; a stronger theorem
+is required only when its stronger property is itself selected or needed by a downstream proof.
+
+Prefer one reusable proof at the highest sound abstraction boundary. Consumers reuse generic DSL,
+contract and library theorems; a specialized implementation should prove its refinement delta and
+only the stronger properties it advertises. Flag hypotheses stricter than the specification, repeated
+consumer proofs of an already established invariant, and cross-target/profile coupling that serves no
+semantic dependency. This proportionality audit never weakens adversarial review of the selected
+mechanism: all reachable error, interruption, cancellation, failure and stale-identity paths remain in
+scope, but an unselected mechanism or guarantee does not.
+
+Reviewers MUST include a **Proof Applicability Table**:
+
+| Requested proof / gate | Unsafe behavior, platform rule, or selected claim that triggers it | Reusable base vs. implementation delta | Status (`Required` / `Already discharged` / `Undue burden` / `Missing`) |
+| :--- | :--- | :--- | :--- |
+
+#### D. Citation Adequacy Audit
 
 `scripts/check_refs.py` proves that a cited anchor *resolves*. It cannot prove that the cited
 section *justifies* the declaration, and no other gate does either. That half is the

@@ -19,12 +19,12 @@ provenance and linear-ownership theorems.
 
 ```mermaid
 graph TD
-    Alloc["1. Backing OS Arena<br/>VirtualAlloc / PageSource<br/>(ProcessScopedObligation)"] -->|Yields Base Address + Arena Token| Smol["2. SmolAlloc Sub-allocations<br/>smol_malloc(size)<br/>activeBorrows++"]
+    Alloc["1. Backing OS Arena<br/>VirtualAlloc / PageSource<br/>(legacy isDroppableOnExit marker)"] -->|Yields Base Address + Arena Token| Smol["2. SmolAlloc Sub-allocations<br/>smol_malloc(size)<br/>activeBorrows++"]
     Smol -->|Yields Address Bytes + Live Region Binding| Line["3. Typed Line-Descriptor View<br/>(Address, Length + Ghost Slot Map)"]
     Line -->|Swap Bytes and Slot Bindings| Sort["4. Lexicographical Sort<br/>(Preserves Typed-View Invariant)"]
     Sort -->|Read via Live Binding + Authority| Stream["5. Output Streaming<br/>(WriteFile via Provenanced View)"]
     Stream -->|Discharge Sub-allocation Obligations| Free["6. smol_free<br/>(activeBorrows--)"]
-    Free -->|Process Termination| Exit["7. ExitProcess<br/>Auto-Discharges Process-Scoped Arena"]
+    Free -->|Current root exit check| Exit["7. ExitProcess<br/>Legacy predicate accepts marked token"]
 ```
 
 The v1 boundary is explicit: memory bytes do not contain provenance, and reloading an address does
@@ -53,8 +53,21 @@ Every allocated memory region in the required model must satisfy:
 4. Backing-page release requires the live-child set to be empty. An `activeBorrows : Nat` field may
    be a derived runtime count, but a scalar count alone is not the proof resource.
 
-### 1.3 Process-Scoped Arena Retention & Auto-Discharge
-For allocators such as `SmolAlloc`, backing OS virtual memory pages are retained for the entire duration of the process to serve future allocations without OS syscall thrashing. The backing page obligation is tagged with `isDroppableOnExit := true` (`ProcessScopedObligation`), which is automatically and soundly discharged by the kernel process teardown barrier upon `ExitProcess`.
+### 1.3 Arena Retention and the Legacy Exit Marker
+
+Allocators such as `SmolAlloc` may retain backing OS virtual-memory pages for reuse until their
+owning process/address-space lifetime ends. Current code can tag the value-level token with
+`isDroppableOnExit := true`; `ObligationLedger.isValidAtExit` only tests that Boolean. It does not
+perform a release, identify a process, prove a kernel teardown transition, or justify dropping the
+same resource on thread exit.
+
+The selected M6-PL/M6-PW process model must instead index a private virtual-memory lease by the owning
+`ProcessInstanceId`, address-space/image generation and `FailureDomainId`, then prove the selected
+platform's resource-specific exit disposition. A normal platform teardown may invalidate a private
+mapping without an explicit `VirtualFree`/`munmap` call, but shared mappings, external backing,
+duplicated handles and device/remote effects may survive. Forced termination likewise supplies no
+global discharge theorem. Until that model exists, the marker is legacy bookkeeping rather than
+promotion evidence for provenance or lifecycle safety.
 
 ---
 
@@ -95,9 +108,9 @@ instance that can forge a live identity.
 
 | Phase | Action | Provenance Effect |
 | :--- | :--- | :--- |
-| **1. Ingestion** | Allocate backing arena via `VirtualAlloc` | Generates `ProcessPageObligation` (`isDroppableOnExit := true`) |
+| **1. Ingestion** | Allocate backing arena via `VirtualAlloc` | Generates a legacy value-level token marked `isDroppableOnExit := true`; this is not yet process-indexed cleanup authority |
 | **2. Chunk Streaming** | Read stdin chunks into `chunkBuf` | Allocates discrete payload regions and registers each address field in the line table's typed-view slot map |
 | **3. Permutation** | Bubble sort swaps descriptor pairs | Permutes descriptor bytes and ghost slot bindings together, preserving region identity |
 | **4. Emission** | Stream sorted lines to `WriteFile` | Uses the typed-view binding plus current read authority for in-bounds payload access |
 | **5. Deallocation** | Free sort table, nodes, and strings via `smol_free` | Consumes each exact child identity/authority and discharges all strict obligations |
-| **6. Termination** | Exit via `ExitProcess(0)` | Auto-discharges process-scoped backing page obligation |
+| **6. Termination** | Exit via `ExitProcess(0)` | Current exit predicate accepts the marked token; M6-PW must specify the private mapping's semantic exit disposition and M6-PW-X must prove the native `ExitProcess`/teardown lowering |

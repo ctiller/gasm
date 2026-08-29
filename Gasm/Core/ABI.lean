@@ -22,7 +22,8 @@ import Gasm.Core.CFG
 namespace Gasm.Core
 
 /- REF: docs/STACK_DISCIPLINE.md#2-multi-abi-calling-conventions-stack-restoration-laws -/
-/-- Multi-ABI calling convention specification. -/
+/-- Partial structural vocabulary for a selected ABI.
+It is not by itself an M1/M2-B relational entry/exit, admissibility, or artifact/link certificate. -/
 class AbiDiscipline (Arch : Type) (ABI : Type) [TargetArch Arch] where
   callerSavedRegs      : List (Register Arch (TargetArch.wordWidth Arch))
   calleeSavedRegs      : List (Register Arch (TargetArch.wordWidth Arch))

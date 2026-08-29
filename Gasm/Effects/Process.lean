@@ -20,7 +20,9 @@ import Gasm.Effects.Inject
 namespace Gasm.Effects
 
 /- REF: docs/SYSTEM_EFFECTS.md#23-monadprocess-lifecycle-environment -/
-/-- Strongly-typed process lifecycle event. -/
+/-- Terminal event for the current implicit-root whole-program/execution profile.
+An M6-PL/M6-PW global trace must additionally qualify it by generative `ProcessInstanceId` and keep
+terminality, status observation, reaping, and lifecycle-object reclamation distinct. -/
 inductive ProcessEvent where
   | exit (code : UInt32)
   deriving DecidableEq, Repr, Inhabited
@@ -32,8 +34,10 @@ instance : IsEvent ProcessEvent where
     | .exit c => s!"exit({c})"
 
 /- REF: docs/SYSTEM_EFFECTS.md#23-monadprocess-lifecycle-environment -/
-/-- Portable effect typeclass for process lifecycle and execution environment. -/
+/-- Current portable effect surface for one implicit root process and its environment.
+It is not yet an M6-PL/M6-PW multi-process lifecycle/observation/reaping interface. -/
 class MonadProcess (m : Type → Type) [Monad m] where
+  /-- Terminates the implicit root process in the current single-process profile. -/
   exitProcess : ∀ {α : Type}, UInt32 → m α
   getEnvVar   : String → m (Option String)
 

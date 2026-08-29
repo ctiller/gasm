@@ -3,7 +3,8 @@
 **Status (2026-08-28): partial AArch64 substrate plus design sketch.** The tree does not enforce
 the stack/access claims or implement the weak-memory/barrier/exclusive semantics sketched below.
 The live implementation inventory is `docs/TARGETS/ARM64.md`; the canonical concurrency design is
-`docs/MEMORY_MODEL.md` §§4–5.2 and 10.2.
+`docs/MEMORY_MODEL.md` §3, §§4–5.2 and §10.2, including M1's abstract boundary seam and the
+selected M2-B[AAPCS64-call] concrete certificate.
 
 This document records target intent for the **ARM architecture**, focusing primarily on 64-bit
 **AArch64**. Exact architecture/profile scope must be pinned before its weak-memory semantics land.
@@ -51,16 +52,21 @@ Every AArch64 instruction is encoded as a **fixed-length 32-bit word** (little-e
   On AArch64, `RET` branches to `X30` (`LR`) without popping from the stack. Upon return, the stack pointer exactly equals the entry stack pointer:
   $$\text{m\_final.sp} = m_0.\text{sp}$$
 - **Hardware SP Alignment Mandate**:
-  In ARMv8 silicon, using `SP` as a base register for memory access when `SP[3:0] != 0` generates an automatic **Hardware SP Alignment Fault**. `gasm` enforces `s.stackDepth % 16 == 0` on all public boundaries and memory access instructions.
+  The selected Arm profile must pin the exact SP-alignment rule and prove it at every admitted access
+  and public boundary. The current tree does not enforce that rule merely from `stackDepth`.
 
-### Standard Function Prologue / Epilogue
+### Illustrative, Non-Certifying Function Shape
+
+The following legacy sketch is pseudocode, not current Lean and not an M1/M2-B certificate. In
+particular, an `entryProof` equal to `True` would establish no caller/link origin, logical arguments,
+live world, target admissibility or artifact identity and must be rejected by the completed design.
 
 ```lean
 def aarch64FunctionTemplate :
     BasicBlock arm S := {
   label := "aarch64_routine"
   expectedDepth := 0
-  entryProof := fun _ => True
+  entryProof := fun _ => True  -- deliberately non-certifying placeholder
   body := ⟨S, do
     -- Prologue: allocate 32 bytes on stack, save FP and LR (stackDepth: 0 -> 32)
     stp x29, x30, preIndex sp (-32)

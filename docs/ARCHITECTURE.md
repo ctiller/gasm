@@ -65,5 +65,8 @@ graph LR
    today, while universal memory-permission and obligation witnesses remain planned.
 3. **Split Proofs for Independent Consumers**:
    - **Equivalence Theorem**: Proves functional correctness against the spec.
-   - **Callability Theorem**: Proves ABI preservation (stack pointer, callee-saved registers) for callers.
+    - **Structural Callability Theorem**: Proves the selected routine's internal transition and ABI
+      preservation facts (such as stack pointer and callee-saved registers). A caller/integrator also
+      discharges M1's relational entry/world/precondition contract and the selected concrete M2-B
+      target/admissibility/artifact-link certificate; `Callable` alone is not an external-boundary proof.
 4. **Binary Emission**: Pure deterministic serialization from verified AST to machine bytes with zero runtime overhead.

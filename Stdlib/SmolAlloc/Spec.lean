@@ -55,7 +55,9 @@ def mkFreeObligation (ptr : Address) : ObligationToken :=
   ⟨ptr.toNat, "FreeObligation", false⟩
 
 /- REF: docs/STDLIB_SMOLALLOC.md#4-linear-obligations-memory-invariants -/
-/-- Constructs a process-scoped backing virtual memory page obligation (auto-discharged at process exit). -/
+/-- Constructs a retained-page token carrying the legacy exit marker.
+The marker is accepted by the current exit predicate; it does not release the mapping or prove an
+M6-PL/M6-PW process-scoped teardown. -/
 def mkProcessPageObligation (base : Address) : ObligationToken :=
   ⟨base.toNat, "ProcessPageObligation", true⟩
 

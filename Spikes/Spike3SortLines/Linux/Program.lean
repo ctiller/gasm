@@ -69,7 +69,8 @@ def defaultSampleInput : ByteArray :=
     5. In-place lexicographical bubble sort over line descriptors.
     6. Streams sorted lines sequentially to stdout via sys_write.
     7. Discharges all memory obligations via smol_free for every allocated string, node, and table.
-    8. Releases virtual memory pages via sys_munmap and terminates with sys_exit(0). -/
+    8. Retains the backing arena under the legacy exit-marker convention and terminates with
+       sys_exit(0); this program does not call sys_munmap. -/
 def spike3SymbolicProgram : List SymbolicInstr := [
   -- 1. Setup 120-byte stack frame to maintain (RSP - 120) % 16 == 0
   instr (sub_rsp 120),
@@ -500,7 +501,8 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (mov_r64 .rsi .rbx),                 -- rsi = nextNode
   jmp_near_label "free_nodes_loop",
 
-  -- 10. Process Termination via sys_exit(0):
+  -- 10. Current single-thread root-program termination via sys_exit(0); this does not prove
+  --     M6-PL whole-process teardown or release the retained arena:
   label "cleanup_and_exit",
   instr (xor_r32 .edi .edi),
   instr (mov_r32 .eax 60),

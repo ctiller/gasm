@@ -72,7 +72,7 @@ graph TD
                                                   |
                                                   v
 +---------------------------------------------------------------------------------------------------+
-| Spike 4: Dual-Target HTTP 1.1 Server (WinSock2 WS2_32.dll, WASI Sockets, Linear Socket Handles)   |
+| Spike 4: Cross-Target HTTP 1.1 Server (Windows/Linux x86-64, WASI Sockets, Linear Socket Handles) |
 +---------------------------------------------------------------------------------------------------+
                                                   |
                                                   v

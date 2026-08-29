@@ -1,10 +1,11 @@
-# Spike 4: Dual-Target HTTP 1.1 Server (x86_64 Windows & WebAssembly)
+# Spike 4: Cross-Target HTTP 1.1 Server (x86_64 Windows/Linux & WebAssembly)
 
-Spike 4 establishes the formal verified lowering and execution of an **HTTP 1.1 Server** co-developed across two distinct machine targets:
+Spike 4 establishes checked lowerings and executions of an **HTTP 1.1 Server** across three target profiles:
 1. **x86_64 Windows (`.exe`)**: Native PE32+ binary linking with `ws2_32.dll` (WinSock2) and `kernel32.dll`.
-2. **WebAssembly (`.wasm`)**: Standard WebAssembly MVP binary module operating over linear memory with WASI socket / host socket imports.
+2. **x86_64 Linux (ELF)**: Native Linux executable using the modeled socket/syscall surface.
+3. **WebAssembly (`.wasm`)**: Standard WebAssembly MVP binary module operating over linear memory with WASI socket / host socket imports.
 
-Both implementations satisfy identical high-level mathematical specifications and constructive semantic trace equivalence proofs.
+The exact proof scope is the narrow, pointwise contract recorded in §4; it is not a universal HTTP-server equivalence claim.
 
 ---
 
@@ -75,11 +76,13 @@ structure ClientConnObligation where
 1. `bind` + `listen` creates a `SocketObligation` representing the listening server socket.
 2. `accept` generates an ephemeral `ClientConnObligation` representing the active TCP client stream.
 3. Every client request processing loop **must** execute `closesocket` / `sock_close` along all termination paths (success, error, 404, or client disconnect), strictly discharging the `ClientConnObligation`.
-4. Upon server shutdown, the listening socket is closed, and any process-scoped network resources are auto-discharged upon process exit.
+4. Upon server shutdown, the listening socket is closed. Forced process exit may cause the selected
+   platform to close local descriptors, but that is a resource-specific failure disposition—not
+   proof that ordinary close obligations were discharged or that shared/remote effects vanished.
 
 ---
 
-## 3. Dual-Target Architectural Realization
+## 3. Cross-Target Architectural Realization
 
 ### 3.1 x86_64 Windows (`ws2_32.dll`)
 - Multi-DLL PE/COFF `.idata` generation importing from both `KERNEL32.dll` and `WS2_32.dll`.
@@ -93,6 +96,13 @@ structure ClientConnObligation where
 - Execution in WASM linear memory with `SmolAlloc` managing buffer allocations.
 - Direct invocation of HTTP parser and response generator using WASM integer load/store instructions.
 
+### 3.3 x86_64 Linux (ELF)
+
+- Native ELF lowering over the Linux x86-64 socket/syscall profile.
+- The same generated method dispatch and full `"/status "` comparison used by the Windows path.
+- Linux trace and `VerifiedLinuxProgram` declarations remain subject to the same narrow-domain caveat
+  as the Windows and WebAssembly declarations.
+
 ---
 
 ## 4. Semantic Trace Equivalence & VerifiedProgram Contract
@@ -104,31 +114,31 @@ The high-level server model produces system effect events in the `Network`, `Con
 - `Net.Send(responseBytes)`
 - `Net.Close(clientConn)`
 
-**Status** (corrected 2026-08-28): this paragraph previously read "the lowering theorems for both
+**Status:** this paragraph previously read "the lowering theorems for both
 Windows x86_64 (`spike4_windows_canonical_trace_equivalence`) and WebAssembly
 (`spike4_wasm_canonical_trace_equivalence`) prove constructive trace equivalence via
 `native_decide`, establishing that both distinct physical binaries execute identical verified
 protocol semantics." **Neither of those two theorem names has ever existed in the tree**, and the
-property the sentence asserted is not established — `scripts/gate_allowlist.txt` records, in the
-six `spike4_*_trace_equivalence` entries, the 2026-08-28 domain-honesty finding that widening these
-theorems to the real per-request domain **"would be FALSE"**. What follows is what is actually proved.
+property the sentence asserted is not established. The theorem comments, checked malformed-request
+counterexamples, and `scripts/gate_allowlist.txt` entries record the narrower domain and why it cannot
+currently be widened to arbitrary request bytes. What follows is what is actually proved.
 
 What exists, in `Spikes/Spike4HttpServer/Equivalence.lean`:
 
 - **Nine pointwise trace-equivalence theorems**, `spike4_{windows,wasm,linux}_{root,status,404}_trace_equivalence`
-  (`:99`–`:172`) — three targets, not two; the Linux lowering landed alongside the other two. Each
+  — three per target. Each
   is a single `native_decide` check against **one literal request string**, not a statement about
   arbitrary requests.
-- **Three route-indexed compositions**, `spike4_{windows,wasm,linux}_route_equivalence (r : HttpRoute)`
-  (`:232`, `:241`, `:250`). The `∀ (r : HttpRoute)` binder is genuinely exhaustive, but `HttpRoute`
+- **Three route-indexed compositions**, `spike4_{windows,wasm,linux}_route_equivalence (r : HttpRoute)`.
+  The `∀ (r : HttpRoute)` binder is genuinely exhaustive, but `HttpRoute`
   is a **three-element proxy** for the three literal request strings `routeRequestStr` maps it to —
   it is not the `∀ (request : ByteArray)` domain a server-correctness claim needs.
-- **Two honest restatements**, `spike4_{windows,wasm}_trace_equivalence_for_request` (`:267`,
-  `:278`), which make that narrow domain an explicit hypothesis (`h : req = routeRequestStr r`)
+- **Three honest restatements**, `spike4_{windows,wasm,linux}_trace_equivalence_for_request`, which
+  make that narrow domain an explicit hypothesis (`h : req = routeRequestStr r`)
   instead of hiding it behind the `HttpRoute` case split — the shape
   the domain-honesty review requires.
 - **`spike4WindowsVerifiedProgram` / `spike4LinuxVerifiedProgram` / `spike4WasmVerifiedProgram`**
-  (`:451`, `:460`, `:472`), each carrying a `NOTE (domain-honesty finding)` recording in the
+  each carries the same `NOTE (PA17 domain-honesty finding)` recording in the
   source that this is **not** a Law-9-compliant universal claim despite `VerifiedProgram`'s type
   signature.
 
@@ -138,7 +148,7 @@ recorded in the tree. Historically it was route-prefix confusion: the x86-64 low
 `"/status_check"`, `"/search"` and others were misrouted relative to `Spec.lean`'s
 `parseRequestLine`/`routeRequest`. **That bug is fixed** — the stack-buffer audit
 made all three targets compare the full 8 bytes `"/status "`, and `spike4RouteFixedOnAllTargets`
-(`:354`) re-checks every witness the former "KNOWN DIVERGENCE" note named. The allowlist entries
+re-checks every witness the former "KNOWN DIVERGENCE" note named. The allowlist entries
 now cite the surviving malformed-request mismatch rather than that retired bug.
 
 The falsity survives the fix for an independent reason, recorded in the same file: `parseRequestLine`

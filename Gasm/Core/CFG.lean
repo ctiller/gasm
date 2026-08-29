@@ -38,7 +38,8 @@ inductive ConditionCode (Arch : Type) where
   deriving DecidableEq, Repr, Inhabited
 
 /- REF: docs/STACK_DISCIPLINE.md#2-multi-abi-calling-conventions-stack-restoration-laws -/
-/-- Target callee-side register and stack frame preservation discipline. -/
+/-- Current minimal callee stack-clean predicate.
+It contains no register-preservation or external-boundary/link certificate by itself. -/
 structure CalleeDiscipline (Arch : Type) [TargetArch Arch] {S : Type} (s : ComposedState Arch S) : Prop where
   stack_clean : s.stackDepth = 0
 

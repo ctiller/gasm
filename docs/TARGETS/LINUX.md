@@ -2,10 +2,14 @@
 
 **Concurrency status (2026-08-28): unimplemented.** The x86-64 and AArch64 syscall dispatchers do
 not implement `clone` or futex operations, and currently map thread exit and process exit through a
-single whole-machine termination path. The required process/thread split, child-TID join protocol,
-and process-private 32-bit `FUTEX_WAIT`/`FUTEX_WAKE` refinement are specified in
-`docs/MEMORY_MODEL.md` §§8–9 and stages M6-P/M6-X/M6-A. The executable checks are in
-`docs/SPIKES/SPIKE8_MULTITHREADING.md`.
+single whole-machine termination path. M3 is only the single-address-space logical-thread/PE model;
+M6-T[Linux] adds hosted thread semantics, M6-NX[Linux]/M6-NA[Linux] independently realize native
+thread/child-TID lifecycle, and optional M6-X[Linux]/M6-A[Linux] add only the architecture-specific
+process-private 32-bit `FUTEX_WAIT`/`FUTEX_WAKE` adapters. The separately gated M6-PL stage owns real
+process creation, image/address-space replacement, status observation/reaping and IPC/handle
+semantics; M6-PL-X/A owns native ABI/emission realization. Optional process-shared futex/robust-
+owner-death semantics belong to M6-PS and native realization to M6-PS-X/A. The thread-only
+executable checks are in `docs/SPIKES/SPIKE8_MULTITHREADING.md`.
 
 This document defines the calling conventions, system call ABIs, kernel interface state models, ELF64 binary emission standards, and module architecture for the **Linux platform target** in `gasm`.
 
@@ -22,6 +26,12 @@ For standard subroutine execution, `gasm` models the System V AMD64 ABI discipli
 - **Shadow Space**: None (`shadowSpaceRequired = 0`)
 - **Stack Alignment**: 16-byte aligned before `call` instructions
 - **Red Zone**: 128 bytes below `RSP` reserved for leaf functions
+
+This current `AbiDiscipline` is structural register/stack vocabulary, not by itself a certified call
+boundary. M1 supplies the abstract relational entry/exit seam; a selected M2-B[SysV-x86-call] realization
+must connect exact logical arguments, bindings, the live world and precondition to the physical entry,
+then prove result/after-world, target admissibility and artifact/link identity. The tables above are
+necessary premises for that certificate, not a substitute for it.
 
 ### 1.2 System Call ABIs Across Architectures
 
@@ -60,10 +70,23 @@ Standard stream descriptors (FD 0 stdin, FD 1 stdout, FD 2 stderr) map directly 
 - Emits strongly typed effect events (`ConsoleEvent.out`, `ConsoleEvent.err`, `ProcessEvent.exit`, `NetworkEvent.send`).
 - Updates `RAX` with return value / bytes written / error code, and advances `RIP`.
 
-### 2.4 Required thread, join, and futex refinement
+The current `SYS_exit=60` path is legacy single-thread whole-machine behavior. Linux `sys_exit`
+terminates only the calling thread once M6-T[Linux] exists. M6-PL models selected whole-process
+semantics; M6-PL-X/A validates the native `exit_group` lowering and qualifies terminal events by
+`ProcessInstanceId`.
 
-The first concurrency profile must add the architecture-specific raw thread-creation ABI, distinct
-thread exit versus `exit_group`, and a true join based on child-TID clear-and-wake semantics. A
+Physical syscall result registers and `errno` branches are non-authorizing observations. The selected
+M2-B[Linux-x86-syscall] or M2-B[Linux-AArch64-svc] profile relates them to a result-indexed logical
+after-world and composes with any selected M6 lifecycle, parking or process semantics; raw result/PID/
+fd bits cannot mint thread/process identities, grants, handles or obligations.
+
+### 2.4 Required thread, task join, and futex refinement
+
+The exact profiles are M6-T[Linux], M6-NX[Linux], M6-NA[Linux], M6-X[Linux], and M6-A[Linux].
+
+M6-T[Linux] fixes semantic outcomes; M6-NX[Linux]/M6-NA[Linux] add the selected architecture-specific
+raw thread-creation ABI, distinct thread exit versus `exit_group`, and a true join based on child-TID
+clear-and-wake semantics. A
 user-written done flag is not enough to prove actual termination or stack reclamation.
 
 Futex parking supports aligned, mapped, stable-lifetime 32-bit wait words; atomic compare-and-block,
@@ -74,6 +97,40 @@ implementation must pass an exact full-word snapshot; a wider implementation nee
 stable 32-bit parking word or another supported adapter, with a proof of its retry and lost-wakeup
 refinement. Futex wake changes scheduler state but is not a memory fence; publication remains an
 x86- or AArch64-proved atomic release/acquire protocol.
+
+This subsection is thread-only. `JoinRight` is the one-shot logical task/thread result contract; it
+is not a process wait or reap right, and child-TID clear-and-wake does not return private process
+authority.
+
+### 2.5 Hosted-process and robust-synchronization boundary (M6-PL/M6-PS)
+
+M6-PL must introduce generative process, address-space, image, PID/namespace, descriptor/open-
+description/object, status and failure-domain identities before modeling `fork`/`_Fork`/`vfork`,
+`execve`/spawn, `exit_group`, wait/status observation, `WNOWAIT`, reaping/reparenting, pidfds,
+shared mappings or `SCM_RIGHTS`. Process exit applies a declared survivor/close/invalidate/orphan/
+continue disposition per resource; it neither globally invalidates the world nor normally
+discharges every marked obligation. Handle transfer distinguishes descriptor alias creation,
+rights, source disposition, partial failure and close obligations. The selected POSIX feature profile
+also decides close-on-fork behavior; a Linux realization must expose its lack of `FD_CLOFORK` support
+rather than claim Issue-8 descriptor inheritance wholesale.
+
+Creation is result-indexed: a failed fork/clone/vfork creates no child identity, status/reap right,
+borrow or parent suspension. Successful fork applies the selected disposition per mapping, including
+Linux `MADV_DONTFORK` omission and `MADV_WIPEONFORK` child zeroing instead of a blanket private-memory
+copy rule.
+
+M6-PL owns those logical success/failure and fresh-identity transitions. M6-PL-X/A relates the exact
+physical fork/clone/vfork/exec/spawn return and error state to that after-world; raw PID/fd/result bits
+never reconstruct a `ProcessInstanceId`, mapping/view generation, descriptor entry, status/reap right,
+borrow or obligation. The native process proof does not depend on the private futex adapter unless its
+selected implementation actually uses that adapter.
+
+M6-PS is a later optional semantic composition of M6-PL with the portable mutex profile. It owns
+process-shared futex keying, robust-list owner-death, exceptional recovery/poison authority and
+surviving shared backing; M6-PS-X/A independently connect those facts to the selected architecture,
+native ABI and emitted code. None of those guarantees is implied by the M6-X[Linux]/M6-A[Linux]
+process-private futex adapters or by ordinary process termination, and completing one architecture
+does not certify the other.
 
 ---
 

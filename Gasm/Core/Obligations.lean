@@ -34,7 +34,8 @@ structure ObligationToken where
   deriving DecidableEq, Repr, Inhabited
 
 /- REF: docs/OBLIGATIONS_AND_CAUSALITY.md#1-the-linear-obligation-ledger -/
-/-- Constructs a process-scoped obligation token that is automatically discharged upon process exit. -/
+/-- Constructs a legacy value-level token accepted by `isValidAtExit`.
+This marker neither performs resource cleanup nor proves process-scoped discharge. -/
 def ObligationToken.mkProcessScoped (id : Nat) (kind : String) : ObligationToken :=
   ⟨id, kind, true⟩
 
@@ -80,7 +81,8 @@ def ObligationLedger.isValidAtReturn (l : ObligationLedger) : Bool :=
   l.tokens.isEmpty
 
 /- REF: docs/OBLIGATIONS_AND_CAUSALITY.md#22-unconditional-exits-cputerminatorsysexit -/
-/-- Validity invariant upon process termination: all remaining obligations must be process-scoped. -/
+/-- Legacy exit predicate: every remaining token must carry the exit marker.
+It does not consume tokens, identify a process, or prove any resource teardown. -/
 def ObligationLedger.isValidAtExit (l : ObligationLedger) : Bool :=
   l.tokens.all (fun t => t.isDroppableOnExit)
 
