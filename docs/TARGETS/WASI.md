@@ -2,6 +2,12 @@
 
 This document defines the WASI (WebAssembly System Interface) Snapshot Preview 1 ABI contracts, system call signatures, memory layouts, and capability conventions used in `gasm`.
 
+WASI host calls and Wasm execution semantics will provide one target realization of the
+placement-free contracts in [Composable Boundary ABI Contexts](../ABI_CONTEXT.md); no such context
+realization is currently connected to callability. Library requirements remain independent of
+WASI. A future realization may use explicit parameters or instance-qualified capability-table
+slots, and must model finite memory growth and its explicit failure outcome.
+
 ---
 
 ## 1. WASI Snapshot Preview 1 Architecture

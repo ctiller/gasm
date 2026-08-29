@@ -16,6 +16,7 @@ limitations under the License.
 
 import Lean
 import Gasm.Core.Types
+import Gasm.Core.Platform
 import Gasm.Effects.Inject
 import Gasm.Effects.Trace
 import Gasm.Effects.Console
@@ -79,6 +80,26 @@ def buildWasiModule (startFn : WasmFunction) (extraFuncs : List WasmFunction := 
   { imports := imports, functions := functions, memoryPages := some 1, dataSegments := dataSegments, exports := exports }
 
 /- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
+/-- Builds a WASI Preview 1 module whose entry point reads the external byte stream.
+    The import order is part of the artifact ABI: `fd_read` is index 0, `fd_write`
+    index 1, and `proc_exit` index 2.  Keep this separate from `buildWasiModule` so
+    existing output-only modules retain their established import indices. -/
+def buildWasiStdinModule (startFn : WasmFunction) (extraFuncs : List WasmFunction := [])
+    (dataSegments : List WasmDataSegment := []) : WasmModule :=
+  let imports : List Import := [
+    { module := wasiModuleName, name := "fd_read", desc := .func 0 },
+    { module := wasiModuleName, name := "fd_write", desc := .func 1 },
+    { module := wasiModuleName, name := "proc_exit", desc := .func 2 }
+  ]
+  let startExported := { startFn with exportName := some "_start" }
+  let functions := [startExported] ++ extraFuncs
+  let exports : List Export := [
+    { name := "memory", desc := .mem 0 }
+  ]
+  { imports := imports, functions := functions, memoryPages := some 1,
+    dataSegments := dataSegments, exports := exports }
+
+/- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
 /-- Initializes linear memory with all active data segments, returning the sealed `WasmMemory`
     cell (`MemoryCell.lean`). The data-segment install loop below builds an ordinary, freely
     mutable local `ByteArray` and wraps it via `WasmMem.ofBytes` only once at the end -- exactly
@@ -94,8 +115,10 @@ def initWasmMemory (segments : List WasmDataSegment) : WasmMemory := Id.run do
   return WasmMem.ofBytes mem
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- Pure operational host call dispatcher for WASI syscalls. -/
-def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : WasmMachineState × ControlSignal := Id.run do
+/-- Raw operational host-call dispatcher.  The public dispatcher below applies the target-owned
+    external-input boundary around calls that do not consume either input channel. -/
+private def wasiHostCallRaw (imports : List String) (idx : Nat)
+    (s : WasmMachineState) : WasmMachineState × ControlSignal := Id.run do
   let fnName := imports[idx]?
   match fnName with
   | some "fd_read" =>
@@ -204,18 +227,14 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
     | [] =>
       return (pushVal (.i32 0) s3, .next)
     | req :: rest =>
-      let (delivered, remaining) := splitBytes req.toUTF8.toList max_len.toNat
-      let count := delivered.length
-      let deliveredArr := ByteArray.mk delivered.toArray
-      match WasmMem.writeBytes s3.memory buf_ptr.toNat deliveredArr with
+      -- F1: shared delivery step -- see `Win32API.lean`'s `recvHook` and
+      -- `Gasm.Effects.recvDeliver_lossless`.
+      let (delivered, incomingRequests') := recvDeliver req max_len.toNat rest
+      let count := delivered.size
+      match WasmMem.writeBytes s3.memory buf_ptr.toNat delivered with
       | none => return ({ s3 with trapped := true }, .next)
       | some curMem =>
-        let incomingRequests' :=
-          match String.fromUTF8? (ByteArray.mk remaining.toArray) with
-          | some r => if remaining.isEmpty then rest else r :: rest
-          | none => rest
-        let deliveredStr := (String.fromUTF8? deliveredArr).getD req
-        let newEvents := s3.events ++ [Inject.inject (NetEvent.recv deliveredStr)]
+        let newEvents := s3.events ++ [Inject.inject (NetEvent.recv (bytesToPayload delivered))]
         return (pushVal (.i32 count.toUInt32) { s3 with memory := curMem, incomingRequests := incomingRequests', events := newEvents }, .next)
 
   | some "sock_send" =>
@@ -240,6 +259,48 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
   | _ =>
     return (s, .next)
 
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Whether an import is allowed to inspect or consume the two external byte channels. -/
+def wasiImportUsesExternalInputs : Option String → Bool
+  | some "fd_read" | some "sock_accept" | some "sock_recv" => true
+  | _ => false
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Pure operational host call dispatcher for WASI syscalls.  Calls which are not input providers
+    execute against an input-erased view and have the caller's channels restored afterward.  This
+    makes the architectural effect boundary explicit without imposing a whole-interpreter proof on
+    each final artifact. -/
+def wasiHostCall (imports : List String) (idx : Nat)
+    (s : WasmMachineState) : WasmMachineState × ControlSignal :=
+  if wasiImportUsesExternalInputs imports[idx]? then
+    wasiHostCallRaw imports idx s
+  else
+    let result := wasiHostCallRaw imports idx
+      (s.withExternalInputs ByteArray.empty [])
+    (result.1.withExternalInputs s.stdin s.incomingRequests, result.2)
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Every import not designated as an input provider satisfies the external-input frame law. -/
+theorem wasiHostCall_external_input_frame_of_not_uses
+    (imports : List String) (idx : Nat)
+    (huses : wasiImportUsesExternalInputs imports[idx]? = false) :
+    ∀ state stdin requests,
+      wasiHostCall imports idx (state.withExternalInputs stdin requests) =
+        let result := wasiHostCall imports idx state
+        (result.1.withExternalInputs stdin requests, result.2) := by
+  intro state stdin requests
+  simp [wasiHostCall, huses, WasmMachineState.withExternalInputs]
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- The stock output-only WASI runtime is independent of both external byte channels. -/
+theorem wasiHostCall_output_only_external_input_frame :
+    WasmHostPreservesExternalInputFrame (wasiHostCall ["fd_write", "proc_exit"]) := by
+  intro index state stdin requests
+  apply wasiHostCall_external_input_frame_of_not_uses
+  cases index with
+  | zero => rfl
+  | succ index => cases index <;> rfl
+
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Runs a full instruction sequence under the WASI system model and returns the FULL,
     fuel-honest `WasmRunResult`: `.ok (finalState, _)` if a genuine stopping point was reached
@@ -252,10 +313,260 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
     `docs/MEMORY_HOOK.md` §12.5 diagnoses for the sibling
     `Gasm/Targets/X86_64/Semantics.lean`'s `runProgramTraceWithLoops` (see `WasmRunResult`'s own
     docstring in `Gasm/Targets/Wasm/Semantics.lean`). -/
-def runWasiTraceState (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List String := []) (fuel : Nat := defaultWasmFuel) : WasmRunResult :=
+def runWasiTraceState (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List ByteArray := []) (fuel : Nat := defaultWasmFuel) : WasmRunResult :=
   let initMem := initWasmMemory segments
   let s : WasmMachineState := { memory := initMem, stdin := stdin, incomingRequests := incomingRequests }
   evalInstrs fuel instrs s (wasiHostCall imports)
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- The externally visible result of a WASI execution under finite platform capabilities.
+
+    A clean fall-through, a `proc_exit`, a Wasm trap, interpreter fuel exhaustion, and refusal of
+    the memory-page capability are distinct outcomes.  In particular, a caller cannot project a
+    successful trace from either resource-exhaustion branch. -/
+inductive WasiRunOutcome where
+  | completed (state : WasmMachineState) (signal : ControlSignal) : WasiRunOutcome
+  | exited (state : WasmMachineState) (code : UInt32) : WasiRunOutcome
+  | trapped (state : WasmMachineState) : WasiRunOutcome
+  | fuelExhausted (partialState : WasmMachineState) : WasiRunOutcome
+  | memoryExhausted (state : WasmMachineState) (requestedPages availablePages : Nat) : WasiRunOutcome
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Finite execution resources supplied by the WASI platform capability.  Input remains an
+    arbitrary `ByteArray`; a budget limits execution resources, not the input domain. -/
+structure WasiResourceBudget where
+  fuel : Nat
+  memoryPages : Nat
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Accounting carried by a recoverable allocation scope.  `liveBytes` is charged against the
+    capability now; `peakLiveBytes` and `cumulativeAllocatedBytes` remain after scope close for
+    auditing, admission control, and parent-scope composition. -/
+structure WasiAllocationAccount where
+  byteBudget : Nat
+  liveBytes : Nat := 0
+  peakLiveBytes : Nat := 0
+  cumulativeAllocatedBytes : Nat := 0
+  deriving Repr, DecidableEq, BEq
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- A lexical allocation scope.  `entry` is retained so closing a child reliably reclaims every
+    byte allocated in that child, while cumulative and peak accounting compose into its parent.
+    Opening another scope from `current` nests naturally. -/
+structure WasiAllocationScope where
+  entry : WasiAllocationAccount
+  current : WasiAllocationAccount
+  deriving Repr, DecidableEq, BEq
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Starts a root allocation scope under a finite byte capability. -/
+def WasiAllocationScope.root (byteBudget : Nat) : WasiAllocationScope :=
+  let account := { byteBudget := byteBudget }
+  { entry := account, current := account }
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Opens a nested scope from the current accounting state. -/
+def WasiAllocationScope.openChild (scope : WasiAllocationScope) : WasiAllocationScope :=
+  { entry := scope.current, current := scope.current }
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Data result of a scope-local allocation attempt.  Exhaustion is returned to the request scope
+    as data; it does not terminate the process or erase the account needed for recovery. -/
+inductive WasiAllocationResult where
+  | allocated (scope : WasiAllocationScope) : WasiAllocationResult
+  | exhausted (scope : WasiAllocationScope) : WasiAllocationResult
+  deriving Repr, DecidableEq, BEq
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Attempts to charge `bytes` to the current scope.  Failed attempts leave all accounting
+    unchanged, making retry, fallback, and request-level error responses well-defined. -/
+def WasiAllocationScope.allocate (scope : WasiAllocationScope) (bytes : Nat) : WasiAllocationResult :=
+  let nextLive := scope.current.liveBytes + bytes
+  if nextLive > scope.current.byteBudget then
+    .exhausted scope
+  else
+    let next : WasiAllocationAccount := {
+      scope.current with
+      liveBytes := nextLive
+      peakLiveBytes := Nat.max scope.current.peakLiveBytes nextLive
+      cumulativeAllocatedBytes := scope.current.cumulativeAllocatedBytes + bytes
+    }
+    .allocated { scope with current := next }
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Closes a scope and reclaims its live allocations.  Cumulative allocation and peak live usage
+    are deliberately retained in the returned parent account, so nested scopes compose without
+    losing resource-accounting evidence. -/
+def WasiAllocationScope.close (scope : WasiAllocationScope) : WasiAllocationAccount :=
+  { scope.entry with
+    peakLiveBytes := Nat.max scope.entry.peakLiveBytes scope.current.peakLiveBytes
+    cumulativeAllocatedBytes := scope.current.cumulativeAllocatedBytes }
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Request failure closes the same scope as ordinary success: live allocations are reclaimed
+    before a caller decides whether to return a request error or escalate to process termination. -/
+def WasiAllocationScope.closeOnFailure (scope : WasiAllocationScope) : WasiAllocationAccount :=
+  scope.close
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Closing, including failure close, restores the parent's live-byte charge exactly. -/
+theorem WasiAllocationScope.close_reclaims_live (scope : WasiAllocationScope) :
+    scope.close.liveBytes = scope.entry.liveBytes := rfl
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Allocation exhaustion is recoverable data and leaves the scope unchanged. -/
+theorem WasiAllocationScope.exhausted_unchanged (scope : WasiAllocationScope) (bytes : Nat)
+    (h : scope.current.byteBudget < scope.current.liveBytes + bytes) :
+    scope.allocate bytes = .exhausted scope := by
+  simp [WasiAllocationScope.allocate, Nat.not_le_of_lt h]
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Classifies the interpreter result without collapsing fuel exhaustion into a trace. -/
+def WasiRunOutcome.ofResult : WasmRunResult → WasiRunOutcome
+  | .error partialState => .fuelExhausted partialState
+  | .ok (state, signal) =>
+    match state.resourceFailure with
+    | some (.memoryPages requested available) => .memoryExhausted state requested available
+    | none =>
+      if state.trapped then .trapped state
+      else match state.exitCode with
+        | some code => .exited state code
+        | none => .completed state signal
+
+abbrev WasiHostRuntime :=
+  List String → Nat → WasmMachineState → WasmMachineState × ControlSignal
+
+/-- Runs a WASI artifact under an explicit finite platform resource capability
+    and the exact composed host/library runtime selected by its capabilities. -/
+def runWasiOutcomeWithHost (host : WasiHostRuntime)
+    (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"])
+    (incomingRequests : List ByteArray := []) (budget : WasiResourceBudget :=
+      { fuel := defaultWasmFuel, memoryPages := 65536 }) : WasiRunOutcome :=
+  let initialMemory := initWasmMemory segments
+  let initialPages := (WasmMem.size initialMemory + 65535) / 65536
+  let availablePages := Nat.min budget.memoryPages 65536
+  let state : WasmMachineState := {
+    memory := initialMemory
+    memMax := some availablePages.toUInt32
+    stdin := stdin
+    incomingRequests := incomingRequests
+  }
+  if initialPages > availablePages then
+    .memoryExhausted state initialPages availablePages
+  else
+    WasiRunOutcome.ofResult (evalInstrs budget.fuel instrs state (host imports))
+
+/-- Stock WASI execution is the base host-runtime realization. -/
+def runWasiOutcome (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"])
+    (incomingRequests : List ByteArray := []) (budget : WasiResourceBudget :=
+      { fuel := defaultWasmFuel, memoryPages := 65536 }) : WasiRunOutcome :=
+  runWasiOutcomeWithHost wasiHostCall instrs segments stdin imports incomingRequests budget
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- The observable events of a non-resource WASI outcome.  Resource exhaustion deliberately has
+    no event projection, preventing a partial trace from being treated as a successful result. -/
+def WasiRunOutcome.events? : WasiRunOutcome → Option (List AnyEvent)
+  | .completed state _ => some state.events
+  | .exited state _ => some state.events
+  | .trapped state => some state.events
+  | .fuelExhausted _ => none
+  | .memoryExhausted _ _ _ => none
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Observable contract result for a WASI request.  Resource failures are first-class values so a
+    service can recover at request scope; a process-level policy may choose to escalate one, but
+    the platform does not do so implicitly. -/
+inductive WasiObservable (Event : Type) where
+  | completed (events : List Event) : WasiObservable Event
+  | exited (code : UInt32) (events : List Event) : WasiObservable Event
+  | trapped (events : List Event) : WasiObservable Event
+  | fuelExhausted : WasiObservable Event
+  | memoryExhausted (requestedPages availablePages : Nat) : WasiObservable Event
+  deriving BEq, DecidableEq
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Maps the event payload without changing completion or resource semantics. -/
+def WasiObservable.mapEvents (f : Event → Event') : WasiObservable Event → WasiObservable Event'
+  | .completed events => .completed (events.map f)
+  | .exited code events => .exited code (events.map f)
+  | .trapped events => .trapped (events.map f)
+  | .fuelExhausted => .fuelExhausted
+  | .memoryExhausted requested available => .memoryExhausted requested available
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Erases machine-internal state only after preserving every externally meaningful outcome. -/
+def WasiRunOutcome.observable : WasiRunOutcome → WasiObservable AnyEvent
+  | .completed state _ => .completed state.events
+  | .exited state code => .exited code state.events
+  | .trapped state => .trapped state.events
+  | .fuelExhausted _ => .fuelExhausted
+  | .memoryExhausted _ requested available => .memoryExhausted requested available
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Replacing only external byte channels cannot change the classified WASI observation. -/
+theorem WasiRunOutcome.ofResult_observable_withExternalInputs
+    (result : WasmRunResult) (stdin : ByteArray) (requests : List ByteArray) :
+    (WasiRunOutcome.ofResult
+      (result.withExternalInputs stdin requests)).observable =
+        (WasiRunOutcome.ofResult result).observable := by
+  cases result with
+  | error state => rfl
+  | ok result =>
+      rcases result with ⟨state, signal⟩
+      cases hresource : state.resourceFailure with
+      | some failure =>
+          cases failure
+          simp [WasmRunResult.withExternalInputs, WasiRunOutcome.ofResult,
+            WasiRunOutcome.observable, WasmMachineState.withExternalInputs, hresource]
+      | none =>
+          cases htrapped : state.trapped with
+          | false =>
+              cases hexit : state.exitCode <;>
+                simp [WasmRunResult.withExternalInputs, WasiRunOutcome.ofResult,
+                  WasiRunOutcome.observable, WasmMachineState.withExternalInputs,
+                  hresource, htrapped, hexit]
+          | true =>
+              simp [WasmRunResult.withExternalInputs, WasiRunOutcome.ofResult,
+                WasiRunOutcome.observable, WasmMachineState.withExternalInputs,
+                hresource, htrapped]
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- A runtime which frames the selected imports produces the same observable result for every
+    external byte stream.  This is the artifact-independent transport theorem used by output-only
+    final programs; their sole closed certificate is proved at the empty environment. -/
+theorem runWasiOutcomeWithHost_observable_external_input_frame
+    (host : WasiHostRuntime) (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (imports : List String) (budget : WasiResourceBudget)
+    (hhost : WasmHostPreservesExternalInputFrame (host imports))
+    (stdin : ByteArray) (requests : List ByteArray) :
+    (runWasiOutcomeWithHost host instrs segments stdin imports requests budget).observable =
+      (runWasiOutcomeWithHost host instrs segments ByteArray.empty imports [] budget).observable := by
+  unfold runWasiOutcomeWithHost
+  dsimp only
+  split
+  · rfl
+  · let base : WasmMachineState := {
+      memory := initWasmMemory segments
+      memMax := some (Nat.min budget.memoryPages 65536).toUInt32
+    }
+    change (WasiRunOutcome.ofResult
+      (evalInstrs budget.fuel instrs
+        (base.withExternalInputs stdin requests) (host imports))).observable = _
+    rw [evalInstrs_external_input_frame (host imports) hhost]
+    exact WasiRunOutcome.ofResult_observable_withExternalInputs _ _ _
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Stock output-only WASI execution has one observation for the entire `Environment` input
+    domain. -/
+theorem runWasiOutcome_output_only_observable_external_input_frame
+    (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (budget : WasiResourceBudget) (stdin : ByteArray) (requests : List ByteArray) :
+    (runWasiOutcome instrs segments stdin ["fd_write", "proc_exit"] requests budget).observable =
+      (runWasiOutcome instrs segments ByteArray.empty ["fd_write", "proc_exit"] [] budget).observable :=
+  runWasiOutcomeWithHost_observable_external_input_frame wasiHostCall instrs segments
+    ["fd_write", "proc_exit"] budget wasiHostCall_output_only_external_input_frame stdin requests
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Runs a full instruction sequence under the WASI system model and returns the observable event
@@ -267,71 +578,144 @@ def runWasiTraceState (instrs : List WasmInstr) (segments : List WasmDataSegment
     (`runWasiTraceState`'s own docstring) never to exhaust the default fuel; a caller that cannot
     rely on that proof (e.g. a hypothetical future program known to run long enough to matter)
     must use `runWasiTraceState` directly instead of this convenience wrapper. -/
-def runWasiTrace (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List String := []) : List AnyEvent :=
+def runWasiTrace (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List ByteArray := []) : List AnyEvent :=
   match runWasiTraceState instrs segments stdin imports incomingRequests with
   | .ok (finalState, _) => finalState.events
   | .error partialState => partialState.events
 
-/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
-/-- Typeclass defining how an abstract environment `Env` is loaded into initial WASI state. -/
-class WasiEnvironmentLoader (Env : Type) where
-  loadWasiEnvironment : Env → ByteArray × List String
+open Gasm.Core.Platform
 
-/- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
-/-- Default loader for standalone WASI programs with closed/empty environment. -/
-instance : WasiEnvironmentLoader Unit where
-  loadWasiEnvironment _ := (ByteArray.empty, [])
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Complete WASI artifact tied to the instructions, resources, and import ABI
+    whose behavior is proved by the sole `VerifiedProgram`. -/
+structure WasiArtifact where
+  module : WasmModule
+  typeSignatures : List FuncType
+  instructions : List WasmInstr
+  dataSegments : List WasmDataSegment
+  imports : List String := ["fd_write", "proc_exit"]
+  resources : WasiResourceBudget
 
-/- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
-/-- Loader for WASI CLI filter programs taking dynamic standard input. -/
-instance : WasiEnvironmentLoader ByteArray where
-  loadWasiEnvironment stdin := (stdin, [])
+/-- One exact host-import slot.  Carrying the complete import vector prevents
+    an index proof for one module from being reused against another module's
+    differently ordered imports. -/
+inductive WasiProviderProtocol where
+  | preview1
+  | library (key : ProviderProtocolKey)
+deriving DecidableEq, BEq
 
-/- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
-/-- Loader for WASI server modules handling incoming network request queues. -/
-instance : WasiEnvironmentLoader (List String) where
-  loadWasiEnvironment reqs := (ByteArray.empty, reqs)
+structure WasiProvider where
+  protocol : WasiProviderProtocol
+  imports : List String
+  importIndex : Nat
+
+inductive WasiPlatform
+
+def wasiPublicEntries (artifact : WasiArtifact) : List Export :=
+  let importedFunctions := artifact.module.imports.filter (fun imported =>
+    match imported.desc with | .func _ => true | _ => false) |>.length
+  let generated := artifact.module.functions.zipIdx.filterMap (fun (fn, index) =>
+    fn.exportName.map fun name => { name, desc := .func (importedFunctions + index) })
+  generated ++ artifact.module.exports
+
+def wasiCallableEntries (artifact : WasiArtifact) : List Export :=
+  (wasiPublicEntries artifact).filter fun entry =>
+    entry.name != "_start" && match entry.desc with | .func _ => true | .mem _ => false
+
+def wasiBoundarySpec : BoundaryContextSpec Unit Unit :=
+  { Args := Unit
+    Binding := Unit
+    Result := Unit
+    Outcome := Unit
+    ObligationFragment := Unit
+    requiredObligations := fun _ _ => ()
+    emittedObligations := fun _ _ _ _ => ()
+    requires := fun _ _ _ => True
+    transitions := fun _ _ _ _ before after => before = after }
+
+def wasiBoundarySemantics : TargetBoundarySemantics WasiPlatform where
+  Implementation := Nat
+  Artifact := WasiArtifact
+  Signature := FuncType
+  EntryKind := Unit
+  ExitKind := ControlSignal
+  PhysicalState := WasmMachineState
+  Execution := List WasmInstr
+  PublicEntry := Export
+  LookupKey := String
+  artifactImplements := fun artifact implementation =>
+    implementation < artifact.module.functions.length
+  publicEntries := wasiPublicEntries
+  callableEntries := wasiCallableEntries
+  lookupKey := fun entry => entry.name
+  resolvesEntry := fun artifact entry implementation signature _ =>
+    ∃ fn,
+      artifact.module.functions[implementation]? = some fn ∧
+      entry.name = fn.exportName.getD "" ∧
+      signature = { params := fn.params, results := fn.results }
+  jointlyAdmissible := fun _ entries => entries = []
+  runs := fun _ _ _ _ _ _ _ _ => False
+  admissible := fun _ _ _ _ _ _ _ _ => False
+
+instance : Platform WasiPlatform where
+  Artifact := WasiArtifact
+  State := Environment
+  Observation := WasiObservable AnyEvent
+  RuntimeContext := WasiHostRuntime
+  Import := String
+  Provider := WasiProvider
+  BoundaryWorld := Unit
+  BoundaryKey := Unit
+  BoundaryTarget := WasiPlatform
+  boundarySpec := wasiBoundarySpec
+  boundarySemantics := wasiBoundarySemantics
+  imports := fun artifact => artifact.imports
+  providerProvides := fun provider imported =>
+    provider.imports[provider.importIndex]? = some imported
+  providerLinked := fun artifact provider => provider.imports = artifact.imports
+  runtimeSupports := fun runtime _ provider =>
+    match provider.protocol with
+    | .preview1 => ∀ state,
+        runtime provider.imports provider.importIndex state =
+          wasiHostCall provider.imports provider.importIndex state
+    | .library _ => ∀ state,
+        (runtime provider.imports provider.importIndex state).1.trapped = state.trapped
+  boundaryArtifact := id
+  artifactConnected := fun artifact =>
+    artifact.module.functions.head?.map (fun fn => fn.body) = some artifact.instructions ∧
+    artifact.module.dataSegments = artifact.dataSegments ∧
+    artifact.module.imports.map (fun imported => imported.name) = artifact.imports
+  load := fun _ environment => environment
+  run := fun runtime artifact environment =>
+    (runWasiOutcomeWithHost runtime artifact.instructions artifact.dataSegments environment.stdin
+      artifact.imports environment.incomingRequests artifact.resources).observable
+  admissible := fun _ artifact _ => ∃ bytes, emitWasmBinary artifact.module artifact.typeSignatures = .ok bytes
+  emit := fun artifact => emitWasmBinary artifact.module artifact.typeSignatures
+
+/- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
+def wasiHostCapability : Capability WasiPlatform where
+  Context := Unit
+  providers :=
+    [{ protocol := .preview1, imports := ["fd_write", "proc_exit"], importIndex := 0 },
+     { protocol := .preview1, imports := ["fd_write", "proc_exit"], importIndex := 1 }]
+  establishes := fun _ _ _ _ => True
+
+private def realizeWasiHost (_artifact : WasiArtifact) (_context : Unit) : WasiHostRuntime :=
+  wasiHostCall
+
+def wasiHostCapabilities : CapabilityComposition WasiPlatform where
+  root := wasiHostCapability
+  realize := realizeWasiHost
+  realizeSupports := by
+    intro context artifact provider hprovider hlinked
+    simp only [wasiHostCapability, List.mem_cons, List.not_mem_nil, or_false] at hprovider
+    rcases hprovider with rfl | rfl <;> intro state <;> rfl
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- First-Class Universally Parametric Verified WebAssembly Program Contract.
-    A WebAssembly binary or WAT artifact CANNOT be emitted without supplying:
-    1. The WasmModule and its instructions/data segments.
-    2. The high-level parametric specification function (`spec`).
-    3. THE MATHEMATICAL UNIVERSAL EQUIVALENCE PROOF TERM (`traceEquivalence`)
-       proving that for ALL possible external environments `env : Env`, the WASI execution trace
-       matches the high-level specification trace. -/
-structure VerifiedWasmProgram (Env : Type := Unit) (Event : Type := AnyEvent)
-    [BEq Event] [Inject Event AnyEvent] [WasiEnvironmentLoader Env] where
-  name             : String
-  module           : WasmModule
-  typeSignatures   : List FuncType
-  instructions     : List WasmInstr
-  dataSegments     : List WasmDataSegment
-  imports          : List String := ["fd_write", "proc_exit"]
-  spec             : Env → List Event
-  traceEquivalence : ∀ (env : Env),
-    let (stdin, reqs) := WasiEnvironmentLoader.loadWasiEnvironment env
-    (runWasiTrace instructions dataSegments stdin imports reqs == (spec env).map Inject.inject) = true
-
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- First-Class Verified WebAssembly Program Contract for dynamic stdin stream filters. -/
-abbrev VerifiedWasmStdinProgram (Event : Type := AnyEvent) [BEq Event] [Inject Event AnyEvent] :=
-  VerifiedWasmProgram ByteArray Event
-
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- Type-Enforced Code Emission for WebAssembly binaries. Fails closed (the Wasm fail-closed emission contract) if
-    `p.module`'s functions don't all resolve against `p.typeSignatures`. -/
-def emitVerifiedWasmBinary {Env : Type} {Event : Type}
-    [BEq Event] [Inject Event AnyEvent] [WasiEnvironmentLoader Env]
-    (p : VerifiedWasmProgram Env Event) : Except String ByteArray :=
-  emitWasmBinary p.module p.typeSignatures
-
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- Type-Enforced Code Emission for WebAssembly WAT text format. -/
-def emitVerifiedWasmText {Env : Type} {Event : Type}
-    [BEq Event] [Inject Event AnyEvent] [WasiEnvironmentLoader Env]
-    (p : VerifiedWasmProgram Env Event) : String :=
-  emitWasmText p.module p.typeSignatures
+/-- WAT rendering remains gated by the same sole proof authority as binary emission, while allowing
+    any capability composition proved for the WASI platform. -/
+def renderVerifiedWasmText {capabilities : CapabilityComposition WasiPlatform}
+    (program : VerifiedProgram WasiPlatform capabilities) : String :=
+  emitWasmText program.artifact.module program.artifact.typeSignatures
 
 end Gasm.Targets.WASI

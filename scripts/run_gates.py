@@ -1346,7 +1346,7 @@ def main() -> int:
             print_summary_table(rows)
         return EXIT_PREREQ_ABORT
 
-    # --- Phase 1: optional `lake clean` (the clean-rebuild contract merge-train mode) ---------------------------
+    # --- Phase 1: optional `lake clean` (clean-rebuild merge-train mode) ---------------------
     clean_row = None
     if args.clean:
         lake = shutil.which("lake") or "lake"

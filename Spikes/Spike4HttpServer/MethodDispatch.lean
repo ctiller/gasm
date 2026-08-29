@@ -23,6 +23,8 @@ import Gasm.Targets.X86_64.Instructions.Lea
 import Gasm.Targets.X86_64.Instructions.Cmp
 import Gasm.Targets.X86_64.Instructions.Jcc
 import Gasm.Targets.X86_64.Instructions.And
+import Gasm.Targets.X86_64.Instructions.Add
+import Gasm.Targets.X86_64.Instructions.Sub
 import Gasm.Targets.X86_64.Assembler
 import Spikes.Spike4HttpServer.Spec
 
@@ -89,6 +91,50 @@ def methodPathWindowInstrs (bufDisp : Nat) (routeLabel : String) : List Symbolic
   methodPathOffsets.flatMap (fun off =>
     [ label (methodPathLabel off),
       instr (lea_rsp .rsi (bufDisp + off).toUInt8),
+      instr (sub_r64_imm8 .r10 off.toUInt8),
       jmp_near_label routeLabel ])
+
+/-- Validates the portion of an HTTP/1.1 request line not covered by the method dispatcher.
+    `R10` holds the received byte count and `RSI` points at the target.  The scanner never reads
+    beyond that count: it requires an origin-form target, finds its sole terminating SP, and then
+    requires exactly `HTTP/1.1\\r\\n` before handing the original target pointer to routing. -/
+def requestLineValidationInstrs (routeLabel badLabel : String) : List SymbolicInstr :=
+  [ label "validate_request_line",
+    instr (cmp_r64_imm8 .r10 0),
+    jle_near_label badLabel,
+    instr (mov_r64 .rdi .rsi),
+    instr (movzx_r64_mem8 .rax .rsi 0),
+    instr (cmp_r64_imm8 .rax 0x2F),
+    jne_near_label badLabel,
+    label "scan_request_target",
+    instr (cmp_r64_imm8 .r10 0),
+    jle_near_label badLabel,
+    instr (movzx_r64_mem8 .rax .rsi 0),
+    instr (cmp_r64_imm8 .rax 0x20),
+    je_near_label "validate_http_version",
+    instr (cmp_r64_imm8 .rax 0x0D),
+    je_near_label badLabel,
+    instr (cmp_r64_imm8 .rax 0x0A),
+    je_near_label badLabel,
+    instr (add_r64_imm8 .rsi 1),
+    instr (sub_r64_imm8 .r10 1),
+    jmp_near_label "scan_request_target",
+    label "validate_http_version",
+    instr (add_r64_imm8 .rsi 1),
+    instr (sub_r64_imm8 .r10 1),
+    instr (cmp_r64_imm8 .r10 10),
+    jb_near_label badLabel,
+    instr (mov_reg64_mem64_disp .rax .rsi 0),
+    instr (mov_r64_imm64 .rcx 0x312E312F50545448),
+    instr (cmp_r64 .rax .rcx),
+    jne_near_label badLabel,
+    instr (movzx_r64_mem8 .rax .rsi 8),
+    instr (cmp_r64_imm8 .rax 0x0D),
+    jne_near_label badLabel,
+    instr (movzx_r64_mem8 .rax .rsi 9),
+    instr (cmp_r64_imm8 .rax 0x0A),
+    jne_near_label badLabel,
+    instr (mov_r64 .rsi .rdi),
+    jmp_near_label routeLabel ]
 
 end Spikes.Spike4HttpServer

@@ -26,7 +26,7 @@ gasm/
 │   ├── X86_64/                  # Self-contained x86-64 vertical slice
 │   │   ├── Machine.lean         # Machine state & step semantics
 │   │   ├── DSL.lean             # Proof-carrying assembly builder
-│   │   ├── ABI.lean             # SysV & Windows x64 caller/callee disciplines
+│   │   ├── ABI.lean             # Planned calling-convention/context realization seam
 │   │   └── Emit.lean            # Bytecode, ELF, PE serializers
 │   │
 │   ├── X86_32/                  # Self-contained x86-32 vertical slice
@@ -65,8 +65,39 @@ graph LR
    today, while universal memory-permission and obligation witnesses remain planned.
 3. **Split Proofs for Independent Consumers**:
    - **Equivalence Theorem**: Proves functional correctness against the spec.
-    - **Structural Callability Theorem**: Proves the selected routine's internal transition and ABI
-      preservation facts (such as stack pointer and callee-saved registers). A caller/integrator also
-      discharges M1's relational entry/world/precondition contract and the selected concrete M2-B
-      target/admissibility/artifact-link certificate; `Callable` alone is not an external-boundary proof.
+   - **Structural Callability Theorem**: Proves the selected routine's internal transition and ABI
+     preservation facts (such as stack pointer and callee-saved registers). A caller/integrator also
+     consumes the canonical boundary-profile closure rule in `docs/MEMORY_MODEL.md` §3. The landed
+     `ContextBoundaryRealization`, `EstablishedBoundaryEntry`, and `VerifiedExportSet` types provide
+     the generic relational and artifact-certificate shapes, but concrete M2-B profiles and
+     context-row integration with `Callable` remain required work; see
+     [Composable Boundary ABI Contexts](ABI_CONTEXT.md).
 4. **Binary Emission**: Pure deterministic serialization from verified AST to machine bytes with zero runtime overhead.
+
+### 2.1 Platform-neutral whole-program boundary
+
+`Gasm.Core.Platform.VerifiedProgram` is the sole whole-program proof authority and the canonical
+proof-gated production-emission path. Its platform parameter selects the ISA and host execution
+semantics; its `CapabilityComposition` argument selects library/runtime context independently. The
+contract quantifies over the one canonical `Environment`, carries an exact target-checked
+`VerifiedExportSet`, proves typed import coverage and root-context establishment, proves target
+admissibility, and connects the semantic artifact to the exact bytes selected for emission.
+Target-specific `VerifiedWindowsProgram`, `VerifiedLinuxProgram`, and `VerifiedWasmProgram`
+alternatives do not exist. Public target-local raw serializers still exist and are used by
+unmigrated/fuzzing paths; they confer no verification claim and must be made private or gated before
+the “only emission path” property is mechanically true.
+
+`VerifiedProgram` is assembled by one general rule over the current fixed artifact, provider,
+entry-context, target-admissibility and behavioral-refinement certificates plus its export set.
+Their dependent indices require agreement on the same platform, final artifact and capability
+composition, so programs do not restate certificate internals. The broader applicability-key
+closure is still review-derived, not mechanically generated: future work must derive exactly the
+additional certificate families selected by reachable features and advertised guarantees. An
+unselected optional feature must contribute no key, while adding a reachable feature must extend the
+required set rather than weakening an existing proof.
+
+Non-total libraries use `Gasm.Core.VerifiedComponent`: the complete physical public manifest is
+checked, every callable entry has an assume/guarantee `ContextBoundaryRealization` tied to the same
+final artifact, lookup keys are unique, and the target proves the set jointly admissible. Callers
+establish the required entry world. Composing components additionally requires a target-owned
+final-link certificate; pairwise name or ABI-list agreement is not a sound substitute.

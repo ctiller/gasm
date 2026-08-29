@@ -27,6 +27,14 @@ namespace Gasm.Targets.Wasm
 open Gasm.Core
 open Gasm.Effects
 
+/- REF: wasm-exec-instructions#memory-instructions -/
+/-- A finite resource refusal made by the execution platform.  This is distinct from a Wasm
+    trap: `memory.grow` reports the refusal to guest code as `-1`, while the platform trace keeps
+    the reason so a verified whole-program contract cannot erase an allocation failure. -/
+inductive WasmResourceFailure where
+  | memoryPages (requestedPages : Nat) (availablePages : Nat) : WasmResourceFailure
+  deriving Repr, DecidableEq, BEq, Inhabited
+
 /- REF: wasm-exec-runtime#values -/
 /-- Runtime typed value representation on the operand stack and locals. -/
 inductive WasmVal where
@@ -58,9 +66,16 @@ structure WasmMachineState where
   -- field existed keeps behaving exactly as it did (an unconstrained memory), not a silent
   -- behavior change.
   memMax           : Option UInt32 := none
+  -- Set exactly when `memory.grow` is refused by the platform's finite page capability.  It is
+  -- sticky for the invocation: guest code receives Wasm's `-1` result, but an enclosing WASI
+  -- execution must still expose the resource outcome rather than mistake later recovery code for
+  -- a successful unbounded allocation.
+  resourceFailure  : Option WasmResourceFailure := none
   stdin            : ByteArray    := ByteArray.empty
   stdinPos         : Nat          := 0
-  incomingRequests : List String  := []
+  -- F1 (Law 9 root fix): raw octet strings, not `String`s -- see
+  -- `Gasm.Effects.TraceState.incomingRequests`.
+  incomingRequests : List ByteArray := []
   trapped          : Bool         := false
   exitCode         : Option UInt32 := none
   events           : List AnyEvent := []
@@ -80,6 +95,25 @@ structure WasmMachineState where
   -- un-collapsed `WasmRunResult`, each proven (`#guard`) never to hit `.error` at all.
   fuelExhausted    : Bool         := false
   deriving Inhabited
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Replaces only host-supplied input streams. All guest-observable machine components and the
+    current stream position are preserved. -/
+def WasmMachineState.withExternalInputs (state : WasmMachineState)
+    (stdin : ByteArray) (requests : List ByteArray) : WasmMachineState :=
+  { state with stdin := stdin, incomingRequests := requests }
+
+@[simp] theorem WasmMachineState.withExternalInputs_stack
+    (state : WasmMachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    (state.withExternalInputs stdin requests).stack = state.stack := rfl
+
+@[simp] theorem WasmMachineState.withExternalInputs_trapped
+    (state : WasmMachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    (state.withExternalInputs stdin requests).trapped = state.trapped := rfl
+
+@[simp] theorem WasmMachineState.withExternalInputs_exitCode
+    (state : WasmMachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    (state.withExternalInputs stdin requests).exitCode = state.exitCode := rfl
 
 /- REF: wasm-exec-runtime#stack -/
 /-- Branch or return control flow signal during structured instruction evaluation. -/
@@ -163,6 +197,11 @@ def defaultWasmFuel : Nat := 100000000
     this codebase is proven never to see `.error` from. -/
 abbrev WasmRunResult := Except WasmMachineState (WasmMachineState × ControlSignal)
 
+def WasmRunResult.withExternalInputs (stdin : ByteArray) (requests : List ByteArray) :
+    WasmRunResult → WasmRunResult
+  | .error state => .error (state.withExternalInputs stdin requests)
+  | .ok (state, signal) => .ok (state.withExternalInputs stdin requests, signal)
+
 /- REF: wasm-exec-runtime#administrative-instructions -/
 /-- Convenience check for whether a `WasmRunResult` is the fuel-exhausted outcome, named for
     readability at `#guard`/proof call sites (`.isOk`/`isError`-style helpers are not derived
@@ -184,7 +223,7 @@ abbrev WasmRunResult.isError (r : WasmRunResult) : Bool :=
     for any other not-yet-modeled instruction, exactly as the pre-fuel-conversion `evalInstrMatch`
     did for both. Bodies below are byte-for-byte unchanged from the pre-fuel-conversion
     `evalInstrMatch`. -/
-def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
+private def evalLeafInstrRaw (instr : WasmInstr) (s : WasmMachineState)
     (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : WasmMachineState × ControlSignal :=
       match instr with
       | .unreachable => ({ s with trapped := true }, .next)
@@ -442,7 +481,11 @@ def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
           | some maxP => requestedPages > maxP.toNat
           | none => false
         if exceedsDeclaredMax || requestedPages > hardCeilingPages then
-          (pushVal (.i32 (0xFFFFFFFF : UInt32)) s1, .next)
+          let availablePages := match s1.memMax with
+            | some maxP => Nat.min maxP.toNat hardCeilingPages
+            | none => hardCeilingPages
+          (pushVal (.i32 (0xFFFFFFFF : UInt32))
+            { s1 with resourceFailure := some (.memoryPages requestedPages availablePages) }, .next)
         else
           let padding := ByteArray.mk (Array.mk (List.replicate (delta.toNat * 65536) (0 : UInt8)))
           (pushVal (.i32 oldPages.toUInt32) { s1 with memory := WasmMem.grow s1.memory padding }, .next)
@@ -472,6 +515,67 @@ def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
       | .if_else _ _ _ => (s, .next)
       | _ => (s, .next)
 
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Ordinary Wasm instructions execute behind the architectural host-input boundary. Only an
+    explicit imported call receives host input streams; every other instruction is observationally
+    parametric in them and restores the caller's streams unchanged. -/
+def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) :
+    WasmMachineState × ControlSignal :=
+  match instr with
+  | .call idx => hostCall idx s
+  | other =>
+      let sanitized := s.withExternalInputs ByteArray.empty []
+      let result := evalLeafInstrRaw other sanitized hostCall
+      (result.1.withExternalInputs s.stdin s.incomingRequests, result.2)
+
+def WasmHostPreservesExternalInputFrame
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : Prop :=
+  ∀ index state stdin requests,
+    hostCall index (state.withExternalInputs stdin requests) =
+      let result := hostCall index state
+      (result.1.withExternalInputs stdin requests, result.2)
+
+theorem evalLeafInstr_external_input_frame
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hhost : WasmHostPreservesExternalInputFrame hostCall)
+    (instr : WasmInstr) (state : WasmMachineState)
+    (stdin : ByteArray) (requests : List ByteArray) :
+    evalLeafInstr instr (state.withExternalInputs stdin requests) hostCall =
+      let result := evalLeafInstr instr state hostCall
+      (result.1.withExternalInputs stdin requests, result.2) := by
+  cases instr <;> simp [evalLeafInstr, WasmMachineState.withExternalInputs]
+  case call index => exact hhost index state stdin requests
+
+@[simp] theorem popI32_external_input_frame
+    (state : WasmMachineState) (stdin : ByteArray) (requests : List ByteArray) :
+    popI32 (state.withExternalInputs stdin requests) =
+      let result := popI32 state
+      (result.1, result.2.withExternalInputs stdin requests) := by
+  cases hstack : state.stack with
+  | nil => simp [popI32, hstack, WasmMachineState.withExternalInputs]
+  | cons head tail =>
+      cases head <;> simp [popI32, hstack, WasmMachineState.withExternalInputs]
+
+private def finishBlockResult : WasmRunResult → WasmRunResult
+  | .error state => .error state
+  | .ok (state, .br 0) => .ok (state, .next)
+  | .ok (state, .br (depth + 1)) => .ok (state, .br depth)
+  | .ok (state, signal) => .ok (state, signal)
+
+@[simp] private theorem finishBlockResult_external_input_frame
+    (result : WasmRunResult) (stdin : ByteArray) (requests : List ByteArray) :
+    finishBlockResult (result.withExternalInputs stdin requests) =
+      (finishBlockResult result).withExternalInputs stdin requests := by
+  cases result with
+  | error state => rfl
+  | ok result =>
+      rcases result with ⟨state, signal⟩
+      cases signal with
+      | next => rfl
+      | ret => rfl
+      | br depth => cases depth <;> rfl
+
 mutual
   /- REF: wasm-exec-instructions#instructions -/
   /-- Dispatches the three structured control-flow instructions (`.block`/`.loop`/`.if_else`),
@@ -491,24 +595,12 @@ mutual
     | fuel + 1 =>
       match instr with
       | .block _ body =>
-        match evalInstrs fuel body s hostCall with
-        | .error s' => .error s'
-        | .ok (s', sig) =>
-          match sig with
-          | .br 0 => .ok (s', .next)
-          | .br (d + 1) => .ok (s', .br d)
-          | other => .ok (s', other)
+        finishBlockResult (evalInstrs fuel body s hostCall)
       | .loop _ body => evalLoop fuel body s hostCall
       | .if_else _ thenBody elseBody =>
         let (c, s1) := popI32 s
-        match (if c != 0 then evalInstrs fuel thenBody s1 hostCall
-               else evalInstrs fuel elseBody s1 hostCall) with
-        | .error s' => .error s'
-        | .ok (s', sig) =>
-          match sig with
-          | .br 0 => .ok (s', .next)
-          | .br (d + 1) => .ok (s', .br d)
-          | other => .ok (s', other)
+        finishBlockResult (if c != 0 then evalInstrs fuel thenBody s1 hostCall
+          else evalInstrs fuel elseBody s1 hostCall)
       | leaf => .ok (evalLeafInstr leaf s hostCall)
 
   /- REF: wasm-exec-instructions#expressions -/
@@ -566,6 +658,163 @@ mutual
         | .br (d + 1) => .ok (st', .br d)
         | .ret => .ok (st', .ret)
 end
+
+private theorem evalInstrsContinuation_external_input_frame
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (fuel : Nat) (rest : List WasmInstr) (result : WasmRunResult)
+    (stdin : ByteArray) (requests : List ByteArray)
+    (hrest : ∀ state,
+      evalInstrs fuel rest (state.withExternalInputs stdin requests) hostCall =
+        (evalInstrs fuel rest state hostCall).withExternalInputs stdin requests) :
+    (match result.withExternalInputs stdin requests with
+      | .error state => (Except.error state : WasmRunResult)
+      | .ok (state, .next) => evalInstrs fuel rest state hostCall
+      | .ok (state, signal) => (Except.ok (state, signal) : WasmRunResult)) =
+    WasmRunResult.withExternalInputs stdin requests (match result with
+      | .error state => (Except.error state : WasmRunResult)
+      | .ok (state, .next) => evalInstrs fuel rest state hostCall
+      | .ok (state, signal) => (Except.ok (state, signal) : WasmRunResult)) := by
+  cases result with
+  | error state => rfl
+  | ok result =>
+      rcases result with ⟨state, signal⟩
+      cases signal with
+      | next => exact hrest state
+      | br depth => rfl
+      | ret => rfl
+
+private theorem evalLoopResult_external_input_frame
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (fuel : Nat) (body : List WasmInstr) (result : WasmRunResult)
+    (stdin : ByteArray) (requests : List ByteArray)
+    (hloop : ∀ state,
+      evalLoop fuel body (state.withExternalInputs stdin requests) hostCall =
+        (evalLoop fuel body state hostCall).withExternalInputs stdin requests) :
+    (match result.withExternalInputs stdin requests with
+      | .error state => (Except.error state : WasmRunResult)
+      | .ok (state, .next) => (Except.ok (state, .next) : WasmRunResult)
+      | .ok (state, .br 0) => evalLoop fuel body state hostCall
+      | .ok (state, .br (depth + 1)) => (Except.ok (state, .br depth) : WasmRunResult)
+      | .ok (state, .ret) => (Except.ok (state, .ret) : WasmRunResult)) =
+    WasmRunResult.withExternalInputs stdin requests (match result with
+      | .error state => (Except.error state : WasmRunResult)
+      | .ok (state, .next) => (Except.ok (state, .next) : WasmRunResult)
+      | .ok (state, .br 0) => evalLoop fuel body state hostCall
+      | .ok (state, .br (depth + 1)) => (Except.ok (state, .br depth) : WasmRunResult)
+      | .ok (state, .ret) => (Except.ok (state, .ret) : WasmRunResult)) := by
+  cases result with
+  | error state => rfl
+  | ok result =>
+      rcases result with ⟨state, signal⟩
+      cases signal with
+      | next => rfl
+      | ret => rfl
+      | br depth =>
+          cases depth with
+          | zero => exact hloop state
+          | succ depth => rfl
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Simultaneous fuel induction for structured instructions, instruction lists, and loops. The
+    three interpreters are mutually recursive, so their frame laws are established together. -/
+theorem eval_external_input_frames
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hhost : WasmHostPreservesExternalInputFrame hostCall) (fuel : Nat) :
+    (∀ instr state stdin requests,
+      evalInstrMatch fuel instr (state.withExternalInputs stdin requests) hostCall =
+        (evalInstrMatch fuel instr state hostCall).withExternalInputs stdin requests) ∧
+    (∀ instrs state stdin requests,
+      evalInstrs fuel instrs (state.withExternalInputs stdin requests) hostCall =
+        (evalInstrs fuel instrs state hostCall).withExternalInputs stdin requests) ∧
+    (∀ body state stdin requests,
+      evalLoop fuel body (state.withExternalInputs stdin requests) hostCall =
+        (evalLoop fuel body state hostCall).withExternalInputs stdin requests) := by
+  induction fuel with
+  | zero =>
+      constructor
+      · intros; rfl
+      · constructor <;> intros <;> rfl
+  | succ fuel ih =>
+      rcases ih with ⟨hmatch, hinstrs, hloop⟩
+      constructor
+      · intro instr state stdin requests
+        cases instr <;>
+          simp [evalInstrMatch, hinstrs, hloop, evalLeafInstr_external_input_frame, hhost,
+            popI32_external_input_frame, WasmRunResult.withExternalInputs]
+        case block bodyType body =>
+          change finishBlockResult
+              ((evalInstrs fuel body state hostCall).withExternalInputs stdin requests) =
+            (finishBlockResult (evalInstrs fuel body state hostCall)).withExternalInputs
+              stdin requests
+          exact finishBlockResult_external_input_frame _ _ _
+        case if_else =>
+          split
+          · change finishBlockResult
+                ((evalInstrs fuel _ (popI32 state).2 hostCall).withExternalInputs stdin requests) =
+              (finishBlockResult
+                (evalInstrs fuel _ (popI32 state).2 hostCall)).withExternalInputs stdin requests
+            exact finishBlockResult_external_input_frame _ _ _
+          · change finishBlockResult
+                ((evalInstrs fuel _ (popI32 state).2 hostCall).withExternalInputs stdin requests) =
+              (finishBlockResult
+                (evalInstrs fuel _ (popI32 state).2 hostCall)).withExternalInputs stdin requests
+            exact finishBlockResult_external_input_frame _ _ _
+      · constructor
+        · intro instrs state stdin requests
+          cases instrs with
+          | nil => rfl
+          | cons instr rest =>
+              simp only [evalInstrs, WasmMachineState.withExternalInputs_trapped,
+                WasmMachineState.withExternalInputs_exitCode]
+              by_cases hstopped : state.trapped || state.exitCode.isSome
+              · simp [hstopped, hinstrs]
+              · simp [hstopped]
+                rw [hmatch]
+                exact evalInstrsContinuation_external_input_frame hostCall fuel rest
+                  (evalInstrMatch fuel instr state hostCall) stdin requests
+                  (fun next => hinstrs rest next stdin requests)
+        · intro body state stdin requests
+          simp only [evalLoop]
+          rw [hinstrs]
+          generalize hresult : evalInstrs fuel body state hostCall = result
+          cases result with
+          | error failedState => rfl
+          | ok result =>
+              rcases result with ⟨next, signal⟩
+              cases signal with
+              | next => rfl
+              | ret => rfl
+              | br depth =>
+                  cases depth with
+                  | zero => exact hloop body next stdin requests
+                  | succ depth => rfl
+
+theorem evalInstrMatch_external_input_frame
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hhost : WasmHostPreservesExternalInputFrame hostCall)
+    (fuel : Nat) (instr : WasmInstr) (state : WasmMachineState)
+    (stdin : ByteArray) (requests : List ByteArray) :
+    evalInstrMatch fuel instr (state.withExternalInputs stdin requests) hostCall =
+      (evalInstrMatch fuel instr state hostCall).withExternalInputs stdin requests :=
+  (eval_external_input_frames hostCall hhost fuel).1 instr state stdin requests
+
+theorem evalInstrs_external_input_frame
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hhost : WasmHostPreservesExternalInputFrame hostCall)
+    (fuel : Nat) (instrs : List WasmInstr) (state : WasmMachineState)
+    (stdin : ByteArray) (requests : List ByteArray) :
+    evalInstrs fuel instrs (state.withExternalInputs stdin requests) hostCall =
+      (evalInstrs fuel instrs state hostCall).withExternalInputs stdin requests :=
+  (eval_external_input_frames hostCall hhost fuel).2.1 instrs state stdin requests
+
+theorem evalLoop_external_input_frame
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hhost : WasmHostPreservesExternalInputFrame hostCall)
+    (fuel : Nat) (body : List WasmInstr) (state : WasmMachineState)
+    (stdin : ByteArray) (requests : List ByteArray) :
+    evalLoop fuel body (state.withExternalInputs stdin requests) hostCall =
+      (evalLoop fuel body state hostCall).withExternalInputs stdin requests :=
+  (eval_external_input_frames hostCall hhost fuel).2.2 body state stdin requests
 
 /- REF: wasm-exec-instructions#instructions -/
 /-- Collapses a `WasmRunResult` back to the pre-fuel-conversion unwrapped

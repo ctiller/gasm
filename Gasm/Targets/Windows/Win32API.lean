@@ -213,19 +213,16 @@ def recvHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) : X
     let s' := s_popped.setGpr64 .rax 0
     (s', none)
   | req :: rest =>
-    let (delivered, remaining) := splitBytes req.toUTF8.toList requested
-    let count := delivered.length
-    let deliveredArr := ByteArray.mk delivered.toArray
-    let incomingRequests' :=
-      match String.fromUTF8? (ByteArray.mk remaining.toArray) with
-      | some r => if remaining.isEmpty then rest else r :: rest
-      | none => rest
-    let deliveredStr := (String.fromUTF8? deliveredArr).getD req
+    -- F1: one shared delivery step (`Gasm.Effects.recvDeliver`, law `recvDeliver_lossless`)
+    -- replaces this site's hand-copied split/requeue, and with it the `String.fromUTF8?` round
+    -- trip that dropped a UTF-8-straddling remainder and over-reported the delivered length.
+    let (delivered, incomingRequests') := recvDeliver req requested rest
+    let count := delivered.size
     let s' := { (s_popped.setGpr64 .rax count.toUInt64) with
       incomingRequests := incomingRequests',
-      memory := X86_64Mem.writeBytes bufAddr delivered s_popped.memory
+      memory := X86_64Mem.writeBytes bufAddr (toByteList delivered) s_popped.memory
     }
-    (s', some (Inject.inject (NetEvent.recv deliveredStr)))
+    (s', some (Inject.inject (NetEvent.recv (bytesToPayload delivered))))
 
 /- REF: windows-winsock2-send#parameters -/
 /-- Win32 send call hook: extracts response string from memory at RDX and emits NetEvent.send. -/
@@ -302,6 +299,72 @@ def win32Intercept {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEve
 def win32CallIntercept {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event]
     (addr : Address) (s : X86_64MachineState) : Option (X86_64MachineState × Option Event) :=
   win32Intercept addr s
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Host boundaries whose semantics do not consume stdin or the request queue.  `none` covers
+    ordinary code addresses; the only selected IAT slots are GetStdHandle, WriteFile, and
+    ExitProcess. -/
+def selectedNonInputWin32Call (addr : Address) (state : X86_64MachineState) : Bool :=
+  match findIatIndex state addr with
+  | none | some 0 | some 2 | some 3 => true
+  | _ => false
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- The production Win32 interceptor is congruent across external-input frames at exactly the
+    selected non-input calls.  ReadFile/accept/recv are deliberately excluded. -/
+theorem win32CallIntercept_preserves_selected_external_input_frame {Event : Type}
+    [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
+    ∀ address state stdin requests, selectedNonInputWin32Call address state = true →
+      win32CallIntercept (Event := Event) address (state.withExternalInputs stdin requests) =
+        (win32CallIntercept (Event := Event) address state).map
+          (fun result => (result.1.withExternalInputs stdin requests, result.2)) := by
+  intro address state stdin requests hselected
+  change win32Intercept address (state.withExternalInputs stdin requests) =
+    (win32Intercept address state).map
+      (fun result => (result.1.withExternalInputs stdin requests, result.2))
+  have hfind : findIatIndex (state.withExternalInputs stdin requests) address =
+      findIatIndex state address := by
+    unfold findIatIndex X86_64MachineState.read64
+    rfl
+  rw [show win32Intercept address (state.withExternalInputs stdin requests) =
+      match findIatIndex state address with
+      | some 0 => some (getStdHandleHook (state.withExternalInputs stdin requests))
+      | some 1 => some (readFileHook (state.withExternalInputs stdin requests))
+      | some 2 => some (writeFileHook (state.withExternalInputs stdin requests))
+      | some 3 => some (exitProcessHook (state.withExternalInputs stdin requests))
+      | some 4 => some (virtualAllocHook (state.withExternalInputs stdin requests))
+      | some 5 => some (virtualFreeHook (state.withExternalInputs stdin requests))
+      | some 7 => some (wsaStartupHook (state.withExternalInputs stdin requests))
+      | some 8 => some (socketHook (state.withExternalInputs stdin requests))
+      | some 9 => some (bindHook (state.withExternalInputs stdin requests))
+      | some 10 => some (listenHook (state.withExternalInputs stdin requests))
+      | some 11 => some (acceptHook (state.withExternalInputs stdin requests))
+      | some 12 => some (recvHook (state.withExternalInputs stdin requests))
+      | some 13 => some (sendHook (state.withExternalInputs stdin requests))
+      | some 14 => some (closesocketHook (state.withExternalInputs stdin requests))
+      | some 15 => some (wsaCleanupHook (state.withExternalInputs stdin requests))
+      | _ => none by simp [win32Intercept, hfind]]
+  cases h : findIatIndex state address with
+  | none => simp [win32Intercept, h]
+  | some index =>
+    cases index with
+    | zero =>
+      simp [win32Intercept, h, getStdHandleHook, popReturnAddress,
+        X86_64MachineState.pop64,
+        X86_64MachineState.setGpr64] <;> rfl
+    | succ index =>
+      cases index with
+      | zero => simp [selectedNonInputWin32Call, h] at hselected
+      | succ index =>
+        cases index with
+        | zero =>
+          simp [win32Intercept, h, writeFileHook, popReturnAddress,
+            X86_64MachineState.pop64,
+            X86_64MachineState.setGpr64] <;> rfl
+        | succ index =>
+          cases index with
+          | zero => simp [win32Intercept, h, exitProcessHook]
+          | succ index => simp [selectedNonInputWin32Call, h] at hselected
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
 /-- Loads raw binary section buffers and binds Win32 IAT function import pointers into initial machine memory with dynamic layout. -/
@@ -382,7 +445,7 @@ def loadWithStdin (exe : WindowsExecutable) (stdin : ByteArray) : X86_64MachineS
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
 /-- Loads the executable into initial X86_64MachineState with pre-seeded incoming HTTP requests queue. -/
-def loadWithRequests (exe : WindowsExecutable) (incomingRequests : List String) : X86_64MachineState :=
+def loadWithRequests (exe : WindowsExecutable) (incomingRequests : List ByteArray) : X86_64MachineState :=
   let s := exe.load
   { s with incomingRequests := incomingRequests }
 

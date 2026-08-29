@@ -33,6 +33,7 @@ import Spikes.Spike1Hello.AArch64Linux.Equivalence
 import Spikes.Spike2Fibonacci.Spec
 import Spikes.Spike2Fibonacci.Windows.Program
 import Spikes.Spike2Fibonacci.Windows.Equivalence
+import Spikes.Spike2Fibonacci.Windows.IATLemmas
 import Spikes.Spike2Fibonacci.Linux.Program
 import Spikes.Spike2Fibonacci.Linux.Equivalence
 import Spikes.Spike2Fibonacci.Wasm.Program
@@ -51,6 +52,7 @@ import Spikes.Spike3SortLines.Wasm.Program
 import Spikes.Spike3SortLines.Wasm.Equivalence
 
 import Spikes.Spike4HttpServer.Spec
+import Spikes.Spike4HttpServer.MethodDispatch
 import Spikes.Spike4HttpServer.Windows.Program
 import Spikes.Spike4HttpServer.Linux.Program
 import Spikes.Spike4HttpServer.Wasm.Program
@@ -60,5 +62,8 @@ import Spikes.Spike5Gzip.Spec
 import Spikes.Spike5Gzip.Windows.Program
 import Spikes.Spike5Gzip.Linux.Program
 import Spikes.Spike5Gzip.Wasm.Program
+import Spikes.Spike5Gzip.UniversalInput
+import Spikes.Spike5Gzip.StreamingCapability
+import Spikes.Spike5Gzip.Runtime
 import Spikes.Spike5Gzip.Equivalence
 

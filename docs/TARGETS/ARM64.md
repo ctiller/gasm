@@ -1260,8 +1260,10 @@ correct for x86 today:
    architecturally LOCK'd on x86 whether or not the prefix is written, and that its
    sanctioned landing is `docs/MEMORY_MODEL.md` stage M2-X. On AArch64 the corresponding
    construct is not one instruction
-   with implicit atomicity but an `LDXR`/`STXR` pair whose exclusive monitor is invalidated by
-   interrupts, context switches, and any intervening exclusive load —
+   with implicit atomicity but an `LDXR`/`STXR` pair. `CLREX`, conflicting accesses, migration, and
+   only those exception/context-switch transitions required by the selected target profile clear or
+   invalidate reservation state; the generic ISA model does not categorically make every interrupt
+   or context switch do so. Permitted spurious `STXR` failure remains a separate transition —
    `docs/TARGETS/ARM.md:73-79` sketches the proof obligations, and its restriction of such
    sequences to tight barrier-free basic blocks is a design sketch, not implemented.
 4. **MMIO ordering is already flagged as an x86/ARM divergence.**

@@ -168,12 +168,17 @@ end-to-end validation vehicle in `docs/SPIKES/SPIKE8_MULTITHREADING.md`.
 * **Provenance and indexed authority:** Generative regions, provenanced pointers, temporal read
   loans, causally delivered donation, result-indexed join returns, and a global access-mode
   invariant separating ordinary-exclusive, frozen/read-loan, and registered-atomic regions.
-* **Relational ABI/boundary entry and exit:** Consume rather than restate the canonical boundary-
-  profile closure rule in `docs/MEMORY_MODEL.md` §3. M1 owns only the abstract seam; independently
-  selectable M2-B[p] certificates own exact ordinary-call, syscall, loader-root and handler profiles,
-  and proving one must not burden or certify another. Converge the ABI-context implementation on both
-  relational entry and exit; do not connect it to `Callable` or `VerifiedProgram` until the applicable
-  whole-program caller-or-loader link theorem exists.
+* **Relational ABI/boundary entry and exit:** `Gasm.Core.AbiContext` now supplies the abstract
+  relational entry/exit seam, world-coherence laws, exact export sets, and component/link
+  certificates; `Gasm.Core.Platform` carries the same export-set evidence into the universal
+  `VerifiedProgram` root and composes fixed artifact/provider/entry/admissibility/behavior
+  certificates. This is staging substrate, not a completed call proof. M1 must connect its shared
+  world and obligation fragments to the indexed authority algebra, establish heterogeneous-row and
+  conservation laws, and close the profile-registry shape. Independently selectable M2-B[p]
+  certificates then own substantive ordinary-call, syscall, loader-root and handler realizations;
+  proving one must not burden or certify another. Consume rather than restate the canonical closure
+  rule in `docs/MEMORY_MODEL.md` §3, and do not connect a boundary to `Callable` or claim executable
+  call authority until its exact caller/loader, target-admissibility and artifact-link theorem exists.
 * **Lock invariants and obligations:** An implementation-independent mutex contract separates
   atomic synchronization-representation authority from exclusive protected-region ownership;
   result-indexed guards and typed must-release obligations are shared by a preferred verified

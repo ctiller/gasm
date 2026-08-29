@@ -21,6 +21,7 @@ import Gasm.Targets.Wasm.AST
 import Gasm.Targets.Wasm.Linker
 import Gasm.Targets.WASI.ABI
 import Spikes.Spike4HttpServer.Spec
+import Spikes.Spike4HttpServer.Runtime
 
 namespace Spikes.Spike4HttpServer.Wasm
 
@@ -47,6 +48,9 @@ def resp404Bytes : ByteArray :=
 def resp400Bytes : ByteArray :=
   (formatResponse badRequestResponse).toUTF8
 
+def resp414Bytes : ByteArray :=
+  (formatResponse requestResourceExhaustedResponse).toUTF8
+
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 def sockListenType : FuncType := { params := [.i32], results := [.i32] }
 
@@ -55,6 +59,9 @@ def sockAcceptType : FuncType := { params := [.i32], results := [.i32] }
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 def sockRecvType   : FuncType := { params := [.i32, .i32, .i32], results := [.i32] }
+
+def gasmParserType : FuncType :=
+  { params := [.i32, .i32, .i32, .i32], results := [.i32] }
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 def sockSendType   : FuncType := { params := [.i32, .i32, .i32], results := [.i32] }
@@ -70,32 +77,17 @@ def startType      : FuncType := { params := [], results := [] }
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 def spike4WasmImports : List String := [
-  "sock_listen",
-  "sock_accept",
-  "sock_recv",
-  "sock_send",
-  "sock_close",
-  "proc_exit"
+  gasmHttpParserSymbol
 ]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 def spike4TypeSignatures : List FuncType := [
-  sockListenType,
-  sockAcceptType,
-  sockRecvType,
-  sockSendType,
-  sockCloseType,
-  procExitWasmType,
+  gasmParserType,
   startType
 ]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
-def spike4DataSegments : List WasmDataSegment := [
-  { offset := 0x00,  data := respRootBytes },
-  { offset := 0x100, data := respStatusBytes },
-  { offset := 0x200, data := resp404Bytes },
-  { offset := 0x300, data := resp400Bytes }
-]
+def spike4DataSegments : List WasmDataSegment := []
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
 /-- Method-token validation for the WASI lowering, the direct analogue of the x86-64
@@ -121,143 +113,166 @@ def wasmMethodValidationInstrs (bufPtr : UInt32) : List WasmInstr :=
           [ .i32_const (bufPtr + (methodPathOffset m).toUInt32), .local_set 5 ]
           [] ])
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
-/-- WASM instruction sequence for Spike 4 HTTP 1.1 Server:
-    Local 0: server_fd (i32)
-    Local 1: client_fd (i32)
-    Local 2: bytes_recv (i32)
-    Local 3: resp_ptr (i32)
-    Local 4: resp_len (i32)
-    Local 5: path_ptr (i32) -- request-target pointer chosen by the method-token check, 0 if the
-             method was not recognised
--/
-def spike4WasmInstructions : List WasmInstr := [
-  -- 1. sock_listen(8080) -> server_fd
-  .i32_const 8080,
-  .call 0,
-  .local_set 0,
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- Emit byte comparisons for a literal beginning at the pointer held in `baseLocal`.
+    The caller establishes the literal's bounds before executing this sequence, so every
+    `i32.load8_u` is a read of a byte `sock_recv` reported receiving. -/
+def wasmLiteralAt (baseLocal : Nat) (bytes : List UInt8) (success : List WasmInstr) : List WasmInstr :=
+  (bytes.zipIdx).foldr (fun (b, offset) rest =>
+    [ .local_get baseLocal,
+      .i32_const offset.toUInt32,
+      .i32_add,
+      .i32_load8_u 0 0,
+      .i32_const b.toUInt32,
+      .i32_eq,
+      .if_else .empty rest [] ]) success
 
-  -- Accept loop (runs indefinitely)
-  .loop .empty [
-    -- 2. sock_accept(server_fd) -> client_fd
-    .local_get 0,
-    .call 1,
-    .local_set 1,
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- Bounded HTTP/1.1 request-line scanner for the WASI lowering.
 
-    -- 3. sock_recv(client_fd, buf = 0x400, max_len = 1024) -> bytes_recv
-    .local_get 1,
-    .i32_const 0x400,
-    .i32_const 1024,
-    .call 2,
-    .local_set 2,
+    `sock_recv` stores its exact byte count in local 2.  This scanner reads only offsets strictly
+    below that count, locates the first CRLF, and sets local 10 exactly when that first line has a
+    nonempty origin-form target, exactly two SP separators (three fields), and a literal
+    `HTTP/1.1` version.  Locals 6--11 are scratch: cursor, SP count, target pointer, version
+    pointer, validity flag, and current byte respectively.  The method grammar is checked by
+    `wasmMethodValidationInstrs` afterwards, once this scanner has established that its fixed
+    eight-byte method window is inside the received request. -/
+def wasmRequestLineValidationInstrs (bufPtr : UInt32) : List WasmInstr :=
+  let markValid := wasmLiteralAt 9 "HTTP/1.1".toUTF8.toList
+    [ .i32_const 1, .local_set 10 ]
+  let versionIsLiteral :=
+    [ .i32_const bufPtr, .local_get 6, .i32_add,
+      .local_get 9, .i32_const 8, .i32_add, .i32_eq,
+      .if_else .empty markValid [] ]
+  let targetIsOriginForm :=
+    [ .local_get 8, .i32_eqz,
+      .if_else .empty []
+        [ .local_get 8, .i32_load8_u 0 0, .i32_const 47, .i32_eq,
+          .if_else .empty versionIsLiteral [] ] ]
+  let hasThreeFields :=
+    [ .local_get 7, .i32_const 2, .i32_eq,
+      .if_else .empty targetIsOriginForm [] ]
+  let hasCRLF :=
+    [ .i32_const bufPtr, .local_get 6, .i32_add, .i32_const 1, .i32_add,
+      .i32_load8_u 0 0, .i32_const 10, .i32_eq,
+      .if_else .empty hasThreeFields [] ]
+  let onCR :=
+    [ .local_get 6, .i32_const 1, .i32_add, .local_get 2, .i32_lt_u,
+      .if_else .empty hasCRLF [],
+      -- The first CR always ends scanning; only the success path above sets validity.
+      .br 2 ]
+  let recordSpace :=
+    [ .local_get 7, .i32_eqz,
+      .if_else .empty
+        [ .i32_const bufPtr, .local_get 6, .i32_add, .i32_const 1, .i32_add,
+          .local_set 8 ]
+        [ .local_get 7, .i32_const 1, .i32_eq,
+          .if_else .empty
+            [ .i32_const bufPtr, .local_get 6, .i32_add, .i32_const 1, .i32_add,
+              .local_set 9 ]
+            [] ],
+      .local_get 7, .i32_const 1, .i32_add, .local_set 7 ]
+  let onSpace :=
+    [ .local_get 7, .i32_const 2, .i32_ge_u,
+      .if_else .empty
+        [ .i32_const 3, .local_set 7 ]
+        recordSpace ]
+  let onNonCR :=
+    [ .local_get 11, .i32_const 32, .i32_eq,
+      .if_else .empty onSpace [],
+      .local_get 6, .i32_const 1, .i32_add, .local_set 6,
+      .br 1 ]
+  [ .i32_const 0, .local_set 6,
+    .i32_const 0, .local_set 7,
+    .i32_const 0, .local_set 8,
+    .i32_const 0, .local_set 9,
+    .i32_const 0, .local_set 10,
+    .block .empty [
+      .loop .empty [
+        -- Reaching bytes_recv without a CRLF leaves validity false.
+        .local_get 6, .local_get 2, .i32_ge_u, .br_if 1,
+        .i32_const bufPtr, .local_get 6, .i32_add, .i32_load8_u 0 0, .local_set 11,
+        .local_get 11, .i32_const 13, .i32_eq,
+        .if_else .empty onCR onNonCR
+      ]
+    ] ]
 
-    -- 3b. Validate bytes_recv (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md, defect 2 analog
-    -- for this target). sock_recv only ever returns a non-negative count in this model (0 on
-    -- EOF/no data), so a plain i32_eqz suffices -- unlike the native targets there is no negative
-    -- errno return to additionally guard against here. On EOF, skip routing entirely rather than
-    -- inspecting a request buffer sock_recv never wrote into.
-    .local_get 2,
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
+/-- Choose a response after the bounded request-line scanner has accepted the line. -/
+def wasmValidLineResponseInstrs : List WasmInstr :=
+  wasmMethodValidationInstrs 0x400 ++
+  [ .local_get 5,
     .i32_eqz,
-    .if_else .empty [
-      -- EOF/no-data teardown: close the connection without touching the request buffer or sending
-      -- a response.
-      .local_get 1,
-      .call 4,
-      .drop
-    ] ([
-      -- 3c. Validate the request's HTTP method token (REF: docs/READ_BINDER_CONTRACT.md).
-      -- This lowering used to assume, with no check, that the request began with the four bytes
-      -- "GET " and read the path window at the fixed offset 0x404 -- answering 200 OK to
-      -- "FOO / HTTP/1.1..." where Spec.parseRequestLine answers 400 Bad Request, and mis-reading
-      -- the path of every valid request whose method token is not exactly three characters long.
-    ] ++ wasmMethodValidationInstrs 0x400 ++ [
-      .local_get 5,
-      .i32_eqz,
-      .if_else .empty [
-        -- Unrecognised method token: 400 Bad Request, matching the model's rejection.
+    .if_else .empty
+      [ -- The line is structurally valid but the method is outside the model's closed grammar.
         .i32_const 0x300,
         .local_set 3,
         .i32_const resp400Bytes.size.toUInt32,
-        .local_set 4
-      ] [
-      -- 4. Route request based on the full path at the offset the method token selected.
-      -- Exact 8-byte compare against "/status " (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md,
-      -- defect 3) -- the prior check read a *single* byte at offset 0x405 ('s'), matching ANY path
-      -- merely starting with "/s" ("/static", "/search", "/settings", even the bare path "/s");
-      -- strictly weaker than the Windows/Linux 5-byte "/stat" prefix bug it mirrors.
-      .local_get 5,
-      .i64_load 0 0,
-      .i64_const 0x207375746174732F, -- "/status " (7 chars + trailing delimiter space)
-      .i64_eq,
-      .if_else .empty [
-        -- Match /status:
-        .i32_const 0x100,
-        .local_set 3,
-        .i32_const respStatusBytes.size.toUInt32,
-        .local_set 4
-      ] [
-        -- Else check if path is exactly "/ " (root, delimited by the following space) -- both
-        -- bytes of the path window checked together, not just the delimiter byte alone.
+        .local_set 4 ]
+      [ -- Route using the target pointer selected by the recognised method.
         .local_get 5,
-        .i32_load 0 0,
-        .i32_const 0x0000FFFF,
-        .i32_and,
-        .i32_const 0x202F, -- "/ "
-        .i32_eq,
-        .if_else .empty [
-          -- Match /:
-          .i32_const 0x00,
-          .local_set 3,
-          .i32_const respRootBytes.size.toUInt32,
-          .local_set 4
-        ] [
-          -- Else 404:
-          .i32_const 0x200,
-          .local_set 3,
-          .i32_const resp404Bytes.size.toUInt32,
-          .local_set 4
-        ]
-      ]
-      ],
+        .i64_load 0 0,
+        .i64_const 0x207375746174732F, -- "/status "
+        .i64_eq,
+        .if_else .empty
+          [ .i32_const 0x100,
+            .local_set 3,
+            .i32_const respStatusBytes.size.toUInt32,
+            .local_set 4 ]
+          [ .local_get 5,
+            .i32_load 0 0,
+            .i32_const 0x0000FFFF,
+            .i32_and,
+            .i32_const 0x202F, -- "/ "
+            .i32_eq,
+            .if_else .empty
+              [ .i32_const 0x00,
+                .local_set 3,
+                .i32_const respRootBytes.size.toUInt32,
+                .local_set 4 ]
+              [ .i32_const 0x200,
+                .local_set 3,
+                .i32_const resp404Bytes.size.toUInt32,
+                .local_set 4 ] ] ] ]
 
-      -- 5. sock_send(client_fd, resp_ptr, resp_len)
-      .local_get 1,
-      .local_get 3,
-      .local_get 4,
-      .call 3,
-      .drop,
-
-      -- 6. sock_close(client_fd)
-      .local_get 1,
-      .call 4,
-      .drop
-    ]),
-
-    -- 7. Loop back to accept next connection
-    .br 0
-  ]
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
+/-- WASM entry point for the proof-connected Spike 4 runtime ABI. Each of the five calls passes
+    the connection handle, bounded scratch pointer and capacity, and one lifecycle phase. The
+    selected host profile owns socket state, streaming parsing, routing, and request-scope
+    recovery; this wrapper therefore requires no Wasm locals. -/
+def spike4WasmInstructions : List WasmInstr := [
+  -- The four leading arguments are connection, bounded scratch, capacity, and lifecycle phase.
+  .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,
+    .i32_const 0, .call 0, .drop,
+  .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,
+    .i32_const 1, .call 0, .drop,
+  .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,
+    .i32_const 2, .call 0, .drop,
+  .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,
+    .i32_const 3, .call 0, .drop,
+  .i32_const 0, .i32_const 0x800, .i32_const requestReadChunk.toUInt32,
+    .i32_const 4, .call 0, .drop
 ]
 
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- Regression oracle for the bounded WASI parser.  These are execution checks over the same
+    arbitrary request strings the model parses; they pin the byte-count boundary and each grammar
+    clause without introducing a narrower verified-program domain. -/
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 def spike4WasmFunction : WasmFunction := {
   name := "_start",
-  locals := [.i32, .i32, .i32, .i32, .i32, .i32],
+  locals := [],
   body := spike4WasmInstructions
 }
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 def spike4WasmModule : WasmModule := {
   imports := [
-    { module := "wasi_snapshot_preview1", name := "sock_listen", desc := .func 0 },
-    { module := "wasi_snapshot_preview1", name := "sock_accept", desc := .func 1 },
-    { module := "wasi_snapshot_preview1", name := "sock_recv",   desc := .func 2 },
-    { module := "wasi_snapshot_preview1", name := "sock_send",   desc := .func 3 },
-    { module := "wasi_snapshot_preview1", name := "sock_close",  desc := .func 4 },
-    { module := "wasi_snapshot_preview1", name := "proc_exit",   desc := .func 5 }
+    { module := gasmHttpWasmModule, name := gasmHttpParserSymbol, desc := .func 0 }
   ],
   functions := [spike4WasmFunction],
   exports := [
-    { name := "_start", desc := .func 6 }
+    { name := "_start", desc := .func 1 }
   ],
   dataSegments := spike4DataSegments
 }

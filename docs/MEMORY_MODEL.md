@@ -1,13 +1,17 @@
 # Memory, Concurrency, Ownership, and Synchronization Model
 
-**Status:** canonical cross-architecture design and implementation roadmap. The repository
-currently implements only the single-threaded pieces identified in §2. Everything else is a
-requirement, not a claim about existing Lean declarations.
+**Status:** canonical cross-architecture design and implementation roadmap. The repository's
+implemented substrate is inventoried in §2; no concurrent memory model is implemented yet.
+Everything listed as missing or as a future stage is a requirement, not a claim about existing Lean
+declarations.
 
 This document supersedes the retired x86-only memory-model and borrowing plans and owns the
 architecture shared by Spike 8. Target documents own
 instruction encodings and platform details; this document owns how their memory, concurrency,
 ownership, and synchronization semantics fit together.
+[Composable boundary ABI contexts](ABI_CONTEXT.md) consume this model's common authority and
+obligation world; they transport it across calls, roots, callbacks and other entries rather than
+defining a parallel ownership or cleanup system.
 
 The design has one central rule:
 
@@ -85,7 +89,7 @@ types, §15 decision 2 must preserve target-indexed extension points for those d
 
 ## 2. Verified Current Baseline
 
-As of 2026-08-28, the tree has the following relevant machinery:
+As of 2026-08-29, the tree has the following relevant machinery:
 
 | Area | Present | Missing |
 |---|---|---|
@@ -94,6 +98,7 @@ As of 2026-08-28, the tree has the following relevant machinery:
 | Capabilities | `PermissionShare`, `MemoryPerm`, `MemoryPermissions` | Enforcement at instruction construction, provenanced pointer authoring, temporal loans, cross-thread transfer |
 | Obligations | Generic `ObligationToken` list and return/exit predicates | Typed lock/join/wait obligations and an index that prevents forged ledger replacement |
 | Indexed programs | `BlockM Arch S₁ S₂ α` with indexed bind | A borrow/obligation index used by assembly programs; safe constructors that prevent arbitrary state replacement |
+| Boundary contexts | `Gasm.Core.AbiContext` provides relational entry/exit realizations, exact export sets, link/component certificates, and `Gasm.Core.Platform` connects those certificates to the universal `VerifiedProgram` root | The M1 authority/obligation world, coherent heterogeneous rows and conservation laws, the closed boundary-profile registry, and substantive M2-B target realizations/admissibility profiles |
 | Causality | `ThreadId`, vector clocks, `CausalEvent`, single-thread stamping | Concurrent execution graph, correct synchronizes-with generation, multi-thread trace projection |
 | OS threads | Single-state Win32 and Linux hooks | Runnable/blocked thread state, clone/CreateThread lifecycle, joins, futexes, wait queues |
 | OS processes | One implicit root host process; current thread/process exits still collapse into a whole-program stop | Multiprocess creation, images, observation/reaping, inheritance, IPC and robust process-shared synchronization are explicitly deferred to `docs/FUTURE_PROCESS_MODEL.md` |
@@ -187,13 +192,16 @@ The connection theorems between layers are mandatory:
 
 Without these the layers are parallel descriptions, not a verified system.
 
-The ABI-context work expected to converge with this plan is the implementation path for M1, not a
-competing memory model. Its entry binding must be relational, and Decision 3 requires the converged
-interface to make exit result/outcome binding relational as well or prove that every functional
-projection is restricted to non-authorizing physical/scalar data. An entry-only relationalization is
-insufficient. Fresh erased identities may be minted by a generative logical transition from the live
-logical pre-world; they need not force an existential after-world at every call site, but they may
-never be reconstructed from physical result bits.
+`Gasm.Core.AbiContext` and `Gasm.Core.Platform` are now the concrete staging substrate for M1's
+boundary seam, not a competing memory model. They provide relational entry and exit bindings,
+physical/logical world-coherence laws, exact export-set and link certificates, non-total component
+contracts, and universal root-program connection fields. [The ABI-context document](ABI_CONTEXT.md)
+owns that interface's detailed schema. This does **not** complete M1 or admit an M2-B profile: the
+shared world has not yet been instantiated with M1's indexed authority/obligation algebra, coherent
+heterogeneous rows and conservation laws are absent, and no substantive callable target realization
+or validated physical-admissibility profile exists. Fresh erased identities may be minted only by a
+generative logical transition from the live logical pre-world; they may never be reconstructed from
+physical result bits.
 
 This paragraph is the canonical **boundary-profile closure rule**. Constructing a boundary
 realization alone confers no execution authority. Every concrete M2-B profile has one registry entry

@@ -17,6 +17,9 @@ Each target directory (e.g. `Gasm/X86_64/`, `Gasm/X86_RealMode/`, `Gasm/ARM/`) i
    - Weaving of memory permissions (unlocked / locked) and state transitions.
 3. **`ABI.lean`**:
    - Target calling conventions with dedicated caller-side and callee-side proof disciplines.
+   - **Planned, not present:** full-signature classification and physical-footprint realization for
+     [Composable Boundary ABI Contexts](../ABI_CONTEXT.md). No current target `ABI.lean` constructs
+     a context realization.
 4. **`Emit.lean`**:
    - Direct byte serializers (ELF, PE, Flat MBR binary, SPIR-V word stream).
 

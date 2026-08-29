@@ -51,7 +51,7 @@ structure AArch64MachineState where
   exitCode         : UInt32 := 0
   syscallReturnPc  : UInt64 := 0
   stdinBuffer      : ByteArray := ByteArray.empty
-  incomingRequests : List String := []
+  incomingRequests : List ByteArray := []
 
 /- REF: docs/TARGETS/ARM64.md#machine-state -/
 /-- Default inhabited instance providing a clean zeroed machine state. -/

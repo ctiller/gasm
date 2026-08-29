@@ -123,6 +123,14 @@ durable decisions future implementations must preserve:
   unclaimed properties impose no obligation; selected claims
   bring all transitive safety/platform duties. Generic proofs are reused once, while specialized
   implementations prove only their refinement delta and stronger advertised properties.
+- **Whole-program verification composes reusable, ownership-scoped certificates**: artifact/emission,
+  export/link, provider/runtime, entry, admissibility, ABI-context and behavioral facts are proved at
+  their owning layers and indexed by the same final artifact, platform and capability selection.
+  `ProgramArtifactCertificate`, `ProgramProviderCertificate`, `ProgramEntryCertificate`,
+  `ProgramAdmissibilityCertificate`, `ProgramBehaviorCertificate` and `VerifiedProgram.compose`
+  provide the current fixed composition substrate. The eventual applicability-closure gate must
+  require exactly the certificate keys selected by reachable features and advertised guarantees;
+  the current review-derived closure is not misreported as that future mechanical gate.
 - **Bare metal is a first-class two-architecture target**: x86 AP/LAPIC and AArch64
   PSCI-or-spin-table/GIC paths implement the same lifecycle/lock contracts through distinct startup
   and device-order rules. Startup notification alone is not RAM synchronization.

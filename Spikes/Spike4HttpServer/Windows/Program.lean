@@ -35,7 +35,7 @@ import Gasm.Targets.X86_64.Assembler
 import Gasm.Targets.Windows.PEFormat
 import Gasm.Targets.Windows.Linker
 import Spikes.Spike4HttpServer.Spec
-import Spikes.Spike4HttpServer.MethodDispatch
+import Spikes.Spike4HttpServer.Runtime
 
 namespace Spikes.Spike4HttpServer.Windows
 
@@ -68,6 +68,9 @@ def resp404Bytes : ByteArray :=
 def resp400Bytes : ByteArray :=
   (formatResponse badRequestResponse).toUTF8
 
+def resp414Bytes : ByteArray :=
+  (formatResponse requestResourceExhaustedResponse).toUTF8
+
 /- REF: windows-winsock2-send#parameters -/
 /-- Offsets in the combined .rdata payload for response strings. -/
 def respRootOffset : Nat := 0
@@ -81,184 +84,38 @@ def resp404Offset : Nat := respStatusOffset + respStatusBytes.size
 /- REF: windows-winsock2-send#parameters -/
 def resp400Offset : Nat := resp404Offset + resp404Bytes.size
 
+def resp414Offset : Nat := resp400Offset + resp400Bytes.size
+
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
 def rdataPayload : ByteArray :=
-  respRootBytes ++ respStatusBytes ++ resp404Bytes ++ resp400Bytes
+  respRootBytes ++ respStatusBytes ++ resp404Bytes ++ resp400Bytes ++ resp414Bytes
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
-/-- Symbolic program definition for Spike 4 x86_64 Windows HTTP 1.1 Server.
-    Stack Layout (total 736 bytes allocated, maintaining (RSP - 736) % 16 == 0):
-      [RSP + 0x00..0x1F]  : shadow space (32 bytes)
-      [RSP + 0x20..0x27]  : server socket descriptor (8 bytes)
-      [RSP + 0x28..0x2F]  : client socket descriptor (8 bytes)
-      [RSP + 0x30..0x3F]  : sockaddr_in buffer (16 bytes)
-      [RSP + 0x40..0x13F] : HTTP request recv buffer (256 bytes -- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md,
-                             widened from a prior 128-byte allocation that left no safety margin for real-world
-                             requests with several headers; recv's `len` argument below always equals this buffer's
-                             size, so the write can never exceed it)
-      [RSP + 0x140..0x2D7]: WSADATA buffer (408 bytes -- pushed out to offset 0x140, which exceeds the 8-bit
-                             displacement range of `lea_rsp`, hence `lea_rsp32` below for its pointer)
--/
+/-- Symbolic Windows x86-64 entry point for the proof-connected Spike 4 runtime ABI.
+    It reserves the mandatory 32-byte Windows x64 shadow space and invokes the one imported
+    verified request component once for each lifecycle phase (listen, accept, receive, respond,
+    close). Socket state, bounded scratch storage, parsing, routing, and request-scope recovery are
+    owned by the selected runtime profile, not duplicated in this ISA wrapper. -/
 def spike4SymbolicProgram : List SymbolicInstr := [
-  -- 1. Setup 736-byte stack frame (accommodates 408-byte WSADATA + 256-byte recv + locals + shadow space)
-  instr (sub_rsp32 736),
-
-  -- 2. WSAStartup(0x0202, lpWSAData = RSP + 0x140)
-  instr (mov_r32 .ecx 0x0202),
-  instr (lea_rsp32 .rdx 320),
-  call_import "WSAStartup",
-
-  -- 3. socket(af = AF_INET (2), type = SOCK_STREAM (1), protocol = IPPROTO_TCP (6))
-  instr (mov_r32 .ecx 2),
-  instr (mov_r32 .edx 1),
-  instr (mov_r32 .r8d 6),
-  call_import "socket",
-  instr (mov_mem64_disp .rsp 0x20 .rax), -- Save server socket
-
-  -- 4. Setup sockaddr_in at RSP + 0x30
-  -- sin_family = 2 (AF_INET), sin_port = htons(8080) = 0x1F90, sin_addr = 0 (INADDR_ANY = 0.0.0.0)
-  -- Storing 0x00000000901F0002 via RAX ensures bytes [RSP+0x30..0x37] = 02 00 1F 90 00 00 00 00
-  instr (mov_r64_imm64 .rax 0x901F0002),
-  instr (mov_mem64_disp .rsp 0x30 .rax),
-  instr (mov_mem64_disp_imm .rsp 0x38 0), -- Zero out remaining 8 bytes (sin_zero)
-
-  -- 5. bind(server_fd, name = RSP + 0x30, namelen = 16)
-  instr (mov_reg64_mem64_disp .rcx .rsp 0x20),
-  instr (lea_rsp .rdx 0x30),
-  instr (mov_r32 .r8d 16),
-  call_import "bind",
-
-  -- 6. listen(server_fd, backlog = 5)
-  instr (mov_reg64_mem64_disp .rcx .rsp 0x20),
-  instr (mov_r32 .edx 5),
-  call_import "listen",
-
-  -- 7. Accept loop (runs indefinitely)
-  label "accept_loop",
-  instr (mov_reg64_mem64_disp .rcx .rsp 0x20),
-  instr (xor_r32 .edx .edx),
-  instr (xor_r32 .r8d .r8d),
-  call_import "accept",
-  instr (mov_mem64_disp .rsp 0x28 .rax), -- Save client socket
-
-  -- 8. recv(client_fd, buf = RSP + 0x40, len = 256, flags = 0)
-  instr (mov_reg64_mem64_disp .rcx .rsp 0x28),
-  instr (lea_rsp .rdx 0x40),
-  instr (mov_r32 .r8d 256),
-  instr (xor_r32 .r9d .r9d),
-  call_import "recv",
-
-  -- 8b. Validate recv() return value (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md, defect 2).
-  -- recv returns the byte count received (> 0), 0 on graceful peer close, or SOCKET_ERROR (-1) on
-  -- error. RAX is sign-extended by the hook/hardware, so a signed JLE against 0 catches both the
-  -- 0 and -1 cases without ever reading the (possibly short/uninitialized) request buffer.
-  instr (cmp_r64_imm8 .rax 0x00),
-  jle_near_label "close_conn",
-] ++
-
-  -- 9. Validate the request's HTTP method token (REF: docs/READ_BINDER_CONTRACT.md).
-  -- Previously this code assumed, without checking, that the first four bytes were literally
-  -- "GET " and read the path window at the fixed offset 4. That answered 200 OK to
-  -- "FOO / HTTP/1.1..." where Spec.parseRequestLine answers 400 Bad Request, and mis-read the path
-  -- of every valid request whose method token is not exactly three characters. The shared
-  -- generator below (Spikes/Spike4HttpServer/MethodDispatch.lean) tests the leading bytes against
-  -- every Stdlib.Http11.Method token plus its delimiting SP and selects the path offset from the
-  -- token that matched; an unrecognised token falls through to "send_400" immediately after.
-  methodValidationInstrs 0x40 ++
-[
-  label "send_400",
-  lea_data .rdx "rdata_base",
-  instr (add_r64_imm32 .rdx resp400Offset.toUInt32),
-  instr (mov_r32 .r8d resp400Bytes.size.toUInt32),
-  jmp_near_label "do_send",
-] ++
-
-  methodPathWindowInstrs 0x40 "route_dispatch" ++
-[
-  -- 9b. Inspect the request target RSI now points at.
-  -- Check if path is exactly "/status" followed by the request-line's delimiting space.
-  -- Full 8-byte exact compare (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md,
-  -- defect 3) -- the prior 5-byte-masked "/stat" prefix compare mis-routed any path merely starting
-  -- with "/stat" (e.g. "/static") to the status handler.
-  label "route_dispatch",
-  instr (mov_reg64_mem64_disp .rax .rsi 0),
-  instr (mov_r64_imm64 .rcx 0x207375746174732F), -- "/status " (7 chars + trailing delimiter space)
-  instr (cmp_r64 .rax .rcx),
-  je_label "send_status",
-
-  -- Check root endpoint: "/ " (0x202F)
-  instr (mov_reg64_mem64_disp .rax .rsi 0),
-  instr (mov_r64_imm64 .rdx 0xFFFF),
-  instr (and_r64 .rax .rdx),
-  instr (mov_r64_imm64 .rcx 0x202F), -- "/ "
-  instr (cmp_r64 .rax .rcx),
-  je_label "send_root",
-
-  -- Check root endpoint alternative: "/\r" (0x0D2F)
-  instr (mov_r64_imm64 .rcx 0x0D2F),
-  instr (cmp_r64 .rax .rcx),
-  je_label "send_root",
-
-  -- Default: send 404
-  label "send_404",
-  lea_data .rdx "rdata_base",
-  instr (add_r64_imm32 .rdx resp404Offset.toUInt32),
-  instr (mov_r32 .r8d resp404Bytes.size.toUInt32),
-  jmp_label "do_send",
-
-  label "send_root",
-  lea_data .rdx "rdata_base",
-  instr (add_r64_imm32 .rdx respRootOffset.toUInt32),
-  instr (mov_r32 .r8d respRootBytes.size.toUInt32),
-  jmp_label "do_send",
-
-  label "send_status",
-  lea_data .rdx "rdata_base",
-  instr (add_r64_imm32 .rdx respStatusOffset.toUInt32),
-  instr (mov_r32 .r8d respStatusBytes.size.toUInt32),
-
-  label "do_send",
-  -- 10. send(client_fd, buf = RDX, len = R8, flags = 0)
-  instr (mov_reg64_mem64_disp .rcx .rsp 0x28),
-  instr (xor_r32 .r9d .r9d),
-  call_import "send",
-
-  -- 11. closesocket(client_fd) -- also the landing point for the recv-failure teardown above,
-  -- since RCX is reloaded from the saved client socket unconditionally.
-  label "close_conn",
-  instr (mov_reg64_mem64_disp .rcx .rsp 0x28),
-  call_import "closesocket",
-
-  -- 12. Loop back to accept next connection
-  jmp_near_label "accept_loop"
+  -- The selected OS + Gasm-runtime profile owns the request lifecycle.  Five explicit phases
+  -- make the resource scope and its recovery boundary visible while keeping parsing/routing in
+  -- the separately verified component rather than duplicating it in each ISA lowering.
+  instr (sub_rsp32 32),
+  instr (xor_r32 .r9d .r9d), call_import gasmHttpParserSymbol,
+  instr (mov_r32 .r9d 1), call_import gasmHttpParserSymbol,
+  instr (mov_r32 .r9d 2), call_import gasmHttpParserSymbol,
+  instr (mov_r32 .r9d 3), call_import gasmHttpParserSymbol,
+  instr (mov_r32 .r9d 4), call_import gasmHttpParserSymbol
 ]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
 def spike4DllImports : List (String × List String) := [
-  ("KERNEL32.dll", [
-    "GetStdHandle",
-    "ReadFile",
-    "WriteFile",
-    "ExitProcess",
-    "VirtualAlloc",
-    "VirtualFree"
-  ]),
-  ("WS2_32.dll", [
-    "WSAStartup",
-    "socket",
-    "bind",
-    "listen",
-    "accept",
-    "recv",
-    "send",
-    "closesocket",
-    "WSACleanup"
-  ])
+  (gasmHttpRuntimeDll, [gasmHttpParserSymbol])
 ]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
 def spike4DataItems : List (String × ByteArray) := [
-  ("rdata_base", rdataPayload)
+  ("rdata_base", ByteArray.empty)
 ]
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/

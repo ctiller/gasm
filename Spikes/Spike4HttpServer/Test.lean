@@ -80,9 +80,9 @@ def main : IO UInt32 := do
 
   -- 4. Verify HTTP Response Routing Logic
   IO.println "[*] [4/4] Verifying HTTP Routing & Serialization Invariants..."
-  let rootReq := "GET / HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
-  let statusReq := "GET /status HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
-  let notFoundReq := "GET /unknown HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+  let rootReq := req "GET / HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+  let statusReq := req "GET /status HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+  let notFoundReq := req "GET /unknown HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
 
   let rootResp := handleRawRequest rootReq
   let statusResp := handleRawRequest statusReq

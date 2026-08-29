@@ -16,18 +16,40 @@ structure Environment where
   stdin            : ByteArray := ByteArray.empty
   args             : List String := []
   envVars          : List (String × String) := []
-  incomingRequests : List String := []
+  incomingRequests : List ByteArray := []
   fileSystem       : List (String × ByteArray) := []
   clockTime        : UInt64 := 0
 
-/-- Typeclass defining how an abstract environment `Env` is loaded into a machine's initial execution state. -/
-class EnvironmentLoader (Env : Type) where
-  loadEnvironment : WindowsExecutable → Env → X86_64MachineState
-
-/-- Typeclass defining how an abstract environment `Env` is loaded into initial WASI state. -/
-class WasiEnvironmentLoader (Env : Type) where
-  loadWasiEnvironment : Env → ByteArray × List String
+/-- Abridged field-for-field shape: an ISA/host profile owns loading, execution,
+    boundary/provider connection, safety, and serialization. -/
+class Platform (P : Type) where
+  Artifact : Type
+  State : Type
+  Observation : Type
+  RuntimeContext : Type
+  Import : Type
+  Provider : Type
+  BoundaryWorld : Type
+  BoundaryKey : Type
+  BoundaryTarget : Type
+  boundarySpec : BoundaryContextSpec BoundaryWorld BoundaryKey
+  boundarySemantics : TargetBoundarySemantics BoundaryTarget
+  imports : Artifact → List Import
+  providerProvides : Provider → Import → Prop
+  providerLinked : Artifact → Provider → Prop
+  runtimeSupports : RuntimeContext → Artifact → Provider → Prop
+  boundaryArtifact : Artifact → boundarySemantics.Artifact
+  artifactConnected : Artifact → Prop
+  load : Artifact → Environment → State
+  run : RuntimeContext → Artifact → State → Observation
+  admissible : RuntimeContext → Artifact → State → Prop
+  emit : Artifact → Except String ByteArray
 ```
+
+There is no caller-selected `Env` type and no target-specific environment-loader escape hatch.
+Every `VerifiedProgram` quantifies over the canonical `Environment`; platform profiles decide how
+each field is physically supplied. Capability composition is a separate argument, so ISA, host
+environment, and library/runtime requirements remain independently selectable.
 
 ---
 
@@ -160,6 +182,19 @@ This model is completely independent of operating system, CPU architecture, or b
 
 To translate a high-level effectful program into verified `gasm` assembly:
 
+The design requires the seam's effect capabilities to compose as the placement-free typed row in
+[Composable Boundary ABI Contexts](ABI_CONTEXT.md); that row-level connection is not implemented.
+The whole-program substrate does already require a `CapabilityComposition` of platform-owned,
+nominal providers. Every final-artifact import is covered by a selected provider, the target proves
+that provider is linked to the exact artifact location, and the composition proves its realized
+runtime supports that provider. Those provider/link/runtime certificates are established once by
+the owning target or library composition and reused by programs; an individual effect call must not
+re-prove global import-table or runtime-dispatch facts. This implemented provider selection is not
+yet the richer logical obligation-row or per-call ABI realization described in `ABI_CONTEXT.md`.
+The diagrams below show semantic operations and machine calling conventions, not a global allocator,
+cancellation token, or OS-owned context. A future realization must establish each runtime binding
+and prove its complete target footprint.
+
 ```
 +---------------------------------------------------------------------------------------------------+
 | Stage 1 & 2: Pure Domain Model: greetAndExit [MonadConsole m] [MonadProcess m]                   |
@@ -196,8 +231,8 @@ These are root-program lowering examples, not a shared lifecycle theorem. Linux 
 calling thread and is equivalent to whole-process termination only in the current single-thread
 baseline; the applicable M6-T profile keeps thread exit separate and M6-NX/M6-NA proves the selected
 root lowering. Windows uses the same semantic/native split for `ExitProcess`. Neither root primitive
-implies resource cleanup: §6.4's typed accounting theorem is separate. Process creation/observation is
-not a current effect profile.
+implies resource cleanup: `docs/MEMORY_MODEL.md` §6.4's typed accounting theorem is separate.
+Process creation/observation is not a current effect profile.
 
 ---
 

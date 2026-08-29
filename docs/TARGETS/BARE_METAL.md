@@ -55,14 +55,21 @@ def mmioReadByte (dev : MMIODevice) (offset : Nat) (dest : Register Arch .w8) :
     BlockM Arch (DeviceState dev) (DeviceState dev) Unit
 ```
 
-### 2.2 MMIO Device Barriers (ARM `DSB`/`DMB` & x86 Serialization)
-On weakly-ordered architectures like ARM, MMIO reads and writes over Device memory (`nGnRnE`) require explicit memory barriers (`DSB SY` / `DMB OSH`) to guarantee that peripheral configuration writes complete before subsequent execution:
+### 2.2 MMIO Device Ordering, Architectural Completion, and Device Completion
+On weakly-ordered architectures like ARM, MMIO reads and writes over Device memory (`nGnRnE`)
+require the barrier selected by the device protocol and shareability domain. These are three distinct
+claims: `DMB` orders applicable accesses; `DSB` can additionally wait for the architecture-defined
+completion point of applicable explicit accesses; neither alone proves that a peripheral's internal
+operation has finished. Device-effect completion requires a device-specific acknowledgement, status
+read/poll, interrupt, or other cited protocol. A proof must state which of the three consequences it
+needs and may not upgrade ordering into completion.
 
 ```lean
 def uartConfigureBaud (baud : Nat) : BlockM arm (DeviceState .UART) (DeviceState .UART) Unit := do
   mmioStore32 UART_IBRD_ADDR (calculateIBRD baud)
   mmioStore32 UART_FBRD_ADDR (calculateFBRD baud)
-  -- Mandatory Device Synchronization Barrier
+  -- Architectural access completion only; a device-effect completion claim
+  -- additionally needs the UART's documented status/acknowledgement protocol.
   emitInstruction (Opcode.dsb .sy)
 ```
 

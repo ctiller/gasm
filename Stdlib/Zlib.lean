@@ -20,4 +20,5 @@ import Stdlib.Zlib.Huffman
 import Stdlib.Zlib.Deflate
 import Stdlib.Zlib.Spec
 import Stdlib.Zlib.Gzip
+import Stdlib.Zlib.Streaming
 import Stdlib.Zlib.Equivalence

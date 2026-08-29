@@ -80,7 +80,10 @@ structure X86_64MachineState where
   flags            : UInt64
   memory           : X86_64Memory
   stdinBuffer      : ByteArray := ByteArray.empty
-  incomingRequests : List String := []
+  -- F1 (Law 9 root fix): the request queue holds raw octet strings, matching `stdinBuffer` above.
+  -- See `Gasm.Effects.TraceState.incomingRequests` for why `List String` made the honest
+  -- `∀ (request : ByteArray)` claim unstatable.
+  incomingRequests : List ByteArray := []
   fault            : Option X86_64Fault := none
 
 /- REF: docs/MEMORY_HOOK.md#6-faults-and-observability -/

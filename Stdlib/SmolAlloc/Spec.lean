@@ -44,6 +44,12 @@ structure SmolBlockHeader where
 structure SmolAllocState where
   pageCount     : Nat     := 0
   activeBorrows : Nat     := 0
+  /-- Bytes held by allocations whose free obligation is still live in this allocator scope. -/
+  liveBytes     : Nat     := 0
+  /-- High-water mark of `liveBytes` for this allocator scope. -/
+  peakLiveBytes : Nat     := 0
+  /-- Cumulative capacity handed out by this allocator scope, including reused blocks. -/
+  totalAllocatedBytes : Nat := 0
   freeListHead  : Option Address := none
   blocks        : List SmolBlockHeader := []
   obligations   : List ObligationToken := []
@@ -65,6 +71,31 @@ def mkProcessPageObligation (base : Address) : ObligationToken :=
 /-- Aligns a size up to an 8-byte boundary. -/
 def align8 (n : Nat) : Nat :=
   (n + 7) / 8 * 8
+
+/- REF: docs/STDLIB_SMOLALLOC.md#4-linear-obligations-memory-invariants -/
+/-- Records a successful allocation in the allocator scope.  This operation is deliberately
+    separate from page acquisition: a failed `PageSource.fetchPages` never calls it, so failure
+    leaves live, peak, and total usage unchanged and remains recoverable by the caller. -/
+def recordAllocation (s : SmolAllocState) (bytes : Nat) : SmolAllocState :=
+  let live := s.liveBytes + bytes
+  { s with liveBytes := live
+           peakLiveBytes := max s.peakLiveBytes live
+           totalAllocatedBytes := s.totalAllocatedBytes + bytes }
+
+/- REF: docs/STDLIB_SMOLALLOC.md#4-linear-obligations-memory-invariants -/
+/-- Records discharge of an allocation's live obligation.  Historical total and high-water usage
+    are intentionally retained for the enclosing allocator scope. -/
+def recordRelease (s : SmolAllocState) (bytes : Nat) : SmolAllocState :=
+  { s with liveBytes := s.liveBytes - bytes }
+
+theorem recordAllocation_total (s : SmolAllocState) (bytes : Nat) :
+    (recordAllocation s bytes).totalAllocatedBytes = s.totalAllocatedBytes + bytes := rfl
+
+theorem recordAllocation_peak (s : SmolAllocState) (bytes : Nat) :
+    (recordAllocation s bytes).peakLiveBytes = max s.peakLiveBytes (s.liveBytes + bytes) := rfl
+
+theorem recordRelease_preserves_total (s : SmolAllocState) (bytes : Nat) :
+    (recordRelease s bytes).totalAllocatedBytes = s.totalAllocatedBytes := rfl
 
 /- REF: docs/STDLIB_SMOLALLOC.md#3-block-structure-freelist-state-model -/
 /-- First-fit search across the free list for a block with capacity >= reqSize. -/
@@ -99,7 +130,8 @@ def malloc [Monad m] [MonadStateOf SmolAllocState m] [PageSource m] (reqSize : N
       else b
     )
     let newObligations := mkFreeObligation payloadAddr :: s.obligations
-    set ({ s with
+    let accounted := recordAllocation s reused.blockSize
+    set ({ accounted with
       activeBorrows := s.activeBorrows + 1,
       blocks := updatedBlocks,
       obligations := newObligations,
@@ -123,7 +155,8 @@ def malloc [Monad m] [MonadStateOf SmolAllocState m] [PageSource m] (reqSize : N
         nextFree  := none
       }
       let newObligations := mkFreeObligation payloadAddr :: mkProcessPageObligation pageBase :: s.obligations
-      set ({ s with
+      let accounted := recordAllocation s alignedSize
+      set ({ accounted with
         pageCount     := s.pageCount + numPages,
         activeBorrows := s.activeBorrows + 1,
         blocks        := newBlock :: s.blocks,
@@ -139,7 +172,7 @@ def free [Monad m] [MonadStateOf SmolAllocState m] [PageSource m] (payloadPtr : 
   let headerAddr := payloadPtr - 32
   match s.blocks.find? (fun b => b.address == headerAddr && !b.isFree) with
   | none => pure false
-  | some _ =>
+  | some block =>
     let updatedBlocks := s.blocks.map (fun b =>
       if b.address == headerAddr then
         { b with isFree := true, nextFree := s.freeListHead }
@@ -147,7 +180,8 @@ def free [Monad m] [MonadStateOf SmolAllocState m] [PageSource m] (payloadPtr : 
     )
     let targetObligation := mkFreeObligation payloadPtr
     let updatedObligations := s.obligations.filter (fun o => o != targetObligation)
-    set ({ s with
+    let released := recordRelease s block.blockSize
+    set ({ released with
       activeBorrows := if s.activeBorrows > 0 then s.activeBorrows - 1 else 0,
       blocks        := updatedBlocks,
       freeListHead  := some headerAddr,

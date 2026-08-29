@@ -26,8 +26,9 @@ def main : IO UInt32 := do
   let watPath := "hello.wat"
   let wasmPath := "hello.wasm"
 
-  let watText := Gasm.Targets.WASI.emitVerifiedWasmText spike1VerifiedWasmProgram
-  let wasmBytes ← IO.ofExcept (Gasm.Targets.WASI.emitVerifiedWasmBinary spike1VerifiedWasmProgram)
+  let watText := Gasm.Targets.WASI.renderVerifiedWasmText spike1VerifiedWasmProgram
+  let wasmBytes ← IO.ofExcept
+    (Gasm.Core.Platform.emitVerifiedProgram spike1VerifiedWasmProgram)
 
   IO.println s!"[*] Emitting WAT text format to {watPath}..."
   IO.FS.writeFile watPath watText

@@ -68,7 +68,7 @@ def loadWithStdin (exe : LinuxExecutable) (stdin : ByteArray) : X86_64MachineSta
 
 /- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
 /-- Loads the Linux executable into initial machine state with pre-seeded network requests. -/
-def loadWithRequests (exe : LinuxExecutable) (reqs : List String) : X86_64MachineState :=
+def loadWithRequests (exe : LinuxExecutable) (reqs : List ByteArray) : X86_64MachineState :=
   let s := exe.load
   { s with incomingRequests := reqs }
 

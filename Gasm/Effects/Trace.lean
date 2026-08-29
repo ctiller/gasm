@@ -29,7 +29,12 @@ namespace Gasm.Effects
 structure TraceState (Event : Type) where
   events           : List Event := []
   stdinLines       : List String := []
-  incomingRequests : List String := []
+  -- F1 (Law 9 root fix): `List ByteArray`, not `List String`. A queue of `String`s cannot hold a
+  -- non-UTF-8 request, so it cannot range over `∀ (request : ByteArray)` -- the real
+  -- per-connection domain `docs/tasks/PA6-read-binder-contract.md` names. That is why Spike 4's
+  -- nine `grandfathered` entries were single-vector `native_decide` checks: the general statement
+  -- had nowhere to live. See `Gasm.Effects.recvDeliver` and its `recvDeliver_lossless` law.
+  incomingRequests : List ByteArray := []
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- Pure trace monad parameterized over an arbitrary strongly-typed event universe. -/
@@ -97,22 +102,21 @@ instance [Inject NetEvent Event] : MonadNetwork (TraceM Event) where
   -- equivalence proof could never hold once a machine-side hook's short-read behaviour is
   -- genuinely exercised, since the two sides would disagree on what a capped `recv` returns.
   -- Built on the same `Gasm.Effects.splitBytes` primitive for parity.
+  -- F1: delivery now goes through the single shared `Gasm.Effects.recvDeliver` step (see its
+  -- `recvDeliver_lossless` law) instead of this site's own copy of the nine-line split/requeue
+  -- dance. The `String.fromUTF8?` round trip that copy performed is gone -- with it, both defects
+  -- it caused: a remainder straddling a UTF-8 boundary being dropped rather than requeued, and a
+  -- capped read reporting the *whole* request as its `NetEvent.recv` payload.
   recv _sock maxLen := fun s =>
     match s.incomingRequests with
     | [] => (some none, s)
     | req :: rest =>
-      let (delivered, remaining) := splitBytes req.toUTF8.toList maxLen
-      let deliveredArr := ByteArray.mk delivered.toArray
-      let incomingRequests' :=
-        match String.fromUTF8? (ByteArray.mk remaining.toArray) with
-        | some r => if remaining.isEmpty then rest else r :: rest
-        | none => rest
-      let deliveredStr := (String.fromUTF8? deliveredArr).getD req
+      let (delivered, incomingRequests') := recvDeliver req maxLen rest
       let s' := { s with
-        events := s.events ++ [Inject.inject (NetEvent.recv deliveredStr)],
+        events := s.events ++ [Inject.inject (NetEvent.recv (bytesToPayload delivered))],
         incomingRequests := incomingRequests'
       }
-      (some (some deliveredStr), s')
+      (some (some delivered), s')
   send _sock data := do
     emitEvent (NetEvent.send data)
     return true
@@ -122,7 +126,7 @@ instance [Inject NetEvent Event] : MonadNetwork (TraceM Event) where
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- Extracts the full observable strongly-typed effect trace from a TraceM model execution. -/
-def runModelTrace {Event α : Type} (m : TraceM Event α) (stdinLines : List String := []) (incomingRequests : List String := []) : List Event :=
+def runModelTrace {Event α : Type} (m : TraceM Event α) (stdinLines : List String := []) (incomingRequests : List ByteArray := []) : List Event :=
   (m { events := [], stdinLines := stdinLines, incomingRequests := incomingRequests }).2.events
 
 end Gasm.Effects

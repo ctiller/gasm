@@ -53,7 +53,16 @@ soundness on `stackDepth`:
 
 Different operating systems and architectures mandate distinct calling conventions. The current
 partial substrate records structural **ABI Discipline** vocabulary parameterized over `Arch` and
-`ABI`:
+`ABI`; a selected M2-B profile must add exact relational entry/exit and caller/link certification.
+
+This document uses *ABI* narrowly for the machine calling convention: registers, stack layout,
+preservation, and return. Logical allocator, request, cancellation, or library capabilities are
+specified by [Composable Boundary ABI Contexts](ABI_CONTEXT.md). Their staging records now provide
+relational boundary and artifact/export certificates, but the M1 resource-world connection and
+substantive M2-B target profiles remain unimplemented. A complete call rule must satisfy both
+layers; neither an OS nor this stack discipline implicitly supplies the contextual layer.
+
+The structural vocabulary is:
 
 ```lean
 class AbiDiscipline (Arch : Type) (ABI : Type) where

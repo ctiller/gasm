@@ -72,7 +72,10 @@ def BlockM (Arch : Type) (S₁ S₂ : Type) (α : Type) : Type :=
 
 The sketch below describes a structural transition contract useful for verified internal blocks. It
 does not by itself certify an external call, syscall, loader root, thread start or handler
-boundary. Current boundaries additionally consume the canonical closed profile rule in
+boundary. The landed generic `ContextBoundaryRealization`, `EstablishedBoundaryEntry`, and
+`VerifiedExportSet` types provide relational entry/exit, caller-establishment, and final-artifact
+certificate shapes, but concrete target profiles and `Callable` integration remain unimplemented.
+A completed concrete boundary additionally consumes the canonical boundary-profile closure rule in
 `docs/MEMORY_MODEL.md` §3 and, where applicable, the selected lifecycle semantic realization. A
 future process start is not a current profile. Automatic
 derivation of the combined shape is not

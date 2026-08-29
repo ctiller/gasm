@@ -135,6 +135,9 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**Linear Obligations & Causality**](OBLIGATIONS_AND_CAUSALITY.md): Current generic tokens and
   vector clocks versus the required typed obligations and labelled causal relations.
 - [**Stack Discipline & Jump Typing**](STACK_DISCIPLINE.md): Stack-indexed basic blocks and local jump obligations automating stack preservation.
+- [**Composable Boundary ABI Contexts**](ABI_CONTEXT.md): Placement-free logical contracts,
+  relational target realizations, exact export/link/component certificates, proof-economy rules, and
+  an honest inventory of the remaining resource-world and concrete-profile work.
 - [**Proof-Carrying Assembly DSL**](PROOF_CARRYING_ASSEMBLY.md): Current typed assembly pieces and
   design-only capability/memory-discipline boundaries.
 - [**Equivalence Proofs**](EQUIVALENCE_PROOFS.md): Split Theorem Principle (`Functional Equivalence`, `Callability & ABI`, `Memory Safety`) and layered function proof composition.

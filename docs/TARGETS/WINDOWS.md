@@ -27,6 +27,12 @@ The Microsoft x64 calling convention is strictly defined and differs significant
   *(Note: Unlike System V AMD64 where `RSI` and `RDI` are scratch, on Windows x64 `RSI` and `RDI` MUST be preserved by the callee).*
 - **Caller-Saved Scratch**: `RAX`, `RCX`, `RDX`, `R8`–`R11`, `XMM0`–`XMM5`.
 
+The Microsoft x64 convention below specifies machine call layout. Allocator, request, cancellation,
+Winsock, Vulkan, and other library requirements belong to the placement-free contracts in
+[Composable Boundary ABI Contexts](../ABI_CONTEXT.md). The still-unimplemented Windows realization
+must classify the full signature and prove alias-aware argument, register, TLS/FLS, helper-clobber,
+and teardown footprints.
+
 ### 1.2 Mandatory 32-Byte Shadow Space & 16-Byte Stack Alignment
 
 The Microsoft x64 ABI requires:
@@ -75,8 +81,10 @@ This is a target requirement, not a current enforcement claim. The tree has neit
 `WindowsCallerDiscipline` declaration nor an `asmCall` constructor. Its current
 `AbiDiscipline X86_64 WindowsFastcall` instance records GPR lists, shadow-space size and stack
 alignment, but does not model XMM state or prove every call site's complete physical admissibility.
-M2-B[Windows-x64-call] consumes the canonical closed boundary-profile rule in
-`docs/MEMORY_MODEL.md` §3 before a call is certified.
+The landed generic `ContextBoundaryRealization`, `EstablishedBoundaryEntry`, and
+`VerifiedExportSet` types provide relational and final-artifact certificate shapes, but no concrete
+Windows call profile or `AbiDiscipline` integration is implemented. M2-B[Windows-x64-call] consumes
+the canonical boundary-profile closure rule in `docs/MEMORY_MODEL.md` §3 before a call is certified.
 
 ### 1.3 Strict Prohibition of Red Zone
 Windows x64 defines no red zone. Storage below the current `RSP` is volatile and unowned by the

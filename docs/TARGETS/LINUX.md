@@ -18,6 +18,11 @@ This document defines the calling conventions, system call ABIs, kernel interfac
 
 ## 1. ABIs & Calling Conventions
 
+This section specifies machine and kernel calling conventions. Allocator, request, cancellation,
+and library requirements belong to [Composable Boundary ABI Contexts](../ABI_CONTEXT.md). The
+still-unimplemented Linux realization must classify the full signature and prove alias-aware
+argument, register, TLS-model/helper-clobber, and teardown footprints.
+
 ### 1.1 System V AMD64 Function Calling Convention
 For standard subroutine execution, `gasm` models the System V AMD64 ABI discipline (`AbiDiscipline X86_64 SystemVAMD64`):
 - **Argument Registers (1 to 6)**: `RDI, RSI, RDX, RCX, R8, R9`
@@ -29,9 +34,12 @@ For standard subroutine execution, `gasm` models the System V AMD64 ABI discipli
 - **Red Zone**: 128 bytes below `RSP` reserved for leaf functions
 
 This current `AbiDiscipline` is structural register/stack vocabulary, not by itself a certified call
-boundary. A selected M2-B[SysV-x86-call] realization consumes the canonical boundary-profile closure
-rule in `docs/MEMORY_MODEL.md` §3. The table above is a necessary premise, not a substitute for that
-closed registry entry, relational execution theorem and artifact connection.
+boundary. The landed generic `ContextBoundaryRealization`, `EstablishedBoundaryEntry`, and
+`VerifiedExportSet` types provide the relational and final-artifact certificate shapes, but no
+concrete SysV call profile is implemented. A selected M2-B[SysV-x86-call] realization consumes the
+canonical boundary-profile closure rule in `docs/MEMORY_MODEL.md` §3. The table above is a necessary
+premise, not a substitute for that closed registry entry, relational execution theorem and artifact
+connection.
 
 ### 1.2 System Call ABIs Across Architectures
 
