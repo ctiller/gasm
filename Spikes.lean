@@ -65,5 +65,6 @@ import Spikes.Spike5Gzip.Wasm.Program
 import Spikes.Spike5Gzip.UniversalInput
 import Spikes.Spike5Gzip.StreamingCapability
 import Spikes.Spike5Gzip.Runtime
+import Spikes.Spike5Gzip.NativeProofs
 import Spikes.Spike5Gzip.Equivalence
 

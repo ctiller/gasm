@@ -25,7 +25,7 @@ name = "gasm"
 version = "0.1.0"
 defaultTargets = [
   "Gasm", "Spikes", "Stdlib", "GateSubprocess",
-  "check_gates_axioms", "check_refs_coverage"
+  "X86DispatchExhaustive", "check_gates_axioms", "check_refs_coverage"
 ]
 
 [[lean_lib]]
@@ -47,6 +47,13 @@ roots = ["Stdlib"]
 [[lean_lib]]
 name = "GateSubprocess"
 roots = ["Tools.GateSubprocess"]
+
+# Expensive exhaustive decoder proof kept as a separate root so ordinary Gasm
+# edit dependencies do not import it, while the default trust build still
+# kernel-checks it and the gate scanners can load its declarations.
+[[lean_lib]]
+name = "X86DispatchExhaustive"
+roots = ["Gasm.Targets.X86_64.RoundtripGate.DispatchExhaustive"]
 
 # Law 10 axiom-level gate verifier: walks every compiled declaration in
 # Gasm/Stdlib/Spikes and cross-checks its axiom dependencies (Lean's own
