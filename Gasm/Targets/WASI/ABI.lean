@@ -392,7 +392,7 @@ def WasiRunOutcome.ofResult : WasmRunResult → WasiRunOutcome
 /-- Runs a WASI artifact under an explicit finite platform resource capability. -/
 def runWasiOutcome (instrs : List WasmInstr) (segments : List WasmDataSegment)
     (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"])
-    (incomingRequests : List String := []) (budget : WasiResourceBudget :=
+    (incomingRequests : List ByteArray := []) (budget : WasiResourceBudget :=
       { fuel := defaultWasmFuel, memoryPages := 65536 }) : WasiRunOutcome :=
   let initialMemory := initWasmMemory segments
   let initialPages := (WasmMem.size initialMemory + 65535) / 65536

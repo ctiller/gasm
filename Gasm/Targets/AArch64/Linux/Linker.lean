@@ -63,7 +63,7 @@ def loadWithStdin (exe : AArch64LinuxExecutable) (stdin : ByteArray) : AArch64Ma
   { exe.load with stdinBuffer := stdin }
 
 /- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
-def loadWithRequests (exe : AArch64LinuxExecutable) (requests : List String) : AArch64MachineState :=
+def loadWithRequests (exe : AArch64LinuxExecutable) (requests : List ByteArray) : AArch64MachineState :=
   { exe.load with incomingRequests := requests }
 
 end AArch64LinuxExecutable
