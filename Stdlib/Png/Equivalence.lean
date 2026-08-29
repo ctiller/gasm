@@ -362,29 +362,4 @@ def sample2x2Image : ImageRGBA8 := {
   ]
 }
 
-/- REF: docs/STDLIB_PNG.md#62-canonical-15-roundtrip-soundness-theorem -/
-/-- Verified Simulation Instance: Lossless PNG encode-decode roundtrip soundness. -/
-theorem png_roundtrip_soundness_inst :
-    (match decodeImageRGBA8 (encodeImageRGBA8 sample2x2Image) with
-     | Except.ok res => res == sample2x2Image
-     | Except.error _ => false) = true := by
-  native_decide
-
-/- REF: docs/STDLIB_PNG.md#62-canonical-15-roundtrip-soundness-theorem -/
-/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for PNG byte streams.
-    Outer `Except.error _ => false` (2026-08-27, PA16 Phase 1 vacuity fix): the prior `=> true`
-    let a `decodeImageRGBA8` that always failed still discharge this theorem, since `testStream` is
-    a fixed, already-known-good literal and the check never required the initial decode to actually
-    succeed -- see `Stdlib.Zlib.deflate_idempotent_canonical_roundtrip_inst`'s doc comment for the
-    full rationale (docs/PA16_CODEC_SOUNDNESS.md). -/
-theorem png_idempotent_canonical_roundtrip_inst :
-    let testStream := encodeImageRGBA8 sample2x2Image
-    (match decodeImageRGBA8 testStream with
-     | Except.error _ => false
-     | Except.ok img =>
-       match decodeImageRGBA8 (encodeImageRGBA8 img) with
-       | Except.ok res => res == img
-       | Except.error _ => false) = true := by
-  native_decide
-
 end Stdlib.Png

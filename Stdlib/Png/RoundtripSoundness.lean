@@ -16,6 +16,7 @@ limitations under the License.
 
 import Lean
 import Stdlib.Zlib.ContainerRoundtrip
+import Stdlib.Zlib.CompressSizeBound
 import Stdlib.Png.Streaming
 import Stdlib.Png.Equivalence
 
@@ -1614,5 +1615,73 @@ theorem png_roundtrip_soundness (img : ImageRGBA8) (ftOpt : Option FilterType)
     pixelsUpTo_full img hpix]
   rw [unpack_rgba img hpix]
   rfl
+
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- `png_roundtrip_soundness` with the IDAT-size precondition discharged through the
+    compressor output-size bound: any image whose raw filtered stream is under `2^29`
+    bytes compresses to an IDAT chunk whose size fits the 4-byte chunk-length field. -/
+theorem png_roundtrip_soundness' (img : ImageRGBA8) (ftOpt : Option FilterType)
+    (hpix : img.pixels.size = img.width * img.height * 4)
+    (hw : 0 < img.width) (hh : 0 < img.height)
+    (hsz : (img.width * 4 + 1) * img.height < 2 ^ 29) :
+    decodeImageRGBA8 (encodeImageRGBA8 img ftOpt) = .ok img := by
+  have h1 : img.width * 4 + 1 ≤ (img.width * 4 + 1) * img.height :=
+    Nat.le_mul_of_pos_right _ hh
+  have h2 : img.height ≤ (img.width * 4 + 1) * img.height :=
+    Nat.le_mul_of_pos_left _ (by omega)
+  have hzc32 : (zlibCompress (rawStreamOf img ftOpt img.height)).size < 2 ^ 32 := by
+    have hb := Stdlib.Zlib.zlibCompress_size_bound (rawStreamOf img ftOpt img.height)
+    have hrs := rawStreamOf_size img ftOpt hpix img.height (Nat.le_refl _)
+    have hc : img.height * (img.width * 4 + 1) = (img.width * 4 + 1) * img.height :=
+      Nat.mul_comm _ _
+    omega
+  exact png_roundtrip_soundness img ftOpt hpix hw hh (by omega) (by omega) hzc32
+
+/- REF: docs/STDLIB_PNG.md#62-canonical-15-roundtrip-soundness-theorem -/
+/-- Verified Simulation Instance: Lossless PNG encode-decode roundtrip soundness.
+    Statement unchanged from its original `native_decide` form (`Stdlib/Png/Equivalence.lean`);
+    now a corollary of the universal `png_roundtrip_soundness'`, so it still fails if
+    either codec direction breaks, with no oracle. -/
+theorem png_roundtrip_soundness_inst :
+    (match decodeImageRGBA8 (encodeImageRGBA8 sample2x2Image) with
+     | Except.ok res => res == sample2x2Image
+     | Except.error _ => false) = true := by
+  rw [png_roundtrip_soundness' sample2x2Image none (by decide) (by decide) (by decide)
+    (by decide)]
+  decide
+
+/- REF: docs/STDLIB_PNG.md#62-canonical-15-roundtrip-soundness-theorem -/
+/-- Verified Simulation Instance: Canonical 1.5-roundtrip soundness for PNG byte streams.
+    Outer `Except.error _ => false` (2026-08-27, PA16 Phase 1 vacuity fix): the prior `=> true`
+    let a `decodeImageRGBA8` that always failed still discharge this theorem, since `testStream` is
+    a fixed, already-known-good literal and the check never required the initial decode to actually
+    succeed -- see `Stdlib.Zlib.deflate_idempotent_canonical_roundtrip_inst`'s doc comment for the
+    full rationale (docs/PA16_CODEC_SOUNDNESS.md). Statement unchanged from its original
+    `native_decide` form (`Stdlib/Png/Equivalence.lean`); now a corollary of the universal
+    `png_roundtrip_soundness'`. -/
+theorem png_idempotent_canonical_roundtrip_inst :
+    let testStream := encodeImageRGBA8 sample2x2Image
+    (match decodeImageRGBA8 testStream with
+     | Except.error _ => false
+     | Except.ok img =>
+       match decodeImageRGBA8 (encodeImageRGBA8 img) with
+       | Except.ok res => res == img
+       | Except.error _ => false) = true := by
+  have hrt := png_roundtrip_soundness' sample2x2Image none (by decide) (by decide)
+    (by decide) (by decide)
+  show (match decodeImageRGBA8 (encodeImageRGBA8 sample2x2Image) with
+     | Except.error _ => false
+     | Except.ok img =>
+       match decodeImageRGBA8 (encodeImageRGBA8 img) with
+       | Except.ok res => res == img
+       | Except.error _ => false) = true
+  rw [hrt]
+  show (match decodeImageRGBA8 (encodeImageRGBA8 sample2x2Image) with
+     | Except.ok res => res == sample2x2Image
+     | Except.error _ => false) = true
+  rw [hrt]
+  decide
 
 end Stdlib.Png
