@@ -34,7 +34,7 @@ open Gasm.Targets.Wasm.HostOracle
 /-- Result structure for Wasm instruction validation against host engine. `skipped` marks the
 zero-vector case (no fuzzable host states, whether because `canFuzzWasmRuntime` excludes the
 underlying instruction or state generation otherwise yielded nothing): distinct from `passed`,
-since a skip means "verified nothing" rather than "verified and matched" (TCB.md T11-b vacuity;
+since a skip means "verified nothing" rather than "verified and matched" (docs/REVIEW.md Law 13 vacuity;
 docs/REVIEW.md Law 8, Law 13 — a zero-vector case auto-reporting PASS is exactly the "mock
 verification" facade those laws prohibit). -/
 structure WasmInstructionDiffResult where
@@ -669,7 +669,7 @@ def cfStoreI32ThenLoadByte0Endianness : WasmDiffCase :=
       (states, curRng) }
 
 -- ================================================================================================
--- B7/B8 (MODEL_DEBT.md, docs/tasks/B7-wasm-oob-trap-and-limits.md): out-of-bounds memory access
+-- B7/B8 (docs/TECHNICAL_NOTES.md, docs/MEMORY_HOOK.md): out-of-bounds memory access
 -- and `memory.grow`/`Limits.max` fuzz coverage. `Semantics.lean`'s `writeMem8` used to silently
 -- zero-pad and grow linear memory on an out-of-bounds write instead of trapping, and
 -- `memory_grow` never consulted `Limits.max` or failed at all -- and the pre-fix fuzzer generated
@@ -1033,7 +1033,7 @@ def verifyWasmDiffCase (tc : WasmDiffCase) (rng : FuzzerRng) (maxStates : Nat :=
   ensureOracleControlsRan
   let (allStates, nextRng) := tc.genStates rng maxStates
   let statesToTest := allStates.take maxStates
-  -- TC17 (TCB.md T11-b; docs/REVIEW.md Law 13): 0 fuzzable states — whether `canFuzzWasmRuntime`
+  -- Vacuity floor (`docs/REVIEW.md` Law 13): 0 fuzzable states — whether `canFuzzWasmRuntime`
   -- excludes the instruction or generation otherwise yielded nothing — is a zero-vector case and
   -- must report SKIP, never PASS. `reportWasmDiffResult` relies on `skipped` to keep it out of
   -- both `totalInstrsPassed` and the printed [PASS] line.
@@ -1115,7 +1115,7 @@ def verifyWasmDiffCase (tc : WasmDiffCase) (rng : FuzzerRng) (maxStates : Nat :=
 /- REF: docs/TARGETS/WASM_ORACLE_HARNESS.md#7-per-case-verification-and-reporting -/
 /-- Prints one case's PASS/FAIL/SKIP line and folds it into the running totals. A `skipped`
 result (see `WasmInstructionDiffResult`) is reported distinctly from both PASS and FAIL and never
-increments `passedCount` — TC17 (TCB.md T11-b; docs/REVIEW.md Law 13): a zero-vector case must
+increments `passedCount` — per the `docs/REVIEW.md` Law 13 vacuity floor, a zero-vector case must
 never read as a clean pass. Likewise, any `inconclusive` (fuel-exhausted) vectors are surfaced on
 their own line UNCONDITIONALLY -- regardless of whether the case's OTHER vectors made it an
 overall PASS or FAIL -- so a fuel-exhausted vector can never be silently absorbed into either
@@ -1143,7 +1143,7 @@ def reportWasmDiffResult (res : WasmInstructionDiffResult) (passedCount failedCo
 /-- The number of distinct host Wasm engines this build's oracle actually executed against.
 Currently exactly one: the `node` runtime spawned by `runWasmHostExecution`. Surfacing this
 number keeps a green run's evidentiary scope visible rather than implied
-(docs/VISION.md#32-the-models-must-be-faithful-to-reality; TCB.md T11). -/
+(docs/VISION.md#32-the-models-must-be-faithful-to-reality; docs/VISION.md §3.2). -/
 def enginesValidated : Nat := 1
 
 /- REF: docs/REVIEW.md#law-13-findings-become-gates-the-ratchet-law -/
@@ -1152,7 +1152,7 @@ def enginesValidated : Nat := 1
     `[CONTROL]` line; `verifyWasmDiffCase` also calls it per-case (a no-op after the first time),
     so the controls gate is enforced regardless of entry point, not just here.
 
-    TC17 nonzero-vector floor (TCB.md T11-b; docs/REVIEW.md Law 13, Findings Become Gates): a run
+    Nonzero-vector floor (`docs/REVIEW.md` Law 13, Findings Become Gates): a run
     that exercises zero host-engine test vectors — whether because every candidate's
     `canFuzzWasmRuntime` is false, an `--instruction` filter matched nothing, or the candidate
     suite itself is empty — must hard-fail rather than report a clean summary. The floor fires
@@ -1229,7 +1229,7 @@ def runWasmSemanticsFuzzerSuite (iterationsPerInstr : Nat := 50) (initialSeed : 
   -- TC17 vacuity floor: 0 vectors exercised is a hard failure, never a clean summary.
   if totalVectorsTested == 0 then
     IO.println s!"[VACUITY FLOOR TRIPPED] 0 host-engine test vectors were exercised across {candidateCount} candidate case(s) ({totalInstrsSkipped} skipped, {totalInstrsPassed} fuzzed-and-passed, {totalInstrsFailed} fuzzed-and-failed)."
-    IO.println "A fuzzer run that exercises zero vectors has verified nothing — this is a hard FAIL, not a clean PASS (TCB.md T11-b; docs/REVIEW.md Law 13)."
+    IO.println "A fuzzer run that exercises zero vectors has verified nothing — this is a hard FAIL, not a clean PASS (docs/REVIEW.md Law 13)."
     IO.println "================================================================================"
     return (totalInstrsPassed, max 1 (totalInstrsFailed + totalInstrsSkipped), totalVectorsTested)
   IO.println s!"Summary: {totalInstrsPassed} passed, {totalInstrsFailed} failed, {totalInstrsSkipped} skipped ({totalVectorsTested} total test vectors, {totalInconclusive} inconclusive [fuel-exhausted])"

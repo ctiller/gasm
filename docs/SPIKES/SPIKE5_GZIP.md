@@ -114,5 +114,5 @@ specification itself, and only the former is proved here. The universal GZIP-con
 is an open PA16 obligation (L9, itself downstream of L7's dynamic branch); what exists today is
 `gzip_roundtrip_soundness_inst` — a `native_decide` check over one string literal — plus, at the
 DEFLATE layer, the genuinely universal `emitFixedBlock_roundtrip_soundness` and the conditional
-`compress_roundtrip_of_fixed_choice`. See `docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems`
-and `docs/PA16_CODEC_SOUNDNESS.md` §9.
+`compress_roundtrip_of_fixed_choice`. See
+`docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems` for the implemented frontier.

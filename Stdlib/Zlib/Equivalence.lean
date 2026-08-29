@@ -151,8 +151,8 @@ theorem lzCopy_size (dist : Nat) : ∀ (len : Nat) (out : ByteArray),
     omega
 
 /- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
-/-- L4, the self-overlapping back-reference copy induction (PA16's hardest sub-lemma,
-    `docs/PA16_CODEC_SOUNDNESS.md` §4 L4): if the output so far is exactly `data[0:pos]`
+/-- L4, the self-overlapping back-reference copy induction (`docs/STDLIB_ZLIB.md` §6.4):
+    if the output so far is exactly `data[0:pos]`
     and the match certificate holds at `pos`, then after copying `len` bytes from `dist`
     back the output is exactly `data[0:pos+len]`. The induction restructures the design
     doc's strong induction into a plain one: at every step the source index `pos - dist`
@@ -276,7 +276,7 @@ theorem lz77_roundtrip_soundness (data : ByteArray) :
 /-
 ## PA16 L1a: bitstream writer ghost algebra (write-append)
 
-The `List Bool` ghost bit-sequence `docs/PA16_CODEC_SOUNDNESS.md` §4 L1 calls for, plus the
+The `List Bool` ghost bit-sequence `docs/STDLIB_ZLIB.md` §4.1 specifies, plus the
 write-append law L1a: under the writer's operating invariant (pending bits fit the pending
 count, pending count below a byte, no `UInt32` overflow), `writeBits` appends exactly the
 `n` LSB-first bits of `v` to the emitted bit sequence — and re-establishes the invariant,
@@ -399,7 +399,7 @@ theorem flushBytes_spec : ∀ (cnt : Nat) (buf : UInt32) (acc : ByteArray),
       exact ⟨show cnt < 8 by omega, hbuf, rfl⟩
 
 /- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
-/-- L1a, the write-append law (`docs/PA16_CODEC_SOUNDNESS.md` §4 L1): under the writer's
+/-- L1a, the write-append law (`docs/STDLIB_ZLIB.md` §4.1): under the writer's
     operating invariant — pending value inside the pending count, pending count below a
     byte after any previous `writeBits` (`flushBytes_spec`), and no `UInt32` overflow
     (`bitCount + n ≤ 32`; every call site in `compress` writes ≤ 15 bits onto < 8 pending) —
@@ -447,7 +447,7 @@ theorem natBits_zero (n : Nat) : natBits n 0 = List.replicate n false := by
   | succ n ih => simp [natBits, ih, List.replicate_succ]
 
 /- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
-/-- Writer half of L1c (`docs/PA16_CODEC_SOUNDNESS.md` §4 L1): byte-aligning flush emits
+/-- Writer half of L1c (`docs/STDLIB_ZLIB.md` §4.1): byte-aligning flush emits
     exactly the writer's ghost bit sequence followed by sub-byte zero padding — the padding
     RFC 1951 decoding never reads, because it stops at the final block's EOB symbol. -/
 theorem flushBitWriter_bits (w : BitWriter)
@@ -626,7 +626,7 @@ theorem ensureBits_loop_spec (n : Nat) (hn : n ≤ 24) (cur : BitReader) :
       · exact Or.inr h
 
 /- REF: docs/STDLIB_ZLIB.md#41-bitstream-reader-writer -/
-/-- L1b, the read-consume law (`docs/PA16_CODEC_SOUNDNESS.md` §4 L1): under the reader's
+/-- L1b, the read-consume law (`docs/STDLIB_ZLIB.md` §4.1): under the reader's
     operating invariant (buffered value inside the buffered count, fewer than 8 buffered
     bits — `mkBitReader`'s initial state, re-established by every successful read) and the
     format-honest width bound `n ≤ 24`, a reader holding at least `n` unconsumed bits

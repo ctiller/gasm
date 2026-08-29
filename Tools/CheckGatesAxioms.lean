@@ -79,7 +79,7 @@ if its own *name* happens to look like it lives under one of those
 namespaces -- a declaration in a foreign/no namespace inside a project file
 is still fully part of the build and must not be invisible to this tool.
 
-COVERAGE (TC15 / TCB.md T2): the single `importModules #[Gasm, Stdlib,
+COVERAGE (docs/REVIEW.md §4.1.1): the single `importModules #[Gasm, Stdlib,
 Spikes]` call in `main` only sees whatever those three umbrella files
 transitively `import` -- historically 138 of 170 project modules, with 32
 (every `Spikes/*/Emit.lean` and `Spikes/*/Test.lean`, all four fuzzer CLIs
@@ -101,7 +101,7 @@ module `lake build` was asked to compile and whose `.olean` is nevertheless
 absent or unreadable -- that is exactly the kind of blind spot this task
 closes: the tool FAILS LOUDLY rather than silently omitting it. Corollary:
 this gate's completeness depends on a prior full build (`lake build`) having
-produced every such module's `.olean` -- consistent with TCB T13's "gate
+produced every such module's `.olean` -- consistent with the clean-rebuild contract's "gate
 runner does one clean-tree build before sign-off." A module NO declared root
 reaches is a different defect (nothing compiles it at all) owned by
 `scripts/check_orphan_modules.py`, which names the file, its umbrella and the
@@ -286,8 +286,7 @@ carried only for diagnostics, now also does load-bearing disambiguation. -/
 def matchKey (moduleName : Name) (fqn : String) : String := s!"{moduleName}::{fqn}"
 
 /-- The project's own top-level source roots. `Tools/` (home of this very
-checker) is deliberately excluded -- matching TCB.md's "170 [modules]
-excluding Tools/" headline and `isProjectModule`'s existing
+checker) is deliberately excluded, matching `isProjectModule`'s existing
 Gasm/Stdlib/Spikes-only namespace scope. -/
 /- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
 def projectRootDirs : List String := ["Gasm", "Stdlib", "Spikes"]
@@ -601,7 +600,7 @@ def runGate : IO UInt32 := do
                   let axiomPairs := gatingAxs.map (fun a => (toString a, axiomLabel a))
                   offenders := offenders.push { declModule := declModule, declName := toString name, axioms := axiomPairs }
 
-  -- TC15 / TCB.md T2: close the import-closure blind spot. `discovered` is
+  -- docs/REVIEW.md §4.1.1: close the import-closure blind spot. `discovered` is
   -- the on-disk ground truth; `baselineModules` is what the single import
   -- above actually pulled in. Anything in the former but not the latter was,
   -- before this fix, silently invisible to the whole scan above.
@@ -669,7 +668,7 @@ def runGate : IO UInt32 := do
   let baselineProjectCount := (discovered.filter (fun m => baselineModules.contains m)).size
 
   IO.println ""
-  IO.println "--- MODULE COVERAGE (TC15 / TCB.md T2) ---"
+  IO.println "--- MODULE COVERAGE (docs/REVIEW.md §4.1.1) ---"
   IO.println s!"[*] {discovered.size} tracked project module(s) under {projectRootDirs} are built by a"
   IO.println s!"    declared lakefile.toml target ({enumeration.libRoots} [[lean_lib]] root(s), \
 {enumeration.exeRoots} [[lean_exe]] root(s))."

@@ -131,7 +131,7 @@ def agreeOutsideMemory (s1 s2 : X86_64MachineState) : Prop :=
 
 -- The three `UInt64` bit-algebra lemmas below exist so `read64_write64_same` can close
 -- STRUCTURALLY rather than by a `bv_decide` SAT certificate. Per `docs/REVIEW.md` Law 10's
--- four-rung trust-cost ordering, `bv_decide` is rung 4 (trusted, not kernel-checked: `TCB.md`
+-- four-rung trust-cost ordering, `bv_decide` is rung 4 (trusted, not kernel-checked: `docs/REVIEW.md`
 -- T14 established that `LratCert.toReflectionProof` asserts its result through the same
 -- `Lean.Meta.nativeEqTrue` routine `native_decide` uses, so the kernel never replays the LRAT
 -- certificate). A structural proof is rung 1 and needs no `scripts/gate_allowlist.txt` entry at

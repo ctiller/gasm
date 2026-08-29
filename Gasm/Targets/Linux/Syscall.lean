@@ -127,7 +127,7 @@ def sysReadHook {Event : Type} [Inject NetEvent Event] (s : X86_64MachineState) 
     }
     (s', none)
   else if fd >= 100 then
-    -- N2 fix (MODEL_DEBT.md §C1): honors RDX (the syscall's declared cap) instead of ignoring
+    -- Short-read contract fix (`docs/READ_BINDER_CONTRACT.md`): honors RDX (the syscall's declared cap) instead of ignoring
     -- it and always delivering the whole queued logical request -- see Win32API.lean's
     -- `recvHook` for the full rationale; this is the Linux `sys_read`-on-socket analogue,
     -- built on the same `Gasm.Effects.splitBytes` primitive.

@@ -59,7 +59,7 @@ def defaultSampleInput : ByteArray :=
 
 /- REF: docs/STDLIB_SMOLALLOC.md#1-overview-architectural-role -/
 /- REF: docs/MEMORY_PROVENANCE.md#3-provenance-lifecycle-in-spike-3-line-sorter -/
-/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-first-spike-of-memory-provenance-unbounded-ingestion -/
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- Symbolic program definition for Linux Spike 3 (Stdin Lexicographical Line Sorter with SmolAlloc).
     1. Sets up 120-byte stack frame preserving 16-byte stack alignment.
     2. Allocates backing virtual memory via sys_mmap to initialize SmolAlloc arena (R11 = bump, R10 = freelist).

@@ -18,8 +18,7 @@
 # and every currently-known gap are documented in docs/CI.md -- read that
 # before changing this file.
 #
-# Exit-code discipline (docs/CI.md #8; the Merge-Train-2 self-finding named in
-# docs/tasks/TC5-gate-runner.md): one gate per step, so GitHub Actions checks
+# Exit-code discipline (docs/CI.md #8): one gate per step, so GitHub Actions checks
 # that single command's exit code directly. Never pipe a gate's output through
 # anything (tee, a pager, `| findstr`, ...) before its exit code is read --
 # that is the exact bug this project has already shipped once. Steps that
@@ -46,8 +45,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  # Pinned oracle versions (TCB.md T9: "oracle environment unpinned -- drift
-  # silently changes gate results"). Bump deliberately, never let a runner
+  # Pinned oracle versions prevent environment drift from silently changing gate
+  # results. Bump deliberately; never let a runner
   # image's default just be whatever it happens to ship.
   NODE_VERSION: "20"
   PYTHON_VERSION: "3.12"

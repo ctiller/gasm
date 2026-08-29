@@ -156,8 +156,8 @@ inductive MemoryDomain where
 
 inductive EventKey where
   | thread   (thread : ThreadId) (sequence : LocalSequence)
-  | platform (instance : PlatformInstanceId) (sequence : LocalSequence)
-  | device   (instance : DeviceInstanceId) (sequence : LocalSequence)
+  | platform (platformInstance : PlatformInstanceId) (sequence : LocalSequence)
+  | device   (deviceInstance : DeviceInstanceId) (sequence : LocalSequence)
   | initial  (range : AddressRange)
 
 inductive EventOrigin where
@@ -189,8 +189,10 @@ prove their additional constraints.
 The orthogonal fields are an interchange vocabulary, not permission to construct malformed
 combinations.
 
-`explicitOrder = none` means an ordinary ISA access, not a relaxed atomic. A protocol proof may show
-that an ordinary x86 store implements the release half of a particular lock; that derived
+`explicitOrder = none` means the ISA encoding carries no explicit ordering mode; it does not decide
+the orthogonal `AccessClass`. It may describe a plain access or an approved atomic access such as an
+aligned x86 `atomicStore` realized by `MOV`, but it is not another spelling of `relaxed`. A protocol
+proof may show that one such x86 store implements the release half of a particular lock; that derived
 synchronization role does not relabel every ordinary store as an ISA release operation. Value fields
 are width-indexed byte strings (or an equivalent representation) so value consistency, CAS results,
 exclusive-store success, forwarding, and litmus final states are expressible.
@@ -487,7 +489,7 @@ unlocked representation, registers `w` as an atomic object, and creates a fresh 
 That instance identity is distinct from the fresh acquisition generation created on every success:
 
 ```lean
-structure LockInv (instance : LockInstanceId) (w p : RegionId) where
+structure LockInv (lockInstance : LockInstanceId) (w p : RegionId) where
   -- When unlocked, the invariant owns p.
   -- When locked, exactly one live guard owns p.
   invariant : LockStateRelation w p
@@ -653,8 +655,9 @@ only wake; it is a lost-wakeup theorem, not a claim that wake itself publishes p
 ### 9.1 Linux Thread Exit and Join
 
 The first real Linux join uses child-TID lifecycle semantics: thread creation registers a stable,
-naturally aligned 32-bit child-TID word as an atomic object; actual child exit clears it and wakes
-waiters; and the parent waits in a loop through the futex adapter using only approved atomic loads.
+naturally aligned 32-bit child-TID word as an atomic object; actual child exit clears it and performs
+a futex wake that can wake at most one eligible waiter; and the parent waits in a loop through the
+futex adapter using only approved atomic loads.
 Every concurrent kernel set/clear selected by the pinned clone flags is a platform-authorized
 `atomicStore` with the x86-64 or AArch64 single-copy-atomicity proof. A child-written ordinary done
 flag is only a completion handoff; it does not prove the child has terminated or that its stack can
@@ -854,12 +857,12 @@ tasks, but its dependency and exit criteria remain here.
 | Stage | Deliverable | Depends on | Exit criterion |
 |---|---|---|---|
 | M0 | Common well-formed dynamic event/graph vocabulary and target projection interfaces | current memory hooks | Existing x86 and AArch64 ordinary accesses project only to well-formed events; malformed-combination and omission controls fail |
-| M1 | Provenanced regions, typed views, and indexed authority/obligation transitions | M0 | Unauthorized, stale, or byte-reloaded pointers without a live typed-view binding cannot be dereferenced; hierarchical allocation and realistic elaboration-cost gates pass |
+| M1 | Provenanced regions, typed views, indexed authority/obligation transitions, and canonical state normal forms plus simplification support | M0 | Unauthorized, stale, or byte-reloaded pointers without a live typed-view binding cannot be dereferenced; hierarchical allocation composes through the canonical normal forms; automation discharges representative indexed binds; representative real programs stay within a pinned elaboration time/memory budget and regression threshold |
 | M2-X | x86 WB/TSO machine, atomics, fences, enumeration | M0 | x86 litmus theorems, one-thread theorem, decode/emission and relocation fidelity, and silicon validation |
 | M2-A | AArch64 Normal-memory model, acquire/release, barriers, exclusives | M0 | Arm litmus theorems, one-PE theorem, decode/emission and relocation fidelity, and native validation |
 | M3 | Generic process/thread scheduler, lifecycle, and park/wake contract | M0 | Two-thread stepping, park-if-equal/wake, spawn/join, and execution-agent state preservation |
 | M4 | Cross-thread authority partition and lifecycle transfer | M1, M3 | Global access-mode/no-race theorems plus exact loan return, sealed terminal bundle, detach, and one-shot join conservation |
-| M5-S | Portable lock invariant, result-indexed guards, typed release obligations | M4 | Fresh-instance init, acquire/release witness, failing try-acquire, and full resource-preserving destruction inverse—including stale-handle/grant rejection—satisfy the target-independent lock theorem |
+| M5-S | Portable lock invariant, selected abstract 32-bit parked-mutex state machine, result-indexed guards, and typed release obligations | M4 | The state encoding, transitions, linearization points, wait values, and wake policy are pinned; fresh-instance init, acquire/release witness, failing try-acquire, and full resource-preserving destruction inverse—including stale-handle/grant rejection—satisfy the target-independent lock theorem |
 | M5-X | x86 lock realization and visibility theorem | M2-X, M5-S | 32-bit mutex protocol implements M5-S under x86 TSO |
 | M5-A | AArch64 lock realization and visibility theorem | M2-A, M5-S | 32-bit exclusive protocol implements M5-S under the AArch64 model; LSE requires a later profile extension |
 | M6-P | Hosted Linux and Windows lifecycle/wait refinements | M4 | Spawn failure/success, lifecycle visibility, real one-shot join, blocked/runnable state, handle/TID lifetime, terminal bundles, platform authority for registered lifecycle/parking atomic words, and API outcomes refine the generic contracts |
@@ -872,9 +875,12 @@ tasks, but its dependency and exit criteria remain here.
 | M8 | Concurrent causal trace projection and equivalence integration | M3, M5-S | Total/non-inventing observable-node quotient plus bidirectional labelled-edge fidelity modulo event-key renaming |
 | M9 | Full cross-target Spike 8 validation matrix | M6-LX, M6-LA, M7-X, M7-A, M8 | Model, emitted binaries, OS adapters, and both bare-metal paths satisfy §13 |
 
-M2-X and M2-A should proceed in parallel after M0. M1 can also proceed in parallel, but no lock or
-thread-safety claim lands until the three paths meet at M4/M5-S and the relevant M5-X/M5-A
-realization.
+M2-X and M2-A should proceed in parallel after M0 and their respective §15 entry gates. M1 can also
+proceed in parallel after its entry gate, but no lock or thread-safety claim lands until the three
+paths meet at M4/M5-S and the relevant M5-X/M5-A realization. The selected 32-bit parked-mutex
+protocol is fixed as an entry condition for M5-S, before the portable lock proof or either
+architecture realization begins; M5-X and M5-A do not independently choose state encodings or
+linearization points.
 
 Execution discipline:
 
@@ -894,12 +900,15 @@ Execution discipline:
 
 The following are deliberate stop-and-design gates:
 
-1. **AArch64 formal profile:** exact Arm architecture revision/features, shareability assumptions,
-   and official model material to ingest.
+1. **AArch64 formal profile:** exact Arm Architecture Reference Manual edition/revision and feature
+   profile, shareability assumptions, applicable errata and the disposition of each, the matching
+   official A-profile `aarch64.cat` revision and content hash, and the herd7 release/commit and hash
+   used to run it.
 2. **Common event representation:** concrete Lean types and whether bounded enumeration uses one
    graph engine or per-architecture engines connected to the graph.
 3. **Indexed authoring surface:** how `BlockM` prevents arbitrary permission/obligation replacement
-   while retaining usable errors and acceptable elaboration cost.
+   while retaining usable errors; the canonical state normal forms and simplification/automation
+   interface; and the representative-program elaboration time/memory budget and regression threshold.
 4. **Windows wait profile:** pin the minimum supported Windows version plus exact
    `WaitOnAddress`/`WakeByAddress*`, thread-object wait, timeout, and error contracts. A thread-handle
    join is not a mutex parking primitive.
@@ -914,8 +923,24 @@ The following are deliberate stop-and-design gates:
 9. **x86 vendor profile:** choose Intel 64 only or a common Intel/AMD64 subset and state the
    eligible CPU/vendor test matrix. AMD hardware is not covered by an Intel-only citation.
 
-Each decision must update this document and cite authoritative architecture or OS material before
-Lean semantics are added.
+These decisions are hard stage-entry gates for normative implementation and theorem statements:
+
+| Stage entry | Decisions that must be accepted and recorded first |
+|---|---|
+| M0 | Common event representation (2) |
+| M1 | Indexed authoring surface, normal forms, automation, and elaboration budget (3) |
+| M2-X | x86 vendor profile (9) and the x86-64 §15.1 reference intake |
+| M2-A | AArch64 formal profile (1) and the complete AArch64 §15.1 reference intake |
+| M5-S (inherited by M5-X and M5-A) | One shared parked-mutex protocol (8), before the portable lock proof or either architecture realization starts |
+| M6-P, M6-X, M6-A | Applicable Windows wait (4), futex error (7), and hosted-platform §15.1 intake decisions |
+| M7-X | x86 AP startup (5) and the x86 bare-metal §15.1 reference intake |
+| M7-A | AArch64 secondary startup (6) and the AArch64 bare-metal §15.1 reference intake |
+
+Exploratory prototypes may run before a gate only when marked nonnormative and isolated from the
+public semantic API. They do not fix public type shapes, establish accepted theorem statements,
+count as stage progress, or become dependencies of downstream work; after the decision they are
+discarded or rebased onto the accepted design. Each accepted decision updates this document and
+cites authoritative architecture or OS material before the corresponding Lean semantics are added.
 
 ### 15.1 Reference-intake gate
 
@@ -925,7 +950,7 @@ stage starts, `references.json` must pin and hash authoritative material for:
 | Surface | Required source family |
 |---|---|
 | x86-64 | the registered Intel SDM edition for an Intel-only profile; additionally the matching AMD64 Architecture Programmer's Manual material before AMD CPUs are eligible: WB/TSO rules, locked operations/fences, memory types, and multiprocessor initialization |
-| AArch64 | an exact Arm Architecture Reference Manual profile plus matching official A-profile `aarch64.cat`/herd tooling material |
+| AArch64 | the exact Arm Architecture Reference Manual edition/revision, selected feature profile and shareability assumptions, applicable errata with an explicit disposition, the matching official A-profile `aarch64.cat` revision and content hash, and the herd7 release/commit and hash |
 | Linux | kernel UAPI/syscall ABI and Linux man-pages definitions for clone/child-TID lifecycle and futex wait/wake |
 | Windows | Microsoft documentation for thread creation/exit, thread-object waits, handle lifetime, and the selected address-wait primitive |
 | x86 bare metal | Intel startup/APIC material and selected platform/device specifications |

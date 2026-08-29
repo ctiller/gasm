@@ -53,8 +53,7 @@ does the baseline `importModules #[Gasm, Stdlib, Spikes]` scan, then
 per-module standalone scans for whatever the baseline's closure did not
 reach, exactly as CheckGatesAxioms.lean does for Law 10 (same TC15 module-
 coverage gap, same fix). `Tools/` itself is excluded from scope, matching
-`isProjectModule`'s existing Gasm/Stdlib/Spikes-only namespace scope and
-TCB.md's "170 [modules] excluding Tools/" headline -- this file's own
+`isProjectModule`'s existing Gasm/Stdlib/Spikes-only namespace scope -- this file's own
 declarations are therefore not gated by itself, though they still carry
 `REF:` citations as a matter of ordinary code quality.
 
@@ -243,8 +242,7 @@ def originatingModule (env : Environment) (name : Name) : Option Name :=
   | some idx => env.allImportedModuleNames[idx.toNat]?
 
 /-- The project's own top-level source roots. `Tools/` is deliberately
-excluded, matching CheckGatesAxioms.lean's identical choice and TCB.md's
-"170 [modules] excluding Tools/" headline. -/
+excluded, matching CheckGatesAxioms.lean's identical choice. -/
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
 def projectRootDirs : List String := ["Gasm", "Stdlib", "Spikes"]
 

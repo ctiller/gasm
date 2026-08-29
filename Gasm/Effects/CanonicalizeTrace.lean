@@ -197,7 +197,7 @@ end Gasm.Effects
   domain events today.
 - Console/File **read** events are still not first-class trace events at all:
   `Gasm/Effects/Trace.lean`'s `MonadConsole.readLine` and `MonadFileSystem.readFile`/`openFile`
-  neither emit nor record anything (PLAN.md's promoted "FileSystemEvent lacks open/read events"
+  neither emit nor record anything (the open "FileSystemEvent lacks open/read events"
   finding is *not* closed by this file). Only `NetEvent.recv`/`.accept` are first-class trace
   events with a coalescing-barrier proof today; extending the same treatment to console/file
   reads once N2's short-read model reaches those hooks is separate follow-on work.
@@ -218,8 +218,8 @@ end Gasm.Effects
   causal-adjacency rather than list-adjacency before coalescing) is explicitly deferred to the
   Law-5 concurrent design §6.3 itself names as a prerequisite ("the full concurrent semantics
   goes through Law 5 design before the first threaded spike").
-- No fresh-agent design review has been routed for this file, contrary to PA5's task file's
-  Law-5-class process requirement (design doc + review before implementation) -- this recovery
+- No fresh-agent design review was routed for this file before implementation, contrary to
+  `docs/REVIEW.md` Law 5's design-review requirement -- this recovery
   task proceeded directly to implementation, in the same spirit `docs/READ_BINDER_CONTRACT.md`
   itself proceeded ahead of PA5/N2 landing, and states that departure honestly here rather than
   silently.

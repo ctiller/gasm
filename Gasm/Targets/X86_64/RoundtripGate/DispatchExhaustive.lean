@@ -41,8 +41,8 @@ import Gasm.Targets.X86_64.RoundtripGate.Test
 import Gasm.Targets.X86_64.RoundtripGate.Xchg
 import Gasm.Targets.X86_64.RoundtripGate.Xor
 
--- STAGE B — this file is exactly the module the B1-review note (see B3's task file, "design
--- constraint from the B1 review") called for: "isolate dispatch exhaustiveness into one separate
+-- STAGE B — this file is exactly the full-fan-in module required by
+-- `docs/TARGETS/X86_64.md` Stage B: "isolate dispatch exhaustiveness into one separate
 -- module that is *allowed* to have full fan-in, proving that the dispatcher agrees with the
 -- per-family decoders." Every other Stage B module (each `Instructions/<Family>.lean`'s
 -- `tryDecode`, each `RoundtripGate/<Family>.lean` shard) depends on at most its own family plus
@@ -57,7 +57,7 @@ import Gasm.Targets.X86_64.RoundtripGate.Xor
 -- not consumed — nothing downstream imports `DispatchExhaustive.lean`) is what keeps it from
 -- reintroducing the pre-Stage-B cascade: editing `Instructions/Add.lean` still invalidates this
 -- file, but no longer invalidates the 24 *other* families' `RoundtripGate/<Family>.lean` shards,
--- which is the property `docs/tasks/B3-stage-b-decoder-modularization.md` measures.
+-- which is the property `docs/TARGETS/X86_64.md` measures.
 namespace Gasm.Targets.X86_64.RoundtripGate
 
 open Gasm.Targets.X86_64

@@ -7,22 +7,21 @@
 - REF: docs/VISION.md#5-performance-modeling-agents-as-the-optimizing-compiler
 - REF: docs/TECHNICAL_NOTES.md (§2)
 - REF: docs/MEMORY_MODEL.md (§§4–7, §14)
-- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p2--blocking-the-memory-operand-contract-law-11--pa4-at-least-at-the-instruction-layer
+- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p2-blocking-the-memory-operand-contract-law-11-pa4-at-least-at-the-instruction-layer
 
 ## 1. Status and scope
 
-**Status** (revised 2026-08-28): this was written as a pure design document, and **Layer S
-has since been built**. The sealed
+**Status** (revised 2026-08-29): this was written as a pure design document, and **Layers S
+and P have since been built**. The sealed
 memory cell, the width-indexed read/write API, `MemRef`, `fault : Option X86_64Fault`, the
 defaultless `memAccesses` field and the frame-lemma set all exist in the tree today (§3's
-Status line enumerates them with file evidence). **Layer A (capability authoring) and Layer P
-(centralized performance uops) remain
-unbuilt** — `CheckedAsm` and `MemCostModel` have no declaration anywhere in `Gasm/`,
-`Stdlib/` or `Spikes/`.
+Status line enumerates them with file evidence). `MemCostModel`, `memUops`, the 14-form
+derivation, and the registry audit also exist (§5). **Layer A (capability authoring) remains
+unbuilt** — `CheckedAsm` has no declaration anywhere in `Gasm/`, `Stdlib/` or `Spikes/`.
 
 Read the **per-section `**Status**:` lines as authoritative**, not this preamble: each was
-re-verified against the tree on 2026-08-28, and they now differ from one another by design
-(§3 landed; §4 and §5 did not). Every mechanism still proposed-but-unbuilt carries its own
+re-verified against the tree on 2026-08-29, and they now differ from one another by design
+(§§3 and 5 landed; §4 did not). Every mechanism still proposed-but-unbuilt carries its own
 `**Status**:` line per the repository's design-only convention, and every fenced Lean block under a
 section marked unbuilt is a design sketch, not tree contents. The §1.1 evidence table below
 is a **snapshot of the pre-MH1 tree at commit `0d5c6a9` (2026-08-27)**, retained because it
@@ -49,7 +48,7 @@ carried and enforced at assemble time, what the perf side records and how it sta
 falsifiable, the migration path for the existing 88 instruction forms, the effect on
 existing proofs, and how faults become distinguishable observations.
 
-### 1.1 Verified current state (the evidence this design is grounded in)
+### 1.1 Verified pre-MH1 baseline (the evidence this design is grounded in)
 
 | Fact | Evidence |
 | :-- | :-- |
@@ -59,17 +58,20 @@ existing proofs, and how faults become distinguishable observations.
 | Non-instruction code also writes memory raw | `Gasm/Targets/Windows/Win32API.lean` hooks (`readFileHook`/`recvHook` write destination buffers via raw `memory := fun a => ...` lambdas, lines 112–136, 214–217); the linkers' `loadMemory` installs the image raw |
 | Zero capability call sites | Law 11's own Status line; `MemoryPerm`/`MemoryPermissions`/`BlockM` have no call sites outside `Gasm/Core` |
 | Memory cost is 14 sets of inline, uncited literals | every load is flat `latencyCycles := 4`, every store `1`, duplicated per instance; 0 of 88 forms cite any calibrated or vendored source (`docs/TECHNICAL_NOTES.md` §2) |
-| Fault model is one bit, two sites | `faulted : Bool`; only `Div.lean` sets it (`#DE`); `runProgramTraceWithLoops` returns `[]` for fuel-out, no-instruction-at-rip, and fault alike (the historical stop-reason T12 finding) |
+| Stop reason was one undifferentiated bit | `faulted : Bool`; DIV/IDIV, HLT, Linux `sysExitHook`, and bare-metal HLT/debug-exit paths all wrote `true`. `runProgramTraceWithLoops` returned `[]` for fuel-out, no-instruction-at-rip, CPU fault, and clean halt alike (the historical stop-reason T12 finding) |
 | Existing proofs that touch memory semantics | `step_ret_op` (`Stdlib/Zlib/CRC32Equivalence.lean:652`, `Spikes/Spike2Fibonacci/Windows/LoopInvariant.lean:139`, both `rfl`); `LoopInvariant.lean:598` (`simp [X86_64MachineState.read64, ...]`); `Stdlib/SmolAlloc/Equivalence.lean:42-45,140-142` (`read64` as observation). **No step lemma exists for any store form** — the read-over-write theory this design centralizes does not exist anywhere today |
 
 ## 2. The design in one page
 
 One module family, `Gasm/Targets/X86_64/Memory*.lean`, exposing three coupled surfaces.
-**Status** (corrected 2026-08-28): this line previously read "none of the three exists;
-MH1/MH2/MH3 respectively." **Layer S exists** — MH1 landed it as
+**Status** (corrected 2026-08-29): this line previously read "none of the three exists;
+MH1/MH2/MH3 respectively." **Layers S and P exist** — Layer S landed as
 `Gasm/Targets/X86_64/MemoryCell.lean` (the sealed cell), `Memory.lean` (`MemRef`, the
 width-indexed API), `MemoryFrame/` (the frame-lemma set) and `MemoryFrameAudit.lean` (the
-seal audit). Layers P and A do **not** exist; they remain MH2 and MH3 respectively.
+seal audit); Layer P landed as `MemCostModel.lean`, the 14 instruction-family derivations,
+and the memory-cost/provenance checks in `Tools/CheckX86Obligations.lean`. Layer A does
+**not** exist and is superseded by the cross-architecture authoring design in
+`docs/MEMORY_MODEL.md` §§6–7.
 
 - **Layer S — the semantic hook.** Width-indexed `read`/`write` as the *only* functions
   that can touch machine memory bytes (the raw `memory` field is sealed behind a private
@@ -85,7 +87,7 @@ seal audit). Layers P and A do **not** exist; they remain MH2 and MH3 respective
 - **Layer P — the memory cost table.** All memory-class uops are constructed by hook
   functions from one small coefficient table with Law-14 provenance marks. Per-form
   memory cost becomes *computed from the descriptor*, not hand-written 14 times; the
-  falsifiable surface shrinks from "88 forms of inline literals" to "one table of ~8
+  falsifiable surface shrinks from "14 duplicated memory-cost blocks" to "one table of ~8
   named coefficients, each citing a calibration artifact or marked model-internal" (§5).
 
 Two boundary decisions, argued rather than assumed:
@@ -113,15 +115,15 @@ Two boundary decisions, argued rather than assumed:
 ## 3. Layer S: the semantic hook
 
 **Status** (corrected 2026-08-28): this line previously read "unbuilt; MH1. Sketches below
-are design, not existing code." **Layer S is built.** MH1 landed it and ADR-0040 approved
-the design in full. What exists in the tree:
+are design, not existing code." **Layer S is built.** The implementation and its enforcement
+landed together. What exists in the tree:
 
 | Design element | Landed as |
 | :-- | :-- |
 | Sealed memory cell (`private mk ::` + `private raw`) | `Gasm/Targets/X86_64/MemoryCell.lean` — split out of `Memory.lean` for an import-cycle reason recorded in that file's header |
 | Width-indexed `read`/`write`, `readByte`/`writeByte`/`writeBytes`, `initRegion` | `Gasm/Targets/X86_64/MemoryCell.lean:79`–`:156` |
 | `MemRef` | `Gasm/Targets/X86_64/Memory.lean:49` |
-| `fault : Option X86_64Fault` replacing `faulted : Bool` | `Gasm/Targets/X86_64/Registers.lean:84`; `X86_64Fault` at `:66` |
+| `fault : Option X86_64Fault` (`.divideError | .memFault | .halted`) replacing `faulted : Bool` | `Gasm/Targets/X86_64/Registers.lean:84`; `X86_64Fault` at `:66` |
 | The §3.4 lemma set | `Gasm/Targets/X86_64/MemoryFrame/` — 35 theorems across `Common`/`Mov`/`Push`/`Pop`/`Call`/`Ret`, plus a Law-13 negative control |
 | Seal audit (the §3.2 tier-3 fallback) | `Gasm/Targets/X86_64/MemoryFrameAudit.lean` |
 | `memAccesses`, defaultless | `Gasm/Targets/X86_64/Instructions/Base.lean:66`, cited from `:40` as the reason it has no default |
@@ -270,7 +272,7 @@ without them. **Status** (corrected 2026-08-28): this line previously read "unbu
 (field + 14 real descriptors + frame lemmas for the memory families), with the
 register-form batch lemma in the same change." **It is built.** `memAccesses` is a field
 with **no default** at `Gasm/Targets/X86_64/Instructions/Base.lean:66` — so omitting it is
-a compile error, exactly the gate §8's M1 row names — and `:40` cites this section by name
+a compile error, exactly the gate §8's H1 row names — and `:40` cites this section by name
 as the reason. The frame lemmas live in `Gasm/Targets/X86_64/MemoryFrame/` under the
 per-family shard convention described above.
 
@@ -291,8 +293,9 @@ this one source:
    uops and cost; the hook derives memory uops from the descriptor, so per-form cost is
    computed, not transcribed.
 4. **Measurement.** The address stream of a run is `memAccesses` evaluated along the
-   trace — exactly what a future cache/locality model (`docs/TECHNICAL_NOTES.md` §2) and F1's
-   containment checks consume, obtained without instrumenting the interpreter.
+   trace — exactly what a future cache/locality model (`docs/TECHNICAL_NOTES.md` §2) and the
+   hardware timing harness's containment checks consume, obtained without instrumenting the
+   interpreter.
 
 Known limit, stated now: a static `List MemAccessSpec` cannot express
 state-*dependent access counts* (REP-class string ops, masked SIMD stores). The
@@ -311,8 +314,8 @@ exists nowhere (no store-form step lemma exists in the tree):
   the ladder definitions, needed explicitly by every buffer proof).
 - **Push/pop roundtrip**, `initRegion` read-back, and footprint algebra
   (`storeFootprint`/`loadFootprint` union/disjointness lemmas).
-- The per-family `writesWithin`/`readsWithin` frame lemmas of §3.3 — which are exactly
-  the frame conditions PA2's composition calculus needs routine contracts to carry
+- The per-family `writesWithin`/`readsWithin` frame lemmas of §3.3 — candidate building
+  blocks for the canonical M1 indexed authoring surface's routine frame conditions
   (`docs/VISION.md` §4: "capability tokens … are also the frame conditions").
 
 **Status** (corrected 2026-08-28): this line previously read "unbuilt; MH1". **The lemma
@@ -326,10 +329,11 @@ access).
 
 ## 4. Layer A: assemble-time capability enforcement
 
-**Status**: unbuilt; MH3 (shape + one pathfinder routine); PA4 remains the migration
-epic that carries it across the tree. This section is the "instruction-level obligation
-shape" `docs/X86_ISA_EXPANSION_PREREQUISITES.md` P2 requires before memory-form
-instructions are mass-authored.
+**Status**: historical design input, unbuilt, and **superseded**. The retired MH3/PA4
+sequence below is not an active implementation plan. `docs/MEMORY_MODEL.md` M1 now owns
+the checked indexed authoring surface, provenance, typed views, canonical state forms, and
+elaboration budget; M4 owns cross-thread authority transfer. The sketches in this section
+remain useful requirements and examples only where they agree with that canonical design.
 
 ### 4.1 The problem Law 11 actually poses
 
@@ -338,8 +342,8 @@ depends on what `rbx` holds at that program point. A capability over a *concrete
 cannot be checked against a register-relative operand without a statement about the
 register. The capability must therefore be **register-anchored**: "at this routine's
 entry, register R points at the base of a region of `len` bytes held with share S."
-That is precisely the frame condition PA1's Theorem 3 stated informally and PA4's task
-file says to upgrade "into a real capability obligation."
+That is the frame condition the retired PA1/PA4 analysis identified for upgrade into a
+real capability obligation; M1 decides its current representation and enforcement shape.
 
 ### 4.2 The obligation shape
 
@@ -378,9 +382,8 @@ Omit `h` where no auto-param can discharge it and the term **does not elaborate*
 program is unbuildable, which is Law 11's bar. The proof is *carried* by the program
 term; for literal-displacement accesses against declared regions it is discharged
 automatically (a `decide`/`omega` auto-param over literals — Law 10 rung 2, no axiom);
-for computed addresses the author supplies an invariant-derived proof term, which is
-exactly the loop-invariant machinery PA15 demonstrated and PA2's calculus will make
-cheap.
+for computed addresses the author supplies an invariant-derived proof term, reusing the
+existing loop-invariant machinery where M1's indexed surface and automation admit it.
 
 ### 4.3 What v1 does and does not make unrepresentable (the honest line)
 
@@ -399,15 +402,12 @@ plainly:
   < length). The obligation cannot be omitted — the constructor demands the proof term
   — but its truth rests on the stated invariant, proven in the routine's `MemSafe`
   theorem (§4.4), not by the elaborator alone.
-- **Deferred to the PA2/PA3 typestate upgrade**: flow-sensitive capability transfer
-  (register copied to register, region split across a call, `BlockM`-indexed frames).
-  `Frame` is designed to become `BlockM`'s index when that lands; nothing in v1's shape
-  is discarded by the upgrade.
-
-The alternative — requiring full flow-sensitive typestate before any migration — is
-rejected on cost: it is PA2+PA3's whole program of work, and gating every memory
-instruction on it would leave Law 11 unenforced for months while `Stdlib/Zlib` keeps
-growing hand-offset scratch arithmetic. This is Owner Question Q1 (§10).
+- **Historically deferred to PA2/PA3**: flow-sensitive capability transfer (register copied
+  to register, region split across a call, `BlockM`-indexed frames). That sequencing is
+  superseded. The canonical M1 entry gate now requires the indexed authoring surface,
+  canonical state forms, automation, and an elaboration budget before normative capability
+  implementation starts. This entry-anchored `Frame` sketch may be reused only if M1 proves
+  it is a sound component of that accepted surface; it is not a separately landable v1.
 
 ### 4.4 The soundness theorem (what the carried proofs *mean*)
 
@@ -422,10 +422,9 @@ where `dynamicFootprint` is the union of `memAccesses` along the trace (§3.3 ma
 definable without interpreter instrumentation, and the frame lemmas make it provable).
 This is what turns the carried tokens into Law 11's "capabilities double as frame
 conditions": a caller composes with a checked routine knowing its entire memory effect
-is inside `Γ`, with no global reasoning. **Status**: the theorem shape and the DSL
-machinery that discharges it are MH3; the first end-to-end instance (one real routine)
-is MH3's acceptance bar, per P2's "exercised on at least one real instruction family
-end-to-end."
+is inside `Γ`, with no global reasoning. **Historical status**: this was MH3's proposed
+theorem shape and one-routine acceptance bar. Current acceptance is `docs/MEMORY_MODEL.md`
+M1's indexed-authoring exit criterion, followed by M4 for cross-thread transfer.
 
 ### 4.5 Erasure, coexistence, and the bypass gate
 
@@ -449,9 +448,9 @@ coexist mechanically:
   A migration that cannot be finished is thereby avoided: the end state is defined
   (ledger empty), monotone (ratchet), and measured (count in gate output).
 
-**Status**: gate script and ledger are MH3 deliverables, with a Law-13 negative
-control: a mutation adding a raw memory-operand use to an unledgered module must fail
-the gate before the gate counts as delivered.
+**Historical status**: the gate script and ledger were proposed MH3 deliverables and were
+never built. M1 must choose and gate the accepted bypass-prevention mechanism; any ledger
+it adopts still needs the Law-13 negative control described above.
 
 ### 4.6 Relation to the read-binder contract (deliberately not unified)
 
@@ -470,9 +469,10 @@ Nothing here narrows the read quantifier; nothing there weakens the write bound.
 
 ## 5. Layer P: the perf side, and how it stays falsifiable
 
-**Status**: unbuilt; MH2. Coordinates with the concurrently-dispatched per-instruction
-validation-and-calibration gate task (P4/P5 of the expansion prerequisites) — §5.3
-states exactly what this design hands that gate.
+**Status** (corrected 2026-08-29): built. `Gasm/Targets/X86_64/MemCostModel.lean` owns the
+provenance-marked coefficient table and `memUops`; all 14 memory-touching forms derive their
+memory uops through it; `Tools/CheckX86Obligations.lean` audits the derivation and reports
+provenance. Calibration remains incomplete exactly as §5.2 states.
 
 ### 5.1 One table, provenance-marked, instead of 14 sets of inline literals
 
@@ -518,13 +518,14 @@ scattered literals with no stated measurement that could contradict them
    at once; a coefficient the harness cannot measure stays `modelInternal` and is
    *counted* — "N of M memory coefficients calibrated" in gate output (Law 14's
    honesty-in-output clause), instead of invisible.
-2. **Each coefficient names its refuting experiment.** MH2's table documents, per
-   field, the F1 microbenchmark shape that measures it (load-to-use: dependent
-   pointer-chase resident in L1; store costs: store/reload chains) — so F1's
-   containment criterion (`real ∈ [min, max]`) and rank-order checks apply
-   per-coefficient, not per-form. `**Status**`: F1's harness is `ready`, unstarted;
-   until it lands these are named recipes, not performed measurements, and every field
-   is `modelInternal`.
+2. **Each coefficient names its future refuting experiment.** The landed table documents,
+   per field, the microbenchmark shape needed to measure it (load-to-use: dependent
+   pointer-chase resident in L1; store costs: store/reload chains). The existing
+   RDTSC/RDTSCP harness measures whole repeated instruction streams and cycles only; its
+   containment and rank-order checks are per instruction, not per memory coefficient, and
+   cannot isolate these table fields or validate uop decomposition. Dedicated coefficient
+   kernels (and any PMU-backed evidence required by those recipes) remain future work. No
+   result is accepted and bound to the six fields; every field remains `modelInternal`.
 3. **The derivation itself is checkable.** "Every memory uop in every form equals
    `memUops` of its descriptor" is decidable over the registry's witness population
    (`allEncodableInstructions`) and belongs in the registry audit — so the gate can
@@ -539,39 +540,41 @@ without the model is the point of a hook.
 
 ### 5.3 What the hook hands the per-instruction validation-and-calibration gate
 
-The sibling gate task, when it lands, gets from this design: (a) a mechanical
+The landed registry gate gets from this design: (a) a mechanical
 memory-touching predicate per form (`memAccesses ≠ []` — no heuristics, no silent
 opt-out, because the field has no default); (b) the closed coefficient table with
 per-field provenance status to count and print; (c) the derivation invariant of
 §5.2(3) to check against the registry; (d) per-coefficient measurement recipes to
-drive F1 containment checks; (e) the descriptor-vs-step frame lemmas (§3.3) as the
-per-family proof obligation whose absence the gate flags. Items (a)–(c) are
-enforceable the day MH1+MH2 land, before any calibration exists.
+drive hardware containment checks; (e) the descriptor-vs-step frame lemmas (§3.3) as the
+per-family proof obligation whose absence the gate flags. Items (a)–(c) are enforced now;
+their enforcement does not imply that any calibration result has been accepted.
 
 ## 6. Faults and observability
 
 Two changes, deliberately staged:
 
-1. **Fault plumbing now** (MH1, cheap): `faulted : Bool` on `X86_64MachineState` is
+1. **Fault/stop plumbing now** (MH1, cheap): `faulted : Bool` on `X86_64MachineState` is
    replaced by `fault : Option X86_64Fault := none` with
    `def X86_64MachineState.faulted (s) : Bool := s.fault.isSome` — every existing
-   *reader* (`if s'.faulted then …` in the interpreters) compiles unchanged; the two
-   writer sites in `Div.lean` become `fault := some .divideError`.
+   *reader* (`if s'.faulted then …` in the interpreters) compiles unchanged. DIV/IDIV write
+   `.divideError`; HLT, Linux process exit, and bare-metal exit paths write `.halted` so a clean
+   termination is not mislabeled as a CPU exception.
 
    ```lean
    inductive X86_64Fault
-     | divideError                                              -- #DE, today's only fault
+     | divideError                                              -- #DE
      | memFault (kind : MemAccessKind) (width : MemWidth) (addr : Address)
+     | halted                                                   -- HLT / platform exit signal
    ```
 
    A memory fault is thereby a *distinguishable, data-carrying* outcome from the day
    the type exists — never a third indistinguishable `[]`. This composes with (does
-   not duplicate) TC18's trace-type fix: TC18's `Except`-shaped run result
+   not duplicate) the future `Except`-shaped stop-reason result, which
    distinguishes fuel-out / no-instruction / fault as stop *reasons*; this design
    supplies the fault reason's *payload*, so the combined outcome type is
    `fuelExhausted | noInstructionAtRip | faulted (f : X86_64Fault) | completed`, with
-   no two outcomes sharing a representation. MH1's task file records the coordination
-   note for whichever of MH1/TC18 lands second.
+   no two outcomes sharing a representation. Whichever half lands second must preserve both
+   the outer stop-reason distinction and the fault payload.
 2. **Fault semantics on demand** (deliberately not now): making `memFault` *reachable*
    requires a memory map / granted-region model in the machine state — machine-state
    surface the owner has ruled expands demand-driven, spike-forced (Law 5; the P1
@@ -580,8 +583,8 @@ Two changes, deliberately staged:
    applying `step`, and faults with the pre-step state — hardware-faithful, zero
    instruction edits. Until then, this document does not claim the model can produce a
    memory fault: it cannot, and saying otherwise would be the exact overclaim
-   `docs/TECHNICAL_NOTES.md` §2 catalogs. **Status**: `X86_64Fault` and the field change are
-   MH1; the map and the interpreter pre-check have no task yet and are named as
+   `docs/TECHNICAL_NOTES.md` §2 catalogs. **Status**: `X86_64Fault` and the field change were
+   built in MH1; the map and the interpreter pre-check have no task yet and are named as
    future, spike-forced work.
 
 Law 11 enforcement does not depend on stage 2: the assemble-time obligation (§4) is
@@ -607,8 +610,8 @@ row):
 
 Net assessment, stated as the design input it is: **the hook makes memory proofs
 easier, and the honest reason is that today there is almost nothing to break** — no
-store-form step lemma exists anywhere, so every future memory proof (the entire
-PA4/Zlib program) would otherwise re-derive read-over-write and byte-decomposition
+store-form step lemma exists anywhere, so every future memory proof (including the M1/M4
+capability migration through Zlib) would otherwise re-derive read-over-write and byte-decomposition
 facts ad hoc, per width pair, per file. Centralizing the theory before that population
 exists is the cheap moment. The two real risks on the other side of the ledger:
 
@@ -627,24 +630,26 @@ exists is the cheap moment. The two real risks on the other side of the ledger:
 Phased so that each phase is independently landable, `rfl`-preserving where it touches
 proofs, and gated. Counts are from §1.1 (14 memory forms of 88; 74 register-only).
 
+**Status**: historical landing sequence. H0–H2 landed. H3/H4 never landed and their
+MH3/PA4 sequencing is retired; current checked-authoring work enters through
+`docs/MEMORY_MODEL.md` M1, while cross-thread transfer enters through M4.
+
 | Phase | Task | Content | Size | Gate that makes it stick |
 | :-- | :-- | :-- | :-- | :-- |
-| M0 | MH1 | Hook module: sealed memory field, width-indexed read/write, `MemRef`, missing widths; migrate 5 helpers, 3 inline instruction lambdas, Win32 hook writes, loader `initRegion`; `fault : Option X86_64Fault`; §3.4 lemma set | ~1 module + ~20 call sites | `private` field: raw access fails to elaborate (mutation-verified) |
-| M1 | MH1 | `memAccesses` field, **no default** → all 88 instances (74 × `[]`, 14 real); frame lemmas for the 14 + batch lemma for the 74 | 88 one-liners + 14 lemma pairs | Compile error on omission (no default); shard convention for the lemmas |
-| M2 | MH2 | `MemCostModel` + `memUops`; delete 14 forms' inline memory-uop literals; provenance counting in gate output; derivation-invariant check in the registry audit | 14 forms + 1 table | Private cost tag / linter: memory uops constructible only via hook |
-| M3 | MH3 | `CheckedAsm` v1 + erasure + `MemSafe` shape; bypass ledger seeded with the full current authoring population; **one real routine migrated end-to-end** (pathfinder: a small `SmolAlloc` or the `crc32SymbolicProgram` frame PA1 already characterized) | DSL + 1 routine | Ledger gate with negative control; ledger only shrinks |
-| M4+ | PA4 | Module-by-module authoring migration, new/small first, `Stdlib/Zlib/X86_64.lean` (2,245 lines) last per PA4's ratified ordering | the long tail | Ledger count → 0 |
+| H0 | MH1 | Hook module: sealed memory field, width-indexed read/write, `MemRef`, missing widths; migrate 5 helpers, 3 inline instruction lambdas, Win32 hook writes, loader `initRegion`; `fault : Option X86_64Fault`; §3.4 lemma set | ~1 module + ~20 call sites | `private` field: raw access fails to elaborate (mutation-verified) |
+| H1 | MH1 | `memAccesses` field, **no default** → all 88 instances (74 × `[]`, 14 real); frame lemmas for the 14 + batch lemma for the 74 | 88 one-liners + 14 lemma pairs | Compile error on omission (no default); shard convention for the lemmas |
+| H2 | MH2 | `MemCostModel` + `memUops`; delete 14 forms' inline memory-uop literals; provenance counting in gate output; derivation-invariant check in the registry audit | 14 forms + 1 table | Private cost tag / linter: memory uops constructible only via hook |
+| H3 (retired) | MH3 | Historical `CheckedAsm` v1 + erasure + `MemSafe` proposal; superseded by M1 | DSL + 1 routine | Historical ledger proposal; M1 must select the actual gate |
+| H4+ (retired) | PA4 | Historical module-by-module migration ordering; superseded by M1/M4 | the long tail | Historical ledger-zero target; current exit criteria live in `MEMORY_MODEL.md` |
 
-Old and new coexist at every phase: unmigrated modules keep building (their raw
-authoring is ledgered, counted, and frozen — no new entries), migrated modules cannot
-regress (their constructors demand proofs), and the semantic hook (M0–M2) is invisible
-to authoring entirely. The expansion's Wave B (memory-operand mass authoring) requires
-M0–M3 done — that is P2's blocking condition made concrete.
+H0–H2 are complete and remain reusable infrastructure. The old H3/H4 coexistence and
+ledger story is not active: mass memory-operand authoring waits for M1's accepted checked
+authoring surface and bypass gate, and cross-thread authority transfer waits for M4.
 
-**Ordering note.** M0–M2 precede and do not depend on PA2's composition-calculus
-design; M3's *shape* is PA2-compatible by construction (§4.3) but does not wait for
-it. If PA2's design lands first, M3 adopts its frame representation directly; the
-reverse order costs one representation-alignment pass on a single pathfinder routine.
+**Current ordering.** M0 fixes the common event surface; M1 then fixes the indexed authoring
+surface, normal forms, automation, and elaboration budget. M4 adds cross-thread authority
+partition and lifecycle transfer after M1 and M3. A standalone entry-frame DSL must not land
+ahead of those gates merely because the historical H3 proposal allowed that sequencing.
 
 ## 9. What this design rejects, and why
 
@@ -657,9 +662,10 @@ reverse order costs one representation-alignment pass on a single pathfinder rou
 - **Unifying the hook's capability bound with the read-binder's quantifier bound** —
   would make Spike 4's overflow provable-safe by construction
   (`docs/READ_BINDER_CONTRACT.md` §5); the two bounds stay distinct and compose (§4.6).
-- **Requiring full flow-sensitive typestate (BlockM) before any enforcement** — right
-  destination, wrong sequencing (§4.3); v1's entry-anchored frames enforce the
-  no-citation and literal-overrun classes now and upgrade without rework.
+- **Treating the historical entry-anchored v1 carrier as the current sequence** — the
+  canonical plan now gates normative capability implementation on M1's indexed authoring
+  surface, normal forms, automation, and elaboration budget (§4.3 and
+  `docs/MEMORY_MODEL.md` §§14–15).
 - **Building the cache-hierarchy cost model now** — Law 5; the hook designs the seam
   (descriptor stream + single cost site) and stops (§5.2).
 - **An arch-generic Core hook typeclass now** — Wasm's memory already has its own
@@ -669,33 +675,26 @@ reverse order costs one representation-alignment pass on a single pathfinder rou
   the capability vocabulary; the typeclass gets extracted when a third target demands
   it.
 
-## 10. Questions for the owner
+## 10. Historical owner questions and dispositions
 
-1. **Q1 — v1 obligation strength (§4.3).** Entry-anchored frames with
-   invariant-discharged dynamic bounds are recommended as the Law-11 carrier until
-   PA2/PA3's typestate upgrade. The alternative (flow-sensitive capability tracking
-   from day one) is stronger but sequences all enforcement behind PA2+PA3. Is v1's
-   line — omission and literal overruns unrepresentable now, dynamic bounds carried
-   but semantically discharged — acceptable as Law 11 compliance for migrated modules?
-2. **Q2 — `MemRef` as the expansion's operand convention.** New memory-operand
-   instruction forms should take a `MemRef` operand (one form per operation × width,
-   addressing folded into the term) rather than one struct per addressing mode —
-   collapsing the form count the ISA expansion would otherwise multiply, at the cost of
-   changing the roundtrip-case enumeration convention and interacting with B3's decoder
-   modularization. Recommended yes, for new forms only (the existing 14 stay as-is
-   until B3-era normalization). Needs a ruling before Wave B is scoped.
-3. **Q3 — the `memAccesses` mandatory field.** It is the one structural change with a
-   per-form cost (88 one-line edits now; one line forever after per new form) and the
-   design's keystone (§3.3). The no-default choice is deliberate P4 medicine — silent
-   opt-out impossible. Confirm the cost is accepted; the fallback (a linter inferring
-   memory-touchingness from step bodies) is strictly weaker and reviewable on request.
+1. **Q1 — v1 obligation strength (§4.3): superseded.** The owner no longer needs to choose
+   between an entry-only carrier and later typestate. `docs/MEMORY_MODEL.md` M1 requires the
+   indexed authoring surface up front, with canonical normal forms, automation, and an
+   elaboration budget; M4 adds cross-thread transfer.
+2. **Q2 — `MemRef` as the expansion's operand convention: still a target-level design
+   question, not a competing memory-model plan.** Resolve it in the x86 target/expansion work
+   after M1 fixes the capability-bearing authoring boundary. It must not change the canonical
+   cross-architecture authority model or bypass M1's stage-entry gate.
+3. **Q3 — the `memAccesses` mandatory field: resolved.** The no-default field exists on all
+   88 registered forms, with 14 real descriptors and 74 explicit empty lists; omission is a
+   compile error and the frame/registry audits are built (§3).
 
 ## 11. Follow-on work
 
 | Work item | Track | Content | Status / dependency |
 | :-- | :-- | :-- | :-- |
 | Semantic x86 memory hook | proof-arch | §3 + §6 stage 1 | complete |
-| Memory-uop centralization | perf | §5 | planned; after the semantic hook |
+| Memory-uop centralization | perf | §5 | complete; coefficients remain uncalibrated |
 | Indexed capability authoring | proof-arch | §4, revised by `docs/MEMORY_MODEL.md` §§6–7 | stages M1/M4 after M0 |
 
 The capability migration must consume §4 as historical input but use the resource algebra,
@@ -978,13 +977,14 @@ Checked for the historical T12 failure class: a stop reason must
 never be conflatable with another (x86-64's `runProgramTraceWithLoops` returns `[]` for
 fuel-out, no-instruction-at-rip, *and* a clean fault alike).
 
-- **x86-64, today**: `faulted : Bool` (one bit, `#DE` only); the richer `X86_64Fault`
-  inductive (`divideError | memFault ...`) that would make fault *kind* distinguishable is
-  **Status: unbuilt**, per §6 above — MH1 shipped the field-rename plumbing, not the
-  richer payload. TC18's stop-reason `Except` shape is likewise **Status: unbuilt**. So
-  x86-64's fault-vs-fuel-out-vs-no-instruction conflation is, as of this
-  change, still open — this section does not close it; it is out of this change's scope
-  (MH1/TC18's, not Wasm's).
+- **x86-64, today**: `X86_64Fault` (`divideError | memFault ... | halted`) and
+  `fault : Option X86_64Fault` are built; DIV/IDIV write `.divideError`, HLT/platform exits write
+  `.halted`, and the derived `faulted` projection remains for compatibility. The `memFault`
+  payload is present but remains unreachable until memory-fault semantics are implemented.
+  TC18's stop-reason `Except` shape is
+  likewise **Status: unbuilt**, so the outer trace runner still conflates fault, fuel exhaustion,
+  and no-instruction-at-RIP as `[]`. The payload migration fixed fault-kind representation, not
+  whole-program stop-reason distinguishability.
 - **Wasm is already better-separated on the fuel-exhaustion axis, independent of this
   change**: `WasmRunResult := Except WasmMachineState (WasmMachineState × ControlSignal)`
   (`Semantics.lean`) makes fuel exhaustion a structurally distinct outcome (`.error`) from
@@ -993,17 +993,17 @@ fuel-out, no-instruction-at-rip, *and* a clean fault alike).
   (`Gasm/Targets/WASI/ABI.lean`) is the whole-program entry point that returns this
   un-collapsed, and every load-bearing spike equivalence theorem is paired with a
   `#guard !(... ).isError` check proving it never hits `.error`.
-- **Wasm's `trapped : Bool` is one bit, same shape as x86-64's pre-payload `faulted`
+- **Wasm's `trapped : Bool` is one bit, the same shape as x86-64's pre-payload `faulted`
   field** — it distinguishes "trapped" from "not trapped" but not *why* (OOB
   load/store/`unreachable`/integer-divide-by-zero/`i32.div_u` etc. all set the same bit).
-  This is consistent in spirit with x86-64's *current* state (both are one
-  undifferentiated bit) and behind x86-64's *design intent* (§6's `X86_64Fault` payload).
+  It is therefore behind x86-64's current fault-kind representation, even though x86-64's outer
+  trace runner still conflates stop classes as described above.
   **Recommendation, not built here**: if a future consumer needs to distinguish trap
   *reasons* (e.g. a differential harness wanting to assert "trapped, and specifically on
   the OOB path, not `unreachable`"), the natural shape is a Wasm-side enum
   paralleling `X86_64Fault`'s — `WasmTrap.oob (kind : MemAccessKind) (width) (addr) |
-  .unreachable | .divByZero | ...` — replacing the bare `Bool` the way `X86_64Fault` is
-  designed to replace `faulted`. No such consumer exists today (every current check is
+  .unreachable | .divByZero | ...` — replacing the bare `Bool` the way `X86_64Fault` replaced
+  the x86-64 field. No such consumer exists today (every current check is
   "trapped or not"), so this is named as a parallel future step, not built now (Law 5).
 
 ### 12.6 Relationship to the canonical borrowing model

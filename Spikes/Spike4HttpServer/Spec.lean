@@ -56,7 +56,7 @@ def methodToString : Stdlib.Http11.Method → String
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#11-supported-http-11-specification-subset -/
 /-- Pure functional HTTP 1.1 Request-Line Parser. Delegates field-splitting to
     `Stdlib.Http11.parseRequestLine` (`Stdlib/Http11/Parser.lean`) -- the proven library
-    `docs/STDLIB_HTTP11.md#1-overview--scope`'s routing defect motivated -- rather than
+    `docs/STDLIB_HTTP11.md#1-overview-scope`'s routing defect motivated -- rather than
     re-implementing ad-hoc string splitting here. Only the request-*line*-level parser is used
     (not the full `parseRequest`, which additionally requires a `Content-Length` header and an
     exact-length body neither this spike's request vectors nor its wire format carry); this

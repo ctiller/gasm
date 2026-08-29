@@ -15,18 +15,17 @@ limitations under the License.
 -/
 
 /-
-Gasm/Effects/ReadBinderWiring.lean -- N2/PA6 wiring (docs/READ_BINDER_CONTRACT.md, MODEL_DEBT.md
-§C1).
+Gasm/Effects/ReadBinderWiring.lean -- bounded-read/read-binder wiring
+(`docs/READ_BINDER_CONTRACT.md` §1).
 
 `Gasm/Effects/ReadBinder.lean` states the read-binder contract shape (`ReadBinderObligation`,
-`IsValidReadChunk`, `ChunksOf`) as a standalone development, explicitly not yet connected to any
-live hook (`docs/READ_BINDER_CONTRACT.md` §1: "no existing typeclass... hook (`readFileHook`,
-`recvHook`)... is modified [t]here"). `Gasm/Effects/Network.lean`'s `splitBytes` is the N2
+`IsValidReadChunk`, `ChunksOf`) as a standalone development. `Gasm/Effects/Network.lean`'s
+`splitBytes` is the bounded-read
 primitive `recvHook`/`sysReadHook`/`sock_recv` now use to cap a delivered read at the syscall's
-declared bound instead of ignoring it. This file is the wiring step both documents name as
-future work: it proves `splitBytes`'s output is literally a member of `IsValidReadChunk`'s
+declared bound instead of ignoring it. This file is the current wiring boundary: it proves
+`splitBytes`'s output is literally a member of `IsValidReadChunk`'s
 domain, and uses that connection to make Spike 4's buffer/cap mismatch
-(`docs/tasks/N8-spike4-stack-buffer-overflow.md`) a proved-undischargeable obligation rather than
+(`docs/SPIKES/SPIKE4_HTTP_SERVER.md`) a proved-undischargeable obligation rather than
 a description.
 -/
 
@@ -61,7 +60,7 @@ theorem splitBytes_isValidReadChunk (bytes : List Byte) (cap : Nat) :
   exact take_eq_take_length_take bytes cap
 
 /- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
-/-- `docs/tasks/N8-spike4-stack-buffer-overflow.md`'s audit finding: Spike 4's `recv`/`read`
+/-- `docs/SPIKES/SPIKE4_HTTP_SERVER.md`'s audit finding: Spike 4's `recv`/`read`
 calls passed `len = 128` (the syscall's own declared cap, exactly the bound
 `ReadBinderObligation` quantifies over, §2) against a stack recv buffer allocated only 16 bytes.
 This is a concrete instance of the mismatch `docs/READ_BINDER_CONTRACT.md` §5 describes in the

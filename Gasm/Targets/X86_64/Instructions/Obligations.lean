@@ -67,7 +67,7 @@ inductive ValidationOracle where
 /- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p5-blocking-for-the-perf-models-integrity-calibration-governance-before-mass-coefficient-entry-f2-f1-a3-cleanup -/
 /-- Where THIS instance's `toUops` cost coefficients (latency/port/throughput) came from --
     never a bare, unfalsifiable literal. `.cited` names a real calibration artifact (a
-    `calibration/` file once F1/F2 exist, per `docs/CALIBRATION_GOVERNANCE.md`) or a
+    governed and accepted `calibration/` file, per `docs/CALIBRATION_GOVERNANCE.md`) or a
     `references.json` slug+anchor whose target genuinely publishes cycle-accurate data (the
     combined Intel SDM registered as `intel-sdm` does NOT -- it is the architecture manual, not
     the separate Optimization Reference Manual -- so no coefficient in this tree may cite it
@@ -80,7 +80,9 @@ inductive ValidationOracle where
     as a measured fact"). `docs/CALIBRATION_GOVERNANCE.md` #9 additionally rules out external
     tables (Agner Fog / uops.info) as a `.cited` source for a SHIPPED coefficient -- cross-check
     only, never the source -- so `.modelInternalUnvalidated` is not a shortcut being taken here;
-    it is the only honest choice available before F1 (the RDTSC harness) exists. -/
+    it is the only honest choice until a governed calibration result is accepted and bound to
+    the instance. The RDTSC/RDTSCP harness and provisional artifacts already exist; they do not
+    by themselves satisfy that promotion rule (`docs/RDTSC_HARNESS.md`). -/
 inductive CoefficientProvenance where
   | cited (artifact : String)
   | modelInternalUnvalidated (reason : String)

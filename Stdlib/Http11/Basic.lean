@@ -19,8 +19,8 @@ import Lean
 /-
 ## Stdlib.Http11.Basic
 
-Byte-level primitives shared by `Stdlib/Http11/Request.lean` and
-`Stdlib/Http11/Response.lean`: character classes, a decimal-digit codec for
+Byte-level primitives shared by `Stdlib/Http11/Parser.lean`,
+`Stdlib/Http11/Writer.lean`, and the accompanying roundtrip proofs: character classes, a decimal-digit codec for
 `Content-Length`, and two structurally/well-founded-recursive line-splitting
 functions (`takeLine`, `peelLines`) that both the parser and its roundtrip
 proof are built from. Everything here operates on `List UInt8`, not

@@ -56,6 +56,6 @@ import Gasm.Targets.X86_64.RoundtripGate.Syscall
 -- cost (checking the full dispatcher against every one of ~1611 registered witnesses) on every
 -- single-instruction edit, which measurably undoes Stage B's own build-perf win (measured: 15
 -- jobs / ~177s with it wired in here, vs. 14 jobs / ~30s without — see
--- `docs/tasks/B3-stage-b-decoder-modularization.md`'s Notes). Keeping it reachable but out of the
+-- `docs/TARGETS/X86_64.md`'s Notes). Keeping it reachable but out of the
 -- default `Gasm` build keeps the fast edit loop fast while still making the proof available
 -- whenever full confidence is wanted.

@@ -210,7 +210,7 @@ time the way `Stdlib/Zlib`'s per-target `Equivalence.lean` files establish trace
 between a spec function and an emitted program — building that bridge for `Http11` remains
 comparable in scope to the existing Zlib per-target equivalence proofs (each several hundred to
 low-thousands of lines) and is not attempted here. The routing defect itself, however, is already
-fixed at the assembly level: a concurrent task (`docs/tasks/N8-spike4-stack-buffer-overflow.md`)
+fixed at the assembly level: the Spike 4 stack-buffer audit
 replaced each target's fixed-width prefix compare (`"/stat"` on Windows/Linux, a single `'s'` byte
 on WASI) with a full 8-byte `"/status "` comparison, independently of this library, and added its
 own regression suite (`Spikes/Spike4HttpServer/Equivalence.lean`'s

@@ -26,9 +26,8 @@ therefore invisible to that audit: it will not be flagged as missing, because th
 learns it exists.
 
 Before this script, nothing mechanically enforced that the umbrella's import list actually
-matched the files on disk -- it was convention only (see docs/tasks/B1-build-perf-iteration2.md's
-2026-08-27 "iteration 2 complete" note and docs/tasks/B3-stage-b-decoder-modularization.md's
-"design constraint from the B1 review" note, both of which flag this as a residual gap). This
+matched the files on disk -- it was convention only. The build-performance history in
+`docs/TARGETS/X86_64.md` records that residual gap. This
 script closes it with a direct filesystem-vs-import-list diff: it does NOT eliminate the
 underlying blind spot (a file that is neither on disk in this directory nor referenced anywhere
 still could not be found by any purely-static check that doesn't also cross-reference `git`), but
@@ -52,12 +51,11 @@ Usage:
     python scripts/check_instructions_umbrella.py --self-test # plant real defects, prove red, revert
 
 --self-test exists because this script was wired into `scripts/run_gates.py`'s gate table and
-`.github/workflows/ci.yml` only as a follow-up: `docs/tasks/B3-stage-b-decoder-modularization.md`'s
-"not done, flagged for follow-up" note gave the missing mutation test as the reason it stayed
+`.github/workflows/ci.yml` only after the missing mutation test was supplied; until then it stayed
 unwired, and wiring a never-observed-red gate would have made this file exactly the kind of
 decorative check it exists to prevent. A gate only ever observed to pass is not a gate
-(`docs/REVIEW.md` Law 13); every other linter gate in this tree (`check_doc_facade.py`,
-`check_record.py`, `check_orphan_modules.py`, `run_gates.py`) carries the same re-runnable
+(`docs/REVIEW.md` Law 13); the other live linter gates in this tree (`check_doc_facade.py`,
+`check_orphan_modules.py`, `run_gates.py`) carry the same re-runnable
 planted-defect fixture, and this one now does too.
 """
 

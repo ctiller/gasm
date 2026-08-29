@@ -1,11 +1,11 @@
 # Third-Party License Audit — `references/`
 
 **STATUS (2026-08-27): historical record. `references/` has been deleted in its entirety** (owner
-ruling: no third-party prose ships regardless of redistributability — see `PLAN.md` D25,
+ruling: no third-party prose ships regardless of redistributability — see `docs/REVIEW.md` Law 4,
 `docs/REFERENCE_INDEX.md` §7). None of the corpora this document analyzes are in the tree any
 more; nothing below is a live compliance surface. Kept, not deleted, because it remains the
 durable answer to "was anything non-redistributable ever in this repository" once the flatten
-(`docs/PRE_FLATTEN_CHECKLIST.md`) erases the commit history that would otherwise have shown this.
+(`docs/REFERENCE_INDEX.md` §6.6) erases the commit history that would otherwise have shown this.
 
 **Purpose.** `gasm` is about to be open-sourced under Apache License 2.0. `references/`
 contains ~1,049 files of vendored third-party material (per-corpus counts below, cross-checked
@@ -76,7 +76,7 @@ File-count cross-check (current `references/MANIFEST.sha256`, regenerated after 
   (0BSD)... However, no rights are granted to create modifications or derivatives of this
   document."*
 - **Why this corpus fails even the narrow exception it's given.** The one thing Intel permits —
-  publishing an *unmodified* copy — is not what is stored here. Per `TCB.md` T8, the ingestion
+  publishing an *unmodified* copy — is not what was stored here. The historical ingestion
   pipeline runs the SDM through a 5-entity-decode, tag-stripping regex converter that **silently
   flattens every table** (how SDM opcode/encoding tables arrive) and splits the manual into 928
   separate per-chapter Markdown files with added navigation/frontmatter. That is a derivative
@@ -137,8 +137,8 @@ File-count cross-check (current `references/MANIFEST.sha256`, regenerated after 
 - **Citation impact: 0.** The only two repo-wide hits for `references/spirv` are (a) the literal
   citation-format string in `references/spirv/INDEX.md` and `scripts/regenerate_references.py`
   ("Use standard `/- REF: references/spirv/filename.md#anchor -/` format...") and (b) prose
-  mentions in `TCB.md`/`docs/tasks/G5-*.md` describing the gap itself. **Zero Lean declarations
-  currently cite into `references/spirv/`** — the planned SPIR-V emitter/validator work (task G5)
+  planning mentions describing the gap itself. **Zero Lean declarations
+  currently cite into `references/spirv/`** — the planned SPIR-V emitter/validator work
   has not started. Removing the 5 restrictively-licensed prose files breaks nothing today, but
   would require G5 to source its ground truth differently (see §4 remedy).
 
@@ -410,7 +410,7 @@ stored, or explicit permission/legal clearance from the owner. Ordered by severi
 - **Why:** Same Khronos Specification Copyright License as Vulkan; conversion tool is lost, so
   the corpus isn't even reproducible today.
 - **Impact if deleted:** **Zero** current `REF:` citations. The planned SPIR-V emitter/validator
-  task (`docs/tasks/G5-spirv-emitter-validator.md`) has not yet started, so no code needs
+  work had not yet started, so no code needed
   re-grounding.
 - **Recommended remedy:** Remove the 5 prose files; keep `spirv.core.grammar.json` (which is
   separately, permissively licensed — not a blocker) as the machine-readable ground truth, and
@@ -433,7 +433,8 @@ stored, or explicit permission/legal clearance from the owner. Ordered by severi
 `references/wasm/{binary,execution,structure,text}.md` (91 of 94 wasm citations) and
 `references/windows/{readfile,winsock2}.md` (14 of 37 windows citations) carry **no license risk**
 — this project owns the copyright on its own prose. They are already disclosed on-disk and in
-`MANIFEST.provenance.json`, and are tracked as a separate integrity concern (`TCB.md` T8, Law 4)
+`MANIFEST.provenance.json`, and were tracked as a separate integrity concern (now
+`docs/REFERENCE_INDEX.md` §10 and Law 4)
 about whether the project's models are actually derived from vendored ground truth. That is a
 correctness/rigor issue for the project's own standards, not a licensing obstacle to
 open-sourcing — but the owner should not read a clean license verdict here as "this content is

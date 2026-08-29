@@ -79,7 +79,7 @@ def ReadsWithin {ι : Type} [X86_64Instruction ι] (i : ι) : Prop :=
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- The shared batch lemma covering every `memAccesses _ := []` (register-only) form
-    (`docs/tasks/MH1-semantic-memory-hook.md`'s "one shared batch lemma covering the `[]` forms"):
+    (`docs/MEMORY_HOOK.md`'s "one shared batch lemma covering the `[]` forms"):
     if `step` never changes the memory field at all, `WritesWithin` holds vacuously against the
     empty footprint. Reduces each of the 74 register-only forms' proof obligation to the single,
     `rfl`-discharged fact that their `step` doesn't touch `.memory` (true by construction: none of

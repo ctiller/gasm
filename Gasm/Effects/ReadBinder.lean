@@ -125,8 +125,8 @@ theorem chunk_robustness {total : List Byte} {cap : Nat} {chunksA chunksB : List
 `Post` has already been established for the reconstruction obtained under *one* chunking, it
 holds automatically for *every* other complete chunking of the same logical input. A program
 proven correct for one chunking is provably equal, via this one lemma, to the same program under
-any other chunking of the same input -- exactly the property `docs/tasks/
-PA6-read-binder-contract.md` requires this design to check rather than merely assert. -/
+any other chunking of the same input -- exactly the property
+`docs/READ_BINDER_CONTRACT.md` requires this design to check rather than merely assert. -/
 theorem continuation_invariant_to_chunking {total : List Byte} {cap : Nat} {Post : List Byte → Prop}
     {chunksA chunksB : List (List Byte)}
     (hA : ChunksOf total cap chunksA) (hB : ChunksOf total cap chunksB)

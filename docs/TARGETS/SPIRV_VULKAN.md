@@ -2,17 +2,17 @@
 
 This document defines the binary generation model for **SPIR-V shaders** and the formal state machine model for the **Vulkan Host API**.
 
-> **Status note (2026-08-27)**: Per `GRAPHICS_PREBUILD_AUDIT.md` §9 and
-> `docs/tasks/G1-graphics-doc-rework.md`, this document's `returnVoid` quantifier bug is
+> **Status note (2026-08-27)**: Following the graphics pre-build review, this document's
+> `returnVoid` quantifier bug is
 > fixed below (§1.2) by indexing `SpirvTerminator` on the reached exit state (matching
 > `CpuTerminator`'s pattern), and its synchronization model (§2) is marked **SUPERSEDED** —
 > the prior WAR/WAW-only layout-FSM claim omitted Read-After-Write hazards entirely, and its
-> replacement (Vulkan's own memory-model happens-after relation) is a separate design, task
-> **G2**, not authored in this document. A pointer to the floating-point determinism
-> question (task **G3**) is likewise added rather than answered here. The `spirv-val`
+> replacement (Vulkan's own memory-model happens-after relation) is a separate design, not
+> authored in this document. A pointer to the floating-point determinism question is likewise
+> added rather than answered here. The `spirv-val`
 > "guarantee" claim at the end of §1.2 is marked **UNSUBSTANTIATED** (no validator exists);
-> replacing it with a build-time Lean validator is task **G5**'s job, out of scope for this
-> rewrite.
+> replacing it with a build-time Lean validator remains graphics-roadmap work, out of scope
+> for this rewrite (`docs/ROADMAP.md` §1).
 
 ---
 
@@ -55,7 +55,7 @@ inductive SpirvTerminator {S : Type} (s_exit : ComposedState spirv S) where
   | returnVoid (h_clean : s_exit.obligations = []) : SpirvTerminator s_exit
 ```
 
-> **Bug fix (2026-08-27, `GRAPHICS_PREBUILD_AUDIT.md` §7/§8; corrected 2026-08-27 per review)**:
+> **Bug fix (2026-08-27; corrected the same day after review)**:
 > the original signature was
 > `returnVoid (h_clean : ∀ (s : ComposedState spirv S), s.obligations = []) : SpirvTerminator S`
 > — it quantified over **all** states inhabiting typestate `S`, not the specific state
@@ -77,17 +77,17 @@ The `gasm` SPIR-V DSL automatically generates and typechecks structured merge de
 passes Khronos validation (`spirv-val`)"; zero graphics Lean exists, so no DSL currently
 generates or typechecks anything, and no such guarantee is established. `spirv-val` is an
 external cross-check, not a proof this codebase currently produces; a build-time Lean
-SPIR-V validator plus a ∀-registered-shaders validity theorem is task **G5**
-(`GRAPHICS_PREBUILD_AUDIT.md` §9 amendment #7) — until G5 lands, no validity claim for
+SPIR-V validator plus a ∀-registered-shaders validity theorem is future work in
+`docs/ROADMAP.md` §1 — until that validator lands, no validity claim for
 emitted SPIR-V is made here.
 
-### 1.3 Floating-Point Determinism — see task G3
+### 1.3 Floating-Point Determinism — replacement design pending
 
 SPIR-V execution modes and decorations (`NoContraction`, `float-controls`) are exactly the
 mechanism a future **Deterministic Shader Profile** would declare as hard device
 preconditions. That profile's grammar, and the both-ways-equality-vs-ULP-refinement contract
 split it enables, are not designed in this document — see `docs/GRAPHICS_ARCHITECTURE.md`
-§3.4 and task **G3** (`docs/tasks/G3-fp-kernel-dsl.md`).
+§3.4 and `docs/ROADMAP.md` §1.
 
 ---
 
@@ -106,10 +106,10 @@ stateDiagram-v2
     Initial --> [*]: vkFreeCommandBuffers
 ```
 
-### Pipeline Barrier Synchronization Proofs — SUPERSEDED, see task G2
+### Pipeline Barrier Synchronization Proofs — SUPERSEDED, replacement pending
 
 > **SUPERSEDED.** The paragraph below is retained for historical context only; it is not
-> the ratified synchronization model. `GRAPHICS_PREBUILD_AUDIT.md` §2 diagnosed its defect
+> the ratified synchronization model. The graphics pre-build review diagnosed its defect
 > precisely: modeling barriers as a resource-layout FSM that claims WAR/WAW prevention
 > **omits Read-After-Write hazards entirely** — Spike 6's own critical hazard (shader store
 > → transfer read) — and a layout FSM can "prove" a barrier correct with an empty
@@ -122,12 +122,12 @@ stateDiagram-v2
 >
 > **Ratified direction** (not designed in this document): Vulkan's own memory model —
 > synchronizes-with / happens-before / availability+visibility
-> (`references/vulkan/appendix_b__memory_model.md`) mapped onto this repository's
+> (the hash-pinned `vulkan-spec` entry in `references.json`) mapped onto this repository's
 > `VectorClock` machinery (`Gasm/Core/Types.lean:32-47`) and the causally-ordered trace
 > representation of `docs/SYSTEM_EFFECTS.md` §6.3–6.4: `vkQueueSubmit` = host→queue edge,
 > fence = queue→host edge, semaphores = queue→queue edges, barriers = intra-queue edges with
 > availability/visibility, **RAW included** alongside WAR/WAW. The full DSL — total
 > race-freedom and happens-before-soundness theorems over the command-stream language, per
-> `docs/adr/0011-dsls-as-unit-of-proof-leverage.md` — is **task G2** (`docs/tasks/G2-synchronization-dsl.md`), sequenced
-> `after: G1`. See `docs/GRAPHICS_ARCHITECTURE.md` §3.3 for the same pointer stated
+> `docs/DECISIONS.md` §2 — remains prerequisite work in `docs/ROADMAP.md` §1. See
+> `docs/GRAPHICS_ARCHITECTURE.md` §3.3 for the same requirement stated
 > alongside the contract/audit trace split it depends on.

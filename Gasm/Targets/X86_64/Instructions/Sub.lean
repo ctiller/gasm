@@ -46,7 +46,7 @@ instance : X86_64Instruction SubRspImm8 where
   toLean i := s!"sub_rsp {formatHex8 i.imm}"
   canFuzzHardware _ := false -- Stack pointer modifications cannot be executed in-place on host thread stack
   validationOracle _ := .nasmEncoding "Stack pointer modifications cannot be executed in-place on host thread stack -- encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := generateStandardFuzzStatesForImm .rsp rng
   roundtripCases := curatedUInt8Cases.map SubRspImm8.mk
   memAccesses _ := []
@@ -81,7 +81,7 @@ instance : X86_64Instruction SubR64R64 where
   toLean i := s!"sub_r64 .{i.dst} .{i.src}"
   canFuzzHardware i := hwSafeReg64 i.dst && hwSafeReg64 i.src
   validationOracle i := if hwSafeReg64 i.dst && hwSafeReg64 i.src then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesFor2Regs i.dst i.src rng
   roundtripCases :=
     (allReg64List.map (SubR64R64.mk · .rax)) ++ (allReg64List.map (SubR64R64.mk .rax ·)) ++
@@ -112,7 +112,7 @@ instance : X86_64Instruction SubR64Imm8 where
   toLean i := s!"sub_r64_imm8 .{i.dst} {formatHex8 i.imm}"
   canFuzzHardware i := hwSafeReg64 i.dst
   validationOracle i := if hwSafeReg64 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesForImm i.dst rng
   roundtripCases :=
     (allReg64ListNoRsp.map (SubR64Imm8.mk · 0x00)) ++ (curatedUInt8Cases.map (SubR64Imm8.mk .rax ·)) ++
@@ -144,7 +144,7 @@ instance : X86_64Instruction SubRspImm32 where
   toLean i := s!"sub_rsp32 {formatHex32 i.imm}"
   canFuzzHardware _ := false -- Stack pointer modifications cannot be executed in-place on host thread stack
   validationOracle _ := .nasmEncoding "Stack pointer modifications cannot be executed in-place on host thread stack -- encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := generateStandardFuzzStatesForImm .rsp rng
   roundtripCases := curatedUInt32Cases.map SubRspImm32.mk
   memAccesses _ := []
@@ -193,7 +193,7 @@ instance : X86_64Instruction SubR64Imm32 where
   toLean i := s!"sub_r64_imm32 .{i.dst} {formatHex32 i.imm}"
   canFuzzHardware i := hwSafeReg64 i.dst
   validationOracle i := if hwSafeReg64 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates i rng := generateStandardFuzzStatesForImm i.dst rng
   roundtripCases :=
     (allReg64ListNoRsp.map (SubR64Imm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (SubR64Imm32.mk .rax ·)) ++

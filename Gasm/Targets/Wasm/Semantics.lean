@@ -44,7 +44,7 @@ structure WasmMachineState where
   -- API (`WasmMem.read8/32/64`, `write8/32/64`, `readBytes`/`writeBytes`, and the bulk
   -- `ofBytes`/`zero`/`grow`/`toBytes` construction/observation entry points) -- no other function
   -- in the tree can touch these bytes, closing the raw-`ByteArray.set!`/unchecked-`readMem32`
-  -- bypass `wasiHostCall` used before this change (`docs/tasks/B7-wasm-oob-trap-and-limits.md`'s
+  -- bypass `wasiHostCall` used before this change (`docs/MEMORY_HOOK.md`'s
   -- closing note).
   memory           : WasmMemory   := WasmMem.empty
   -- REF: wasm-exec-runtime#memory-instances -- "It is an invariant of the semantics that the
@@ -112,7 +112,7 @@ def pushVal (val : WasmVal) (s : WasmMachineState) : WasmMachineState :=
 -- `readMem64`/`writeMem8`/`writeMem32`/`writeMem64` helpers that used to live here (operating on
 -- a bare `ByteArray`, total/silently-permissive on out-of-bounds addresses) are retired: they were
 -- exactly the shape `Gasm/Targets/WASI/ABI.lean`'s `wasiHostCall` could call directly to bypass
--- `evalInstr`'s trap check (`docs/tasks/B7-wasm-oob-trap-and-limits.md`'s closing note). Their
+-- `evalInstr`'s trap check (`docs/MEMORY_HOOK.md`'s closing note). Their
 -- replacements, `WasmMem.read8/32/64`/`write8/32/64` (`MemoryCell.lean`), are `Option`-returning
 -- (never silently permissive) and operate on the sealed `WasmMemory` cell, so the only way to
 -- touch linear-memory bytes anywhere in the tree is through them.
@@ -149,9 +149,9 @@ def defaultWasmFuel : Nat := 100000000
     unconditionally returned (trapped or not, distinguished as before via `s.trapped`; a `.next`/
     `.br _`/`.ret` signal exactly as before). `.error s` is fuel exhaustion, carrying the partial
     machine state observed at the instant fuel reached zero. Modeled directly on `Except` rather
-    than folding a boolean into `WasmMachineState` (the pattern this project's own debt tracker
-    (TCB.md, "Fuel exhaustion indistinguishable from clean termination") diagnoses as a soundness
-    gap in the sibling `Gasm/Targets/X86_64/Semantics.lean`'s `runProgramTraceWithLoops`, which
+    than folding a boolean into `WasmMachineState` (the stop-reason analysis in
+    `docs/MEMORY_HOOK.md` §12.5 diagnoses this as a soundness gap in the sibling
+    `Gasm/Targets/X86_64/Semantics.lean`'s `runProgramTraceWithLoops`, which
     returns `[]` for fuel-out, "no instruction at rip", AND a clean fault alike) so that a caller
     pattern-matching on the OUTCOME itself -- not a field reachable only by first assuming the run
     completed -- cannot mistake "ran out of fuel" for "ran to completion" no matter which

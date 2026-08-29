@@ -52,7 +52,7 @@ class MonadNetwork (m : Type → Type) where
   close  : Nat → m Unit
 
 /- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
-/-- N2 short-read primitive, byte-domain core (MODEL_DEBT.md §C1). Splits a logical read source's bytes at a
+/-- Short-read primitive, byte-domain core (`docs/READ_BINDER_CONTRACT.md`). Splits a logical read source's bytes at a
 declared cap: `(delivered, remaining)` where `delivered = bytes.take cap` (never more than
 `cap` bytes, whatever `bytes`' true length is) and `remaining = bytes.drop cap` is what a
 faithful environment must still hand back on a subsequent read. This is precisely
@@ -75,7 +75,7 @@ def splitBytes (bytes : List Byte) (cap : Nat) : List Byte × List Byte :=
   (bytes.take cap, bytes.drop cap)
 
 /- REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate -/
-/-- The N2 safety invariant (MODEL_DEBT.md §C1): whatever `splitBytes` hands back as the delivered half, it never
+/-- The short-read safety invariant (`docs/READ_BINDER_CONTRACT.md`): whatever `splitBytes` hands back as the delivered half, it never
 exceeds the declared cap -- a `recv`/`ReadFile` hook built on `splitBytes` cannot write more
 than its caller's own declared bound into memory, by construction, for any queued source and
 any cap. This is the fact that was simply false of `recvHook`/`sysReadHook`'s pre-N2 socket

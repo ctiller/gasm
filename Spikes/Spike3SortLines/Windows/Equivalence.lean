@@ -88,13 +88,13 @@ theorem spike3_empty_effect_trace_equivalence_inst :
     (runAsmTrace (Event := AnyEvent) spike3Instructions spike3Executable.load == modelTraceEmpty) = true := by
   decide +kernel
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
 /-- **Domain-honesty note (PA17).** The real domain Law 9's read-binder clause demands here is
     `∀ (stdin : ByteArray)` — arbitrary stdin content of any length — per
-    `docs/tasks/PA6-read-binder-contract.md`. `Bool` is NOT that domain: it is a two-element
+    `docs/READ_BINDER_CONTRACT.md`. `Bool` is NOT that domain: it is a two-element
     proxy standing in for exactly the two literal vectors above (`ByteArray.empty` and
     `defaultSampleInput`), chosen so `∀ (b : Bool)` type-checks trivially over a domain of size 2.
-    An earlier census (`PLAN.md`'s Law 9 mock-verification census) classified this composition
+    The historical Law 9 mock-verification census classified this composition
     as "Tier 3 — legit pattern" on the reasoning that it is a genuine finite-∀ over an exhaustive
     enum; that reasoning is correct about the *composition* (`cases b` really does cover both
     constructors of `Bool`) but was read by at least one prior author as implying the underlying
@@ -104,8 +104,8 @@ theorem spike3_empty_effect_trace_equivalence_inst :
     past 256 bytes, or a chunk boundary from `ReadFile`'s 512-byte reads landing mid-line -- all
     real behaviors this program's `stream_read_loop`/`chunk_scan_loop` implement and which a
     genuine `∀ stdin` proof would have to range over. Closing that gap needs induction over the
-    streaming-ingestion loop's structure (the technique `docs/tasks/PA1-crc32-pathfinder.md`
-    demonstrates for a buffer-indexed loop), stated against `docs/tasks/PA6-read-binder-contract.md`'s
+    streaming-ingestion loop's structure (the technique `docs/PATHFINDER_CRC32.md`
+    demonstrates for a buffer-indexed loop), stated against `docs/READ_BINDER_CONTRACT.md`'s
     read-continuation contract shape -- neither of which has landed as of this note, so this task
     does not attempt it. See `spike3_effect_trace_equivalence_for_empty_stdin` and
     `spike3_effect_trace_equivalence_for_canonical_stdin` below for the same two facts restated
@@ -114,7 +114,7 @@ theorem spike3_empty_effect_trace_equivalence_inst :
 instance : EnvironmentLoader Bool where
   loadEnvironment exe b := if b then exe.loadWithStdin defaultSampleInput else exe.load
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
 /-- `spike3Executable.loadWithStdin ByteArray.empty` and `spike3Executable.load` are the same
     initial machine state (`loadWithStdin` only overwrites `stdinBuffer`, which `load` already
     leaves at its `ByteArray.empty` structure default) -- recorded so the honest wrapper theorem
@@ -122,12 +122,12 @@ instance : EnvironmentLoader Bool where
 theorem spike3Executable_loadWithStdin_empty :
     spike3Executable.loadWithStdin ByteArray.empty = spike3Executable.load := rfl
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Honest restatement of `spike3_empty_effect_trace_equivalence_inst` with its real, narrow
     domain made an explicit, machine-checked hypothesis (`h`) rather than an implicit `Bool` case
-    split standing in for it. This is exactly the shape
-    `docs/tasks/PA17-spike3-spike4-domain-honesty.md` asks for when a genuinely universal
+    split standing in for it. This is the narrow proof boundary
+    `docs/SPIKES/SPIKE3_SORT_LINES.md` §6 records when a genuinely universal
     `∀ (stdin : ByteArray)` statement is not reachable in this task: "for all inputs satisfying P,
     with P stated" -- here `P` is deliberately narrow (equality to the one literal vector this
     file already checks) and is not dressed up as broader coverage. -/
@@ -138,7 +138,7 @@ theorem spike3_effect_trace_equivalence_for_empty_stdin (stdin : ByteArray)
   rw [spike3Executable_loadWithStdin_empty]
   exact spike3_empty_effect_trace_equivalence_inst
 
-/- REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md -/
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Honest restatement of `spike3_canonical_effect_trace_equivalence_inst`; see
     `spike3_effect_trace_equivalence_for_empty_stdin` immediately above for the rationale, which

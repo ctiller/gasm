@@ -1,10 +1,9 @@
 # Reference Index — Replacing Vendored `references/` with `references.json` + Slug Citations
 
-**Status: Law 5 (Stop-and-Design Invariant) design document.** This is a design, not an
-implementation — no code in this repository is changed by this document. §8's Law 4/Law 6
-amendment text is explicitly **PROPOSED**, pending the owner's ratification; the owner ratifies
-laws, this document does not. Everything else here (schema, validator, migration plan) is ready
-to execute once reviewed.
+**Status: implemented and normative.** The owner ratified the Law 4/Law 6 mechanism,
+`references/` was removed, `references.json` and `scripts/check_references.py` landed, and live
+citations use registered slugs. Sections that count the pre-migration tree are retained as an
+explicitly historical execution record; they do not describe files still present today.
 
 **Why this exists.** `gasm` is going open-source under Apache-2.0.
 [`docs/THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) found that `references/intel_sdm/`
@@ -56,10 +55,7 @@ circumstance, including a corpus whose license would clearly permit it (see §8.
 
 The owner's brief proposed `references.yaml`. This design uses **`references.json`** instead,
 and the reason is mechanical, not aesthetic: `gasm` has **no YAML dependency anywhere in the
-repository**, by deliberate choice — `scripts/task_frontier.py` parses `docs/tasks/*.md`
-frontmatter with a hand-rolled, intentionally-limited flat-key parser specifically to avoid
-depending on a YAML library (see that file's module docstring: *"a flat YAML subset — no
-external `yaml` dependency"*). Adopting `references.yaml` would mean either (a) adding the
+repository**, by deliberate choice. Adopting `references.yaml` would mean either (a) adding the
 project's first external Python dependency, in a repo whose stdlib-only tooling posture is a
 running design choice, or (b) hand-rolling a *second*, more capable YAML-subset parser (the
 reference index needs nested structure — a list of objects, each with several typed and some
@@ -158,9 +154,8 @@ verdicts `docs/THIRD_PARTY_LICENSES.md` already reached:
 The brief asked for an explicit "is this document anchor-bearing" flag. This design does not add
 a separate boolean for that — `anchor_mode` already answers it: every value names a real grammar
 (§2), so every entry is anchor-bearing by construction. There is no "no anchor" mode, because a
-document with no citable substructure has no reason to be registered at all (see §10 — this is
-exactly the property that forces the four remaining hand-authored files to stop existing rather
-than be accommodated).
+document with no citable substructure has no reason to be registered at all (see §10 for the
+historical disposition of the hand-authored files that could not become external-source entries).
 
 ---
 
@@ -272,7 +267,7 @@ MANUALPAGES := IDENT                                ; the frontmatter's manual_p
 **`pp=`/`mp=` are OPTIONAL, not mandatory as originally designed here (changed 2026-08-27,
 adversarial review of the references/ migration).** The rest of this section (below) documents
 the original design intent and is kept for its rationale, but the grammar box above is the
-current, actually-enforced state. What changed: the registered `intel-sdm` entry (§7/`PLAN.md`)
+current, actually-enforced state. What changed: the registered `intel-sdm` entry (§7)
 could only be pinned to the live -078US (Dec 2022) edition — the -092US (Dec 2024) edition the
 267 citations' `pp=`/`mp=` values were derived from is not fetchable anywhere. Two years of
 revisions move page numbers by hundreds, so those `pp=`/`mp=` values are systematically wrong
@@ -393,9 +388,8 @@ cached text; not a semantic check that the declaration means what the citing Lea
   never a warning-only print. This mirrors Law 13(4)'s "an oracle that cannot run must fail the
   run" applied to the new failure mode this design introduces (a cold, incomplete, or corrupted
   cache) — corrupted deliberately included: a cache that merely *exists* under the right filename
-  is not evidence it holds what `references.json` claims (this is the same failure class `TCB.md`
-  T8 documents as already demonstrated in this repository — manifest-membership is not disk-content
-  verification, and a naive presence check "passes on a corpus truncated to one byte per file").
+  is not evidence it holds what `references.json` claims. Manifest membership is not disk-content
+  verification: a naive presence check would even accept a corpus truncated to one byte per file.
 - **`python scripts/check_references.py --refresh [--slug <slug> | --corpus <corpus> | --all]`**
   — run deliberately, never as part of the default gate. Fetches each targeted entry's `url`,
   recomputes SHA-256, and compares against the recorded `sha256`. On match: updates the cache,
@@ -551,8 +545,10 @@ explicitly, if they choose to, as part of the reviewed re-pin.
 
 ### 6.1 Scope, precisely counted
 
-A fresh repo-wide count of `REF:` citations into `references/**`, measured directly against this
-document's own base commit (not copied from an earlier snapshot), finds **416** total, not only
+The following table is the frozen migration baseline measured against this document's base
+commit. It is historical accounting, not a description of the current tree: today `references/`
+is absent and no live citation resolves beneath it. At that baseline, a fresh repo-wide count of
+`REF:` citations into `references/**` found **416** total, not only
 the 267 SDM ones the initiating brief named — the owner's ruling correctly widened scope to all of
 them, since `references/` is deleted wholesale:
 
@@ -577,7 +573,7 @@ citations have grown further since (80 → 99) as unrelated TC20 work added new,
 Wasm citations in the same window — evidence the corpus is healthy, not evidence of drift in this
 count.
 
-(Earlier per-corpus snapshots in `docs/THIRD_PARTY_LICENSES.md` and `TCB.md` T8 recorded still
+(Earlier per-corpus snapshots in `docs/THIRD_PARTY_LICENSES.md` and the historical trust audit recorded still
 different counts — reflecting ordinary code churn between audit dates, not a disagreement in
 method. Whoever implements this migration should re-run the count at execution time rather than
 treat any number in this document, including the one above, as frozen.)
@@ -676,7 +672,7 @@ coarsest bucket), which can be deferred as a follow-up without blocking the migr
   ground truth even though nothing cites it yet, `references/MANIFEST.provenance.json` already
   records a URL (and, where resolvable, a commit-SHA pin) for every file in these four corpora
   today, so registration is a direct carry-forward, not new research. `vulkan/` and `spirv/` prose
-  should likewise be registered if future SPIR-V/Vulkan work (per `docs/tasks/G5-*.md`) is expected
+  should likewise be registered if future SPIR-V/Vulkan work (`docs/ROADMAP.md` §1) is expected
   soon — and here the corpus-level manifest is not enough on its own: per-chapter granularity (each
   of vulkan's 70 chapters, each of spirv's 4 prose chapters, carries its own URL fragment in its
   own frontmatter — e.g. `.../vkspec.html#spirvenv` — not recorded anywhere else) has already been
@@ -697,27 +693,15 @@ completed. **That work is no longer concurrent — it has already merged** (comm
 raised is moot; stating it as still-pending would be exactly the present-tense-about-unbuilt-work
 error this project has been repeatedly burned by (§11).
 
-What actually happened: 90 of 93 original Wasm `REF:` citations were re-pointed from the four
-self-authored summary files onto the real, previously-uncited W3C spec chapters sitting one
-directory over — moving the genuine-citation ratio from 3/93 to 80/93 (now 99, per §6.1, as
-unrelated work has added further genuine citations since). `binary.md` and `execution.md` had zero
-citations left afterward and **were already deleted**. `structure.md` and `text.md` were **not**
-deleted — each still carries a handful of citations for declarations that are genuinely
-project-internal (differential-fuzzing harness plumbing in `structure.md`; a non-spec-mandated
-pretty-printing convention in `text.md`) with no W3C counterpart to cite, and were reduced to a
-single honestly-labeled stub stating plainly that they are not vendored specification text, rather
-than inventing a spec correspondence that does not exist. These are exactly the 13 remaining
-blocked Wasm citations in §6.1's table, across `Gasm/Targets/Wasm/{HostOracle,SemanticsFuzzer,
-Text}.lean`.
+The intermediate state was: 90 of 93 original Wasm `REF:` citations were re-pointed from the four
+self-authored summary files onto genuine W3C spec chapters, moving the genuine-citation ratio from
+3/93 to 80/93. `binary.md` and `execution.md` then had zero citations and were deleted.
+`structure.md` and `text.md` still carried 13 project-authored harness/pretty-printing citations;
+that is the blocked intermediate count preserved in §6.1, not the current state.
 
-This migration's script runs over the 99 genuine Wasm citations exactly like any other
-mechanically-migratable corpus (§6.3's `windows/` genuine citations are the closest analog — a
-recorded `source_url`, direct registration, §2.1's conversion-then-slugify path unchanged). It does
-**not** touch `structure.md`/`text.md`'s remaining 13 citations, for the same reason stated in §10:
-a hand-authored file with no recorded source URL cannot become a `references.json` entry at all,
-so "migrating" such a citation would mean silently pointing it at a slug for content that will not
-exist once `references/` is deleted. Those 13 are correctly left as blocked pending §10's
-disposition, not mechanically migrated under an assumption the data no longer supports.
+The final migration moved project-owned explanations into ordinary first-party documentation and
+grounded specification claims in the registered W3C `wasm-*` sources. The two stubs and all other
+content under `references/` are now gone; §10 records the completed disposition.
 
 ### 6.5 Avoiding a flag day
 
@@ -748,8 +732,7 @@ the `<slug>#<anchor>` shape is recognized, permanently.
 `git filter-repo` or BFG, purging `references/intel_sdm/`, `references/vulkan/`, and the
 non-redistributable `references/spirv/` paths from every historical commit while preserving the
 rest of the repository's commit-by-commit history. **The owner has since ruled the repository will
-instead be FLATTENED: git history is dropped entirely, not surgically rewritten** (`PLAN.md` D23,
-which supersedes D22's surgical-rewrite decision). This makes the entire scrub apparatus this
+instead be FLATTENED: git history is dropped entirely, not surgically rewritten**. This makes the entire scrub apparatus this
 section previously specified moot — there is no path-glob surgery to design, no tool choice
 between `filter-repo` and BFG to make, and no question of purging specific corpora from historical
 commits, because **no historical commits survive at all**. Only the final working tree, as a
@@ -761,10 +744,10 @@ with no separate purge step required for any of it. But it is **more dangerous**
 easy to underweight: **every defect present in the tree at flatten time becomes permanent public
 record**, and — the specific hazard this section now exists to manage — **anything recorded only
 in a commit message is destroyed**. Commit messages stop being a durable record the moment the
-flatten happens. `PLAN.md`, `docs/adr/`, and `docs/tasks/` are the sole surviving decision history
-after that point; anything load-bearing that lives only in prose written into a `git commit -m`
-body must be copied into one of those before the flatten, or it is gone as completely as if it had
-never been written.
+flatten happens. `docs/DECISIONS.md`, `docs/ROADMAP.md`, `docs/TECHNICAL_NOTES.md`, and canonical
+subsystem documents are the surviving decision history after that point; anything load-bearing
+that lives only in prose written into a `git commit -m` body must be copied into one of those
+before the flatten, or it is gone as completely as if it had never been written.
 
 **What this design found living only in commit messages, concretely — not hypothetically.**
 Auditing this document's own base-commit lineage for exactly this risk turned up two real
@@ -787,12 +770,12 @@ instances, neither yet recorded in any tracked file:
 Neither example is fixed by this document alone (the manifest-merge hazard in particular wants a
 mechanical gate, not a paragraph, per Law 13 — flagged separately, see the accompanying commit for
 this change). The general practice this finding argues for is a **pre-flatten checklist**, not a
-one-time audit: `docs/PRE_FLATTEN_CHECKLIST.md` (named in `PLAN.md` D23, not yet authored) should
-include, at minimum:
+one-time audit: the pre-flatten checklist in this section should include, at minimum:
 
 1. **Commit-message-only content audit.** Walk commit messages since the last such audit for
-   load-bearing findings, hazards, or numeric results not duplicated into `PLAN.md`/`docs/adr/`
-   /`docs/tasks/`, and transcribe anything load-bearing into the tree before the flatten. The two
+   load-bearing findings, hazards, or numeric results not duplicated into current decision,
+   roadmap, technical-note, or subsystem documents, and transcribe anything load-bearing into
+   the tree before the flatten. The two
    instances above are worked examples of what this step looks for.
 2. **Secrets.** No credential, API key, or token appears in any tracked file at flatten time (the
    flatten is not a filter step — a secret present in the final tree is published exactly as
@@ -856,7 +839,7 @@ functions; it re-implements the same jobs more minimally** (`fetch_bytes` is a p
 bytes and only `derive_headings`'s later `.read_text(..., errors="replace")` decodes; heading
 extraction is `strip_html_tags_for_headings`, a single regex pass over `<h1>`–`<h6>` tags, not
 the fuller `html_to_clean_markdown`/`sphinx_html_to_markdown`/`convert_html_tables` pipeline).
-This was verified sufficient for the wasm migration (`PLAN.md`): 99/99 citations' anchors
+This was verified sufficient for the wasm migration: 99/99 citations' anchors
 resolved correctly against real fetched HTML using exactly this simpler path. The paragraph
 below describes this section's original design intent, kept for its rationale, not as a
 description of what shipped:
@@ -885,12 +868,12 @@ harmlessly inert is not incorrect).
 
 ---
 
-## 8. Proposed Law 4 and Law 6 amendment text
+## 8. Ratified Law 4 and Law 6 amendment text
 
-**Marked PROPOSED. The owner ratifies laws; this document only drafts text for that ratification,
-and does not itself edit `docs/REVIEW.md`.**
+**Status: ratified and landed in `docs/REVIEW.md`.** The blocks below preserve the amendment text
+that this design supplied; `docs/REVIEW.md` is the current law book.
 
-### 8.1 Law 4 (PROPOSED amendment)
+### 8.1 Law 4 (ratified amendment)
 
 Current text binds "vendored directly into the repository" as the *only* way to satisfy citing
 genuine ground truth. This design deliberately stops vendoring **any** third-party documentation
@@ -907,7 +890,7 @@ tree that housed them is emptied. Registration in `references.json` is the **sol
 satisfying this law, for every corpus, regardless of what its license would have permitted; nothing
 below leaves that door open.
 
-> ### Law 4: External Reference Ingestion Law (No Self-Authored Standards) — PROPOSED AMENDMENT
+> ### Law 4: External Reference Ingestion Law (No Self-Authored Standards) — RATIFIED AMENDMENT
 > **Every formal model MUST cite genuine, authoritative upstream ground truth — never a
 > self-authored approximation. The authoritative source MUST be registered in `references.json` by
 > stable slug, canonical URL, and content hash (`docs/REFERENCE_INDEX.md`), and cited by slug —
@@ -925,7 +908,7 @@ below leaves that door open.
 >   whose target is this project's own prose about someone else's specification, or a copy of the
 >   upstream's own prose committed into this repository.
 
-### 8.2 Law 6 (PROPOSED amendment)
+### 8.2 Law 6 (ratified amendment)
 
 Current text binds reproducibility of `references/` specifically, via
 `scripts/regenerate_references.py --verify`, and is explicit about what that tool does and does
@@ -945,7 +928,7 @@ does not actually make that has caused trouble in this project before (§11). Th
 therefore **kept**, and the live-upstream claim is stated as conditional on `--refresh` actually
 running, not as an ambient property of the system.
 
-> ### Law 6: Reference Reproducibility & Verifiable Provenance Mandate — PROPOSED AMENDMENT
+> ### Law 6: Reference Reproducibility & Verifiable Provenance Mandate — RATIFIED AMENDMENT
 > **Every external document cited anywhere in the repository — registered in `references.json`,
 > never vendored (§8.1) — MUST carry machine-checkable provenance: a recorded canonical URL, a
 > SHA-256 of its exact fetched content, a fetch date, and a declared license/distribution status.
@@ -976,12 +959,10 @@ running, not as an ambient property of the system.
 >   today was independently fetched and hash-verified at registration time (see each entry's
 >   `review_note`).
 
-### 8.3 Two more ratified obligations this deletion silently invalidates
+### 8.3 Two more ratified obligations affected by the deletion
 
-Laws 4 and 6 are the two obligations this design set out to amend, but deleting `references/`
-falsifies two more ratified statements that neither amendment above touches. Both need the same
-PROPOSED-amendment treatment when this document is ratified, and are named here so they are not
-missed a second time:
+Laws 4 and 6 were the two obligations this design set out to amend, but deleting `references/`
+also affected two other statements. Their landed dispositions are recorded here:
 
 - **`docs/REVIEW.md` §4.1 Pillar 1, item 3 — fixed 2026-08-27.** Re-pointed at
   `python scripts/check_references.py --offline` (plus `python scripts/check_publishable.py`,
@@ -1043,53 +1024,36 @@ already claimed to measure.
 
 ---
 
-## 10. The four remaining hand-authored files cannot be indexed, by design
+## 10. Historical disposition of the hand-authored reference files
 
-An earlier draft of this design named six hand-authored files as this section's subject. Two of
-them — `references/wasm/binary.md` and `references/wasm/execution.md` — have already been fully
-re-pointed by the (now-landed, §6.4) Wasm re-pointing effort and carry **zero** citations today;
-they are deletable immediately, with no disposition decision needed, and are no longer part of
-this section's subject. What remains is **four** files, carrying the **27** blocked citations
-counted in §6.1: `references/windows/{readfile.md, winsock2.md}` (14 citations, 2 files) and
-`references/wasm/{structure.md, text.md}` (13 citations, 2 files).
+This was the migration's final integrity problem and is now resolved. Six files beneath the old
+`references/` tree were project-authored summaries, not independently fetchable upstream sources,
+so they could not honestly become `references.json` entries. The required disposition was either
+to re-ground a specification claim in a real registered source or to move genuinely
+project-authored analysis into `docs/` and label it as such.
 
-All four have **no source URL recorded anywhere** — confirmed on disk (each opens with *"Not
-fetched by this script... NOT the official [spec]... no source URL is recorded anywhere"*) and in
-`references/MANIFEST.provenance.json` today. `references.json`'s `url` field is required (§1.2);
-there is no way to register a document that does not have one.
+The final tree follows that rule:
 
-**This is the intended enforcement, not a gap to patch around.** The index correctly refuses to
-provide *any* path — indexed or otherwise — for a document nobody can point at an upstream (and,
-per §0's broadened ruling, "vendored" is no longer available as an alternative path for *any*
-document regardless of license, so this was never a live option for these four either). This
-forces the disposition `TCB.md` T8 already calls for as unresolved Law-4 backlog, for each of the
-four independently: either (a) the citations get re-grounded in real indexed material — as already
-happened for `binary.md`/`execution.md`, and as remains open for the other four — or (b) the
-prose, where the owner wants to keep it as legitimate project-authored design commentary, moves to
-`docs/` as an ordinary design document, cited honestly as "our own analysis," never presented as
-if it were indexed specification text.
+- Wasm binary, execution, syntax, and text specification claims cite the registered W3C
+  `wasm-*` slugs. Project-owned oracle-harness and formatting conventions live in
+  `docs/TARGETS/WASM_ORACLE_HARNESS.md` and other ordinary first-party target documentation.
+- The former Windows `readfile.md` material is represented by the registered
+  `windows-readfile` source where that source actually supports the claim. WinSock API contracts
+  cite the nine registered `windows-winsock2-*` function sources. Broader Win32 behavior without
+  a registered source remains an explicit source-intake gate in
+  `docs/TARGETS/WIN32_DIFFERENTIAL_HARNESS.md`, not invented ground truth.
 
-**Recommendation, not left as an open question this time**: for the remaining 27 citations across
-4 files, prefer **(b)** as the near-term unblocker, not a deliberately-failing placeholder gate and
-not blocking `references/`'s deletion on all four being re-grounded in genuine upstream material
-first. `structure.md`'s and `text.md`'s remaining citations are already, by their own stub text,
-project-internal (differential-fuzzing harness plumbing; a non-spec pretty-printing convention)
-with no W3C counterpart to cite honestly under (a) — moving them to `docs/` is not a downgrade, it
-is the accurate disposition. The Windows pair is genuinely open Law-4 backlog (real Win32 API
-ground truth research, not yet assigned to anyone) and should stay tracked as such under `TCB.md`
-T8 rather than be forced into (b) by default — but neither pair should block deleting
-`references/` and shipping the rest of this migration; open-sourcing does not need to wait on
-unassigned Win32 research (design-review question 5, below, restates this as an explicit ask).
-Either path is a correct use of Law 4; remaining in `references/` pretending to be ground truth is
-not, and after this migration there is no third option — the schema does not accommodate one.
+No hand-authored reference stub remains, no live citation targets it, and `references/` itself is
+absent. The **27 blocked citations** and four “remaining” files in §6.1 are therefore historical
+migration counts only.
 
 ---
 
 ## Design-review questions
 
-Questions 1 and 6 from an earlier draft of this document are now resolved rather than open — the
-owner's rulings settled both directly — and are recorded below as decisions with their rationale,
-not left in question form a second time. Questions 2–5 remain genuinely open.
+Questions 1, 5, and 6 from an earlier draft of this document are now resolved rather than open — the
+owner's rulings settled them directly — and are recorded below as decisions with their rationale,
+not left in question form a second time. Questions 2–4 remain genuinely open.
 
 1. ~~SDM slug granularity~~ — **resolved: one slug (`intel-sdm`), not four.** An earlier draft
    asked whether the owner wanted four volume-numbered slugs or finer per-sub-volume ones. Neither
@@ -1117,17 +1081,13 @@ not left in question form a second time. Questions 2–5 remain genuinely open.
    never an automatic substitute. Confirm that stance, or specify a controlled policy (e.g.
    "after N days of confirmed dead URL plus documented content review, `archive_url` may be
    promoted to `url`") if the owner wants a narrower automatic path.
-5. **Windows hand-authored citations (§10, 14 citations, 2 files — `readfile.md`/`winsock2.md`).**
-   The Wasm hand-authored group has already been substantially resolved (§6.4 — 90 of 93 citations
-   re-pointed, 2 of 4 files deleted outright, the remaining 2 reduced to honest stubs); the Windows
-   pair has no assigned effort yet. Should this migration spin out a dedicated follow-up task for
-   it now (mirroring the Wasm re-pointing), or leave it as unscheduled backlog alongside the rest of
-   `TCB.md` T8? Either answer is compatible with §10's recommendation that this pair not block
-   `references/`'s deletion or open-sourcing.
-6. ~~History-scrub tooling and timing~~ — **resolved: no scrub; the repository is flattened
-   instead (`PLAN.md` D23), and history is dropped entirely rather than surgically rewritten.**
-   §6.6 restates the design's sequencing around a pre-flatten checklist (`docs/
-   PRE_FLATTEN_CHECKLIST.md`) in place of the tool-choice/timing question this document previously
+5. ~~Windows hand-authored citations~~ — **resolved.** The former `readfile.md` claims were
+   re-grounded in `windows-readfile`; WinSock contracts were split across the registered
+   `windows-winsock2-*` function sources. Claims outside those sources are visibly intake-gated in
+   `docs/TARGETS/WIN32_DIFFERENTIAL_HARNESS.md`; no synthetic reference file remains (§10).
+6. ~~History-scrub tooling and timing~~ — **resolved: no scrub; the repository is flattened,
+   and history is dropped entirely rather than surgically rewritten.**
+   §6.6 restates the design's sequencing around its pre-flatten checklist in place of the tool-choice/timing question this document previously
    posed. The one part of the old question that still has real content — must the working tree be
    fully clean of `references/` *before* the flatten, or can that trail briefly under time
    pressure — is answered by §6.6 as: it must be clean first; the flatten publishes only the tree

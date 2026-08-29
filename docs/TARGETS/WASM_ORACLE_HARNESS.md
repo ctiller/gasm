@@ -44,9 +44,9 @@ harness:
 1. Generates one or more fuzzed initial machine states (operand stack, locals, memory).
 2. Runs the Lean model on that state directly (`stepWasm`).
 3. Synthesizes a minimal, standalone `.wasm` module that reproduces the same starting state and
-   instruction, and runs it on a real host engine (`references/wasm/` documents the spec that
-   engine is expected to implement; this harness does not re-derive that spec, it only exercises
-   it as a black box).
+   instruction, and runs it on a real host engine (the hash-pinned `wasm-*` sources in
+   `references.json` specify the behavior that engine is expected to implement; this harness
+   does not re-derive that specification, it only exercises the engine as a black box).
 4. Compares the two outcomes — result value(s), or a genuine trap — and reports a mismatch as a
    failure.
 
@@ -142,8 +142,8 @@ comparing one case (a leaf instruction or a structured control-flow construct, s
 distinct from `passed`: it marks the zero-vector case (no fuzzable host states, whether because
 `canFuzzWasmRuntime` excludes the instruction or state generation otherwise yielded nothing), and a
 skip means "verified nothing", not "verified and matched". A zero-vector case silently reporting
-`passed := true` would be exactly the kind of mock-verification facade `docs/REVIEW.md` Law 8 and
-Law 13 (and `TCB.md` T11-b) prohibit — see §7's vacuity handling for how this flag is kept out of
+`passed := true` would be exactly the kind of mock-verification facade `docs/REVIEW.md` Laws 8 and
+13 prohibit — see §7's vacuity handling for how this flag is kept out of
 the pass count.
 
 ---
@@ -201,7 +201,7 @@ running totals threaded through `runWasmSemanticsFuzzerSuite`. A `skipped` resul
 distinctly from both PASS and FAIL and never increments the passed count. The suite driver itself
 additionally enforces a **vacuity floor**: a run that exercises zero host-engine test vectors across
 every candidate case — whatever the reason — hard-fails rather than printing a clean summary, per
-`docs/REVIEW.md` Law 13 ("Findings Become Gates") and `TCB.md` T11-b. Verifying nothing must never
+`docs/REVIEW.md` Law 13 ("Findings Become Gates"). Verifying nothing must never
 read as a passing run.
 
 ---
@@ -211,10 +211,10 @@ read as a passing run.
 `indent` (`Gasm/Targets/Wasm/Text.lean`) pads a line with `level * 2` spaces — two spaces per
 nesting level — when pretty-printing an instruction tree into WebAssembly Text format. This is a
 convention this project chose for human-readable output; it is not required, or even mentioned, by
-the WebAssembly text-format grammar. The genuine spec grammar (vendored under
-`references/wasm/text/{values,types,instructions,modules}.md`) treats whitespace uniformly as a
-token separator between S-expression atoms and does not prescribe any particular indentation
-scheme — a WAT module with different, or no, indentation is exactly as valid. Every other formatter
+the WebAssembly text-format grammar. The registered W3C sources `wasm-text-values`,
+`wasm-text-types`, and `wasm-text-instructions` treat whitespace uniformly as a token separator
+between S-expression atoms and do not prescribe any particular indentation scheme — a WAT module
+with different, or no, indentation is exactly as valid. Every other formatter
 in `Text.lean` (`formatValType`, `formatBlockType`, `formatInstr`, `formatInstrList`,
 `formatWatDataString`) cites the genuine W3C text-format chapters directly, because the *tokens*
 they emit (`i32`, `block`, `local.get`, string escape sequences, …) are spec-mandated; `indent`
@@ -227,7 +227,7 @@ alone is cited here because the *whitespace* it emits is not.
 Before this fix cycle, `Semantics.lean`'s `writeMem8` silently zero-padded and grew linear memory
 on an out-of-bounds write instead of trapping, `readMem8` returned `0` instead of trapping, and
 `memory_grow` never consulted `Limits.max` (`Types.lean`) or ever returned the `-1` failure
-sentinel the spec requires. `MODEL_DEBT.md` B7/B8 additionally noted this was structurally
+sentinel the spec requires. `docs/TECHNICAL_NOTES.md` §2 additionally records that this was structurally
 invisible to this very harness: every memory-instruction fuzz state (`Fuzzable.lean`) generated
 addresses only from a small statically in-bounds set (offsets 16/64 into a full 65536-byte page),
 so the differential fuzzer could never have caught either bug even though it would have diverged

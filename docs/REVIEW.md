@@ -9,7 +9,7 @@ This document establishes the **Citation Laws**, **Repository Invariants**, and 
 Every top-level Lean 4 item (including `inductive`, `structure`, `def`, `class`, `instance`, `theorem`, `lemma`, and `axiom`) **MUST** have one or more `/- REF: ... -/` annotations attached directly above the declaration:
 
 ```lean
-/- REF: docs/API_STATE_MODELS.md#1-the-composed-state-model--zero-cost-proof-erasure -/
+/- REF: docs/API_STATE_MODELS.md#1-the-composed-state-model-zero-cost-proof-erasure -/
 structure ComposedState (Arch : Type) (ApiStateType : Type) where
   machine     : MachineState Arch
   stackDepth  : Nat
@@ -24,8 +24,8 @@ structure ComposedState (Arch : Type) (ApiStateType : Type) where
 - **Section Anchor**: Standard github markdown heading anchor (e.g. `#1-the-composed-state-model--zero-cost-proof-erasure` or `#2-multi-abi-calling-conventions--stack-restoration-laws`).
 - **Multiple References**: When a Lean item synthesizes multiple specification concepts, multiple `/- REF: ... -/` annotations are placed in sequence:
   ```lean
-  /- REF: docs/STACK_DISCIPLINE.md#2-multi-abi-calling-conventions--stack-restoration-laws -/
-  /- REF: docs/EQUIVALENCE_PROOFS.md#42-theorem-2-callability--abi-preservation-caller-consumer -/
+  /- REF: docs/STACK_DISCIPLINE.md#2-multi-abi-calling-conventions-stack-restoration-laws -/
+  /- REF: docs/EQUIVALENCE_PROOFS.md#42-theorem-2-callability-abi-preservation-caller-consumer -/
   theorem memcpy_callability [abi : AbiDiscipline Arch ABI] : ...
   ```
 
@@ -51,14 +51,16 @@ structure ComposedState (Arch : Type) (ApiStateType : Type) where
 > **All markdown sections that have not yet been referenced represent the *Unimplemented System Backlog*, which MUST be automatically tracked by tooling.**
 
 - The repository provides two independent, automated verification tools -- see §4.1.2 for why declaration coverage was split out of `scripts/check_refs.py` into its own compiled-environment-driven tool rather than staying a second job for the same regex-based script:
-  1. `scripts/check_refs.py` parses all markdown files in `docs/` and `references/` and indexes all section headings; parses all `.lean` files and indexes all `/- REF: ... -/` citations via a plain regex scan (no declaration parsing at all); validates that every `REF:` target points to a valid existing section or registry entry (failing CI on broken references, Law 3 item 3 below); and computes and reports the list of **Unreferenced Markdown Sections** (the remaining implementation backlog, Law 3 item 4 below).
+  1. `scripts/check_refs.py` parses all markdown files in `docs/` and `references/` and indexes all section headings; parses all `.lean` files and indexes all `/- REF: ... -/` citations via a plain regex scan (no declaration parsing at all); scans tracked first-party text for explicit `docs/<file>.md#<anchor>` cross-links; validates that every formal `REF:` target and every explicit internal cross-link points to a valid existing section or registry entry (failing CI on broken references, Law 3 item 3 below); and computes and reports the list of **Unreferenced Markdown Sections** (the remaining implementation backlog, Law 3 item 4 below). Documentation cross-links are validity-checked but do not count as formal implementation citations in that backlog metric.
   2. `lake exe check_refs_coverage` (`Tools/CheckRefsCoverage.lean`) detects any Lean declaration lacking a `REF:` annotation (failing CI on un-cited code, Law 1) by walking the COMPILED ENVIRONMENT rather than source text, so no declaration syntax form can hide from it.
 
 ### Law 4: External Reference Ingestion Law (No Self-Authored Standards)
-> **Official reference documentation (e.g. Intel/AMD ISA manuals, Microsoft PE/COFF specification, Windows Win32 API contracts) must be brought into the repository directly as authoritative sources.**
+> **Official reference documentation (e.g. Intel/AMD ISA manuals, Microsoft PE/COFF specification, Windows Win32 API contracts) must be registered as authoritative, hash-pinned, independently refetchable sources.**
 
 - We do NOT author or synthesize ad-hoc approximations of hardware manuals or external OS specifications; that is a massive cheat.
-- Authentic, authoritative reference texts must be imported/vendored directly into the repository so that formal models cite genuine ground truth.
+- Authentic, authoritative sources must be registered in `references.json` so formal models cite
+  genuine ground truth. Third-party prose is fetched into the gitignored reference cache for
+  verification; it is not vendored in the publishable tree (Law 6).
 
 ### Law 5: The Stop-and-Design Invariant
 > **Whenever a spike or implementation task demands any concept, instruction, ABI rule, binary header, or API contract that is not yet fully designed in the repository, implementation MUST STOP immediately.**
@@ -70,7 +72,12 @@ structure ComposedState (Arch : Type) (ApiStateType : Type) where
 
 - **This law's mechanism changed on 2026-08-27** under the references-deletion ruling: the vendored `references/` corpus tree, `references/MANIFEST.{provenance.json,sha256}`, and `scripts/regenerate_references.py` (the script that generated and verified that tree, and the entire "snapshot-reproducibility" model described in this law's older revisions) are **deleted**. The owner's ruling was unconditional -- zero third-party prose in the tree at publish, independent of redistributability -- so this is not a narrowing of Law 6's old exception list, it is a different mechanism entirely: no corpus is vendored at all any more.
 - **Current mechanism:** every citable external source is one entry in `references.json` (repo root) -- `slug`, `url`, `sha256` of the exact bytes last fetched, `license`, `distribution`, `anchor_mode`, and a reviewer/review_note trail. A Lean `REF: <slug>#<anchor>` citation (docs/REFERENCE_INDEX.md) is checked by `python scripts/check_references.py --offline`: the slug must be registered, its `.cache/references/<slug>.<ext>` cache file's *freshly recomputed* SHA-256 must match the recorded pin (never a stored-number-to-stored-number comparison), and the anchor must resolve under its `anchor_mode` grammar against that cached content. `--refresh` (network) re-fetches a target's `url`, recomputes SHA-256, and either promotes the fetch into the cache (match) or hard-stops reporting drift (mismatch) -- a hash is never silently rewritten; only `--acknowledge-drift --reviewer ... --review-note ...` can re-pin, and it leaves an attributed trail.
-- **Known operational gap, not silently dropped (`docs/CI.md` #7):** `--offline`'s cache is local and gitignored (`.cache/references/`, never committed); no CI step currently runs `--refresh` to populate it, so `--offline` fails on a cold cache in a fresh checkout today. Closing this needs the scheduled-refresh + staleness-bound design `docs/CI.md` #7 describes, which is designed but not yet implemented. This is a gap in *keeping the gate green automatically*, not in the registry's own integrity model: every entry in `references.json` today was independently fetched and hash-verified at registration time (see each entry's `review_note`).
+- **CI cadence:** `--offline` is the strict local/cache-primed audit. A fresh checkout cannot run
+  it because `.cache/references/` is deliberately gitignored. CI runs structural citation and
+  publishability checks on every push and runs the weekly network audit as
+  `check_references.py --refresh --all`. The remaining gap is that per-push CI does not consume
+  a durable “last successful refresh” timestamp or enforce a staleness deadline
+  (`docs/CI.md` §7).
 
 ### Law 7: Target Separation & Equivalence Proof Purity (The Authoring Ergonomics Mandate)
 > **The primary objective of `gasm` is that it MUST be clean and effortless to author the core trio: `Spec.lean`, `Program.lean`, and `Equivalence.lean`. Architects and contributors must actively work to minimize distractions and boilerplate in that trio by aggressively relocating infrastructure responsibilities into `Gasm` itself.**
@@ -119,7 +126,7 @@ This Law orders proof mechanisms by trust cost, not by convenience. Four rungs:
 - **Single-instance ground checks are regression tests, not verification**: they MUST carry the `*_inst` suffix (Law 8), MUST live in designated test/regression modules rather than on `Spec.lean`/`Equivalence.lean` proof surfaces, and MUST NOT be cited — in names, docs, or review artifacts — as evidence that anything is verified. This applies uniformly across rungs 2–4.
 - **Infinite-domain claims require structural proof**: ∀ over `ByteArray`, `Nat`, or arbitrary machine states is discharged only by kernel-checked structural proof (rung 1: induction, simulation arguments, composition of routine contracts per [`docs/VISION.md`](VISION.md#4-tractability-modular-contracts-composed-proofs)). No compiled evaluator, bit-blasted or otherwise, reaches an infinite domain honestly.
 - **Rungs 3 and 4 require an honest allowlist entry; rung 2 does not**: any `native_decide` or `bv_decide` occurrence must carry a matching `scripts/gate_allowlist.txt` entry under an honest category (`finite-forall`, `grandfathered`, or `axiom-only` — see §4.1.1); a bare `decide` introduces no axiom, so the load-bearing gate (`lake exe check_gates_axioms`, which walks kernel-recorded axiom dependencies) has nothing to catch there. `scripts/gate_allowlist.txt`'s four PA1 `bv_decide` entries in `Stdlib/Zlib/CRC32Equivalence.lean` (`and_one_cases`, `G_eq_Gbf`, `xor_byte_shr8`, `G8bf_table`) remain categorized `finite-forall`: each is an ordinary theorem universally quantified, via typed parameters, over a complete finite bitvector domain, reviewed on the same grounds as any other exhaustive `decide`/`native_decide` proof, not on a `bv_decide`-specific exception.
-- **Solver-version disclosure (T14)**: `bv_decide` resolves an external CaDiCaL-compatible SAT solver — `cadical.exe` from the toolchain's own `bin/` directory when present, pinned by `lean-toolchain` the same way `lean.exe`/`lake.exe` are, or a bare `cadical` on `PATH` otherwise, which is unpinned by construction — to search for the LRAT certificate that rung 4's native-eval step then trusts. `scripts/run_gates.py`'s `detect_cadical()` records which of the two was actually resolved, and its version string, in the same oracle-version table TCB T9 already maintains for `node`/`nasm`/`python`.
+- **Solver-version disclosure**: `bv_decide` resolves an external CaDiCaL-compatible SAT solver — `cadical.exe` from the toolchain's own `bin/` directory when present, pinned by `lean-toolchain` the same way `lean.exe`/`lake.exe` are, or a bare `cadical` on `PATH` otherwise, which is unpinned by construction — to search for the LRAT certificate that rung 4's native-eval step then trusts. `scripts/run_gates.py`'s `detect_cadical()` records which of the two was actually resolved, and its version string, in the same oracle-version table used for `node`/`nasm`/`python`.
 - **Tooling obligation (backlog)**: the CI linter must enumerate every `native_decide`/`bv_decide` occurrence and verify it is either in a designated regression module or attached to an exhaustive finite-∀ proposition.
 
 **Status**: ratified 2026-08-27 and consolidated in `docs/DECISIONS.md`. This supersedes the `bv_decide` wording previously marked `**Status**: proposed` in this section. Rung 4 is admitted as a waypoint, not a destination: the owner's target of no axioms, strong verification, and checked models makes every allowlist entry at rungs 3–4 recorded debt against an eventual zero, not a compliant resting place.
@@ -178,18 +185,18 @@ Real-world verified software rarely maps 1-to-1 between documentation sections a
 ```
 Markdown Specification Sections               Lean 4 Formal Declarations
 +-----------------------------+               +----------------------------+
-| docs/API_STATE_MODELS.md#1  | <-----------> | ComposedState              |
+| docs/API_STATE_MODELS.md#1-the-composed-state-model-zero-cost-proof-erasure | <-----------> | ComposedState              |
 +-----------------------------+       \       +----------------------------+
-| docs/STACK_DISCIPLINE.md#2  | <---+  \----> | PermissionShare            |
+| docs/STACK_DISCIPLINE.md#2-multi-abi-calling-conventions-stack-restoration-laws | <---+  \----> | PermissionShare            |
 +-----------------------------+     |         +----------------------------+
-| docs/EQUIVALENCE_PROOFS.md#4| <---|-------> | AbiDiscipline              |
+| docs/EQUIVALENCE_PROOFS.md#4-the-three-independent-split-theorems | <---|-------> | AbiDiscipline              |
 +-----------------------------+     \         +----------------------------+
                                      \------> | memcpy_callability         |
                                               +----------------------------+
 ```
 
 1. **One Section $\to$ Many Lean Items ($1 \to N$)**:
-   - Implementing a section like `docs/API_STATE_MODELS.md#4-basicblock-structure--target-parametric-terminators` naturally requires defining `TargetArch`, `BasicBlock`, `CpuTerminator`, and individual constructor soundness lemmas.
+   - Implementing a section like `docs/API_STATE_MODELS.md#4-basicblock-structure-target-parametric-terminators` naturally requires defining `TargetArch`, `BasicBlock`, `CpuTerminator`, and individual constructor soundness lemmas.
 2. **Many Sections $\to$ One Lean Item ($M \to 1$)**:
    - A top-level equivalence theorem like `memcpy_callability` combines stack frame restoration (`STACK_DISCIPLINE.md`), ABI register preservation (`TARGETS/X86_64.md`), and simulation relations (`EQUIVALENCE_PROOFS.md`). It carries `REF:` notes to all relevant sections.
 
@@ -201,21 +208,35 @@ A pull request or codebase component is evaluated through a strict synthesis of 
 
 **North star**: the one question review can never delegate is *are we proving the right theorems?* (Pillar 2 — spec-to-theorem fidelity and domain-gap hunting). Pillars 1 and 3 exist to be progressively absorbed into mechanical gates (Law 13); any Pillar-1/3 finding a reviewer makes by hand is simultaneously a defect report and a missing-gate report.
 
-### 4.1 Pillar 1: Mechanical Truth (Automated CI Gates)
-The Lean 4 compiler provides the absolute baseline of logic. If any of the following fail, the PR is instantly rejected:
-1. **Type & Proof Integrity:** `lake build` must pass with zero `sorry` and zero un-authorized axioms.
-   - *Liveness:* Verified routines must provide existential liveness (`progressProof`) preventing instant-termination vacuity. **Status**: no contract in the tree today defines or requires a `progressProof` obligation -- `progressProof` does not exist anywhere in `Gasm`/`Stdlib`/`Spikes`, and no `VerifiedProgram`/`VerifiedRoutine` field carries an existential liveness proof. This is untracked backlog, not yet assigned a task ID (found by `scripts/check_doc_facade.py`, TC21, while validating that linter against this document); it is the standard new whole-program contracts are reviewed against, not a description of current enforcement.
+### 4.1 Pillar 1: Mechanical Truth (Automated Gates)
+
+The Lean 4 compiler provides the absolute baseline of logic. This is the merge-policy inventory,
+implemented by the unfiltered local runner. Hosted CI composes platform-specific subsets and is
+equivalent only when their aggregate rows cover this inventory; current exceptions are disclosed
+in `docs/CI.md` §7. If any required gate fails, the PR is instantly rejected:
+1. **Type & Proof Integrity:** `lake build` must pass. Zero `sorry` and zero unauthorized axioms
+   are enforced by item 4's executed `check_gates_axioms` audit; `lake build` alone only compiles
+   the configured `defaultTargets` and does not turn every warning into an error.
+   - *Liveness:* Verified routines must provide existential liveness (`progressProof`) preventing instant-termination vacuity. **Status**: no contract in the tree today defines or requires a `progressProof` obligation -- `progressProof` does not exist anywhere in `Gasm`/`Stdlib`/`Spikes`, and no `VerifiedProgram`/`VerifiedRoutine` field carries an existential liveness proof. This is untracked backlog found while validating `scripts/check_doc_facade.py` against this document; it is the standard new whole-program contracts are reviewed against, not a description of current enforcement.
    - *Trace Isomorphism:* Open extensible events (`Inject DomainEvent GlobalEvent`) must be identical between specification and machine traces (`specTrace == machTrace`).
    - *Code Generation Gating:* Binaries can only be produced via `emitVerifiedExecutable` consuming a proved `VerifiedProgram`.
-2. **Traceability Indexing:** `python scripts/check_refs.py` must return exit code 0, AND `lake exe check_refs_coverage` -- **run from the repository root, after a build; building it is not running it, the same distinction item 4 draws for `check_gates_axioms`** -- must also return exit 0. Together these give: every `REF:` citation whose target is a `docs/` path gets full anchor-existence validation against that file's real on-disk headings, zero exceptions (`check_refs.py`); every `REF:` citation whose target is a `references.json` slug is validated for slug EXISTENCE by `check_refs.py`, with full anchor-level correctness delegated to item 3's `check_references.py --offline` (Law 6); and every reportable Lean declaration -- enumerated from the COMPILED ENVIRONMENT, so no declaration syntax form can be invisible to it -- has at least one preceding `REF:` citation, either directly or via an honest `scripts/ref_allowlist.txt` entry (`check_refs_coverage`). See §4.1.2 for why declaration coverage and citation validity are two independent tools rather than one script doing both jobs, and for the concrete history of why "100% citation validity, zero un-cited declarations" was previously an inflated claim: a regex-based single-script design could not see roughly a tenth of the codebase's own declarations (every anonymous `instance`, every `abbrev`, the one `initialize`) and silently dropped whatever citation preceded them along with it.
-3. **Reference Integrity:** `python scripts/check_references.py --offline` must pass (registered slug, cache-hash-verified, anchor-resolved -- see Law 6). `python scripts/check_publishable.py` must also pass (zero third-party prose in the tree, zero dangling citations into the deleted `references/` tree, zero machine-specific paths).
+2. **Traceability Indexing:** `python scripts/check_refs.py` must return exit code 0, AND `lake exe check_refs_coverage` -- **run from the repository root, after a build; building it is not running it, the same distinction item 4 draws for `check_gates_axioms`** -- must also return exit 0. Together these give: every `REF:` citation whose target is a `docs/` path and every explicit internal `docs/<file>.md#<anchor>` cross-link gets full anchor-existence validation against that file's real on-disk headings, zero exceptions (`check_refs.py`); every `REF:` citation whose target is a `references.json` slug is validated for slug EXISTENCE by `check_refs.py`, with byte-hash and anchor correctness delegated to item 3's scheduled `--refresh --all` or cache-primed local `--offline` audit (Law 6); and every reportable Lean declaration -- enumerated from the COMPILED ENVIRONMENT, so no declaration syntax form can be invisible to it -- has at least one preceding `REF:` citation, either directly or via an honest `scripts/ref_allowlist.txt` entry (`check_refs_coverage`). See §4.1.2 for why declaration coverage and citation validity are two independent tools rather than one script doing both jobs, and for the concrete history of why "100% citation validity, zero un-cited declarations" was previously an inflated claim: a regex-based single-script design could not see roughly a tenth of the codebase's own declarations (every anonymous `instance`, every `abbrev`, the one `initialize`) and silently dropped whatever citation preceded them along with it.
+3. **Reference Integrity:** `python scripts/check_publishable.py` must pass on every push (zero
+   third-party prose in the tree, zero dangling citations into the deleted `references/` tree,
+   zero machine-specific paths). The weekly scheduled workflow's
+   `python scripts/check_references.py --refresh --all` must also pass (registered slug,
+   hash-verified fetch, anchor-resolved -- see Law 6). A local full audit with a populated cache
+   runs `python scripts/check_references.py --offline` and must pass; a cold checkout is not
+   evidence that the registry is broken.
 4. **Gate Policy Compliance (Law 10):** `python scripts/check_gates.py` (fast source-level
    pre-check) and `lake exe check_gates_axioms` — run from the repository root; building the
    executable is not running it — must both exit 0. The Lean tool is load-bearing: it reads
    kernel-recorded axiom dependencies for the derived project-module closure and rejects native
-   evaluation axioms, `sorryAx`, and hand-declared axioms unless honestly allowlisted. The current
-   closure/audit blind spot remains recorded in `docs/TECHNICAL_NOTES.md` §1. See §4.1.1 for the
-   tooling specification; connection-theorem coverage remains backlog.
+   evaluation axioms, `sorryAx`, and hand-declared axioms unless honestly allowlisted. The former
+   umbrella-import closure blind spot is closed: the tool enumerates tracked modules reachable
+   from every declared Lake root and standalone-scans modules outside its baseline imports (see
+   `docs/TECHNICAL_NOTES.md` §1). See §4.1.1 for the tooling specification. Mechanical
+   connection-theorem coverage remains backlog.
 5. **Apache-2.0 Header Compliance:** `python scripts/check_licenses.py` must return exit code 0. Every first-party file (`Gasm/**/*.lean`, `Stdlib/**/*.lean`, `Spikes/**/*.lean`, `Tools/**/*.lean`, root `*.lean`, `scripts/*.py`, `scripts/*.ps1`, `scripts/*.sh`, `lakefile.toml`, `.github/**/*.yml`, `.github/**/*.yaml`, `.github/CODEOWNERS` — the last three added when CI was established, see `docs/CI.md`) must carry the standard Apache-2.0 short-form header in its type's comment syntax; `references/` (third-party vendored material) is explicitly and visibly excluded, and the excluded count is reported on every run. Genuine exceptions require a justified entry in `scripts/license_allowlist.txt` (5 `::`-delimited fields, same shape as `scripts/gate_allowlist.txt`); stale or unjustified entries are a hard failure, same as a missing header.
 6. **Retired decision-record gate — not a current gate:** the former `PLAN`/per-ADR/per-task
    record and its checker were removed during documentation consolidation. Durable architectural
@@ -241,21 +262,36 @@ This subsection specifies what the two Law 10 gate tools implement, so that Pill
   neither the baseline environment nor a standalone import is a hard failure. Orphan modules are
   reported separately by `scripts/check_orphan_modules.py`.
 - **Why the axiom tool keys on fully-qualified name, not bare name**: the Python pre-check can only see unqualified source text, so it keys on `(file, decl)`. The axiom tool sees the compiled environment and keys on `fqn` instead, because a bare-name key is exploitable — `namespace Foo.Bar; theorem crc32_empty : ... := by native_decide` would collide with an unrelated, already-allowlisted `crc32_empty` and pass for free. FQN-keying is what closes that collision.
-- **The two-tool split**: `scripts/check_gates.py` is a fast, milliseconds-scale, line-regex pre-check over `.lean` source text — defense-in-depth, not the gate, because it can only recognize tactic spellings it already knows and cannot see what the compiled kernel environment actually recorded. `lake exe check_gates_axioms` (`Tools/CheckGatesAxioms.lean`) is the load-bearing gate: it imports the project and asks Lean's own axiom-dependency machinery (`Lean.collectAxioms`) which axioms each declaration depends on, which is immune to source-level disguise because it reads what the kernel recorded rather than what the source text says. Neither tool's coverage alone is authoritative; today the two tools' union is what is actually checked (see TC15 for closing that gap for the axiom tool specifically).
+- **The two-tool split**: `scripts/check_gates.py` is a fast, milliseconds-scale, line-regex pre-check over `.lean` source text — defense-in-depth, not the gate, because it can only recognize tactic spellings it already knows and cannot see what the compiled kernel environment actually recorded. `lake exe check_gates_axioms` (`Tools/CheckGatesAxioms.lean`) is the load-bearing gate: it imports the project and asks Lean's own axiom-dependency machinery (`Lean.collectAxioms`) which axioms each declaration depends on, which is immune to source-level disguise because it reads what the kernel recorded rather than what the source text says. Neither tool's coverage alone is authoritative; today the two tools' union is checked, with the axiom tool's tracked-root enumeration and standalone module scans closing its former import-closure gap.
 7. **Doc-Facade Linter:** `python scripts/check_doc_facade.py` must return exit code 0. It rejects
    normative present-tense mechanism claims with no matching Lean declaration, missing or unwired
    gates, and displayed theorem/lemma names absent from the tree. Honest file/section-level
    design-status markers exempt proposals, and justified exceptional examples live in
    `scripts/doc_facade_allowlist.txt`. The script's module docstring owns the exact rules.
-8. **Differential Fuzzers (PR-scoped):** `lake exe test_roundtrip`, `lake exe x86_fuzzer` (hardware oracle), `lake exe encoding_fuzzer` (NASM oracle), `lake exe wasm_fuzzer` (node oracle), and `lake exe gzip_fuzzer` (python stdlib oracle) must all exit 0.
-9. **Spike/Stdlib CLI test suites:** the spike and stdlib `test_*` executables that `defaultTargets` builds — `lake build` compiling them is not the same as running them (the same distinction item 4 draws for `check_gates_axioms`) — must also be invoked and must exit 0. See `scripts/run_gates.py`'s gate table for the current list.
-10. **x86-64 Instruction Obligation Gate:** `lake exe check_x86_obligations` — run from the
+8. **Orphan Module Gate:** `python scripts/check_orphan_modules.py` must return exit code 0.
+   Every tracked project module must be reachable from a Lake root; a file outside every build
+   closure is not checked merely because it exists in the repository.
+9. **Roundtrip and Fuzzer Gates:** `lake exe test_roundtrip` must exit 0. The unfiltered local
+   runner's `fuzzers` group — currently `perf_fuzzer`, `x86_fuzzer`, `encoding_fuzzer`,
+   `wasm_fuzzer`, `gzip_fuzzer`, `png_stability_fuzzer`, `x86_stability_fuzzer`, and
+   `elf_stability_fuzzer` — must also pass on suitable hosts with their declared oracles. Hosted
+   PR CI selects platform-specific subsets and is not, by itself, an execution of this complete
+   group; see `docs/CI.md` §2 and §7.
+10. **Spike/Stdlib CLI Test Suites:** the spike and Stdlib gates registered in
+    `scripts/run_gates.py`'s `spikes` group must be invoked; declaring a `lean_exe` in
+    `lakefile.toml`, or compiling a library that contains its modules, is not execution. The
+    runner table is the current gate list. A modeled exit-2 "runner unavailable" outcome is an
+    explicit skip, not evidence that host execution occurred.
+11. **x86-64 Instruction Obligation Gate:** `lake exe check_x86_obligations` — run from the
     repository root — must exit 0. Mandatory `validationOracle` and `costProvenance` fields make
     omission unrepresentable; the gate checks registry-wide honesty, fuzz-vector floors, reason
     strings, and opt-out allowlisting. Calibration remains explicitly unvalidated until the
     `docs/RDTSC_HARNESS.md`/`docs/CALIBRATION_GOVERNANCE.md` path lands. See
     `docs/X86_ISA_EXPANSION_PREREQUISITES.md` and the tool's module docstring.
-11. **Instructions.lean Umbrella Completeness:** `python scripts/check_instructions_umbrella.py`
+12. **AArch64 Instruction Obligation Gate:** `lake exe check_aarch64_obligations` — run from
+    the repository root — must exit 0. It enforces the registered AArch64 instruction
+    validation-oracle and cost-provenance obligations.
+13. **Instructions.lean Umbrella Completeness:** `python scripts/check_instructions_umbrella.py`
     must return exit code 0. It diffs instruction-family declarations against the hand-maintained
     x86 umbrella in both directions and has a planted-family self-test. This prevents a family from
     being invisible to registry/environment audits merely because Lean never imported it. See
@@ -266,14 +302,25 @@ This subsection specifies what the two Law 10 gate tools implement, so that Pill
 This subsection specifies what the two Law 1/Law 3 citation tools implement, analogous to §4.1.1's specification for Law 10. It exists because `scripts/check_refs.py`'s original single-script design had a vacuous-gate defect: it detected un-cited Lean declarations (Law 1) with a regex, `LEAN_DECL_REGEX`, that REQUIRED an identifier immediately after the declaration keyword — structurally blind to an anonymous `instance : Foo X where` (no name token at all), and missing `abbrev`/`initialize` from its keyword list entirely. The consequence was worse than a missed warning: because the same script's citation-collection loop only kept a pending `REF:` comment around until it matched a recognized declaration, a `REF:` comment sitting directly above one of these invisible declarations was silently DROPPED — never validated at all, not merely unvalidated-but-flagged. At least 22 Intel `#operation` citations on anonymous `instance` declarations, plus Wasm declarations, were affected before this was found and fixed.
 
 - **The fix is two independent mechanisms, not one script doing two jobs**:
-  - **Citation validity** (does a `REF:` target resolve to a real section or registry entry) needs no Lean parsing whatsoever. `scripts/check_refs.py`'s `collect_ref_citations` scans every line of every `.lean` file for a `REF:`-shaped regex match and validates each target, full stop — it is not coupled to "the declaration that follows" in any way, so no declaration form can make a citation invisible to it.
+  - **Citation/link validity** (does a `REF:` target or explicit internal documentation cross-link resolve to a real section or registry entry) needs no Lean parsing whatsoever. `scripts/check_refs.py`'s `collect_ref_citations` scans every line of every `.lean` file for a `REF:`-shaped regex match, while `collect_inline_doc_references` scans tracked first-party text for the unambiguous `docs/<file>.md#<anchor>` shape. Both validate targets independently of declarations; documentation links do not inflate the formal implementation-coverage numerator.
   - **Declaration coverage** (does every declaration have a preceding `REF:`) is driven entirely by the COMPILED ENVIRONMENT rather than source text. `lake exe check_refs_coverage` (`Tools/CheckRefsCoverage.lean`) walks every declaration Lean's own elaborator actually produced, so no syntactic declaration form — `abbrev`, anonymous `instance`, `initialize`, or any future keyword — can hide from it the way one hid from a regex.
 - **Bridging declaration name to source position**: the environment records declaration NAMES, not source positions, while a `REF:` citation is a source-level concept (physically precedes a declaration). `Tools/CheckRefsCoverage.lean` bridges this with `Lean.findDeclarationRanges?`, confirmed empirically (against Lean toolchain v4.33.1) to return real, file-accurate positions for every directly-authored declaration in a plain (non-`module`-system) project file via an ordinary `importModules` call — no special `OLeanLevel`, no `.olean.server` artifact required. `selectionRange.pos.line` (always the declaration keyword/name's own line) is the anchor a block-comment-aware upward text scan starts from — the same scan `scripts/check_refs.py`'s citation collector always used, just triggered by a real declaration position instead of a regex match.
 - **Filtering out compiler-synthesized declarations**: the raw environment surfaces far more than a human wrote — structure field projections, `rec`/`recOn`/`casesOn`/`noConfusion`, `deriving`-clause instances, equational/injectivity byproducts. None of these are independently "invented" content Law 1 could sensibly demand a citation for. `Tools/CheckRefsCoverage.lean` excludes them via real Lean APIs (`Environment.isProjectionFn`, `Lean.isAuxRecursor`, `Lean.isNoConfusion`, `ConstantInfo` kind exclusion for `.ctorInfo`/`.recInfo`/`.quotInfo`, and "no declaration range at all") plus one general-purpose structural check: a candidate declaration whose range is wholly CONTAINED within a different candidate's range in the same module is a byproduct of the enclosing declaration (this is what catches `deriving`-generated instances specifically, confirmed empirically to always be nested inside their structure's own range) — see that file's own header comment for the full empirical basis of each exclusion.
 - **The allowlist file format** (`scripts/ref_allowlist.txt`): same 5-field `::`-delimited shape as `scripts/gate_allowlist.txt` — `file::decl::fqn::category::justification`, matched by `Tools/CheckRefsCoverage.lean` on `(module derived from file, fqn)`, same module-qualified-keying rationale as the axiom gate's allowlist (a bare fqn is not unique project-wide). Categories: `derived-scaffolding` (a declaration independently visible to the environment scan that is still mechanical scaffolding around an already-cited declaration), `internal-helper` (a small, self-evidently trivial declaration with no citable concept of its own), `grandfathered` (predates this tool's mechanical enforcement, tracked migration backlog). A malformed line, unknown category, empty `fqn`, or empty justification is a hard parse failure, same discipline as every other allowlist in this repository.
-- **Module-based scoping and the TC15-style closure fix**: identical in structure to the axiom gate's (§4.1.1) — `Tools/CheckRefsCoverage.lean` reuses the same enumeration (`Tools/GateSubprocess.lean`'s `enumerateProjectModules` — tracked files via `git ls-files`, restricted to the closure of *every* declared `lakefile.toml` target, independent of the tool's own import closure) plus the same baseline-import-then-standalone-per-module-import technique `Tools/CheckGatesAxioms.lean` uses to close the "modules outside the Gasm/Stdlib/Spikes umbrella's own import graph" gap, so declaration coverage does not inherit that blind spot either. The enumeration is genuinely shared code, not a mirrored copy: the two tools had independently drifted into the same filesystem-walk and three-umbrella-closure defects, which is exactly the Law 12 case for extracting it. `Tools/` is excluded from scope, matching `isProjectModule`'s existing Gasm/Stdlib/Spikes-only namespace scope.
+- **Module-based scoping and closure**: identical in structure to the axiom gate's (§4.1.1) — `Tools/CheckRefsCoverage.lean` reuses the same enumeration (`Tools/GateSubprocess.lean`'s `enumerateProjectModules` — tracked files via `git ls-files`, restricted to the closure of *every* declared `lakefile.toml` target, independent of the tool's own import closure) plus the same baseline-import-then-standalone-per-module-import technique `Tools/CheckGatesAxioms.lean` uses to close the "modules outside the Gasm/Stdlib/Spikes umbrella's own import graph" gap, so declaration coverage does not inherit that blind spot either. The enumeration is genuinely shared code, not a mirrored copy: the two tools had independently drifted into the same filesystem-walk and three-umbrella-closure defects, which is exactly the Law 12 case for extracting it. `Tools/` is excluded from scope, matching `isProjectModule`'s existing Gasm/Stdlib/Spikes-only namespace scope.
 
-**Standard invocation:** `python scripts/run_gates.py` is the single entry point that runs every gate above (in the fixed order documented in the script's own docstring, which is not required to match this list's item numbering), capturing each process's exit code directly (never through a pipe/tee — see the tool's own docstring for the Merge-Train-2 incident this closes). In its default (full) mode it is fail-closed on missing oracle prerequisites (NASM, node): a missing prerequisite **aborts the entire run** (distinct exit code 3) rather than silently skipping the gate that needs it, and it records every oracle's detected version (node/python/NASM banners, `lean --version` vs. the `lean-toolchain` pin) in its output. `--quick` skips the slow differential fuzzers for local iteration only, reports a distinct `PASSED_PARTIAL` status (never the same `PASSED` a full run reports) and a distinct exit code, marks every skipped gate explicitly (`SKIPPED (--quick)`, in both the table and the JSON `mode`/`gates` fields — never simply absent), and **still performs prerequisite detection for every gate in the full list, waiving only the ones it actually skipped** — it is **not sufficient evidence for merge sign-off** under any circumstance. `--clean` runs `lake clean` first (merge-train mode); `--json` emits a machine-parseable summary for CI (TC6), always including a `mode` field so `PASSED`/`0` cannot be produced by anything other than a genuine full run of every gate in this section. Gate 1 above is satisfied, at minimum, by a full-mode (`python scripts/run_gates.py`, no `--quick`) run exiting 0; item 9's spike/stdlib suite coverage is tracked for completeness in `scripts/run_gates.py`'s own gate table rather than duplicated here.
+**Standard invocation:** `python scripts/run_gates.py` is the single entry point for its
+executable gate table and captures each process's exit code directly. An **unfiltered** run means
+no `--quick`, `--group`, `--gate`, or `--shard` selection flags. Missing prerequisites required
+by the selected gates abort before execution with exit code 3, and the runner records detected
+oracle/tool versions. `--quick` reports `PASSED_PARTIAL` and exit code 2 on success and is never
+merge evidence. `--group`, `--gate`, and `--shard` are CI composition features: each can return
+`PASSED`/0 for only its selected subset, so `mode: full` or exit 0 alone does **not** prove that
+the unfiltered table ran. The human and JSON summaries retain every unselected row as an
+explicit `SKIPPED` entry; aggregate CI evidence must account for those rows across jobs.
+`--clean` runs `lake clean` first. Gate 1 is satisfied by an unfiltered run on a suitable host,
+with a populated reference cache, whose required gates pass; a modeled runner-unavailable skip
+does not establish the corresponding host-execution claim.
 
 ### 4.2 Pillar 2: Semantic Integrity & Adversarial Domain Gap Hunting
 If CI passes, the reviewer operates as an adversarial semantic auditor. Reviewers MUST append the following structured sections to their review artifact for every formal theorem under review:
@@ -388,7 +435,11 @@ exemption; it is unfiled pending a measurement of how often the shape actually o
 ---
 
 ### 4.5 The Approval State Machine
-- **Gate 1 (Mechanical):** Did `python scripts/run_gates.py` (full mode; see Section 4.1) — `lake build`, `python scripts/check_refs.py`, `python scripts/check_gates.py`, `lake exe check_gates_axioms` from the repo root, `python scripts/check_references.py --offline`, `python scripts/check_publishable.py`, `python scripts/check_licenses.py`, `python scripts/check_doc_facade.py`, `lake exe check_x86_obligations` from the repo root, the differential fuzzers, and the spike/stdlib CLI test suites — pass?
+- **Gate 1 (Mechanical):** Did an unfiltered `python scripts/run_gates.py` run (no `--quick`,
+  `--group`, `--gate`, or `--shard`), on a suitable host and with a populated reference cache,
+  pass every required row in its executable table? If hosted CI is used as aggregate evidence,
+  did its platform jobs cover the same rows without treating an omitted or runner-unavailable
+  execution as a pass? See §4.1 and `docs/CI.md` §7 for the current non-equivalences.
   - *No $\to$ REJECT IMMEDIATELY.*
 - **Gate 2 (Semantic):** Was the Spec-to-Theorem Derivation provided? Are there any `Weakened` or `Uncovered` domain gaps in the matrix?
   - *No / Yes $\to$ REJECT.*

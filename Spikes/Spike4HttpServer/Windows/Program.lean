@@ -92,7 +92,7 @@ def rdataPayload : ByteArray :=
       [RSP + 0x20..0x27]  : server socket descriptor (8 bytes)
       [RSP + 0x28..0x2F]  : client socket descriptor (8 bytes)
       [RSP + 0x30..0x3F]  : sockaddr_in buffer (16 bytes)
-      [RSP + 0x40..0x13F] : HTTP request recv buffer (256 bytes -- REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
+      [RSP + 0x40..0x13F] : HTTP request recv buffer (256 bytes -- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md,
                              widened from a prior 128-byte allocation that left no safety margin for real-world
                              requests with several headers; recv's `len` argument below always equals this buffer's
                              size, so the write can never exceed it)
@@ -148,7 +148,7 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   instr (xor_r32 .r9d .r9d),
   call_import "recv",
 
-  -- 8b. Validate recv() return value (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md, defect 2).
+  -- 8b. Validate recv() return value (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md, defect 2).
   -- recv returns the byte count received (> 0), 0 on graceful peer close, or SOCKET_ERROR (-1) on
   -- error. RAX is sign-extended by the hook/hardware, so a signed JLE against 0 catches both the
   -- 0 and -1 cases without ever reading the (possibly short/uninitialized) request buffer.
@@ -156,7 +156,7 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   jle_near_label "close_conn",
 ] ++
 
-  -- 9. Validate the request's HTTP method token (REF: docs/tasks/PA17-spike3-spike4-domain-honesty.md).
+  -- 9. Validate the request's HTTP method token (REF: docs/READ_BINDER_CONTRACT.md).
   -- Previously this code assumed, without checking, that the first four bytes were literally
   -- "GET " and read the path window at the fixed offset 4. That answered 200 OK to
   -- "FOO / HTTP/1.1..." where Spec.parseRequestLine answers 400 Bad Request, and mis-read the path
@@ -177,7 +177,7 @@ def spike4SymbolicProgram : List SymbolicInstr := [
 [
   -- 9b. Inspect the request target RSI now points at.
   -- Check if path is exactly "/status" followed by the request-line's delimiting space.
-  -- Full 8-byte exact compare (REF: docs/tasks/N8-spike4-stack-buffer-overflow.md,
+  -- Full 8-byte exact compare (REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md,
   -- defect 3) -- the prior 5-byte-masked "/stat" prefix compare mis-routed any path merely starting
   -- with "/stat" (e.g. "/static") to the status handler.
   label "route_dispatch",

@@ -19,10 +19,11 @@ import Gasm.Core.Types
 import Gasm.Targets.ELF.Format
 
 /-
-Gasm/Targets/ELF/Parser.lean - Total, panic-free ELF64 reader (TCB.md T5 class)
+Gasm/Targets/ELF/Parser.lean - Total, panic-free ELF64 reader (total-parser audit class)
 
 WHY THIS FILE EXISTS: `Gasm.Targets.ELF.Format`/`Gasm.Targets.Linux.Emitter` write ELF64
-bytes; nothing in this tree reads them back. TCB.md's T5 entry names this precisely --
+bytes; before this parser, nothing in the tree read them back. The Linux target's parser audit
+(`docs/TARGETS/LINUX.md` §3.3) names this precisely --
 "nothing the proof observes reads [the emitted bytes]" -- and every one of gasm's Linux
 Spikes (1-5, plus the Spike 5 gunzip variant) now emits an ELF64 executable with zero
 in-tree check that the bytes are well-formed by this project's own understanding of the

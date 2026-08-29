@@ -189,7 +189,7 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
       return (pushVal (.i32 101) { s1 with events := newEvents }, .next)
 
   | some "sock_recv" =>
-    -- N2 fix (MODEL_DEBT.md §C1): this hook already capped the write at `max_len` (the
+    -- Short-read contract fix (`docs/READ_BINDER_CONTRACT.md`): this hook already capped the write at `max_len` (the
     -- syscall's declared cap), but silently DROPPED the undelivered remainder rather than
     -- queuing it for a following call -- a genuine short read requires the remainder to
     -- survive, not vanish. Rebuilt on `Gasm.Effects.splitBytes` for parity with the
@@ -248,8 +248,8 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
     `runWasiTrace` below, kept for source-compatibility with every existing trace-equality
     theorem) -- every load-bearing `traceEquivalence` proof in `Spikes/*/Wasm/Equivalence.lean`
     is paired with a `#guard !(runWasiTraceState ...).isError` check proving its own program never
-    hits the `.error` arm, closing exactly the soundness gap TCB.md's "Fuel exhaustion
-    indistinguishable from clean termination" finding diagnoses for the sibling
+    hits the `.error` arm, closing exactly the fuel-exhaustion soundness gap
+    `docs/MEMORY_HOOK.md` §12.5 diagnoses for the sibling
     `Gasm/Targets/X86_64/Semantics.lean`'s `runProgramTraceWithLoops` (see `WasmRunResult`'s own
     docstring in `Gasm/Targets/Wasm/Semantics.lean`). -/
 def runWasiTraceState (instrs : List WasmInstr) (segments : List WasmDataSegment) (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"]) (incomingRequests : List String := []) (fuel : Nat := defaultWasmFuel) : WasmRunResult :=
@@ -320,7 +320,7 @@ abbrev VerifiedWasmStdinProgram (Event : Type := AnyEvent) [BEq Event] [Inject E
   VerifiedWasmProgram ByteArray Event
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- Type-Enforced Code Emission for WebAssembly binaries. Fails closed (TCB T7 / TC20) if
+/-- Type-Enforced Code Emission for WebAssembly binaries. Fails closed (the Wasm fail-closed emission contract) if
     `p.module`'s functions don't all resolve against `p.typeSignatures`. -/
 def emitVerifiedWasmBinary {Env : Type} {Event : Type}
     [BEq Event] [Inject Event AnyEvent] [WasiEnvironmentLoader Env]
