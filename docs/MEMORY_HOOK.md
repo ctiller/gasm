@@ -1,39 +1,41 @@
-# MEMORY_HOOK: The Memory Access Contract (x86-64, and the Wasm cross-target note)
+# MEMORY_HOOK: The Memory Access Contract (x86-64, AArch64, and the Wasm cross-target note)
 
 - REF: docs/REVIEW.md#law-11-memory-access-capability-mandate-fail-to-assemble
 - REF: docs/REVIEW.md#law-14-calibration-data-governance-the-third-reference-class
 - REF: docs/PROOF_CARRYING_ASSEMBLY.md#1-capability-based-discrete-memory-permissions
 - REF: docs/READ_BINDER_CONTRACT.md#5-integration-with-law-11s-capability-mandate
 - REF: docs/VISION.md#5-performance-modeling-agents-as-the-optimizing-compiler
-- REF: MODEL_DEBT.md (§A0, §A8, §B3)
+- REF: docs/TECHNICAL_NOTES.md (§2)
+- REF: docs/MEMORY_MODEL.md (§§4–7, §14)
 - REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p2--blocking-the-memory-operand-contract-law-11--pa4-at-least-at-the-instruction-layer
 
 ## 1. Status and scope
 
 **Status** (revised 2026-08-28): this was written as a pure design document, and **Layer S
-has since been built**. ADR-0040 approved the design in full and MH1 landed it: the sealed
+has since been built**. The sealed
 memory cell, the width-indexed read/write API, `MemRef`, `fault : Option X86_64Fault`, the
 defaultless `memAccesses` field and the frame-lemma set all exist in the tree today (§3's
-Status line enumerates them with file evidence). **Layer A (MH3) and Layer P (MH2) remain
+Status line enumerates them with file evidence). **Layer A (capability authoring) and Layer P
+(centralized performance uops) remain
 unbuilt** — `CheckedAsm` and `MemCostModel` have no declaration anywhere in `Gasm/`,
 `Stdlib/` or `Spikes/`.
 
 Read the **per-section `**Status**:` lines as authoritative**, not this preamble: each was
 re-verified against the tree on 2026-08-28, and they now differ from one another by design
 (§3 landed; §4 and §5 did not). Every mechanism still proposed-but-unbuilt carries its own
-`**Status**:` line per `CONTRIBUTING.md`'s convention, and every fenced Lean block under a
+`**Status**:` line per the repository's design-only convention, and every fenced Lean block under a
 section marked unbuilt is a design sketch, not tree contents. The §1.1 evidence table below
 is a **snapshot of the pre-MH1 tree at commit `0d5c6a9` (2026-08-27)**, retained because it
 is the motivating measurement this design was derived from; it describes the state MH1
-changed, not the state today. Implementation is tracked as MH1–MH3
-(`docs/tasks/MH1-semantic-memory-hook.md`, `docs/tasks/MH2-memory-uop-centralization.md`,
-`docs/tasks/MH3-capability-authoring-surface.md`).
+changed, not the state today. The remaining capability work is consolidated in
+`docs/MEMORY_MODEL.md` stages M1/M4; performance-hook work remains architectural debt in
+`docs/TECHNICAL_NOTES.md`.
 
 Consumers depend on this being right in both directions.
 `Gasm/Targets/X86_64/Instructions/Base.lean:40` cites §3.3 by name as the reason
 `memAccesses` carries no default; a reader trusting the retired "none of this exists"
-markers would have concluded that citation pointed at nothing, and — per `CONTRIBUTING.md`,
-which instructs contributors including the external team to trust `**Status**:` markers —
+markers would have concluded that citation pointed at nothing, and — because contributors
+are expected to trust `**Status**:` markers —
 rebuilt what was already there.
 
 **The directive** (owner, verbatim): *"memory contracts — let's plan out a memory hook —
@@ -56,8 +58,8 @@ existing proofs, and how faults become distinguishable observations.
 | Instruction steps already bypass even those helpers | `MovRspDispImm32.step` inlines a raw 4-byte store lambda (`Mov.lean:166-173` — no `write32` helper exists so it was re-implemented inline); `MovzxR64Mem8.step` and `MovReg32RspDisp32.step` read raw `s.memory addr` bytes inline. The missing widths already caused the exact per-instruction re-implementation this hook exists to end |
 | Non-instruction code also writes memory raw | `Gasm/Targets/Windows/Win32API.lean` hooks (`readFileHook`/`recvHook` write destination buffers via raw `memory := fun a => ...` lambdas, lines 112–136, 214–217); the linkers' `loadMemory` installs the image raw |
 | Zero capability call sites | Law 11's own Status line; `MemoryPerm`/`MemoryPermissions`/`BlockM` have no call sites outside `Gasm/Core` |
-| Memory cost is 14 sets of inline, uncited literals | every load is flat `latencyCycles := 4`, every store `1`, duplicated per instance; 0 of 88 forms cite any calibrated or vendored source (`MODEL_DEBT.md` §A0/§A8) |
-| Fault model is one bit, two sites | `faulted : Bool`; only `Div.lean` sets it (`#DE`); `runProgramTraceWithLoops` returns `[]` for fuel-out, no-instruction-at-rip, and fault alike (`TCB.md` T12) |
+| Memory cost is 14 sets of inline, uncited literals | every load is flat `latencyCycles := 4`, every store `1`, duplicated per instance; 0 of 88 forms cite any calibrated or vendored source (`docs/TECHNICAL_NOTES.md` §2) |
+| Fault model is one bit, two sites | `faulted : Bool`; only `Div.lean` sets it (`#DE`); `runProgramTraceWithLoops` returns `[]` for fuel-out, no-instruction-at-rip, and fault alike (the historical stop-reason T12 finding) |
 | Existing proofs that touch memory semantics | `step_ret_op` (`Stdlib/Zlib/CRC32Equivalence.lean:652`, `Spikes/Spike2Fibonacci/Windows/LoopInvariant.lean:139`, both `rfl`); `LoopInvariant.lean:598` (`simp [X86_64MachineState.read64, ...]`); `Stdlib/SmolAlloc/Equivalence.lean:42-45,140-142` (`read64` as observation). **No step lemma exists for any store form** — the read-over-write theory this design centralizes does not exist anywhere today |
 
 ## 2. The design in one page
@@ -289,7 +291,7 @@ this one source:
    uops and cost; the hook derives memory uops from the descriptor, so per-form cost is
    computed, not transcribed.
 4. **Measurement.** The address stream of a run is `memAccesses` evaluated along the
-   trace — exactly what a future cache/locality model (MODEL_DEBT §A0) and F1's
+   trace — exactly what a future cache/locality model (`docs/TECHNICAL_NOTES.md` §2) and F1's
    containment checks consume, obtained without instrumenting the interpreter.
 
 Known limit, stated now: a static `List MemAccessSpec` cannot express
@@ -508,7 +510,7 @@ memory latency — the coefficient set is closed under the table.
 
 Today's memory cost claims are unfalsifiable for a structural reason: they are 14
 scattered literals with no stated measurement that could contradict them
-(`MODEL_DEBT.md` §A8: 0 of 88 coefficients cite any source). The hook changes the
+(`docs/TECHNICAL_NOTES.md` §2: the coefficients lack calibrated sources). The hook changes the
 *shape* of the claim:
 
 1. **The coefficient set is finite, enumerable, and small** (~8 named fields), because
@@ -578,7 +580,7 @@ Two changes, deliberately staged:
    applying `step`, and faults with the pre-step state — hardware-faithful, zero
    instruction edits. Until then, this document does not claim the model can produce a
    memory fault: it cannot, and saying otherwise would be the exact overclaim
-   `MODEL_DEBT.md` §B1 catalogs. **Status**: `X86_64Fault` and the field change are
+   `docs/TECHNICAL_NOTES.md` §2 catalogs. **Status**: `X86_64Fault` and the field change are
    MH1; the map and the interpreter pre-check have no task yet and are named as
    future, spike-forced work.
 
@@ -688,20 +690,19 @@ reverse order costs one representation-alignment pass on a single pathfinder rou
    opt-out impossible. Confirm the cost is accepted; the fallback (a linter inferring
    memory-touchingness from step bodies) is strictly weaker and reviewable on request.
 
-## 11. Follow-on tasks filed with this design
+## 11. Follow-on work
 
-| Task | Track | Content | After |
+| Work item | Track | Content | Status / dependency |
 | :-- | :-- | :-- | :-- |
-| `docs/tasks/MH1-semantic-memory-hook.md` | proof-arch | §3 + §6 stage 1 (M0+M1) | — |
-| `docs/tasks/MH2-memory-uop-centralization.md` | perf | §5 (M2) | MH1 |
-| `docs/tasks/MH3-capability-authoring-surface.md` | proof-arch | §4 (M3): shape, erasure, ledger gate, pathfinder routine | MH1 |
+| Semantic x86 memory hook | proof-arch | §3 + §6 stage 1 | complete |
+| Memory-uop centralization | perf | §5 | planned; after the semantic hook |
+| Indexed capability authoring | proof-arch | §4, revised by `docs/MEMORY_MODEL.md` §§6–7 | stages M1/M4 after M0 |
 
-PA4 (`docs/tasks/PA4-capability-adoption.md`) remains the migration epic and consumes
-§4 as the "instruction-level obligation shape" its design deliverable calls for; PA2's
-design should treat §3.3's frame lemmas and §4.4's `MemSafe` shape as candidate
-building blocks, per the same relationship `docs/READ_BINDER_CONTRACT.md` §9 item 4
-establishes. TC18 coordinates on the fault/stop-reason outcome type (§6). F1/F2
-calibrate §5's table when they land.
+The capability migration must consume §4 as historical input but use the resource algebra,
+typed obligations, and exit criteria in `docs/MEMORY_MODEL.md` §§6–7 and 14. Frame lemmas and
+§4.4's `MemSafe` shape remain candidate building blocks, consistent with
+`docs/READ_BINDER_CONTRACT.md` §9 item 4. Fault/stop-reason work coordinates with §6;
+future calibration work must replace §5's placeholder cost table with sourced data.
 
 ## 12. Cross-target note: Wasm
 
@@ -709,12 +710,12 @@ The owner asked directly whether anything here needs to generalize to the Wasm t
 **Status**: §12.3's seal is implemented and verified in the tree (below); §12.1, §12.2,
 §12.4, §12.5, and §12.6 are analysis, not new machinery — each says explicitly which of
 its claims were checked by reading code/running gates versus recommended for later.
-Verified against `main` at `27ab4ed` (this section's own change stacks on top of it, then
-rebased onto the tip carrying `docs/BORROW_MODEL.md` and the x86-64 seal-audit correction
-§12.3 cites) by reading `Gasm/Targets/X86_64/MemoryCell.lean`,
+Verified against `main` at `27ab4ed` and later rechecked after the x86-64 seal-audit
+correction cited in §12.3 by reading `Gasm/Targets/X86_64/MemoryCell.lean`,
 `Gasm/Targets/X86_64/Memory.lean`, `Gasm/Targets/X86_64/MemoryFrameAudit.lean`,
 `Gasm/Core/Permissions.lean`, `Gasm/Core/State.lean`, `Gasm/Targets/Wasm/Semantics.lean`,
-`Gasm/Targets/WASI/ABI.lean`, and `docs/BORROW_MODEL.md`, and by `grep`-confirming
+`Gasm/Targets/WASI/ABI.lean`, and the authority design now consolidated in
+`docs/MEMORY_MODEL.md` §6, and by `grep`-confirming
 call-site counts asserted below.
 
 ### 12.1 The asymmetry, verified
@@ -733,8 +734,7 @@ tree rather than repeating it.
   model now honors it: `wasm-exec-instructions#memory-instructions`'s reduction rule for
   `t.load`/`t.store` ("If `i + ao.offset + N/8 > |mems[x].bytes|`, then: Trap.") is
   implemented in `evalLeafInstr`'s six memory-instruction cases
-  (`Gasm/Targets/Wasm/Semantics.lean`), landed by B7
-  (`docs/tasks/B7-wasm-oob-trap-and-limits.md`) and confirmed by the differential fuzzer's
+  (`Gasm/Targets/Wasm/Semantics.lean`) and confirmed by the differential fuzzer's
   nine out-of-bounds/memory-limit cases against a real host engine (Node/V8) — not merely
   asserted by the Lean model in isolation. A Wasm program is therefore memory-safe at
   *runtime*, by the interpreter's own construction, independent of anything the program's
@@ -828,9 +828,8 @@ assumed:
 `Gasm/Targets/WASI/ABI.lean`'s `wasiHostCall` called the pre-seal `readMem32`/`writeMem32`
 helpers directly, and two of its cases (`fd_read`, `sock_recv`) called `ByteArray.set!` on
 `s.memory` in a raw per-byte loop — bypassing `evalInstr`'s B7 trap check entirely, since
-host calls are never dispatched through `.i32_load`/`.i32_store`
-(`docs/tasks/B7-wasm-oob-trap-and-limits.md`'s closing note: "flagged as a pre-existing,
-separate gap for whenever WASI gets its own execution harness"). This is the same defect
+  host calls are never dispatched through `.i32_load`/`.i32_store`. This was recorded as a
+  pre-existing, separate gap for the WASI execution harness. It is the same defect
 class MH1's x86-64 seal makes unrepresentable (§3.2): a memory-touching function existing
 outside the chokepoint that a caller can reach without going through the checked path.
 
@@ -949,11 +948,10 @@ MemoryPermissions Arch` (`Gasm/Core/Permissions.lean`), and that container is ge
 - **`Arch` is a phantom parameter of `MemoryPermissions`, not a real index**: re-reading
   `Gasm/Core/Permissions.lean`'s definition — `structure MemoryPermissions (Arch : Type)
   where tokens : List (Address × Nat × PermissionShare); disjoint : DisjointTokens
-  tokens` — `Arch` appears nowhere in either field's type. `docs/BORROW_MODEL.md` §9
-  reads this as a *feature* ("the vocabulary is neutral... `MemoryPerm`/`DisjointRanges`/
-  `DisjointTokens` mention no architecture"), correctly, from the angle of "will this
-  shape need to change for ARM" — it will not, because it never depended on `x86-64` in
-  the first place. But the same fact read from *this* section's angle is a caution, not a
+  tokens` — `Arch` appears nowhere in either field's type. `docs/MEMORY_MODEL.md` §6 treats
+  architecture-neutral authority vocabulary as a requirement, but replaces the current
+  pairwise-disjoint list with a real resource algebra. The existing shape never depended on
+  `x86-64` in the first place; from this section's angle that is a caution, not a
   feature: "arch-parameterized" is doing no real work today. `ComposedState WasmArch _`
   would type-check and would carry a *phantom-tagged* `MemoryPermissions WasmArch`, but
   its `tokens`/`disjoint` fields would be bit-for-bit the same shape as x86-64's — the
@@ -976,22 +974,22 @@ than pre-filling this slot speculatively.
 
 ### 12.5 Fault/trap distinguishability, x86 vs Wasm
 
-Checked for the specific failure Law 13's TCB.md T12 finding names: a stop reason must
+Checked for the historical T12 failure class: a stop reason must
 never be conflatable with another (x86-64's `runProgramTraceWithLoops` returns `[]` for
-fuel-out, no-instruction-at-rip, *and* a clean fault alike — TCB.md T12).
+fuel-out, no-instruction-at-rip, *and* a clean fault alike).
 
 - **x86-64, today**: `faulted : Bool` (one bit, `#DE` only); the richer `X86_64Fault`
   inductive (`divideError | memFault ...`) that would make fault *kind* distinguishable is
   **Status: unbuilt**, per §6 above — MH1 shipped the field-rename plumbing, not the
   richer payload. TC18's stop-reason `Except` shape is likewise **Status: unbuilt**. So
-  x86-64's fault-vs-fuel-out-vs-no-instruction conflation (TCB.md T12(i)) is, as of this
+  x86-64's fault-vs-fuel-out-vs-no-instruction conflation is, as of this
   change, still open — this section does not close it; it is out of this change's scope
   (MH1/TC18's, not Wasm's).
 - **Wasm is already better-separated on the fuel-exhaustion axis, independent of this
   change**: `WasmRunResult := Except WasmMachineState (WasmMachineState × ControlSignal)`
   (`Semantics.lean`) makes fuel exhaustion a structurally distinct outcome (`.error`) from
   every genuine stopping point (`.ok`) — the fuel-conversion work that predates this task
-  already closed Wasm's version of TCB.md T12(i); `runWasiTraceState`
+  already closed Wasm's version of that stop-reason gap; `runWasiTraceState`
   (`Gasm/Targets/WASI/ABI.lean`) is the whole-program entry point that returns this
   un-collapsed, and every load-bearing spike equivalence theorem is paired with a
   `#guard !(... ).isError` check proving it never hits `.error`.
@@ -1008,56 +1006,25 @@ fuel-out, no-instruction-at-rip, *and* a clean fault alike — TCB.md T12).
   designed to replace `faulted`. No such consumer exists today (every current check is
   "trapped or not"), so this is named as a parallel future step, not built now (Law 5).
 
-### 12.6 Relationship to the borrow model — does it subsume Wasm's memory safety?
+### 12.6 Relationship to the canonical borrowing model
 
-`docs/BORROW_MODEL.md` (design, dated the same day as this section, landed on `main`
-while this change was in flight) designs an indexed monad over `BlockM Arch S₁ S₂ α` plus
-a weaving DSL, and states plainly in its own §6 title that "this subsumes it" — meaning
-MH3 (§4 of this document, the x86-64 capability-authoring surface). That is close enough
-to this section's subject matter that the question has to be asked directly, per this
-task's own instruction not to build a parallel mechanism silently: **does the borrow
-model, once it lands, also subsume the Wasm memory-safety story §12.1–§12.3 describe?**
+`docs/MEMORY_MODEL.md` §6 consolidates the indexed authority and obligation design that
+supersedes this document's planned x86-64 capability-authoring layer. The direct question
+is whether that common model should also subsume the Wasm memory-safety story in
+§§12.1–12.3.
 
-**No, and the reason is the same asymmetry §12.1 verifies, restated at the level the
-borrow model operates at.** The borrow model's entire mechanism — obligation dispatch at
-monadic binds, a `CheckedInstr (Γ : Frame) (Inv : X86_64MachineState → Prop)` term whose
-elaboration fails without a discharged proof — is a *stronger, more ergonomic engine for
-producing exactly the artifact MH3/Layer A already targets*: a carried, checked,
-assemble-time proof that a symbolic access lands inside a granted region. It is a better
-way to build the thing x86-64 needs because x86-64 has no other way to establish that
-fact. Wasm has no symmetric need for the borrow model to fill, for the identical reason
-Layer A doesn't (§12.1, §12.6 below): the interpreter already establishes "this access is
-in bounds" for every access, unconditionally, at run time, without any authored proof —
-there is no obligation left over for an indexed monad to track. Wiring `WasmMachineState`
-through `BlockM`/the weaving DSL to get a Wasm-side `CheckedInstr` would be building
-authoring-time machinery to discharge an obligation that does not exist, which is the
-same "capability machinery with no obligation to discharge" objection §12.4 and §12.7
-raise against a `WasmCheckedAsm` surface and a populated `MemoryPermissions` respectively
-— restated once more here because the borrow model is the *strongest* version of that
-temptation yet designed: its own §10.1 records the owner's trigger for it verbatim
-("isa scale up: we need multithreading and borrowing resolved") and treats it as a Law 5
-demand blocking the x86-64 ISA expansion, which is a real pull toward pattern-matching
-every target onto it once it lands.
+**No.** Native checked authoring proves that a symbolic access lands inside a granted
+region because the x86/AArch64 machine model otherwise has no point at which to reject an
+unauthorized address. Wasm's interpreter already establishes in-bounds linear-memory access
+at runtime for every load and store. Routing Wasm linear memory through the native indexed
+authoring surface would therefore add machinery without a corresponding safety obligation.
 
-**Where the two designs are NOT competing, and could share a source of truth rather than
-become a Law-12 unlinked-twin pair**: `docs/BORROW_MODEL.md` §9 observes that
-`MemoryPermissions Arch`'s vocabulary is already architecture-neutral in *shape* (§12.4
-above reads the same fact and finds it currently unpopulated, not contradicting §9 — a
-neutral, empty container is exactly what "unpopulated" means). If a genuine Wasm need for
-capability-shaped reasoning ever materializes — §12.4's example was WASI-granted
-file/socket-handle lifecycle, a resource class with real acquire/release/borrow structure,
-unlike linear memory — the borrow model's general obligation-dispatch machinery (not its
-`X86_64MachineState`-specific `CheckedInstr` instantiation) is the natural mechanism to
-extend, rather than inventing a second, Wasm-specific obligation-tracking DSL from
-scratch. That is a recommendation for *if and when* such a need appears (Law 5), not a
-present design: no WASI resource-handle capability need has been identified by this
-section, and this change does not build toward one.
+The designs can still share typed resource-lifecycle machinery. If a genuine Wasm/WASI
+capability need appears—such as borrowed file or socket handles—the common obligation
+algebra is the mechanism to extend, rather than inventing a target-local duplicate.
 
-**Status**: this subsection is analysis only; nothing here proposes new machinery.
-`docs/BORROW_MODEL.md` itself is a design document (its own Status line), not yet
-implemented; this finding is recorded now, while both documents are fresh, specifically
-so the "does this subsume that" question has a written answer before either design's
-implementation makes the question expensive to re-ask.
+**Status**: analysis only. The common borrowing design is specified but unimplemented; the
+Wasm bounds-checking path is implemented independently.
 
 ### 12.7 What this section rejects, and why
 

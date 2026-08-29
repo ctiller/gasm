@@ -1,5 +1,11 @@
 # Target Specification: Windows (MS x64 Fastcall & PE/COFF)
 
+**Concurrency status (2026-08-28): unimplemented.** The current Win32 hook set has no thread
+creation, thread exit, wait, handle-lifecycle, or wait-on-address operations. The required lifecycle,
+join-right, handle obligation, and parking semantics are specified in `docs/MEMORY_MODEL.md`
+§§8–9 and stages M6-P/M6-X; validation belongs to
+`docs/SPIKES/SPIKE8_MULTITHREADING.md`.
+
 This document defines the machine state model, Microsoft x64 calling convention, PE/COFF binary emission, and SEH unwind table requirements for **64-bit Windows**.
 
 ---
@@ -62,6 +68,18 @@ In `gasm`, `WindowsCallerDiscipline` enforces `s.stackDepth ≥ 32 ∧ (s.machin
 
 ### 1.3 Strict Prohibition of Red Zone
 Windows x64 **strictly prohibits the Red Zone**. The OS kernel, hardware interrupts, and APCs (Asynchronous Procedure Calls) immediately overwrite memory below `RSP`. Any stack access beyond `[RSP - 1]` without adjusting `RSP` triggers catastrophic memory corruption.
+
+### 1.4 Required thread lifecycle and parking refinement
+
+Thread creation has success/failure outcomes and may make the child runnable before the API returns,
+so authority donation commits before that point and is restored on failure. Thread-function return
+and `ExitThread` terminate one thread; `ExitProcess` terminates the process. A terminated thread
+object becoming signaled, consuming a logical join right, waiting on a handle, and closing that
+handle are distinct transitions and obligations.
+
+Wait operations retain handle lifetime and represent success, timeout, and failure. If
+wait-on-address is selected for mutex parking, every return rechecks the 32-bit user-space atomic
+state. Wake-to-resume is scheduler causality, not memory synchronization.
 
 ---
 

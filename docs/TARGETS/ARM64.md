@@ -1,6 +1,15 @@
 # Target Specification: AArch64 Architecture & Execution Models
 
-This document defines the machine state model, native memory addressing modes, instruction set surface, ABI calling conventions, execution harnesses (Bare Metal and Linux), Cortex-A53 performance model, and mechanical verification obligations for the 64-bit ARM architecture (**AArch64 / ARMv8-A / ARMv9-A little-endian**).
+**Status (2026-08-28): current partial target plus historical reconnaissance and planned coverage.**
+The tree has an AArch64 machine/decoder/semantics substrate and Spike 1 Linux and bare-metal paths.
+It does not implement every family catalogued below, Spikes 2–5 on AArch64, or the concurrent weak-
+memory/barrier/exclusive model. Sections labelled reconnaissance or planned are retained as input,
+not current implementation claims. The canonical concurrency status is `docs/MEMORY_MODEL.md` §2
+and the required AArch64 model is §5.2.
+
+This document records machine-state and addressing requirements, planned instruction/ABI coverage,
+the live execution harnesses, historical Cortex-A53 reconnaissance, and verification obligations for
+64-bit little-endian AArch64.
 
 ---
 
@@ -17,11 +26,11 @@ This document defines the machine state model, native memory addressing modes, i
 | 8 | Memory Addressing | Post-Indexed Writeback Addressing | Base register `Xn` accessed, then base updated by immediate offset | `base: RegOrSp`, `offset: Int64` | `base`, writeback = `some (base, base + offset)` | Base writeback to `XZR` invalid | ARM DDI 0487 §C4.1.4 |
 | 9 | Memory Addressing | Register Offset with Shift | Base register `Xn` plus shifted/extended index register `Xm` | `base: RegOrSp`, `index: Reg64`, `shift: Nat` | `base + (index <<< shift)`, writeback = `none` | Shift > 4 invalid for standard loads | ARM DDI 0487 §C4.1.4 |
 | 10 | Memory Addressing | PC-Relative Literal Addressing | Program counter `PC` plus signed 19-bit/21-bit immediate offset | `PC`, `offset: Int64` | `PC + offset`, writeback = `none` | Offset unaligned to 4 bytes | ARM DDI 0487 §C4.1.5 |
-| 11 | Instruction Surface | 15 Core Instruction Families | Instruction families covering arithmetic, logic, shift, wide move, mul/div, memory, branch, adr, system | 32-bit instruction word | State transition on machine | Unallocated opcode throws decode error | PROJECT.md, Spikes 1–5 |
+| 11 | Instruction Surface | Planned 15-Family Coverage | Historical coverage inventory for arithmetic, logic, shift, wide move, mul/div, memory, branch, ADR, and system families; only the live registered subset is implemented | 32-bit instruction word | State transition on machine | Unallocated opcode throws decode error | `docs/SPIKES.md`, repository audit |
 | 12 | ABI & Calling Conv | AAPCS64 Calling Convention | Standard procedure call ABI: `X0`–`X7` args/returns, `X19`–`X28` callee-saved, `X29` FP, `X30` LR | Stack pointer, arguments, registers | Return value in `X0`, restored callee-saved regs | Misaligned stack on public call fails ABI | AAPCS64 specification |
 | 13 | Bare Metal Target | QEMU `virt` Platform Execution | Direct ELF64 boot at physical RAM base `0x40000000` with PL011 UART MMIO and semihosting exit | Flat ELF64 binary loaded via QEMU `-kernel` | Serial output over PL011 (`0x09000000`), exit code via semihosting `HLT #0xF000` | Missing semihosting handler hangs CPU | ARM64.md reconnaissance, QEMU virt |
 | 14 | Linux Target | Static ELF64 & `SVC #0` ABI | Linux user execution: `SVC #0`, `X8` syscall nr, `X0`–`X5` args, asm-generic numbers | Static ELF64 (`EM_AARCH64`), syscall operands | Syscall result in `X0`, negative `[-4095, -1]` on error | Unknown syscall returns `-ENOSYS` (`-38`) | LINUX.md, Linux asm-generic |
-| 15 | Performance Model | Cortex-A53 Microarchitecture | Dual-issue in-order 8-stage pipeline performance model with uop classification and cycle bounds | Instruction stream, micro-op classes | Cycle bounds (min, nominal, max), port pressure | Unvalidated instructions fail CI gate | Cortex-A53 TRM, REVIEW.md Law 14 |
+| 15 | Performance Model | Cortex-A53 Microarchitecture | Dual-issue in-order 8-stage pipeline performance model with uop classification and cycle bounds | Instruction stream, micro-op classes | Cycle bounds (min, nominal, max), port pressure | Unvalidated instructions fail CI gate | Cortex-A53 TRM, `docs/REVIEW.md` Law 14 |
 
 ---
 
@@ -241,7 +250,9 @@ Evaluation produces an effective memory address along with an optional base regi
 
 ## Instruction Surface & 15 Core Instruction Families
 
-The instruction surface for AArch64 comprises 15 instruction families required for Spikes 1–5, implemented via the `AArch64Instruction` typeclass interface with modular 32-bit codecs, micro-op decompositions, and round-trip verification obligations.
+This is the intended 15-family coverage inventory for eventual AArch64 Spikes 1–5. The current
+`AArch64Instruction` interface and modular codec/round-trip machinery implement only a subset; the
+list below is demand, not evidence that all families or spikes exist.
 
 ### 1. AddSubImm Family
 Immediate arithmetic supporting 12-bit unsigned immediates with optional 12-bit left shift (`LSL #0` or `LSL #12`):
@@ -616,7 +627,10 @@ To prevent parallel elaboration memory pressure and isolate proof dependencies:
 
 ---
 
-## Vertical Spikes 1–5 on AArch64
+## Planned Vertical Spikes 1–5 on AArch64
+
+Only Spike 1 currently has AArch64 Linux and bare-metal implementations. Rows 2–5 are future
+validation demand and must not be read as live binaries or proofs.
 
 | Spike | Title | Bare Metal / Linux | Key Instructions Exercised | Verification Surface |
 | :--- | :--- | :--- | :--- | :--- |
@@ -629,6 +643,10 @@ To prevent parallel elaboration memory pressure and isolate proof dependencies:
 ---
 
 ## Empirical QEMU Bring-Up & Verification Traces
+
+**Historical reconnaissance:** these probes preceded the live AArch64 Spike 1 harness. They remain
+useful measurements, but statements below about missing target or harness code describe that earlier
+snapshot rather than the 2026-08-28 tree.
 
 During Milestone M1 reconnaissance, exact byte streams were generated by hand and booted under `qemu-system-aarch64` to establish empirical ground truth:
 
@@ -751,9 +769,13 @@ inferred from documentation.
 
 ---
 
-## 5. What a real ARM target would cost
+## 5. Historical Estimate of the Initial ARM Target Cost
 
-Grounded in what was actually run above, not estimated in the abstract:
+**Historical snapshot:** the resolver, test harness, instruction model/codec, and AArch64 Linux and
+bare-metal Spike 1 paths described below as future work now exist. The bullets are retained to record
+the original bring-up estimate, not as a current task list.
+
+Grounded in what had actually been run at the time, not estimated in the abstract:
 
 - **A `Gasm/Targets/BareMetal/QEMUAArch64.lean` (or equivalent) resolver**, structurally
   identical to `findQemuPath` in `Gasm/Targets/BareMetal/QEMU.lean` — same override chain
@@ -829,7 +851,7 @@ gate first.
   x86-64 instruction forms declare `costProvenance := .modelInternalUnvalidated "toUops
   coefficient…"` and exactly zero declare `.cited` — measured by grep over
   `Gasm/Targets/X86_64/Instructions/*.lean`, and independently recorded as "0 of 88
-  coefficients cite any source" in `docs/adr/0039-x86-isa-expansion-prerequisites.md`. This
+  coefficients cite any source" in `docs/X86_ISA_EXPANSION_PREREQUISITES.md`. This
   is because the RDTSC calibration harness
   (`docs/CALIBRATION_GOVERNANCE.md`'s "F1") does not exist yet, and that document's §9 rules
   out third-party tables (Agner Fog, uops.info) as a `.cited` source for any shipped
@@ -838,8 +860,7 @@ gate first.
   measured. An ARM implementor declaring every `costProvenance` as
   `.modelInternalUnvalidated "no calibration source exists yet"` is not taking a shortcut;
   it is doing exactly what this project's own x86 side does everywhere today, and the gate
-  will accept it. **This is not a D29 problem** (`docs/adr/0038-standards-are-earned-before-imposed.md`
-  — "we get to hold standards of others when we can hold them of ourselves"): the standard
+  will accept it. **This does not violate the repository's equal-standards principle**: the standard
   this specific gate enforces is *honest disclosure of provenance*, not *validated
   provenance*, and that is a standard this project already meets on every one of its own
   instructions. An ARM contributor cannot be blocked by it doing what x86 already does.
@@ -851,7 +872,7 @@ gate first.
   cited anchor actually resolves; **inventing an anchor that doesn't exist fails the gate**,
   it is not merely a lint warning.
 - **No `partial def`, anywhere.** It compiles to a kernel-opaque constant with zero equation
-  lemmas, and (per this repository's own finding, `PLAN.md` line ~535) has already blocked
+  lemmas, and historical repository analysis found that it had already blocked
   proofs in four subsystems here. A decoder, an interpreter loop, or any recursive AArch64
   machinery must be structurally or well-founded recursive, provably terminating — the same
   discipline the x86 decoder/interpreter already follows.
@@ -863,7 +884,7 @@ gate first.
   `RoundtripGate/*.lean` theorems consume this list to make `decode (encode i) = i` a
   build-failure gate, not a hand-run test. An ARM registry would need the equivalent
   aggregate list and gate theorem(s), sharded the same way (one Lean module per instruction
-  family, per `PLAN.md`'s D-series decoder-modularization decision) if the ARM ISA subset
+  family, following the existing x86 decoder-modularization pattern) if the ARM ISA subset
   grows large enough for build-time cost to matter the way it already does for x86.
 - **The memory-access declaration convention (`memAccesses : ι → List MemAccessSpec`, also
   no default) is the newest of these**, landed via `docs/MEMORY_HOOK.md` (D30/D31, approved
@@ -871,11 +892,12 @@ gate first.
   model's latency/cache accounting. *(Updated 2026-08-28: MH1 has landed since this section
   was written — the field is live on the typeclass at
   `Gasm/Targets/X86_64/Instructions/Base.lean:66`, and 74 forms declare `memAccesses _ := []`
-  while 14 declare real accesses.)* It is x86-only: the field lives on `X86_64Instruction`
-  and the descriptor vocabulary is in `Gasm/Targets/X86_64/Memory.lean`, so there is no
-  target-generic hook to instantiate. **Status**: a target-generic memory hook does not
-  exist and is not designed; §13 states in detail which parts of this surface are stable to
-  build against and which are being actively reshaped right now.
+  while 14 declare real accesses.)* The mandatory class field remains x86-only.
+  `Gasm/Targets/AArch64/Addressing.lean` now defines `AArch64MemAccessSpec`, but
+  `AArch64Instruction` does not require an access list, so omission is still possible and no
+  dynamic event projection exists. **Status**: the target-generic event/projection contract is
+  designed in `docs/MEMORY_MODEL.md` §4 (stage M0), but unimplemented; §13 states which parts
+  of the current descriptor surface are safe to extend.
 
 ---
 
@@ -897,23 +919,14 @@ choices, and an ARM target is not bound by them:
   `MemAccessSpec`'s declarative-access-list *idea* with a different concrete operand
   representation, or something else — this document does not decide it, it flags that reusing
   x86's `MemRef` verbatim will not fit AArch64's addressing modes without modification.
-- **The memory model is the sharpest of these, and may be a genuine prerequisite, not a
-  deferrable choice.** x86-64 is TSO; AArch64 is a weak memory model (relaxed load/store
-  ordering, `LDAR`/`STLR` for acquire/release, `DMB`/`DSB` barriers, `LDXR`/`STXR` exclusive
-  monitors — `docs/TARGETS/ARM.md` §4 already sketches proof obligations for these, though
-  that section is design-only, unimplemented). *(Updated 2026-08-28: when this bullet was
-  written, the memory-model work was described as "being worked on concurrently, elsewhere."
-  It has since landed as a design — `docs/X86_MEMORY_MODEL.md`, and the multithreading spike
-  as `docs/SPIKES/SPIKE8_MULTITHREADING.md`. The prediction below was correct and is now
-  concrete; §12 replaces the speculation with specific locations.)* **If the emerging
-  memory-model abstraction is written in a way that is only ever exercised by a TSO target,
-  an AArch64 implementor inherits an unstated assumption they may not be able to satisfy** —
-  ARM will observably reorder accesses that a TSO-shaped abstraction assumes cannot reorder.
-  Whether the memory-model design needs to be target-generic *before* ARM instruction work
-  starts, or whether ARM can safely defer to a restricted subset (e.g. no relaxed atomics,
-  full barriers on every shared access, as a first cut) and tighten later, is not decided.
-  **Status**: no ARM memory model is designed, and `docs/X86_MEMORY_MODEL.md` scopes itself
-  to x86-TSO over Write-Back memory only. See §12.
+- **The memory model is the sharpest of these, and is a genuine prerequisite for concurrent
+  ARM claims.** x86-64 is TSO; AArch64 is weakly ordered, with plain `LDR`/`STR`,
+  `LDAR`/`STLR`, `DMB`/`DSB`, and the `LDXR`/`STXR` exclusive-monitor protocol. The common
+  proof-facing event graph and distinct x86/AArch64 consistency models are now specified in
+  `docs/MEMORY_MODEL.md` §§4–5. **Status**: the cross-architecture design exists; the
+  AArch64 weak-memory machine, barriers, exclusives, and connection theorems remain
+  unimplemented (stage M2-A). Any new AArch64 instruction descriptor must fit that common
+  vocabulary without inheriting x86 ordering defaults. See §12 for the current code gaps.
 - **The `.silicon`/`.nasmEncoding` oracle split (§6) is x86-shaped by construction** — it
   names NASM and `HardwareHarness` specifically. Genuinely open for ARM, not merely
   unimplemented; see §6's bullet on this.
@@ -930,18 +943,18 @@ ARM's weak memory model is not just a checkbox difference from x86's TSO — it 
 strongest available empirical check on whether a concurrency memory-model design is real
 semantics or x86-shaped hand-waving. A memory-model abstraction that only ever runs against
 a TSO target cannot distinguish "correctly models relaxed ordering" from "happens to work
-because the only target tested never reorders anything." An AArch64 target, once it exists,
-is a genuine adversarial witness for that work: ARM will observably reorder accesses where
+because the only target tested never reorders anything." The concurrent AArch64 memory-model
+harness, once implemented, is a genuine adversarial witness for that work: ARM will observably reorder accesses where
 x86 will not, and a multithreading spike that passes on both targets is evidence the model
 is actually sound, not merely x86-compatible. This is worth keeping in view when the
 memory-model and multithreading-spike design work referenced in §7 reaches the point of
 deciding what its own test matrix should include — but building that target is out of scope
 here, and this section states the argument, not a plan.
 
-*(2026-08-28: that design work has since landed as `docs/X86_MEMORY_MODEL.md` and
-`docs/SPIKES/SPIKE8_MULTITHREADING.md`, and its own §7 asks the falsification question this
-section anticipated. §12 names the specific places in the tree where the TSO assumption sits,
-so the argument above can be acted on rather than only agreed with.)*
+The consolidated design now lives in `docs/MEMORY_MODEL.md`; its §§5.2, 13, and 14 make
+AArch64 a first-class model and validation target rather than an x86 negative control. The
+cross-target executable plan is `docs/SPIKES/SPIKE8_MULTITHREADING.md`. §12 below names the
+specific current code gaps.
 
 ---
 
@@ -1008,10 +1021,11 @@ Two facts, both mechanical:
   `isa-debug-exit` port (`:104-108`). There is no `read`, no socket, no file. Spike 3 reads
   stdin to EOF, Spike 4 opens a TCP listener, Spike 5 streams bytes in and out.
 
-**Status**: a bare-metal input path — a device-backed console-input model, a
-loader that installs an input image, and a contract shape that binds it — does not exist,
-is not designed, and is not tracked by any task in `docs/tasks/`. Building one is a genuine
-design task under Law 5 (`docs/REVIEW.md:63`), not an afternoon's plumbing.
+**Status**: a bare-metal input path — a device-backed console-input model, a loader that
+installs an input image, and a contract shape that binds it — does not exist. It is separate
+from, but must compose with, the x86/AArch64 SMP lifecycle and device-memory work specified
+by `docs/MEMORY_MODEL.md` §10 and stages M7-X/M7-A. Building it is a genuine design task under
+Law 5 (`docs/REVIEW.md:63`), not an afternoon's plumbing.
 
 ### 10.3 The consequence: two routes to Spike 5, and they are not equal
 
@@ -1113,11 +1127,10 @@ category; a bare `decide` needs none, because the kernel performs that evaluatio
 no axiom is introduced (`docs/REVIEW.md:106`, Law 10, rungs 2–4).
 
 Counted at commit `38efb5f`: **81 entries — 34 `grandfathered`, 45 `axiom-only`, 2
-`finite-forall`.** The target the owner has stated is zero; the count is the score
-(`docs/adr/0038-standards-are-earned-before-imposed.md`). `docs/ORACLE_DEBT.md` is the
-full audit of this ledger and the mapped path to zero — note its headline figures are from
-2026-08-27 at 80 entries and the distribution has since moved, so read it for the shapes and
-the task mapping rather than for the counts.
+`finite-forall`.** The target the owner has stated is zero; the count is the score.
+The retired oracle-debt audit supplied the historical shape and path-to-zero analysis; its headline
+figures were from 2026-08-27 at 80 entries and are not a current count. The surviving architectural
+summary is `docs/TECHNICAL_NOTES.md` §1.
 
 ### 11.2 The debt is minted by the target convention, not by instructions
 
@@ -1129,7 +1142,7 @@ This was measured, and the measurement corrected a coordinator's assumption:
   `decide` across the sharded `Gasm/Targets/X86_64/RoundtripGate/*` gate theorems.
 - **The Linux target added a net 24 entries.** Measured directly:
   `git show d3c2fc2 --numstat -- scripts/gate_allowlist.txt` reports 30 added, 6 removed.
-- The conclusion, recorded in `docs/adr/0039-x86-isa-expansion-prerequisites.md`: "instructions
+- The conclusion, recorded in `docs/X86_ISA_EXPANSION_PREREQUISITES.md`: "instructions
   add **zero** allowlist entries…; the ~24 came from the *target*. The debt mint is the
   pointwise spike-equivalence convention, not the ISA."
 
@@ -1145,8 +1158,8 @@ number of entries.
 
 ### 11.3 The convention is ours, and it is known-bad
 
-Per `docs/adr/0038-standards-are-earned-before-imposed.md`, we do not get to gate you on a
-standard we do not meet at 81 entries; the proposed ratchet gate on this count was explicitly
+We do not get to gate a new target on a standard the existing target does not meet at 81 entries;
+the proposed ratchet gate on this count was explicitly
 declined for that reason. Telling you is not the same as gating you. The alternative to
 telling you is exporting a defect silently, which is worse for you than knowing.
 
@@ -1181,15 +1194,10 @@ codebase actually practises. Nobody will block it, and per §11.3 nobody has sta
 
 The recommendation, offered because you would otherwise have to discover the alternatives by
 hitting them: **prove the routine, then derive the trace.** `fib_iter_asm_soundness` shows
-the routine half is reachable with loop-invariant induction. The tracked work on the other
-half is `docs/tasks/PA8-law9-migration.md` (the Law 9 migration itself),
-`docs/tasks/PA15-fibonacci-loop-invariant-induction.md` (the technique),
-`docs/tasks/PA18-small-domain-decide-migration.md` (which domains are small enough for rung
-2), `docs/tasks/PA16-codec-roundtrip-universal-soundness.md` (Spike 5's roundtrip claims),
-and `docs/tasks/PA14-crc32-table-identity-structural-closure.md` (structural closure of the
-CRC table identity). **Status**: none of PA8, PA14, PA15, PA16 or PA18 has landed; each is
-`status: ready` in its own frontmatter, and `docs/ORACLE_DEBT.md` Part 4 classifies PA14 and
-PA16 as not confidently reaching zero on any bounded timeline. Read Law 9
+the routine half is reachable with loop-invariant induction. Remaining work includes the Law 9
+migration, small-domain `decide` classification, codec-wide universal soundness, and structural
+CRC-table closure. **Status**: those gaps remain open, and some may not confidently reach zero on a
+bounded timeline. Read Law 9
 (`docs/REVIEW.md:98`) and Law 10 (`docs/REVIEW.md:106`) and choose knowingly.
 
 If you do land pointwise entries, the one thing that genuinely matters is that the
@@ -1200,19 +1208,18 @@ debt but the author's.
 
 ---
 
-## 12. Weak memory: where our x86-TSO assumptions live, and what ARM will find
+## 12. Weak memory: where the current sequential assumptions live
 
 §8 argued that an AArch64 target is the strongest available adversarial witness for a
-concurrency memory model. That argument is unchanged. What has changed since §7 was written
-is that the x86 side of it is now a written design rather than rumour, so the specific
-places where a TSO assumption could hide can be named.
+concurrency memory model. The consolidated architecture-neutral contract and the distinct
+x86-TSO/AArch64 models are specified in `docs/MEMORY_MODEL.md`. This section records where
+the current implementation is still sequential or x86-specific; it does not define a second
+memory model.
 
 ### 12.1 The state of the memory model
 
-`docs/X86_MEMORY_MODEL.md` landed 2026-08-28. Its own §1 states: "this is a design document,
-not a report of built machinery. **Nothing specified here exists in the tree**." Its scope is
-x86-TSO as an operational store-buffer machine over Write-Back memory only. Its verified
-findings, which are the useful part for you:
+`docs/MEMORY_MODEL.md` §§2 and 5 distinguish the present implementation from the required
+design. The useful current findings are:
 
 - Zero atomic instruction forms exist: no `LOCK` prefix, no `CMPXCHG`, no `XADD`, no
   `MFENCE`/`LFENCE`/`SFENCE`, no non-temporal store.
@@ -1223,9 +1230,9 @@ findings, which are the useful part for you:
 - A previously-displayed ordering theorem in `docs/TARGETS/X86_64.md` §3 was fiction and was
   removed (commit `f597a53`). See §12.4.
 
-`docs/SPIKES/SPIKE8_MULTITHREADING.md` is the paired spike design (tasks MT1–MT6), also
-design-only. The owner's ruling that couples the two to ISA growth is quoted verbatim in
-`docs/BORROW_MODEL.md:40`: *"isa scale up: we need multithreading and borrowing resolved"*.
+`docs/SPIKES/SPIKE8_MULTITHREADING.md` is the paired cross-target validation plan. Its work
+is sequenced by `docs/MEMORY_MODEL.md` §14 (M0–M9), including the ownership, lifecycle,
+futex/parking, lock, and bare-metal paths needed before ISA scale-up can claim concurrency.
 
 ### 12.2 Where a TSO assumption plausibly hides
 
@@ -1236,8 +1243,8 @@ correct for x86 today:
    (`Gasm/Targets/X86_64/MemoryCell.lean:41-43`). There is no read-modify-write kind, no
    acquire/release marking, and no barrier kind. AArch64's `LDXR`/`STXR` exclusive pairs,
    `LDAR`/`STLR`, and `DMB`/`DSB` have no descriptor to declare themselves in.
-   `docs/X86_MEMORY_MODEL.md` §4 plans a `.rmw` kind as MT1's deliverable. **Status**: `.rmw`
-   does not exist; it is named only in doc comments and design prose.
+   `docs/MEMORY_MODEL.md` §4 specifies distinct plain, atomic RMW, and exclusive actions as
+   stage M0's deliverable. **Status**: that common dynamic event vocabulary does not exist.
 2. **The store footprint is the ordering model.** `WritesWithin` and `ReadsWithin`
    (`Gasm/Targets/X86_64/MemoryFrame/Common.lean:39-42`, `:73-78`) relate a single `step` to
    a single pre-state and post-state. There is no interleaving, no buffer, no drain. A frame
@@ -1247,7 +1254,8 @@ correct for x86 today:
    `Gasm/Targets/X86_64/Instructions/Xchg.lean:27-37` carries a note that the tree's only
    form is register-register with `memAccesses _ := []`, that the *memory* form is
    architecturally LOCK'd on x86 whether or not the prefix is written, and that its
-   sanctioned landing is MT1. On AArch64 the corresponding construct is not one instruction
+   sanctioned landing is `docs/MEMORY_MODEL.md` stage M2-X. On AArch64 the corresponding
+   construct is not one instruction
    with implicit atomicity but an `LDXR`/`STXR` pair whose exclusive monitor is invalidated by
    interrupts, context switches, and any intervening exclusive load —
    `docs/TARGETS/ARM.md:73-79` sketches the proof obligations, and its restriction of such
@@ -1263,9 +1271,10 @@ correct for x86 today:
    memory model, "poll a flag then store a byte" is a place where ordering is load-bearing in
    a way it is not on TSO.
 
-**Status**: no ARM memory model is designed, no `.rmw` or ordering descriptor exists, and
-`docs/SPIKES/SPIKE8_MULTITHREADING.md` §6.3 sequences even *x86* bare-metal SMP last, at cost
-"roughly comparable to the original bare-metal target bring-up itself."
+**Status**: the AArch64 model is designed in `docs/MEMORY_MODEL.md` §5.2, but no executable
+weak-memory machine, common atomic/ordering descriptor, or SMP runtime exists. The Spike 8
+plan deliberately validates Linux AArch64 and AArch64 bare metal independently of the x86
+adapters; the staged dependencies are in the canonical model's §14.
 
 ### 12.3 Why finding one of these is a service
 
@@ -1276,8 +1285,8 @@ the first `DMB`, the first `LDXR`/`STXR` pair, the first PL011 flag-poll whose o
 matters. The correct response at that moment is not to widen `MemAccessKind` locally — it is
 to record that the descriptor vocabulary does not cover the construct, because that is
 evidence the model needs, and it is evidence nobody can generate on x86.
-`docs/X86_MEMORY_MODEL.md` §7 sets out how TSO claims get falsified rather than merely
-stated; ARM is the falsifier that x86 cannot be.
+`docs/MEMORY_MODEL.md` §§5.2 and 13 set out how AArch64 claims are checked against a pinned
+formal Arm profile and native observations. ARM exposes weak behaviors that x86 alone cannot.
 
 ### 12.4 One precedent worth knowing before you write documentation
 
@@ -1285,8 +1294,7 @@ stated; ARM is the falsifier that x86 cannot be.
 asserting a store-ordering property. No such declaration existed anywhere in the tree. It was
 removed in commit `f597a53`. The doc-facade linter had a real gap here — checks 1 and 2 of
 `scripts/check_doc_facade.py` operate on prose with fenced blocks stripped, so a fabricated
-theorem displayed as code was structurally invisible. That gap is filed as
-`docs/tasks/TC22-doc-lean-fence-facade.md` and a `THEOREM_FENCE_ABSENT` check now exists in
+theorem displayed as code was structurally invisible. A `THEOREM_FENCE_ABSENT` check now exists in
 the linter, but the episode is the reason for the standing rule: **do not display a theorem
 that does not exist.** A displayed theorem carries the visual authority of checked code in a
 project whose entire premise is that displayed theorems are real.
@@ -1369,23 +1377,21 @@ because they are the design's own account of what a seal does and does not buy:
   load from an undeclared address, store the loaded value, and still satisfy the obligation.
   The repair is the `StoreAgreeOn` conjunct (`Gasm/Targets/X86_64/MemoryFrame/Common.lean:56-59`,
   folded into `ReadsWithin` at `:73-78`). The comment at `:48-55` cites a negative control in
-  `MemoryFrame/NegativeControl.lean`. **Status**: that file does not exist in the tree at
-  commit `38efb5f`; the conjunct is present and the refutation witness it cites is not.
+  `MemoryFrame/NegativeControl.lean`. **Current status**: both the conjunct and that negative
+  control are present; the historical absence at commit `38efb5f` has been repaired.
 
-### 13.3 What is being designed right now and will change the authoring surface
+### 13.3 What will change the authoring surface
 
-- **`docs/BORROW_MODEL.md`** (2026-08-28) designs borrowing as obligation dispatch: an
-  indexed monad, a custom weaving DSL, and capability transfer where lending a read costs the
-  write capability until every read is discharged. Tasks BR1–BR3. It already cites §7 of this
-  document. **Status**: design only — "**No borrow mechanism exists in the tree**" is its own
-  §1. `Gasm/Core/BlockM.lean` (Atkey's parameterised monad) exists and is used by nothing.
-- **MH2** (uop centralisation) and **MH3** (the Law 11 capability authoring surface) are both
-  `status: ready` and unstarted; `docs/MEMORY_HOOK.md` §8 sequences them after MH1.
-- **MT1** (atomic primitives) is `status: blocked` on `docs/X86_MEMORY_MODEL.md`.
+`docs/MEMORY_MODEL.md` §§4, 6, and 7 consolidate the required event, borrowing, and lock
+design. It replaces the old task labels with exit-criterion stages: M0 for the event graph, M1
+and M4 for indexed authority and cross-thread transfer, and M5-S/M5-A for the portable lock
+contract and its AArch64 realization. `Gasm/Core/BlockM.lean` exists, but its open `set`
+operation and value-level permission/obligation fields do not enforce those transitions.
 
-The practical consequence: **the descriptor layer (`MemAccessSpec`, `memAccesses`,
-footprints, frame lemmas) is the part to mirror; the capability and permission layer is
-not**, because it is about to be replaced by the borrow model rather than extended.
+The practical consequence: **the descriptor layer (`AArch64MemAccessSpec`, access lists,
+footprints, and frame lemmas) is the part to extend toward M0; the current capability and
+permission layer is not a finished borrowing model.** New work should target the canonical
+resource algebra rather than extend `PermissionShare.Locked`.
 
 ### 13.4 The permissions slot ARM already has, and what it is worth
 
@@ -1396,12 +1402,12 @@ phantom. Neither field (`tokens`, `disjoint`) mentions it, and the whole contain
 one consumer in the tree, `ComposedState.perms` at `Gasm/Core/State.lean:31`. Splitting
 (`MemoryPerm.split`, `Gasm/Core/Permissions.lean:38-49`) is spatial only and carries the same
 `share` into both halves; there is no `Exclusive → ReadOnly ⊗ ReadOnly` operation anywhere,
-which is precisely the primitive `docs/BORROW_MODEL.md` §1.1 identifies as missing. Law 11
+which is one of the gaps specified by `docs/MEMORY_MODEL.md` §6.2. Law 11
 (`docs/REVIEW.md:127`) states its own position plainly: "zero modules are migrated to the
 capability-authoring path today… Any claim that current artifacts satisfy this law is false."
 
-So: the slot exists, nothing occupies it on any architecture, and filling it for ARM before
-the borrow model resolves would be building against a moving part.
+So: the slot exists, nothing occupies it on any architecture, and filling it for ARM should
+be done as the M1/M4 common authority work rather than as an ARM-local permission scheme.
 
 ### 13.5 One more moving part, outside memory
 
@@ -1416,30 +1422,23 @@ The tree is `Gasm/Core/`, `Gasm/Effects/`, `Gasm/Targets/<Target>/`, and there i
 
 ## 14. Where to write things down
 
-The repository is the only channel between us, in both directions, and it is more asymmetric
-than it looks: **commit messages are not a durable record here.** ADR-0031 (D23) rules that
-`PLAN.md`, `docs/adr/` and `docs/tasks/` become the sole surviving decision history once the
-repository is flattened, and `scripts/check_record.py` gates that record — duplicate decision
-IDs, decisions without ADRs, ADRs without a `## Provenance` section, and dangling
-cross-references inside those files all fail the build. A decision explained only in a commit
-message is a decision that will be lost.
+The repository is the durable coordination channel; commit messages alone are not enough.
+The old per-task and ADR directories were removed during documentation consolidation. Do not
+recreate or link to that retired process.
 
 Concretely, and offered as orientation rather than as process imposed on you:
 
 - **This file** is the right place for ARM target facts — what you measured, what you chose,
   what surprised you. Extending it is what it is for; §1–§9 were written by someone who
   expected to be replaced by whoever read them.
-- **`docs/tasks/`** holds one markdown file per unit of work with YAML frontmatter
-  (`id`, `title`, `status`, `blocked_on`, `after`, `related`, `track`, `priority`, `design`,
-  `date`). `scripts/task_frontier.py --validate` checks the DAG. `docs/tasks/MH1-semantic-memory-hook.md`
-  is a representative worked example.
-- **`docs/adr/`** records decisions; `PLAN.md` records the owner's rulings. Both are owned by
-  the coordinating session, and both are gated by `check_record.py`, so a change there that
-  does not match its counterpart fails.
-- **`CONTRIBUTING.md`** §"The gates that must pass" lists the merge-gate commands, and
-  §"Describing not-yet-built machinery" documents the `**Status**:` convention that
-  `scripts/check_doc_facade.py` keys on. Every unbuilt claim in a document needs one; that is
-  Law 9's requirement and it is mechanically checked.
+- **`docs/MEMORY_MODEL.md`** is the canonical concurrency, ownership, lock, platform, and
+  architecture contract; its §14 is the implementation sequence and acceptance frontier.
+- **`docs/ROADMAP.md`** records the broad delivery sequence, while `docs/DECISIONS.md` records
+  durable project rulings and `docs/TECHNICAL_NOTES.md` records known implementation debt.
+- **`docs/SPIKES.md`** indexes executable validation plans; the full multithreading matrix is
+  `docs/SPIKES/SPIKE8_MULTITHREADING.md`.
+- **`docs/README.md`** is the document index. New design-only material must state its status
+  honestly so `scripts/check_doc_facade.py` can distinguish plans from implemented claims.
 
 The most useful thing you can write down is a place where this codebase's conventions did not
 fit AArch64. §12.3 is the example: a construct with nowhere honest to declare itself is

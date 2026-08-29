@@ -1,513 +1,281 @@
-# Spike 8: Multithreading — TSO Litmus Battery & Verified Spinlock Counter
+# Spike 8: Cross-Architecture Multithreading and Synchronization
 
-**Status**: This is a **design document for a spike that is not yet built**. Nothing
-described below exists in the Lean tree today unless explicitly marked otherwise; every
-Lean identifier named here is proposed, not implemented. Implementation is tracked as
-`MT1`–`MT6` in `docs/tasks/`, and is blocked on the sequencing dependencies in §9.
-The memory model this spike consumes is `docs/X86_MEMORY_MODEL.md` (landed in the same
-change window as this document, by a separate design effort); its Lean embodiment is
-that design's XM1, and its validation instrument is its XM2 — both demand-gated on
-exactly this spike (its §2.2 trigger 2). §5.2 maps this spike's demands onto that
-document's answers.
+**Status:** design-stage validation vehicle; not implemented. The canonical semantics,
+ownership rules, dependency sequence, and proof requirements are in
+`docs/MEMORY_MODEL.md`. This document defines the end-to-end programs that force that model to
+be real.
 
-Spike 8 is the first concurrent spike. The owner's direction, verbatim: *"are we doing
-atomic accesses yet for x86? they need a causality memory model stated"* and *"we can
-grow a multithreading spike for this, and i think that's a reasonable thing to do before
-scaleup (and validate it against windows, linux, bare metal)"*. Per the spike discipline
-(`docs/SPIKES.md` §1, ADR-0008), the memory model is not written speculatively and then
-searched for a use: this spike is the demand that forces it to be real, and the
-instrument that validates it against three real machines.
+Spike 8 is a family of equivalent validation programs, not one architecture-specific instruction
+stream. It validates:
 
-The spike is one program, three targets:
+- x86-64 TSO on Windows, Linux, and x86 bare metal;
+- AArch64 weak memory on Linux and AArch64 bare metal;
+- cross-thread capability partition and lock-protected ownership transfer;
+- Linux process-private futex wait/wake on both hosted architectures;
+- Windows thread creation and joining, with a Windows parking adapter selected by the canonical
+  design’s stop-and-design gate;
+- x86 and AArch64 bare-metal SMP through separate bring-up mechanisms.
 
-1. **x86_64 Windows (`.exe`)** — threads via `CreateThread` / `WaitForSingleObject`
-   through the existing Win32 import machinery.
-2. **x86_64 Linux (static ELF)** — threads via raw `SYS_clone` with an `mmap`'d child
-   stack, consistent with the existing raw-syscall Linux target.
-3. **x86_64 bare metal (QEMU)** — genuine SMP bring-up (INIT–SIPI–SIPI, real-mode
-   trampoline, per-CPU stacks). Materially more expensive than the other two; sequenced
-   as Phase C with its own Stop-and-Design gate (§8.3, MT6).
+No part of this spike may introduce a local memory model, borrow model, lock invariant, or causal
+relation. It consumes the corresponding stage of `docs/MEMORY_MODEL.md` and provides its
+validation demand.
 
 ---
 
-## 1. What the Spike Must Force (and Why Threads-and-Join Proves Nothing)
+## 1. Why Spawn-and-Join Is Not Enough
 
-A spike that spawns threads, joins them, and prints a result exercises the *spawn
-mechanism* but places zero demand on the memory model: any model from sequential
-consistency down to no-model-at-all makes it pass. Spike 8 is therefore built from
-programs whose **observable outcomes depend on the ordering model**:
+A program that creates two threads, joins them, and prints a result proves only that a lifecycle
+adapter ran. Spike 8 therefore contains three complementary workloads:
 
-- A **litmus battery** (§2) whose per-test outcome histograms distinguish x86-TSO from
-  both stronger (SC) and weaker (ARM-like) models. This is the model's validation
-  instrument, playing the role `x86_fuzzer` plays for single-instruction semantics.
-- A **verified computation** (§3) — a spinlock-protected shared counter — whose
-  correctness theorem is only provable *given* TSO ordering and *given* atomic
-  read-modify-write, and whose hardware execution fails observably if either is wrong
-  in the implementation.
+1. **Architecture-specific litmus suites** distinguish allowed and forbidden memory outcomes.
+2. **A capability-verified shared counter** forces atomicity, visibility, mutual exclusion, and
+   ownership transfer to compose.
+3. **A contended blocking-lock run** forces the scheduler and Linux futex or platform parking
+   adapter to compose with the same lock proof.
 
-The two halves have complementary failure diagnostics: a litmus violation indicts the
-*model*; a counter mismatch with a clean litmus battery indicts the *implementation*.
+The lifecycle-only smoke test still exists, but it is a prerequisite rather than the acceptance
+bar.
 
 ---
 
-## 2. The Litmus Battery
+## 2. Litmus Suites
 
-Three classic tests, two threads each, shared locations `x`, `y`, `data`, `flag`
-initialized to `0` before every iteration and placed on **distinct cache lines**.
-Notation: `r0`, `r1`, `r2` are per-thread registers whose final values are the outcome.
+Litmus definitions live in one declarative schema describing threads, initial memory, instructions,
+observed registers, and target profile. Expected outcome sets are derived mechanically from the
+selected architecture model; emitted programs consume them rather than transcribing tables.
 
-### 2.1 SB (Store Buffer) — the test that falsifies sequential consistency
+### 2.1 x86-64 Profile
 
-| Thread 0          | Thread 1          |
-|-------------------|-------------------|
-| `MOV [x], 1`      | `MOV [y], 1`      |
-| `MOV r0, [y]`     | `MOV r1, [x]`     |
+The first x86 suite includes:
 
-| Outcome `(r0,r1)` | SC        | x86-TSO   | Role |
-|-------------------|-----------|-----------|------|
-| `(1,1)` `(1,0)` `(0,1)` | allowed | allowed | uninteresting |
-| `(0,0)`           | **forbidden** | **allowed** | **witness outcome** |
+- Store Buffering (SB), with `(0,0)` allowed under TSO;
+- Message Passing (MP), excluding the outcome that observes the flag without prior data;
+- Load Buffering (LB), same-location coherence (`CoRR`/`CoRW`/`CoWW` as applicable), and
+  two-writer order tests;
+- IRIW/2+2W-style observation tests that exercise x86 global store order and multi-copy atomicity;
+- SB with `MFENCE`, excluding `(0,0)`;
+- locked-RMW total-order, fence-placement, and release/acquire handoff variants;
+- negative controls that remove a fence or atomic operation and change the model outcome set.
 
-`(0,0)` is only reachable when each thread's store is still in its store buffer while
-the other thread's load reads memory — the store→load reordering that defines TSO. On
-real silicon it appears reliably within thousands of iterations of a properly staggered
-harness. **If the model were SC, this outcome would falsify it on the first witnessed
-run.** Conversely, a harness that never witnesses `(0,0)` on silicon is not exercising
-the race and its "pass" is vacuous (§7.2).
+The model side uses the WB/TSO profile in `docs/MEMORY_MODEL.md` §5.1. Device/MMIO operations
+are not mixed into RAM litmus tests.
 
-### 2.2 MP (Message Passing) — the test that falsifies a too-weak model
+### 2.2 AArch64 Profile
 
-| Thread 0            | Thread 1            |
-|---------------------|---------------------|
-| `MOV [data], 1`     | `MOV r1, [flag]`    |
-| `MOV [flag], 1`     | `MOV r2, [data]`    |
+The first AArch64 suite includes:
 
-| Outcome `(r1,r2)` | x86-TSO | ARM/weak | Role |
-|-------------------|---------|----------|------|
-| `(0,0)` `(0,1)` `(1,1)` | allowed | allowed | uninteresting |
-| `(1,0)`           | **forbidden** | allowed | **forbidden outcome** |
+- SB and MP using plain weakly ordered `LDR`/`STR` (not relaxed atomics);
+- MP using release/acquire operations;
+- address-, data-, and control-dependency families appropriate to the pinned profile;
+- WRC, RWC, IRIW, and other observation/cumulativity families from the pinned official suite;
+- barrier variants that distinguish the selected `DMB` access classes and shareability scopes;
+- exclusive-monitor success, failure, retry, and interference tests;
+- negative controls that weaken release/acquire or remove a required barrier.
 
-`(1,0)` requires either store–store or load–load reordering, both of which TSO
-prohibits. Observing it on x86 silicon would mean the model's ordering guarantees are
-claims the hardware does not honor — model unsound, hard failure. This test is also
-what makes the *spinlock unlock* argument in §3 non-vacuous: unlocking with a plain
-`MOV` is correct **only because** of exactly these two preserved orderings.
+The suite does not reuse x86 expected outcomes. The selected pinned official Arm formal profile is
+the expected-set oracle required by `docs/MEMORY_MODEL.md` §5.2. Native observations must be a
+subset of that set; absence of an allowed outcome on finite hardware does not forbid it.
 
-### 2.3 SB+MFENCE — the test that validates the fence
+### 2.3 Harness Protocol
 
-Same as SB with `MFENCE` inserted between the store and the load in **both** threads.
-Under TSO-with-fences, `MFENCE` drains the store buffer, so `(0,0)` becomes
-**forbidden**. Observing it means the fence semantics (or its encoding) are wrong.
+Two persistent workers execute each test for a configurable iteration budget. The harness design is
+itself verified or independently validated and specifies:
 
-### 2.4 Harness shape
+- generation-counted start and completion barriers;
+- exact reset and result-publication ordering;
+- separate cache lines for test locations, control words, and result slots;
+- randomized bounded staggering without assuming a particular schedule;
+- an external timeout that reports a hang distinctly from a forbidden outcome;
+- histogram, seed, architecture profile, CPU/backend, and iteration metadata.
 
-Two persistent worker threads; per-iteration handshake (start flag, completion flags),
-randomized stagger loops (0–63 empty iterations per thread per run) to move the race
-window; `K` iterations per test per run (default 100,000, env-overridable); outcome
-histogram accumulated per test. The handshake itself uses the primitives under test —
-this circularity is standard litmus-harness practice (herd/litmus7 does the same) and
-is acceptable because a broken primitive surfaces as a forbidden outcome or a hang, not
-as a silent pass.
-
-### 2.5 Output protocol (deterministic verdicts over nondeterministic runs)
-
-Histograms are nondeterministic; the spike test protocol (`docs/SPIKES.md` §4) is
-exact-match on stdout. Resolution: **stdout carries only quantized verdict lines;
-histograms go to stderr** as a diagnostic artifact.
-
-```
-SPIKE8 SB       forbidden=0 witness=present
-SPIKE8 MP       forbidden=0
-SPIKE8 SB+FENCE forbidden=0
-SPIKE8 LOCKCOUNT value=200000 expected=200000
-SPIKE8 PASS
-```
-
-Exit codes follow the honest-runner convention (`docs/SPIKES.md` §4 item 5): `0` = all
-verdicts pass *including* the SB witness floor; `1` = a forbidden outcome was observed
-or the counter is wrong (verification failure — the stderr histogram and the iteration
-seed are the failure artifact); `2` = the run could not meaningfully validate the model
-(SB witness absent — the race was not exercised, e.g. single-CPU host or QEMU TCG,
-§6.3) and this is reported honestly rather than synthesized into a pass.
+The harness must not assume that a broken synchronization primitive can only hang or produce a
+forbidden outcome. Negative controls cover stale-result reuse, accidental worker serialization, and
+lost wakeups.
 
 ---
 
-## 3. The Verified Computation: XCHG Spinlock Counter
+## 3. Verified Lock Counter
 
-Two threads each perform `M = 100,000` increments of a shared 64-bit counter under a
-test-and-set spinlock:
+Two threads each perform a fixed number of increments of a shared counter. The counter and any
+ordinary protected state are accessed only through the exclusive capability carried by a successful
+lock guard. The portable lock/parking state is a naturally aligned, stable-lifetime 32-bit atomic
+word so the same abstract protocol refines to Linux futexes on both architectures.
 
-```
-acquire:  MOV  rax, 1
-spin:     XCHG rax, [lock]      ; atomic RMW (implicit LOCK), full fence
-          TEST rax, rax
-          JNZ  spin
-          ; --- critical section ---
-          MOV  rax, [count]
-          ADD  rax, 1
-          MOV  [count], rax
-          ; --- end critical section ---
-release:  MOV  qword [lock], 0  ; plain store: release IS enough — but only under TSO
-```
+The architecture-neutral proof establishes:
 
-Assertion at join: `[count] = 2 * M = 200,000`.
+- at most one live guard owns the protected region;
+- failed try-acquire returns no guard and no protected capability;
+- successful acquire creates a typed must-release obligation;
+- release returns the protected capability to the lock invariant and consumes the obligation;
+- after successful joins, the parent reacquires the lock, reads the final count under its guard,
+  proves it is the sum of the two thread contributions, and releases the guard;
+- the quiescent parent destroys the mutex, revokes every atomic grant, and recovers raw authority
+  for the lock word and protected region with no live protocol obligation;
+- safety holds for every schedule; progress is a separate theorem under named fairness assumptions.
 
-Every line of this program leans on the model:
+Target implementations differ:
 
-- **`XCHG r64, [m64]` must be an atomic read-modify-write** (implicit `LOCK`, Intel
-  SDM). Today the tree has only `XchgR64R64` (`Gasm/Targets/X86_64/Instructions/
-  Xchg.lean`) — no memory form exists, and no atomicity is modelled anywhere. Without
-  atomic RMW in the model, mutual exclusion is simply unprovable — the forcing is at
-  proof time. (New form tracked as MT1.)
-- **Unlock by plain `MOV` is correct only under TSO**: the release store cannot be
-  reordered before the critical-section store (store–store order) nor before the
-  critical-section load (load–store order). Under a weaker model the proof does not
-  close without an `SFENCE`; under SC the SB litmus falsifies the model instead. The
-  proof of this line *is* the memory model earning its keep.
-- **The critical section is a deliberate load/add/store**, not a locked `ADD [m], r`:
-  if mutual exclusion is broken, the lost-update window is wide and the final count is
-  observably short on hardware with high probability.
-- **The spin loop is unbounded** — the first loop in the tree whose termination is a
-  liveness property, not a fuel bound. It instantiates the ratified inner/outer
-  reactive contract (§5.4).
+- **x86-64:** locked exchange or compare/exchange acquisition and a TSO-proven release store;
+- **AArch64:** an exclusive-monitor acquisition loop with acquire semantics, and release through
+  `STLR` or another sequence proved by the AArch64 model. LSE is outside the v1 profile.
 
-What would be observably wrong: `LOCKCOUNT value=199987 expected=200000` — a lost
-update. With a clean litmus battery this indicts the implementation (broken atomic,
-misencoded fence, wrong lock protocol), not the model.
+The critical section remains a plain load/add/store sequence so broken exclusion is observable. It
+is not replaced by an atomic increment, because that would stop testing capability transfer and
+mutual exclusion.
 
 ---
 
-## 4. Falsification Table — What a Wrong Model Looks Like
+## 4. Blocking and Futex Workload
 
-| If the model is…            | Formal symptom                                        | Hardware symptom                                  |
-|-----------------------------|-------------------------------------------------------|---------------------------------------------------|
-| SC (too strong)             | Model outcome set for SB excludes `(0,0)`             | SB witnesses `(0,0)` on silicon → run exits `1` against the model's predicted set |
-| Weaker than TSO             | MP `(1,0)` appears in the model's allowed set; the model-side MP theorem (§7.1) is unprovable as stated | None — hardware cannot exhibit an outcome to prove *forbiddenness*; the guard is the Lean-side enumeration theorem plus SDM citation |
-| Missing RMW atomicity       | Mutual-exclusion theorem unprovable                   | Counter short (lost updates)                       |
-| Wrong fence semantics       | SB+MFENCE enumeration retains `(0,0)`                 | SB+MFENCE witnesses `(0,0)` → exit `1`             |
-| Right model, wrong encoding | Proofs all close                                      | Litmus/counter failures with clean proofs → indicts emitter/encoding, caught by hardware run |
+Every hosted mutex variant adds deliberate contention so at least one worker takes the parking slow
+path. Linux uses the process-private futex profile in `docs/MEMORY_MODEL.md` §9:
 
-The asymmetry in row 2 is fundamental and stated honestly: hardware runs can only
-falsify claims of *forbiddenness* (by witnessing) — they can never establish it. Claims
-of forbiddenness rest on the Lean-side model enumeration plus the ingested Intel SDM
-memory-ordering text (the `intel_sdm` reference corpus, Law 4). Claims of
-*allowedness* get witness floors where reliably observable (§7.2).
+1. user-space atomic state determines whether acquisition can proceed;
+2. the waiter calls wait only after observing the contended state;
+3. compare-and-enqueue is modeled atomically, preventing a lost wakeup;
+4. release publishes protected writes through the architecture-specific atomic protocol;
+5. wake makes an eligible waiter runnable but creates no memory-order edge by itself;
+6. the waiter loops and rechecks the user-space state after every return.
 
----
+Before emission, the design gate selects the exact 32-bit mutex values and transitions, waiter
+marking, wait expected value, unlock value, wake policy, and retry behavior. The target proof also
+orders the release publication before the wake/notification side effect; this prevents a waiter
+from re-enqueuing after the only wake without pretending the wake is a memory fence.
 
-## 5. What This Spike Forces Into the Repository
+Linux acceptance requires evidence that the futex wait and wake paths both executed; a run that
+never blocks is a lifecycle/lock test but not a futex validation.
 
-This section is the design's real output: the demand list. Each item is
-proposed-and-unbuilt (**Status**: none of §5 exists in the tree today; tracked
-MT1–MT4).
+The v1 emitted program uses no timeout and no signal handling. Unsupported futex operations return
+an explicit unsupported result rather than receiving invented success semantics.
 
-### 5.1 ISA surface (MT1) — deliberately minimal
-
-| Instruction | Why | Notes |
-|---|---|---|
-| `XCHG r64, [m64]` | spinlock acquire | Memory form of existing `Xchg.lean`; implicit-LOCK atomicity is the point. Encodes `87 /r`. |
-| `MFENCE` | SB+MFENCE litmus | `0F AE F0`. First fence in the tree. |
-| `PAUSE` (optional) | spin-loop hygiene | `F3 90`. Semantically a no-op; perf-model-relevant only. May be deferred without harming the spike. |
-
-**Deliberately deferred, not forgotten**: general `LOCK` prefix machinery, `CMPXCHG`,
-`XADD`, `SFENCE`/`LFENCE`. No program in this spike demands them; growing them now
-would be the wsc failure mode (ADR-0008). They arrive when a spike needs CAS.
-
-Both new forms carry the full instruction contract: `memAccesses` descriptors using
-XM1's ordering vocabulary (`docs/X86_MEMORY_MODEL.md` §2.3: the atomic RMW's entries
-carry `order := .locked`; `MFENCE` is not an access and declares a `fenceEffect`
-instead of a fake empty-footprint descriptor), roundtrip/registry entries, NASM
-differential (`encoding_fuzzer`), silicon fuzz (`x86_fuzzer`) for the single-threaded
-semantics, and sourced cost coefficients per D30's P4/P5 ruling. Per that design's §6:
-the first atomic form, its `.locked` descriptors, and XM1's TSO machine (with its
-degeneration theorem) are **one indivisible landing** — MT1 cannot land before or
-without XM1. Its §6 class 2 recommends fences land only with the first threaded spike;
-this spike *is* that spike, so `MFENCE` arriving here is consistent with its Q1
-default.
-
-### 5.2 Demands on the memory model — and how the landed design answers them
-
-`docs/X86_MEMORY_MODEL.md` was designed concurrently by a separate effort and landed
-in the same change window as this document. **Ownership split**: that document owns
-the model — its structure, SDM citations, memory-type scope, trust posture, and the
-XM1/XM2 implementation tasks. This document owns the *demand list*: what Spike 8
-needs the model to answer. The mapping, demand by demand:
-
-1. **An operational small-step model with enumerable litmus outcome sets** →
-   satisfied: its §2.1 states x86-TSO operationally (per-thread FIFO store buffers,
-   store forwarding, locked-RMW drain-and-indivisible, `MFENCE` drain); its §7 makes
-   litmus outcome sets mechanically enumerable (`decide`-class, Law 10 rung 2) as
-   XM2's model-side deliverable.
-2. **Exactly four primitive behaviors** (plain store, plain load, locked RMW, fence)
-   → satisfied: §2.3's `MemOrder.plain`/`.locked` on the MH1 descriptor plus the
-   `fenceEffect` field with `drainStoreBuffer` as TSO's only needed constructor.
-3. **WB-only scope for v1** → satisfied verbatim (its §2.1 scope paragraph); MMIO/UC
-   ordering for the bare-metal LAPIC (§6.3 here) is exactly the "spike forces a scope
-   extension through Law 5" case it anticipates, owned by MT6's design pass.
-4. **Atomic RMW rides the MH1 hook, untearable** → satisfied by construction: the
-   ordering vocabulary attaches to `MemAccessSpec` itself, and §2.3's descriptor
-   fidelity obligation (frame-lemma convention extended with atomicity) makes
-   `.locked` a proof-linked property, not a label.
-5. **An outcome-set query usable in theorem statements** → XM2's model-side
-   enumeration, from which §7.1's outcome-set theorems are stated. This spike embeds
-   the SB/MP/SB+MFENCE **subset** in its emitted binaries; XM2's host harness owns
-   the full battery (LB, 2+2W, IRIW, fenced/locked variants) and the Law 14
-   calibration-artifact regime for silicon results. One source for test definitions
-   and expected outcome sets (Law 12): the spike consumes XM2's encodings, never
-   re-transcribes them.
-
-Two obligations the model document explicitly leaves to this spike design (its §3
-items 1–2 and closing note), accepted here and assigned to MT3: the multi-threaded
-successor of `stampSingleThreaded` consumes the machine model's synchronizes-with
-edges as input (one `VectorClock` vocabulary, no second happens-before), and the
-**trace-order soundness** connection theorem — a causal edge asserted in the
-canonical trace must be backed by machine happens-before (po, or a chain through sw).
-
-### 5.3 Machine state (MT2) — the D30 demand arriving
-
-ADR-0039/D30 ruled machine state grows on spike demand. This spike is that demand.
-The store-buffer half is already claimed: XM1 (`docs/X86_MEMORY_MODEL.md` §2.3) builds
-the two-level TSO state — shared `X86_64Memory` plus per-thread FIFO store buffers,
-the `TsoStep`/`drain` relation, and the single-thread degeneration theorem. What
-remains for this spike (MT2) is the execution layer above it:
-
-- **Per-thread execution state**: registers, flags, RIP — composed with XM1's
-  per-thread buffers. Indexed by the existing `ThreadId` (`Gasm/Core/Types.lean`,
-  already in tree).
-- **Shared sealed memory**: one memory, MH1's hook, accessed by all threads.
-- **Thread lifecycle**: spawn/terminate/join transitions emitting the causal edges
-  MT3 stamps.
-- **A preservation constraint on the generalization**: the single-threaded
-  `X86_64MachineState` and its ~88 instruction step functions and step lemmas must
-  survive as the **one-thread specialization** — per-instruction semantics stay
-  written against a thread-view (that thread's registers plus the shared memory hook),
-  and the multi-threaded step is "pick a thread (or drain a buffer), step its view."
-  A migration that rewrites 88 instruction semantics is a design failure; the
-  interleaving lives in the scheduler layer, not in the instructions.
-
-No XMM, no MXCSR, no fault taxonomy, no interrupt state — this spike does not demand
-them (same Law 5 logic that declined P1).
-
-### 5.4 Trace semantics (MT3) — how a multi-threaded trace is even stated
-
-Ratified groundwork already exists and this spike makes it load-bearing:
-`VectorClock`/`happensBefore`/`join`/`tick` (`Gasm/Core/Types.lean`), the
-synchronizes-with edge design (`docs/OBLIGATIONS_AND_CAUSALITY.md` §3.1), the
-causally-ordered-event-set canonical form (`docs/SYSTEM_EFFECTS.md` §6.3/§6.4, PLAN.md
-Phase-4 items (d)/(e)), and `CausalEvent`/`stampSingleThreaded`
-(`Gasm/Effects/CanonicalizeTrace.lean`, in tree).
-
-The answer to "interleavings or per-thread traces?" was effectively ratified in
-PLAN.md item (e) and this spike adopts it: **per-thread event traces plus a
-happens-before partial order — never a distinguished interleaving.**
-
-- `stampMultiThreaded` (proposed) generalizes `stampSingleThreaded`: each thread ticks
-  its own clock component; cross-thread edges join clocks at exactly three places —
-  **spawn** (parent→child), **join** (child→parent), and **lock release→acquire**
-  (the §3.1 synchronizes-with edge: the XCHG that reads a given unlock store joins the
-  releaser's clock).
-- **Equivalence is equality of causal orders** — linearization-insensitive, exactly as
-  ratified. Two hardware runs that schedule differently but have the same
-  happens-before structure are the same canonical trace.
-- **The schedule is a universal binder.** PLAN.md Phase 4 establishes `read` as the
-  ∀-vector that makes pinning input unrepresentable (Law 9). The concurrent analogue:
-  contract shapes quantify over the scheduler oracle; a proof that pins one
-  interleaving must be unrepresentable, the same way a pinned read result is.
-- **Multiple unbounded loops** get the ratified per-loop inner/outer treatment
-  (`docs/EQUIVALENCE_PROOFS.md` §1.1, PA7 `VerifiedReactiveProgram`; generalization to
-  multiple loops per PLAN.md item (d)): for the spin loop, **inner** = deterministic
-  both-ways equality of the critical section per acquisition; **outer** =
-  progress/liveness — under an explicit fairness assumption (every runnable thread is
-  scheduled infinitely often; every buffered store eventually drains), every acquire
-  eventually succeeds. Fairness is stated as a named hypothesis on the theorem, never
-  smuggled in. Deadlock-freedom at the declared sync points is part of the outer
-  obligation.
-- **Coordination note**: G2 (GPU synchronization DSL) builds synchronizes-with edges
-  into the same causal layer for Vulkan. MT3 and G2 share `VectorClock` and the edge
-  machinery; neither should fork it. Whichever lands second consumes the first's
-  vocabulary.
+Windows refines the same scheduler-level parking contract through
+`WaitOnAddress`/`WakeByAddress*`, and independently requires evidence that both paths ran under
+contention. Both Linux `FUTEX_WAIT` and Windows `WaitOnAddress` comparisons are modeled as
+platform-authorized atomic loads of the registered, stable, aligned 32-bit word, with target
+single-copy-atomicity evidence; comparison and wake remain non-synchronizing by themselves. Bare
+metal uses a proved spin/park adapter and does not pretend to provide futexes.
 
 ---
 
-## 6. Three Targets, Three Mechanisms, Honest Costs
+## 5. Target Lifecycle Adapters
 
-### 6.1 Windows — Phase A (cheapest)
+### 5.1 Windows x86-64
 
-Mechanism: extend `Gasm/Targets/Windows/Win32API.lean`'s import list and hook pattern
-(the same machinery that models `GetStdHandle`/`WriteFile`/`VirtualAlloc` today) with:
+The Windows implementation models `CreateThread`, thread termination, and
+`WaitForSingleObject(INFINITE)` on a thread handle. The model includes runnable/blocked states,
+return from the thread start routine, handle lifetime, join result, and per-thread state. A blocking
+wait is a scheduler transition, not a synchronous function over one CPU state.
 
-- `CreateThread` — hook semantics: allocate a stack (existing `VirtualAlloc` model),
-  create a model thread with `RIP` = start routine, `RCX` = parameter (Microsoft x64
-  ABI), fresh `ThreadId`; returns a handle; emits the spawn causal edge.
-- `WaitForSingleObject` (on a thread handle, `INFINITE`) — join: blocks until the
-  target thread terminates; emits the join causal edge.
-- `ExitThread` (or return from the start routine) — thread termination.
+Mutex contention is a separate live-thread workload using `WaitOnAddress` and
+`WakeByAddressSingle`/`WakeByAddressAll` over the selected 32-bit parked-mutex state machine. It
+must demonstrate both wait and wake paths and recheck the atomic state after every return; a
+thread-handle join does not count as mutex parking. Explicit start/terminal release-acquire words
+provide lifecycle visibility unless a later pinned Windows profile proves an equivalent API edge.
 
-Cost: **low** — the import/hook pattern is established; the new cost is that hooks
-must interact with the multi-thread scheduler layer (MT2) rather than a single state.
+### 5.2 Linux x86-64 and AArch64
 
-### 6.2 Linux — Phase B (cheap, shares everything but spawn/join)
+The Linux implementation models raw thread creation, per-thread stacks, thread-local syscall state,
+thread exit distinct from process exit, and a real join using child-TID clear-and-wake lifecycle
+semantics. The stable, naturally aligned 32-bit child-TID word remains registered atomic through
+join; every concurrent kernel set/clear is a platform-authorized atomic store with x86-64 or
+AArch64 single-copy-atomicity evidence, and parent polling uses approved atomic loads. Explicit
+target release/acquire start and terminal publication words provide memory visibility; child-TID
+lifecycle establishes actual termination and safe stack reclamation. A user-space done flag alone
+is neither half of that full join contract.
 
-Mechanism: raw syscalls in the existing static-ELF style
-(`Gasm/Targets/Linux/Syscall.lean` already models numbers 0–50; `SYS_mmap` is in
-tree):
+Linux futex constants and syscall ABIs are architecture-specific while wait-queue behavior is shared.
 
-- `SYS_clone` (56) with `CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
-  CLONE_THREAD`, child stack from the existing `mmap` model.
-- **Join by spin, not futex**: the child writes a per-thread done-flag (a plain TSO
-  release store) and calls `SYS_exit` (60); the parent spins on the flag. This keeps
-  `futex` — a large, subtle syscall — out of the v1 demand set. Filed as deliberate
-  debt: a later spike that needs blocking waits grows `SYS_futex` on demand.
+### 5.3 x86-64 Bare Metal
 
-Cost: **low**, marginally above Windows (clone's flag semantics need careful SDM/man
-citation), and the entire model/proof/trace layer is shared with Phase A. The litmus
-battery and counter are target-independent by construction; only spawn/join differ.
+The x86 path performs AP startup, per-CPU stack setup, rendezvous, and generic scheduler entry. The
+design gate decides the real/protected/long-mode trampoline, LAPIC interface, UC/device ordering, and
+APIC-ID mapping before implementation. INIT/SIPI creates lifecycle state; work and authority are
+published through a separate TSO-proved boot-mailbox rendezvous.
 
-### 6.3 Bare metal — Phase C (materially harder; sequenced last, with reasons)
+### 5.4 AArch64 Bare Metal
 
-The current bare-metal target (`Gasm/Targets/BareMetal/`, boots under QEMU via the PVH
-note path, UART console — in tree, Spike 1 runs on it) starts **one** CPU. There is no
-OS to ask for a thread; "spawn" means SMP bring-up:
+The AArch64 path starts secondary PEs through the selected PSCI/spin-table platform contract,
+allocates per-PE stacks, maps `MPIDR_EL1` identities to `ThreadId`, establishes coherent shareable
+memory, and enters the same generic scheduler. GIC, `WFE`/`SEV`, and Device-memory ordering are
+designed explicitly when required. PSCI/spin-table release and `SEV` are lifecycle/notification,
+not RAM synchronization; the boot mailbox uses a proved AArch64 release/acquire handoff.
 
-- **INIT–SIPI–SIPI** to each application processor via the LAPIC interrupt command
-  register — which means a LAPIC device model (xAPIC MMIO page at `0xFEE00000`, or
-  x2APIC via `RDMSR`/`WRMSR`, which are themselves unmodelled instructions).
-- **The SIPI vector is a real-mode entry point**: a 16-bit trampoline below 1 MB that
-  must load a GDT, enter protected mode, enable paging/long mode, and far-jump to
-  64-bit code — three execution modes, two of which (`docs/TARGETS/X86_REALMODE.md`,
-  `docs/TARGETS/X86_32.md`) are design-only documents with no Lean implementation.
-  The alternative — an unverified byte-blob trampoline — is a TCB entry that the
-  proof-carrying discipline would have to declare loudly.
-- **Per-CPU stacks**, an AP parking/rendezvous protocol, and MMIO ordering for the
-  LAPIC (UC semantics — outside the v1 WB-only model scope, §5.2 item 3).
-- **QEMU accel honesty**: under TCG emulation, guest memory operations do not go
-  through a modelled store buffer — the SB witness outcome may simply never appear.
-  A TCG run therefore reports `witness=absent` and exits `2` (validation did not run),
-  never a synthesized pass; the witness floor binds only under hardware-accelerated
-  virtualization (WHPX/KVM) or real silicon. Windows and Linux native runs *are*
-  silicon, which is why Phases A and B carry the witness floors.
-
-Cost: **high — roughly comparable to the original bare-metal target bring-up itself**,
-and it sits on model scope (MMIO ordering, new instructions, new execution modes) that
-Phases A/B do not need. Treating all three targets as equal-cost would be dishonest.
-Sequencing ruling this design proposes: **Phases A and B first, together; Phase C
-after both are green**, gated on its own Stop-and-Design task (MT6) that ingests the
-SDM MP-initialization material and decides the trampoline question *before* any Lean.
-The owner's "validate against windows, linux, bare metal" is honored in full — as a
-sequence, not a simultaneous start.
+The two bare-metal paths share lifecycle and lock specifications, not boot mechanisms.
 
 ---
 
-## 7. Verification & Validation Contract
+## 6. Causal Trace Contract
 
-### 7.1 Lean-side theorems (proposed; names illustrative)
+The concurrent trace is a labelled partial order over stable origin-local event identities. It
+projects program happens-before generated by:
 
-| Theorem | Statement (informal) | Discharge |
-|---|---|---|
-| `sb_outcome_set` | Model's reachable outcomes for SB = `{(0,0),(0,1),(1,0),(1,1)}` — `(0,0)` **included** | enumeration over the bounded operational model |
-| `mp_outcome_set` | Model's reachable outcomes for MP exclude `(1,0)` | enumeration |
-| `sb_mfence_outcome_set` | With fences, `(0,0)` excluded | enumeration |
-| `spinlock_mutual_exclusion` | ∀ schedules, critical sections do not overlap | invariant over the model, ∀-bound scheduler |
-| `spike8_counter_correct` | ∀ schedules, joined final state has `count = 2*M` | mutual exclusion + per-section determinism |
-| `spike8_progress` | Under the named fairness hypothesis, every acquire succeeds and the program terminates | outer half of the inner/outer pair |
-| `spike8_trace_equivalence` | Canonical causal trace of the lowered program refines the nondeterministic spec's allowed set (refinement + liveness direction, per `docs/EQUIVALENCE_PROOFS.md` §1.1 for nondeterministic specs) | per-target |
+- same-thread program order;
+- parent-to-child spawn;
+- child-to-parent successful join;
+- release-to-acquire when the acquire observes the relevant release through the architecture model.
 
-The first three are the formal half of validation and are XM2's model-side
-deliverable (`docs/X86_MEMORY_MODEL.md` §7: outcome sets derived mechanically by
-enumeration, never hand-transcribed from the literature); they appear here as spike
-acceptance criteria, not as a second implementation. They pin the model's *predicted*
-outcome sets, which the hardware histograms are then checked against — XM2's
-differential criterion, honestly asymmetric: observed-on-silicon ⊆ model-allowed is
-the hard soundness check; witness observation proves the harness can see reordering;
-never-observed forbidden outcomes are evidence of tightness, not proof. A model too
-weak fails `mp_outcome_set` at proof time; a model too strong fails `sb_outcome_set`
-at proof time; and if a wrong model somehow proves both, the hardware runs are the
-backstop (§4).
+It also retains scheduler-causality edges such as wake-to-resume under a different label. Plain
+reads-from and futex wake are not automatically memory synchronizes-with. ISA execution consistency
+remains richer than the observable trace order and is validated by the litmus model rather than
+encoded as vector-clock edges.
 
-### 7.2 Hardware validation protocol
-
-A single green run proves almost nothing about a nondeterministic system — a
-one-in-ten-thousand interleaving bug is the *normal* case. The protocol:
-
-- **Repetition**: `K = 100,000` iterations per litmus per run (env-overridable), with
-  randomized per-thread stagger; CI runs the full battery on every spike execution,
-  and a scheduled stress lane runs a larger budget (e.g. 10×) off the critical path.
-- **Soundness check (hard)**: `hardware-observed ⊆ model-allowed`, per test. One
-  forbidden outcome in any run, ever, is a verification failure (exit `1`); the stderr
-  histogram + PRNG seed is the reproduction artifact.
-- **Witness floors (vacuity guard, TC17's principle applied to concurrency)**: for
-  outcomes that are reliably observable on silicon — SB `(0,0)` is the designated one
-  — the run must actually observe them (`witness=present`), else it exits `2`:
-  the race was not exercised and nothing was validated. This is the same
-  negative-control discipline `docs/X86_MEMORY_MODEL.md` §7 imposes on XM2's host
-  harness. Division of artifacts: XM2's host-harness silicon results are Law 14
-  calibration-class artifacts (checked in, regenerable, never hand-edited); the spike
-  binary's own runs are pass/fail verdicts with stderr histograms as diagnostics.
-- **What a failing run looks like, concretely**: stdout
-  `SPIKE8 MP forbidden=3 …` → exact-match failure against the expected verdict line →
-  exit `1`; stderr carries `MP: (0,0)=61274 (0,1)=22409 (1,1)=16314 (1,0)=3 seed=0x…`.
-  Three counts out of a hundred thousand is a *loud* result for this class of bug —
-  which is precisely why the battery exists as a permanent regression instrument
-  rather than a one-shot experiment.
+Equivalence is independent of arbitrary scheduler linearization. An explicit quotient maps every
+raw observable to exactly one canonical node, invents none, and merges nodes only under the named
+per-effect coalescing rules while preserving stream, label, payload fold, and barriers. Between
+distinct quotient nodes, an observable labelled edge appears if and only if it is in the projected
+program/scheduler causal order, modulo event-key renaming and partial-order isomorphism.
 
 ---
 
-## 8. Spec Shape (Sketch)
+## 7. Output and Verdict Protocol
 
-The high-level spec is deliberately small. The litmus spec is the **outcome set
-itself** (the nondeterministic spec: the set of allowed final `(r,r)` pairs per test);
-the counter spec is deterministic at the join point:
+Stdout contains deterministic, quantized verdicts; nondeterministic histograms and environment
+metadata go to stderr or a structured artifact. The precise target set is encoded in the runner, but
+the logical shape is:
 
-```lean
--- Proposed, not implemented (MT4/MT5).
-def spike8CounterSpec (m : Nat) : Nat := 2 * m          -- observable at join
-def sbAllowed : Finset (Bool × Bool) := {(false,false), (false,true), (true,false), (true,true)}
-def mpAllowed : Finset (Bool × Bool) := {(false,false), (false,true), (true,true)}  -- (1,0) absent
+```text
+SPIKE8 <arch> LITMUS forbidden=0 validation=<validated|not-validated>
+SPIKE8 <arch> LOCKCOUNT value=<actual> expected=<expected>
+SPIKE8 <platform> PARK wait=<observed> wake=<observed>
+SPIKE8 <target> PASS
 ```
 
-Equivalence direction per the ratified observation standard: deterministic parts
-(counter value at join, verdict lines) get both-ways equality; the nondeterministic
-whole gets refinement (every model execution lands in the allowed set) plus the
-liveness half. Observables are the syscall/effect-boundary events under the
-established coalescing congruence; the causal order — not any particular
-linearization — is what is compared.
+Exit status classes distinguish:
+
+- pass with all required validation controls;
+- semantic failure: forbidden outcome, wrong counter, invalid lifecycle, or proof mismatch;
+- environment could not validate a required weak-memory witness;
+- timeout/deadlock;
+- unsupported requested profile.
+
+A per-commit run is not required to witness every rare allowed outcome. Witness floors belong in a
+scheduled stress lane with recorded hardware eligibility; per-commit CI still rejects every observed
+forbidden outcome.
 
 ---
 
-## 9. Sequencing — What Must Land Before Lean Is Written
+## 8. Acceptance Criteria
 
-Law 5 order, stated plainly:
+Spike 8 is complete only when:
 
-| # | Dependency | State today | Owner |
-|---|---|---|---|
-| 1 | `docs/X86_MEMORY_MODEL.md` — the model statement (§5.2's demand list) | **landed** (same change window as this document) | separate design effort; this spike consumes it |
-| 2 | MH1 — sealed memory hook | task `ready`, implementation underway | MH1; atomic RMW rides its `MemAccessSpec` |
-| 3 | XM1 — ordering vocabulary + TSO machine + degeneration theorem | filed with #1, demand-gated **on this spike** (its §2.2 trigger 2) | the model design's task set |
-| 4 | MT1 — `XCHG r64,[m64]` + `MFENCE` instruction forms (one indivisible landing with XM1, per #1's §6) | not started | this spike's task set |
-| 5 | MT2 (thread lifecycle/scheduler over XM1's machine) + MT3 (causal traces, trace-order soundness) | not started | this spike's task set |
-| 6 | XM2 (litmus encodings, outcome enumeration, host silicon harness) + MT4 (the same battery embedded in emitted binaries) | not started | XM2: model design's; MT4: this spike's |
-| 7 | Phases A+B implementation (MT5 counter+targets) | not started | after 2–6 |
-| 8 | Phase C bare-metal SMP (MT6 Stop-and-Design first) | not started | after 7 |
+1. the common event vocabulary and both architecture models are connected to instruction semantics,
+   and emitted program bytes decode back to those instructions with relocation/layout fidelity;
+2. x86 and AArch64 model-derived litmus theorems pass;
+3. native hosted runs observe only model-allowed outcomes;
+4. the lock invariant, capability transfer, must-release obligation, and final counter theorem are
+   proved once at the common contract and discharged by both architectures;
+5. Linux x86-64 and AArch64 execute and validate the futex slow path;
+6. Windows validates its lifecycle and parking refinement;
+7. x86 and AArch64 bare-metal targets start at least two CPUs/PEs, prove the boot-mailbox handoff,
+   run the lock counter, refine their selected wait strategy, and validate one device
+   order/completion protocol with a barrier/attribute negative control;
+8. the causal trace node quotient is total/non-inventing and its labelled edge order is connected in
+   both directions to projected program and scheduler causality;
+9. negative controls fail for missing barriers, broken atomicity, unauthorized access, stale harness
+   results, lost wakeups, omitted obligation discharge, and lock destruction with a stale atomic
+   grant or waiter;
+10. every run records enough environment information to distinguish silicon validation from emulator
+    execution.
 
-The owner's "before scaleup" framing holds: nothing here blocks on ISA expansion, and
-the expansion's Wave B (memory forms) independently wants MH1 — the two efforts share
-a prerequisite, not a conflict. In the other direction, this spike *unblocks* part of
-the expansion: `docs/X86_MEMORY_MODEL.md` §6 gates every atomic and fence form on XM1,
-and XM1's demand trigger is this spike.
-
-## 10. Follow-On Tasks
-
-Filed under `docs/tasks/`, track `concurrency`, validated by
-`python scripts/task_frontier.py --validate`. XM1/XM2 are filed by the memory model
-design and referenced here via `blocked_on` prose (not `after:` ids) until both task
-files are stably in-tree; converting those references to `after:` entries is part of
-whichever change lands second.
-
-| Task | Title | Sequenced on |
-|---|---|---|
-| MT1 | Atomic primitives: `XCHG r64,[m64]` (implicit LOCK) + `MFENCE` | MH1; indivisible with XM1 |
-| MT2 | Thread lifecycle + per-thread execution state over XM1's TSO machine | MH1; XM1 |
-| MT3 | Causal traces: `stampMultiThreaded`, sw edges from the machine model, trace-order soundness | PA5; coordinate with G2 |
-| MT4 | Emitted-binary litmus battery, reusing XM2's test definitions and outcome sets | MT1, MT2, MT3; XM2 |
-| MT5 | Spike 8 Phases A+B: Windows + Linux spinlock counter, verified | MT4, PA7 |
-| MT6 | Bare-metal SMP bring-up: Stop-and-Design (MP init, trampoline, LAPIC, accel honesty) | MT5 |
+The implementation order is `docs/MEMORY_MODEL.md` §14. This spike does not maintain a parallel task
+DAG.

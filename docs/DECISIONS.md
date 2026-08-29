@@ -22,4 +22,45 @@ This document consolidates the genuine technical and architectural decisions for
 - **Performance Model as a Strategic Asset (ADR 0006)**: Performance models are parametric cost functions with concrete coefficients (e.g., `5·N² + 3·N + 293` cycles), not bare asymptotic classes. They are backed by hardware-fuzzed calibration data.
 - **Findings Become Gates (ADR 0009)**: The ratchet law: every review or fuzz finding must terminate in a mechanical prevention of its class. The mandated preference hierarchy is: unrepresentable by construction > kernel-checked theorem > build-failing linter > oracle control vectors.
 - **TCB Ledger and Differential Fuzzing (ADR 0013)**: Trust is chosen, not discovered. Everything trusted-but-unprovable (hardware, APIs, external tools) is explicitly tracked in a TCB ledger, and every entry must have a differential fuzzer validating the model against the real system.
-- **Model-Debt Ledger (ADR 0030)**: Hardware and OS semantics that are knowingly omitted or simplified (e.g., caches, store buffers, PCIe bandwidth, FPU state) must be explicitly tracked in a debt ledger to prevent silent performance mis-rankings or correctness gaps.
+- **Model-Debt Record (ADR 0030)**: Hardware and OS semantics that are knowingly omitted or
+  simplified (e.g., caches, store buffers, PCIe bandwidth, FPU state) must be explicit in
+  `docs/TECHNICAL_NOTES.md` or the owning canonical subsystem document so they cannot silently
+  distort performance rankings or correctness claims.
+
+## 5. Memory, Ownership, and Concurrency
+
+The detailed normative design and staged exit criteria are in `docs/MEMORY_MODEL.md`. These are the
+durable decisions future implementations must preserve:
+
+- **One common event graph, separate ISA consistency models**: x86-64 uses a WB/TSO operational
+  model; AArch64 uses a pinned official Arm weak-memory profile. Neither architecture is the
+  other's fallback semantics.
+- **Value-, range-, and origin-faithful events**: dynamic accesses record values, access role,
+  domain, and explicit atomic class; reads-from is byte/range-granular for Normal memory, initial
+  writes are explicit, platform/device events are owned by their transition rules, and barrier
+  semantics retain ordering/completion/scope information.
+- **Authority precedes ordering**: provenance and the resource algebra decide whether an access is
+  authorized; the architecture model then decides which authorized concurrent executions are
+  allowed. Vector clocks replace neither layer.
+- **Borrowing is indexed and generational**: exclusive ownership, frozen-owner fragments,
+  exact-token read loans, instance-scoped atomic grants, causal donation, and result-indexed join
+  returns are tracked by closed indexed transitions rather than duplicable token values. In v1,
+  pointer bytes recover a registered typed view, not provenance or authority by themselves.
+- **Locks separate three concerns**: contenders share atomic authority for a disjoint 32-bit lock
+  word; one fresh lock instance owns the protected region; and each successful generation carries
+  a matched guard and must-release obligation. Synchronization is justified by an explicit
+  release/acquire witness tied to concrete event keys, not by relabelling generic loads or stores.
+  Failed acquire transfers nothing, and destruction is the checked inverse of initialization.
+- **Parking is not publication**: Linux futex and Windows `WaitOnAddress`/`WakeByAddress*`
+  operations refine park-if-equal/wake and create scheduler causality only. Release publication
+  precedes notification; memory visibility comes from the target-proved atomic release/acquire
+  protocol rather than from wake itself.
+- **Lifecycle is explicit**: spawn commits donated authority and a release publication before the
+  child becomes runnable; a fresh one-shot `JoinRight` observes actual termination through an
+  acquire publication and returns only the child's sealed terminal bundle. Detach requires an empty
+  join-owned bundle or a named process sink, and thread exit and process exit are distinct.
+- **Bare metal is a first-class two-architecture target**: x86 AP/LAPIC and AArch64
+  PSCI-or-spin-table/GIC paths implement the same lifecycle/lock contracts through distinct startup
+  and device-order rules. Startup notification alone is not RAM synchronization.
+- **Validation tells the truth**: formal model outcome sets are normative; hardware observations
+  must be contained in them. TCG-only runs validate function/boot behavior, not weak-memory claims.
