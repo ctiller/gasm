@@ -50,8 +50,7 @@ form is additionally blocked from `decide` by `decompress`'s well-founded recurs
 
 namespace Stdlib.Zlib
 
-
-
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
 theorem matchExtend_spec (data : ByteArray) (pos candidate maxMatchLen : Nat) :
     ∀ fuel len, len ≤ maxMatchLen →
       (∀ j, len ≤ j → j < matchExtend data pos candidate maxMatchLen fuel len →
@@ -91,14 +90,17 @@ theorem matchExtend_spec (data : ByteArray) (pos candidate maxMatchLen : Nat) :
       · rw [hstep]; omega
       · rw [hstep]; exact hle
 
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
 /-- The RFC 1951 match-validity facts `matchValid` certifies, as a Prop. -/
 def MOK (data : ByteArray) (pos len dist : Nat) : Prop :=
   3 ≤ len → (len ≤ 258 ∧ 1 ≤ dist ∧ dist ≤ 32768 ∧ dist ≤ pos ∧ pos + len ≤ data.size ∧
              ∀ i, i < len → data.get! (pos - dist + i) = data.get! (pos + i))
 
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
 /-- `MOK` on a (len, dist) pair. -/
 def MOKp (data : ByteArray) (pos : Nat) (r : Nat × Nat) : Prop := MOK data pos r.1 r.2
 
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
 /-- PA16 L3, outer half: the candidate scan only ever returns certified matches. -/
 theorem matchScan_ok (data : ByteArray) (pos startLookback maxMatchLen : Nat)
     (hmm3 : 3 ≤ maxMatchLen) (hmm258 : maxMatchLen ≤ 258)
@@ -151,6 +153,7 @@ theorem matchScan_ok (data : ByteArray) (pos startLookback maxMatchLen : Nat)
     · simp only [matchScan, if_neg hgt]
       exact hok
 
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
 /-- **PA16 L3**: every match `findLongestMatch` reports at the tokenizer's call site is a
     genuine RFC 1951 back-reference -- the search's `matchLen >= 3` acceptance already implies
     `matchValid`. -/
@@ -175,6 +178,7 @@ theorem findLongestMatch_valid (data : ByteArray) (pos : Nat) :
     · simp only [if_pos hb]; exact hok
     · simp only [if_neg hb]; intro h; omega
 
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
 /-- `MOK` is exactly what `matchValid` decides. -/
 theorem matchValid_of_MOK {data : ByteArray} {pos len dist : Nat}
     (h : MOK data pos len dist) (h3 : 3 <= len) : matchValid data pos len dist = true := by
@@ -185,6 +189,7 @@ theorem matchValid_of_MOK {data : ByteArray} {pos len dist : Nat}
   simp only [beq_iff_eq]
   exact hbytes i (List.mem_range.mp hi)
 
+/- REF: docs/STDLIB_ZLIB.md#64-lz77-token-layer-roundtrip-soundness -/
 /-- The tokenizer's `matchValid` guard is redundant: `3 <= matchLen` already implies it. -/
 theorem findLongestMatch_matchValid (data : ByteArray) (pos : Nat)
     (h3 : 3 <= (findLongestMatch data pos 32768 128).1) :
@@ -192,9 +197,7 @@ theorem findLongestMatch_matchValid (data : ByteArray) (pos : Nat)
       (findLongestMatch data pos 32768 128).2 = true :=
   matchValid_of_MOK (findLongestMatch_valid data pos) h3
 
-
-
-
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 def cfLenTriple (matchLen : Nat) : Nat × Nat × Nat :=
   if matchLen == 258 then (285, 0, 0)
   else if matchLen <= 10 then (257 + matchLen - 3, 0, 0)
@@ -204,12 +207,15 @@ def cfLenTriple (matchLen : Nat) : Nat × Nat × Nat :=
   else if matchLen <= 130 then (277 + (matchLen - 67) / 16, 4, (matchLen - 67) &&& 15)
   else (281 + (matchLen - 131) / 32, 5, (matchLen - 131) &&& 31)
 
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 def cfLenCheck : Bool :=
   (List.range 256).all (fun i => cfLenTriple (i + 3) == encodeLength (i + 3))
 
 set_option maxRecDepth 40000 in
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 theorem cfLen_check : cfLenCheck = true := by decide
 
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 theorem cfLen_spec {len : Nat} (h3 : 3 ≤ len) (h258 : len ≤ 258) :
     cfLenTriple len = encodeLength len := by
   have hc := cfLen_check
@@ -219,6 +225,7 @@ theorem cfLen_spec {len : Nat} (h3 : 3 ≤ len) (h258 : len ≤ 258) :
   rw [hr] at this
   simpa using this
 
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 def fixedLitCodeCheck : Bool :=
   (List.range 288).all (fun s =>
     fixedLitLenTable.codes[s]! ==
@@ -228,12 +235,14 @@ def fixedLitCodeCheck : Bool :=
        else some (s - 280 + 0xC0, 8)))
 
 set_option maxRecDepth 40000 in
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 theorem fixedLitCode_check : fixedLitCodeCheck = true := by
   simp only [fixedLitCodeCheck, fixedLitLenTable, fixedLitLenLengths, buildHuffmanTable,
     Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
     List.forIn_pure_yield_eq_foldl, Id.run, pure_bind]
   decide
 
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 theorem fixedLitCode_spec {s : Nat} (hs : s < 288) :
     fixedLitLenTable.codes[s]! =
       (if s <= 143 then some (s + 0x30, 8)
@@ -244,22 +253,26 @@ theorem fixedLitCode_spec {s : Nat} (hs : s < 288) :
   simp only [fixedLitCodeCheck, List.all_eq_true] at hc
   simpa using hc s (List.mem_range.mpr hs)
 
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 def fixedDistCodeCheck : Bool :=
   (List.range 32).all (fun c => fixedDistTable.codes[c]! == some (c, 5))
 
 set_option maxRecDepth 20000 in
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 theorem fixedDistCode_check : fixedDistCodeCheck = true := by
   simp only [fixedDistCodeCheck, fixedDistTable, fixedDistLengths, buildHuffmanTable,
     Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
     List.forIn_pure_yield_eq_foldl, Id.run, pure_bind]
   decide
 
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 theorem fixedDistCode_spec {c : Nat} (hc : c < 32) :
     fixedDistTable.codes[c]! = some (c, 5) := by
   have h := fixedDistCode_check
   simp only [fixedDistCodeCheck, List.all_eq_true] at h
   simpa using h c (List.mem_range.mpr hc)
 
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 /-- Literal emission: the fixed table reproduces `compressFixedLoop`'s two hardcoded forms. -/
 theorem emitToken_lit_eq (w : BitWriter) (b : UInt8) :
     emitToken fixedLitLenTable fixedDistTable w (.lit b)
@@ -278,6 +291,7 @@ theorem emitToken_lit_eq (w : BitWriter) (b : UInt8) :
   · simp only [if_pos h]
   · simp only [if_neg h, if_pos hb255]
 
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 /-- Back-reference emission: the fixed tables reproduce `compressFixedLoop`'s inline codes. -/
 theorem emitToken_ref_eq (w : BitWriter) (len dist : Nat) (h3 : 3 ≤ len) (h258 : len ≤ 258) :
     emitToken fixedLitLenTable fixedDistTable w (.ref len dist)
@@ -299,13 +313,13 @@ theorem emitToken_ref_eq (w : BitWriter) (len dist : Nat) (h3 : 3 ≤ len) (h258
   · simp only [if_pos h279]
   · simp only [if_neg h279]
 
-
-
+/- REF: docs/STDLIB_ZLIB.md#42-block-formats -/
 /-- Header + EOB framing. -/
 theorem fixed_header_eq :
     writeBits (writeBits ({} : BitWriter) 1 1) 1 2 = writeBits ({} : BitWriter) 3 3 := by
   simp [writeBits, writeBits.flushBytes]
 
+/- REF: docs/STDLIB_ZLIB.md#32-fixed-huffman-tables-rfc-1951-326 -/
 theorem emit_eob_eq (w : BitWriter) :
     emitHuffSymbol w fixedLitLenTable 256 = writeBits w 0 7 := by
   have h : fixedLitLenTable.codes[256]! = some (0, 7) := by
@@ -313,6 +327,7 @@ theorem emit_eob_eq (w : BitWriter) :
   have hr : reverseBits 0 7 = 0 := by simp [reverseBits]; decide
   simp [emitHuffSymbol, h, hr]
 
+/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
 /-- Fusion: `compressFixed`'s single inline emit loop is exactly `tokenize` followed by a
     fold of `emitToken` over the fixed tables. -/
 theorem tokenize_emit_eq (data : ByteArray) :
@@ -348,6 +363,7 @@ theorem tokenize_emit_eq (data : ByteArray) :
         rw [Array.foldl_push, emitToken_lit_eq]
     · simp only [if_neg hp]
 
+/- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
 /-- **Law 12 connection theorem (PA16 L6/L7 bridge).** `compressFixed` -- the encoder
     `gzipCompress` actually calls, and the one the machine-code engines implement -- is
     extensionally the fixed-Huffman block built from `tokenize`, which every PA16 roundtrip
@@ -358,7 +374,6 @@ theorem compressFixed_eq_emitFixedBlock (data : ByteArray) :
   simp only [compressFixed, emitFixedBlock, emitTokens, tokenize, emit_eob_eq, fixed_header_eq]
   rw [tokenize_emit_eq data data.size 0 #[] (writeBits ({} : BitWriter) 3 3)]
   simp only [Array.foldl_empty]
-
 
 /- REF: docs/STDLIB_ZLIB.md#62-deflate-zlib-roundtrip-soundness-theorems -/
 /-- **What the connection theorem buys, universal over the input.** Composing it with

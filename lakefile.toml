@@ -25,27 +25,7 @@ name = "gasm"
 version = "0.1.0"
 defaultTargets = [
   "Gasm", "Spikes", "Stdlib", "GateSubprocess",
-  "check_gates_axioms", "check_refs_coverage",
-  "spike1_hello_windows", "test_spike1_windows",
-  "spike1_hello_linux", "test_spike1_linux",
-  "spike1_hello_wasm", "test_spike1_wasm",
-  "spike1_hello_baremetal", "test_spike1_baremetal",
-  "spike1_hello_aarch64_baremetal", "test_spike1_aarch64_baremetal",
-  "spike1_hello_aarch64_linux", "test_spike1_aarch64_linux",
-  "spike2_fibonacci_windows", "test_spike2_windows",
-  "spike2_fibonacci_linux", "test_spike2_linux",
-  "spike2_fibonacci_wasm", "test_spike2_wasm",
-  "spike3_sort_lines_windows", "test_spike3_windows",
-  "spike3_sort_lines_linux", "test_spike3_linux",
-  "spike3_sort_lines_wasm", "test_spike3_wasm",
-  "test_smolalloc", "test_zlib", "test_png", "test_http11", "test_fmt", "gzip_fuzzer", "perf_fuzzer", "encoding_fuzzer", "test_roundtrip",
-  "check_x86_obligations", "check_aarch64_obligations",
-  "spike4_http_windows", "spike4_http_linux", "spike4_http_wasm", "test_spike4",
-  "spike5_gzip_windows", "spike5_gunzip_windows",
-  "spike5_gzip_linux", "spike5_gunzip_linux",
-  "spike5_gzip_wasm", "test_spike5",
-  "x86_fuzzer", "wasm_fuzzer", "validate_spike_wasm",
-  "png_stability_fuzzer", "x86_stability_fuzzer", "elf_stability_fuzzer"
+  "check_gates_axioms", "check_refs_coverage"
 ]
 
 [[lean_lib]]

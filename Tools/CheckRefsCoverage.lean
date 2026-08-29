@@ -342,21 +342,24 @@ def collectCandidates (env : Environment) (ctx : Core.Context)
     IO (Array DeclCandidate) := do
   let coreState : Core.State := { env := env }
   let mut out : Array DeclCandidate := #[]
-  for (name, info) in env.constants.toList do
-    if inScope name info then
-      let (ranges?, _) ← (Lean.findDeclarationRanges? (m := CoreM) name).toIO ctx coreState
-      match ranges? with
-      | none => pure ()  -- no addressable source position: not independently citable (see header)
-      | some r =>
-        let mod := (originatingModule env name).getD Name.anonymous
-        match fileOfModule mod with
-        | none => pure ()  -- discovered no on-disk file for this module; cannot text-scan it
-        | some file =>
-          out := out.push {
-            fqn := toString name, module := mod, file := file,
-            anchorLine := r.selectionRange.pos.line,
-            rangeStart := r.range.pos, rangeEnd := r.range.endPos
-          }
+  for i in [:env.header.moduleNames.size] do
+    let modName := env.header.moduleNames[i]!
+    match fileOfModule modName with
+    | none => pure ()
+    | some file =>
+      if let some md := env.header.moduleData[i]? then
+        for name in md.constNames do
+          if let some info := env.find? name then
+            if inScope name info then
+              let (ranges?, _) ← (Lean.findDeclarationRanges? (m := CoreM) name).toIO ctx coreState
+              match ranges? with
+              | none => pure ()  -- no addressable source position: not independently citable (see header)
+              | some r =>
+                out := out.push {
+                  fqn := toString name, module := modName, file := file,
+                  anchorLine := r.selectionRange.pos.line,
+                  rangeStart := r.range.pos, rangeEnd := r.range.endPos
+                }
   return out
 
 /-- Does a (trimmed) source line look like a `REF:` citation comment? Looser
