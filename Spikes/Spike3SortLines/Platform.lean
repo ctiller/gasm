@@ -28,6 +28,12 @@ namespace Spikes.Spike3SortLines
 open Gasm.Core.Platform
 open Gasm.Targets.WASI
 
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
+/-- Deterministic cross-platform process result for an explicitly detected finite-resource
+    exhaustion.  A caller can retry the same input under a newly selected larger capability; it
+    is never reported as a successful (possibly partial) sort. -/
+def spike3ResourceFailureExitCode : UInt32 := 75
+
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
 abbrev Spike3WasiPreview1Platform := WasiPlatform
 

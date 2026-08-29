@@ -22,6 +22,7 @@ import Gasm.Targets.WASI.ABI
 import Stdlib.SmolAlloc.Spec
 import Stdlib.SmolAlloc.Wasm
 import Spikes.Spike3SortLines.Spec
+import Spikes.Spike3SortLines.Platform
 
 namespace Spikes.Spike3SortLines.Wasm
 
@@ -29,13 +30,6 @@ open Gasm.Core
 open Gasm.Targets.Wasm
 open Gasm.Targets.WASI
 open Stdlib.SmolAlloc
-
-/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
-/-- Deterministic process result for a finite linear-memory allocation failure.
-    The sorter emits no sorted output before all of its allocation-dependent ingestion and table
-    construction has completed, so this exit is an all-or-nothing observable outcome rather than
-    a partial successful sort. -/
-def spike3ResourceFailureExitCode : UInt32 := 75
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
 /-- Stops the WASI program with its specified resource-failure outcome when a fallible SmolAlloc

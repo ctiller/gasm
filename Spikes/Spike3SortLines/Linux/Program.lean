@@ -38,6 +38,7 @@ import Gasm.Targets.Linux.Linker
 import Stdlib.SmolAlloc.Spec
 import Stdlib.SmolAlloc.Program
 import Spikes.Spike3SortLines.Spec
+import Spikes.Spike3SortLines.Platform
 
 namespace Spikes.Spike3SortLines.Linux
 
@@ -84,7 +85,10 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (mov_r64_imm64 .r8 0xFFFFFFFFFFFFFFFF),
   instr (xor_r32 .r9d .r9d),
   instr syscall_op,
-  instr (mov_r64 .r15 .rax), -- r15 = heapBase
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
+  instr (mov_r64 .r15 .rax), -- r15 = exclusive finite arena end
+  instr (add_r64_imm32 .r15 65536),
   instr (mov_r64 .r11 .rax), -- r11 = smolalloc arena bump pointer
   instr (xor_r32 .r10d .r10d), -- r10 = smolalloc freelist head = NULL
   instr (mov_mem64_disp_imm .rsp 0x30 0), -- [rsp + 0x30] = lineCount = 0
@@ -95,11 +99,15 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   -- 3. Allocate 512-byte stream read chunk buffer via smol_malloc(512)
   instr (mov_r32 .ecx 512),
   call_label "smol_malloc",
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
   instr (mov_mem64_disp .rsp 0x50 .rax), -- [rsp + 0x50] = chunkBufPtr
 
   -- 4. Allocate initial 256-byte line accumulator buffer via smol_malloc(256)
   instr (mov_r32 .ecx 256),
   call_label "smol_malloc",
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
   instr (mov_mem64_disp .rsp 0x58 .rax), -- [rsp + 0x58] = lineBufPtr
 
   -- 5. Unbounded Streaming Ingestion: sys_read(0, chunkBuf, 512) in a loop
@@ -147,6 +155,8 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (mov_mem64_disp .rsp 0x68 .rdx),       -- update lineBufCap
   instr (mov_r64 .rcx .rdx),
   call_label "smol_malloc",
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
   -- rax = newBufPtr
   instr (mov_reg64_mem64_disp .rbx .rsp 0x58), -- rbx = oldBufPtr
   instr (mov_reg64_mem64_disp .rdx .rsp 0x60), -- rdx = lineBufLen
@@ -191,6 +201,8 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (add_r64_imm8 .rcx 1),
   instr (mov_mem64_disp .rsp 0x28 .rdx),       -- save len at [rsp + 0x28]
   call_label "smol_malloc",
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
   instr (mov_reg64_mem64_disp .rdx .rsp 0x28), -- rdx = lineLen
   instr (mov_reg64_mem64_disp .rbx .rsp 0x58), -- rbx = lineBufPtr
   -- Copy bytes:
@@ -212,6 +224,8 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (mov_mem64_disp .rsp 0x28 .rax), -- save strPtr
   instr (mov_r32 .ecx 24),
   call_label "smol_malloc",
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
   instr (mov_reg64_mem64_disp .r8 .rsp 0x28),  -- r8 = strPtr
   instr (mov_reg64_mem64_disp .rdx .rsp 0x60), -- rdx = lineLen
   instr (mov_mem64_disp .rax 0 .r8),           -- [node + 0] = strPtr
@@ -244,6 +258,8 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (add_r64_imm8 .rcx 1),
   instr (mov_mem64_disp .rsp 0x28 .rdx),
   call_label "smol_malloc",
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
   instr (mov_reg64_mem64_disp .rdx .rsp 0x28),
   instr (mov_reg64_mem64_disp .rbx .rsp 0x58),
   -- Copy bytes:
@@ -265,6 +281,8 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (mov_mem64_disp .rsp 0x28 .rax),
   instr (mov_r32 .ecx 24),
   call_label "smol_malloc",
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
   instr (mov_reg64_mem64_disp .r8 .rsp 0x28),
   instr (mov_reg64_mem64_disp .rdx .rsp 0x60),
   instr (mov_mem64_disp .rax 0 .r8),
@@ -288,6 +306,8 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (add_r64_imm8 .rcx 1),
   instr (mov_mem64_disp .rsp 0x28 .rdx),
   call_label "smol_malloc",
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
   instr (mov_reg64_mem64_disp .rdx .rsp 0x28),
   instr (mov_reg64_mem64_disp .rbx .rsp 0x58),
   instr (xor_r32 .ecx .ecx),
@@ -307,6 +327,8 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (mov_mem64_disp .rsp 0x28 .rax),
   instr (mov_r32 .ecx 24),
   call_label "smol_malloc",
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
   instr (mov_reg64_mem64_disp .r8 .rsp 0x28),
   instr (mov_reg64_mem64_disp .rdx .rsp 0x60),
   instr (mov_mem64_disp .rax 0 .r8),
@@ -335,6 +357,8 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (mov_reg64_mem64_disp .rcx .rsp 0x30),
   instr (shl_r64_imm8 .rcx 4),                 -- lineCount * 16 bytes
   call_label "smol_malloc",
+  instr (cmp_r64_imm8 .rax 0),
+  je_near_label "resource_exhausted",
   instr (mov_r64 .rbx .rax),                   -- rbx = sortTablePtr
   instr (mov_mem64_disp .rsp 0x20 .rax),       -- save sortTablePtr at [rsp + 0x20]
 
@@ -505,6 +529,14 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   --     all-thread root-lifetime teardown or release the retained arena:
   label "cleanup_and_exit",
   instr (xor_r32 .edi .edi),
+  instr (mov_r32 .eax 60),
+  instr syscall_op,
+
+  -- Every fallible allocation branches here before its result is stored or dereferenced.  Process
+  -- termination releases this selected arena; retrying is an explicit new run with a larger
+  -- caller-provided capability rather than an implicit allocator growth path.
+  label "resource_exhausted",
+  instr (mov_r32 .edi spike3ResourceFailureExitCode),
   instr (mov_r32 .eax 60),
   instr syscall_op
 ] ++ [
