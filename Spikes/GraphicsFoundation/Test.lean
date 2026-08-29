@@ -184,11 +184,89 @@ def testCubePresentation : IO Unit := do
   let acquired ← expectOk "acquire image" (Presentation.acquireNextImage swapchain acquire rendered false ps8)
   let (.success frame image, ps9) := acquired
     | throw (IO.userError "fresh swapchain did not acquire")
+  let fakeSubmission : Vulkan.SubmissionHandle := { device := device.device, slot := 900, generation := 0 }
+
+  -- Binary semaphore roles are distinct, idle at bind, and retain exact frame attribution.
+  expectError "same semaphore cannot serve acquire and render roles" Presentation.Error.invalidFrameState
+    (Presentation.acquireNextImage swapchain acquire acquire false ps8)
+  let (busyRender, busy0) ← expectOk "busy-semaphore control render sync" (Presentation.createSemaphore ps9)
+  expectError "busy acquire semaphore cannot be rebound" Presentation.Error.invalidFrameState
+    (Presentation.acquireNextImage swapchain acquire busyRender false busy0)
+
+  -- Two recorded frames may name one depth attachment, but only one submission can lease it.
+  let (depthAcquire2, depth0) ← expectOk "depth control acquire sync" (Presentation.createSemaphore ps9)
+  let (depthRender2, depth1) ← expectOk "depth control render sync" (Presentation.createSemaphore depth0)
+  let depthAcquired ← expectOk "depth control second image"
+    (Presentation.acquireNextImage swapchain depthAcquire2 depthRender2 false depth1)
+  let (.success depthFrame2 _depthImage2, depth2) := depthAcquired
+    | throw (IO.userError "depth control could not acquire second image")
+  let (_, depth3) ← expectOk "record first shared-depth frame"
+    (Presentation.recordFrame frame pipeline depth depth2)
+  let (_, depth4) ← expectOk "record second shared-depth frame"
+    (Presentation.recordFrame depthFrame2 pipeline depth depth3)
+  let (_, depth5) ← expectOk "submit first shared-depth frame"
+    (Presentation.submitFrame frame fakeSubmission depth4)
+  let fakeSubmission2 : Vulkan.SubmissionHandle := { device := device.device, slot := 901, generation := 0 }
+  expectError "second submission cannot overwrite depth lease" Presentation.Error.invalidFrameState
+    (Presentation.submitFrame depthFrame2 fakeSubmission2 depth5)
+
+  -- Saturate the other two images, then prove queued-but-incomplete F1 cannot be reacquired.
+  let (blockAcquire2, block0) ← expectOk "early-reacquire blocker acquire 2" (Presentation.createSemaphore ps9)
+  let (blockRender2, block1) ← expectOk "early-reacquire blocker render 2" (Presentation.createSemaphore block0)
+  let blockResult2 ← expectOk "early-reacquire occupy image 2"
+    (Presentation.acquireNextImage swapchain blockAcquire2 blockRender2 false block1)
+  let (.success _blockFrame2 _blockImage2, block2) := blockResult2
+    | throw (IO.userError "could not occupy second swapchain image")
+  let (blockAcquire3, block3) ← expectOk "early-reacquire blocker acquire 3" (Presentation.createSemaphore block2)
+  let (blockRender3, block4) ← expectOk "early-reacquire blocker render 3" (Presentation.createSemaphore block3)
+  let blockResult3 ← expectOk "early-reacquire occupy image 3"
+    (Presentation.acquireNextImage swapchain blockAcquire3 blockRender3 false block4)
+  let (.success _blockFrame3 _blockImage3, block5) := blockResult3
+    | throw (IO.userError "could not occupy third swapchain image")
+  let (_, block6) ← expectOk "early-reacquire record F1"
+    (Presentation.recordFrame frame pipeline depth block5)
+  let (blockReady, block7) ← expectOk "early-reacquire readiness" (Presentation.declarePresentReady frame block6)
+  let (_, block8) ← expectOk "early-reacquire submit F1" (Presentation.submitFrame frame fakeSubmission block7)
+  let (_, block9) ← expectOk "early-reacquire queue F1"
+    (Presentation.queuePresent frame blockReady none block8)
+  let (probeAcquire, block10) ← expectOk "early-reacquire probe acquire sync" (Presentation.createSemaphore block9)
+  let (probeRender, block11) ← expectOk "early-reacquire probe render sync" (Presentation.createSemaphore block10)
+  let (earlyReacquire, _) ← expectOk "early-reacquire must not return F1"
+    (Presentation.acquireNextImage swapchain probeAcquire probeRender false block11)
+  unless earlyReacquire == Presentation.AcquireResult.notReady do
+    throw (IO.userError "image was reacquired while its prior render/wait remained incomplete")
+
   let (_, ps10) ← expectOk "record cube frame" (Presentation.recordFrame frame pipeline depth ps9)
   let (ready, ps11) ← expectOk "declare exact present-ready witness" (Presentation.declarePresentReady frame ps10)
-  let fakeSubmission : Vulkan.SubmissionHandle := { device := device.device, slot := 900, generation := 0 }
   let (_, ps12) ← expectOk "submit cube frame" (Presentation.submitFrame frame fakeSubmission ps11)
-  let (presentResult, ps13) ← expectOk "queue present before completion" (Presentation.queuePresent frame ready ps12)
+
+  -- Pre-enqueue allocation failure is no-effect and does not consume the one-shot witness.
+  let (oomResult, oomState) ← expectOk "present OOM before enqueue"
+    (Presentation.queuePresent frame ready (some true) ps12)
+  unless oomResult == Presentation.PresentResult.outOfHostMemoryNotEnqueued && oomState == ps12 do
+    throw (IO.userError "pre-enqueue present failure changed ownership")
+
+  -- OUT_OF_DATE still enqueues the exact semaphore wait and releases acquisition only when consumed.
+  let (_, rejected0) ← expectOk "mark swapchain out of date"
+    (Presentation.invalidateSwapchain swapchain false ps12)
+  let (_, rejectedMonotone) ← expectOk "suboptimal cannot revive out-of-date"
+    (Presentation.invalidateSwapchain swapchain true rejected0)
+  unless rejectedMonotone.swapchains.any (fun sc => sc.handle == swapchain && sc.outOfDate) do
+    throw (IO.userError "suboptimal transition revived an out-of-date swapchain")
+  let (rejectedResult, rejected1) ← expectOk "enqueue rejected out-of-date present"
+    (Presentation.queuePresent frame ready none rejectedMonotone)
+  unless rejectedResult == Presentation.PresentResult.outOfDateEnqueued do
+    throw (IO.userError "out-of-date present was not classified as enqueued")
+  expectError "queued rejected wait blocks swapchain destruction" Presentation.Error.swapchainStillOwned
+    (Presentation.destroySwapchain swapchain rejected1)
+  let (_, rejected2) ← expectOk "complete rejected present render" (Presentation.completeFrame frame rejected1)
+  let (_, rejected3) ← expectOk "observe rejected present render" (Presentation.observeCompletion frame rejected2)
+  let (_, rejected4) ← expectOk "consume rejected present wait" (Presentation.consumePresentWait frame rejected3)
+  let (_, _rejected5) ← expectOk "retire rejected present frame without engine lease"
+    (Presentation.retireFrame frame rejected4)
+
+  let (presentResult, ps13) ← expectOk "queue present before completion"
+    (Presentation.queuePresent frame ready none ps12)
   unless presentResult == Presentation.PresentResult.accepted do
     throw (IO.userError "presentation was not accepted")
   expectError "present acceptance is not begin-present" Presentation.Error.invalidFrameState
@@ -201,6 +279,26 @@ def testCubePresentation : IO Unit := do
   let (_, ps17) ← expectOk "optional begin-present observation" (Presentation.observeBeginPresent frame ps16)
   expectError "host fence and begin-present do not grant reuse" Presentation.Error.imageStillOwned
     (Presentation.retireFrame frame ps17)
+
+  -- Old-generation presentation can close after handle destruction through an explicit
+  -- presentation-agent event; render-fence observation alone cannot retire the backing.
+  let oldImageHandles := (ps17.images.filter (fun i => i.swapchain == swapchain)).map (fun i => i.handle)
+  let (_, oldClosed0) ← expectOk "destroy swapchain after queued waits complete"
+    (Presentation.destroySwapchain swapchain ps17)
+  unless oldImageHandles.all (fun imageHandle => oldClosed0.generations.contains
+      (.image, imageHandle.slot, imageHandle.generation + 1)) do
+    throw (IO.userError "swapchain destruction did not retire every image generation")
+  expectError "engine-owned old backing cannot retire early" Presentation.Error.swapchainStillOwned
+    (Presentation.retirePresentationBacking swapchain oldClosed0)
+  let (_, oldClosed1) ← expectOk "explicitly retire old-generation presentation use"
+    (Presentation.completePresentationUse frame oldClosed0)
+  let (_, oldClosed2) ← expectOk "retire old-generation frame correlation"
+    (Presentation.retireFrame frame oldClosed1)
+  let (_, oldClosed3) ← expectOk "retire old-generation implementation backing"
+    (Presentation.retirePresentationBacking swapchain oldClosed2)
+  unless oldClosed3.retiredBackings.isEmpty do
+    throw (IO.userError "old-generation presentation backing could not close")
+
   let (acquire2, ps18) ← expectOk "create next acquire semaphore" (Presentation.createSemaphore ps17)
   let (rendered2, ps19) ← expectOk "create next render semaphore" (Presentation.createSemaphore ps18)
   let reacquired ← expectOk "reacquire exact image for reuse credit"
@@ -209,7 +307,15 @@ def testCubePresentation : IO Unit := do
     | throw (IO.userError "same image was not reacquired")
   unless sameImage == image do throw (IO.userError "reacquisition did not retire the exact prior present use")
   let (_, ps21) ← expectOk "retire prior frame after reacquisition" (Presentation.retireFrame frame ps20)
-  let (_, ps22) ← expectOk "abandon newly acquired frame" (Presentation.abandonAcquiredFrame nextFrame ps21)
+  let (baseRelease, baseReleaseState) ← expectOk "base KHR cannot release acquired image"
+    (Presentation.releaseAcquiredImageExt nextFrame ps21)
+  unless baseRelease == Presentation.ReleaseResult.extensionUnavailable && baseReleaseState == ps21 do
+    throw (IO.userError "base KHR silently released an acquired image")
+  let maintenanceState := { ps21 with swapchainMaintenance1 := true }
+  let (extRelease, ps22) ← expectOk "maintenance1 releases acquired image"
+    (Presentation.releaseAcquiredImageExt nextFrame maintenanceState)
+  unless extRelease == Presentation.ReleaseResult.released do
+    throw (IO.userError "maintenance1 acquired-image release did not succeed")
   let (replacement, ps23) ← expectOk "failed recreation still retires old swapchain"
     (Presentation.recreateSwapchain swapchain surface { width := 0, height := 600 } 3 ps22)
   unless replacement == Presentation.SwapchainCreateResult.failed Presentation.Error.invalidExtent do

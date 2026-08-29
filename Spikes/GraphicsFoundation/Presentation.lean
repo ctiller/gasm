@@ -112,16 +112,23 @@ structure DepthAttachment where
   deriving Repr, DecidableEq
 
 /- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
-/-- Acquire and render/present facts are independent and generation-matched. -/
+/- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
+/-- One linear, frame-indexed use prevents binary semaphore event attribution from being clobbered. -/
+inductive SemaphoreUse where
+  | idle
+  | acquireSignaled (frame : FrameHandle)
+  | acquireConsumed (frame : FrameHandle)
+  | renderReserved (frame : FrameHandle)
+  | renderPending (frame : FrameHandle)
+  | renderSignaled (frame : FrameHandle)
+  | presentWaitPendingSignal (frame : FrameHandle)
+  | presentWaitSignalAvailable (frame : FrameHandle)
+  | presentWaitConsumed (frame : FrameHandle)
+  deriving Repr, DecidableEq, BEq
+
 structure Semaphore where
   handle : SemaphoreHandle
-  acquireSignalAvailable : Bool := false
-  acquireSignalConsumed : Bool := false
-  renderSignalPending : Bool := false
-  renderSignalAvailable : Bool := false
-  presentWaitRegistered : Bool := false
-  presentWaitConsumed : Bool := false
-  frame : Option FrameHandle := none
+  use : SemaphoreUse := .idle
   deriving Repr, DecidableEq
 
 /- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
@@ -156,6 +163,7 @@ structure Frame where
   hostObserved : Bool := false
   presentWaitRegistered : Bool := false
   presentWaitConsumed : Bool := false
+  presentRejected : Bool := false
   presentationEngineLease : Bool := false
   imageReuseCredit : Bool := false
   beginPresentObserved : Bool := false
@@ -168,7 +176,12 @@ inductive AcquireResult where
   deriving Repr, DecidableEq
 
 inductive PresentResult where
-  | accepted | suboptimal | outOfDate | surfaceLost | deviceLost
+  | accepted | suboptimal | outOfDateEnqueued | surfaceLostEnqueued
+  | outOfHostMemoryNotEnqueued | outOfDeviceMemoryNotEnqueued | deviceLost
+  deriving Repr, DecidableEq, BEq
+
+inductive ReleaseResult where
+  | released | extensionUnavailable | deviceLost
   deriving Repr, DecidableEq, BEq
 
 inductive Error where
@@ -197,6 +210,8 @@ inductive AuditEvent where
   | presentWaitConsumed (frame : FrameHandle)
   | hostCompletionObserved (frame : FrameHandle)
   | beginPresentObserved (frame : FrameHandle)
+  | presentationUseRetired (frame : FrameHandle) (image : ImageHandle)
+  | acquiredImageReleasedExt (frame : FrameHandle) (image : ImageHandle)
   | frameRetired (frame : FrameHandle)
   | swapchainInvalidated (swapchain : SwapchainHandle)
   | swapchainHandleDestroyed (swapchain : SwapchainHandle)
@@ -208,7 +223,7 @@ structure Limits where
   maxSwapchainImages : Nat := 4
   maxShaders : Nat := 8
   maxPipelines : Nat := 4
-  maxFrames : Nat := 4
+  maxFrames : Nat := 8
   deriving Repr, DecidableEq
 
 /-- Backing may outlive the destroyed swapchain handle while presentation still owns an image. -/
@@ -222,6 +237,7 @@ structure State where
   device : Vulkan.DeviceHandle
   uiThread : Nat
   deviceLost : Bool := false
+  swapchainMaintenance1 : Bool := false
   nextSlot : Nat := 1
   surfaceGenerations : List (Nat × Nat) := []
   generations : List (ObjectKind × Nat × Nat) := []
@@ -308,6 +324,9 @@ def createSwapchain (surface : SurfaceHandle) (extent : Extent) (imageCount : Na
 def recreateSwapchain (old : SwapchainHandle) (surface : SurfaceHandle) (extent : Extent)
     (imageCount : Nat) : Transition SwapchainCreateResult := fun s => do
   check s .swapchain old
+  let some previous := s.swapchains.find? (fun x => x.handle == old) | throw (.invalidHandle .swapchain)
+  if previous.retiredForAcquire then throw .invalidFrameState
+  if previous.surface != surface then throw .wrongParent
   let swapchains := s.swapchains.map fun x => if x.handle == old then { x with retiredForAcquire := true } else x
   let retired := { s with swapchains := swapchains, audit := s.audit ++ [.oldSwapchainRetired old] }
   match makeSwapchain surface extent imageCount retired with
@@ -368,12 +387,24 @@ def acquireNextImage (swapchain : SwapchainHandle) (acquireSemaphore renderSemap
   check s .swapchain swapchain
   check s .semaphore acquireSemaphore
   check s .semaphore renderSemaphore
+  if acquireSemaphore == renderSemaphore then throw .invalidFrameState
+  let some acquireSync := s.semaphores.find? (fun x => x.handle == acquireSemaphore)
+    | throw (.invalidHandle .semaphore)
+  let some renderSync := s.semaphores.find? (fun x => x.handle == renderSemaphore)
+    | throw (.invalidHandle .semaphore)
+  if acquireSync.use != .idle || renderSync.use != .idle then throw .invalidFrameState
   let some sc := s.swapchains.find? (fun x => x.handle == swapchain) | throw (.invalidHandle .swapchain)
   let some sf := s.surfaces.find? (fun x => x.handle == sc.surface) | throw .invalidSurface
   if sf.lost then return (.surfaceLost, s)
   if sc.retiredForAcquire || sc.outOfDate then return (.outOfDate, s)
   if timedOut then return (.timeout, s)
-  let some image := s.images.find? (fun x => x.swapchain == swapchain && x.acquiredBy.isNone)
+  let eligible (image : Image) : Bool :=
+    image.swapchain == swapchain && image.acquiredBy.isNone &&
+    match image.presentationUseBy with
+    | none => true
+    | some oldFrame => s.frames.any (fun f =>
+        f.handle == oldFrame && f.executionComplete && f.presentWaitConsumed)
+  let some image := s.images.find? eligible
     | pure (.notReady, s)
   if s.frames.length >= s.limits.maxFrames then throw (.poolExhausted .frame)
   let (frame, s') := fresh s .frame
@@ -390,8 +421,10 @@ def acquireNextImage (swapchain : SwapchainHandle) (acquireSemaphore renderSemap
     else old
   let images := s'.images.map fun x => if x.handle == image.handle then
     { x with acquiredBy := some frame, presentationUseBy := none } else x
-  let semaphores := s'.semaphores.map fun x => if x.handle == acquireSemaphore then
-    { x with acquireSignalAvailable := true, acquireSignalConsumed := false, frame := some frame } else x
+  let semaphores := s'.semaphores.map fun x =>
+    if x.handle == acquireSemaphore then { x with use := .acquireSignaled frame }
+    else if x.handle == renderSemaphore then { x with use := .renderReserved frame }
+    else x
   let priorAudit := match priorPresent with
     | some old => [.priorPresentUseRetiredByReacquire old image.handle]
     | none => []
@@ -437,7 +470,11 @@ def submitFrame (frame : FrameHandle) (submission : Vulkan.SubmissionHandle) : T
   let some f := s.frames.find? (fun x => x.handle == frame) | throw (.invalidHandle .frame)
   if f.pipeline.isNone || f.depth.isNone || f.submission.isSome then throw .invalidFrameState
   let some acquire := s.semaphores.find? (fun x => x.handle == f.acquireSemaphore) | throw (.invalidHandle .semaphore)
-  if !acquire.acquireSignalAvailable || acquire.acquireSignalConsumed then throw .invalidFrameState
+  let some rendered := s.semaphores.find? (fun x => x.handle == f.renderSemaphore) | throw (.invalidHandle .semaphore)
+  let some depth := f.depth | throw .invalidFrameState
+  let some depthRecord := s.depths.find? (fun x => x.handle == depth) | throw (.invalidHandle .depth)
+  if acquire.use != .acquireSignaled frame || rendered.use != .renderReserved frame ||
+      depthRecord.leasedBy.isSome then throw .invalidFrameState
   let frames := s.frames.map fun x => if x.handle == frame then
     { x with
       submission := some submission
@@ -446,8 +483,8 @@ def submitFrame (frame : FrameHandle) (submission : Vulkan.SubmissionHandle) : T
       depthSubmissionLease := true } else x
   let depths := s.depths.map fun x => if f.depth == some x.handle then { x with leasedBy := some frame } else x
   let semaphores := s.semaphores.map fun x =>
-    if x.handle == f.acquireSemaphore then { x with acquireSignalAvailable := false, acquireSignalConsumed := true }
-    else if x.handle == f.renderSemaphore then { x with renderSignalPending := true, frame := some frame }
+    if x.handle == f.acquireSemaphore then { x with use := .acquireConsumed frame }
+    else if x.handle == f.renderSemaphore then { x with use := .renderPending frame }
     else x
   pure ((), { s with
     frames := frames
@@ -457,7 +494,8 @@ def submitFrame (frame : FrameHandle) (submission : Vulkan.SubmissionHandle) : T
 
 /- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
 /-- Present enqueue consumes an exact opaque readiness witness but need not wait for render completion. -/
-def queuePresent (frame : FrameHandle) (ready : PresentReadyHandle) : Transition PresentResult := fun s => do
+def queuePresent (frame : FrameHandle) (ready : PresentReadyHandle)
+    (preEnqueueFailure : Option Bool := none) : Transition PresentResult := fun s => do
   if s.deviceLost then return (.deviceLost, s)
   check s .frame frame
   check s .presentReady ready
@@ -468,23 +506,40 @@ def queuePresent (frame : FrameHandle) (ready : PresentReadyHandle) : Transition
       witness.pipeline != pipeline || witness.renderDependency != f.renderSemaphore ||
       !witness.requiredLayoutPresent || !witness.sameQueueFamily || f.submission.isNone ||
       f.presentWaitRegistered then throw .presentReadyMissing
+  let some renderSync := s.semaphores.find? (fun x => x.handle == f.renderSemaphore)
+    | throw (.invalidHandle .semaphore)
+  if renderSync.use != .renderPending frame && renderSync.use != .renderSignaled frame then
+    throw .invalidFrameState
+  match preEnqueueFailure with
+  | some true => return (.outOfHostMemoryNotEnqueued, s)
+  | some false => return (.outOfDeviceMemoryNotEnqueued, s)
+  | none => pure ()
   let some sc := s.swapchains.find? (fun x => x.handle == f.swapchain) | throw (.invalidHandle .swapchain)
   let some sf := s.surfaces.find? (fun x => x.handle == sc.surface) | throw .invalidSurface
-  if sf.lost then return (.surfaceLost, s)
-  if sc.outOfDate then return (.outOfDate, s)
+  let rejected := sf.lost || sc.outOfDate
   let frames := s.frames.map fun x => if x.handle == frame then
-    { x with imageAcquired := false, presentWaitRegistered := true, presentationEngineLease := true } else x
+    { x with
+      imageAcquired := false
+      presentWaitRegistered := true
+      presentRejected := rejected
+      presentationEngineLease := !rejected } else x
   let images := s.images.map fun x => if x.handle == f.image then
     { x with acquiredBy := none, presentationUseBy := some frame } else x
   let semaphores := s.semaphores.map fun x => if x.handle == f.renderSemaphore then
-    { x with presentWaitRegistered := true } else x
+    { x with use := match x.use with
+      | .renderPending owner => .presentWaitPendingSignal owner
+      | .renderSignaled owner => .presentWaitSignalAvailable owner
+      | other => other } else x
   let s' := retire { s with
     frames := frames
     images := images
     semaphores := semaphores
     presentReady := s.presentReady.filter (fun x => x.handle != ready)
     audit := s.audit ++ [.presentWaitRegistered frame] } .presentReady ready.slot ready.generation
-  pure (if sc.suboptimal then .suboptimal else .accepted, s')
+  let result := if sf.lost then PresentResult.surfaceLostEnqueued
+    else if sc.outOfDate then PresentResult.outOfDateEnqueued
+    else if sc.suboptimal then PresentResult.suboptimal else PresentResult.accepted
+  pure (result, s')
 
 /- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
 /-- Device completion returns render/depth leases, but not presentation-engine or present-wait leases. -/
@@ -493,11 +548,18 @@ def completeFrame (frame : FrameHandle) : Transition Unit := fun s => do
   check s .frame frame
   let some f := s.frames.find? (fun x => x.handle == frame) | throw (.invalidHandle .frame)
   if !f.renderSubmissionLease || f.executionComplete then throw .invalidFrameState
+  let some renderSync := s.semaphores.find? (fun x => x.handle == f.renderSemaphore)
+    | throw (.invalidHandle .semaphore)
+  if renderSync.use != .renderPending frame && renderSync.use != .presentWaitPendingSignal frame then
+    throw .invalidFrameState
   let frames := s.frames.map fun x => if x.handle == frame then
     { x with renderSubmissionLease := false, depthSubmissionLease := false, executionComplete := true } else x
   let depths := s.depths.map fun x => if x.leasedBy == some frame then { x with leasedBy := none } else x
   let semaphores := s.semaphores.map fun x => if x.handle == f.renderSemaphore then
-    { x with renderSignalPending := false, renderSignalAvailable := true } else x
+    { x with use := match x.use with
+      | .renderPending owner => .renderSignaled owner
+      | .presentWaitPendingSignal owner => .presentWaitSignalAvailable owner
+      | other => other } else x
   pure ((), { s with
     frames := frames
     depths := depths
@@ -511,12 +573,19 @@ def consumePresentWait (frame : FrameHandle) : Transition Unit := fun s => do
   check s .frame frame
   let some f := s.frames.find? (fun x => x.handle == frame) | throw (.invalidHandle .frame)
   let some semaphore := s.semaphores.find? (fun x => x.handle == f.renderSemaphore) | throw (.invalidHandle .semaphore)
-  if !f.presentWaitRegistered || !f.executionComplete || !semaphore.renderSignalAvailable then throw .invalidFrameState
-  let frames := s.frames.map fun x => if x.handle == frame then { x with presentWaitConsumed := true } else x
+  if !f.presentWaitRegistered || !f.executionComplete ||
+      semaphore.use != .presentWaitSignalAvailable frame then throw .invalidFrameState
+  let frames := s.frames.map fun x => if x.handle == frame then
+    { x with presentWaitConsumed := true, imageReuseCredit := x.imageReuseCredit || x.presentRejected } else x
+  let images := s.images.map fun image =>
+    if f.presentRejected && image.handle == f.image && image.presentationUseBy == some frame then
+      { image with presentationUseBy := none }
+    else image
   let semaphores := s.semaphores.map fun x => if x.handle == f.renderSemaphore then
-    { x with renderSignalAvailable := false, presentWaitConsumed := true } else x
+    { x with use := .presentWaitConsumed frame } else x
   pure ((), { s with
     frames := frames
+    images := images
     semaphores := semaphores
     audit := s.audit ++ [.presentWaitConsumed frame] })
 
@@ -538,22 +607,47 @@ def observeBeginPresent (frame : FrameHandle) : Transition Unit := fun s => do
   pure ((), { s with frames := frames, audit := s.audit ++ [.beginPresentObserved frame] })
 
 /- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
-/-- Returns an acquired image when recording/submission is abandoned before device use begins. -/
-def abandonAcquiredFrame (frame : FrameHandle) : Transition Unit := fun s => do
+/-- Selected `VK_EXT_swapchain_maintenance1` release; base KHR returns `extensionUnavailable`. -/
+def releaseAcquiredImageExt (frame : FrameHandle) : Transition ReleaseResult := fun s => do
+  if s.deviceLost then return (.deviceLost, s)
+  if !s.swapchainMaintenance1 then return (.extensionUnavailable, s)
   check s .frame frame
   let some f := s.frames.find? (fun x => x.handle == frame) | throw (.invalidHandle .frame)
   if !f.imageAcquired || f.submission.isSome || f.renderSubmissionLease ||
       f.presentWaitRegistered || f.presentationEngineLease then throw .imageStillOwned
   let images := s.images.map fun x => if x.handle == f.image && x.acquiredBy == some frame then
     { x with acquiredBy := none } else x
-  let semaphores := s.semaphores.map fun x => if x.frame == some frame then
-    { x with acquireSignalAvailable := false, acquireSignalConsumed := false, frame := none } else x
+  let semaphores := s.semaphores.map fun x => match x.use with
+    | .acquireSignaled owner | .renderReserved owner => if owner == frame then { x with use := .idle } else x
+    | _ => x
   let s' := { s with
     frames := s.frames.filter (fun x => x.handle != frame)
     images := images
     semaphores := semaphores
-    audit := s.audit ++ [.frameRetired frame] }
-  pure ((), retire s' .frame frame.slot frame.generation)
+    presentReady := s.presentReady.filter (fun w => w.frame != frame)
+    audit := s.audit ++ [.acquiredImageReleasedExt frame f.image, .frameRetired frame] }
+  pure (.released, retire s' .frame frame.slot frame.generation)
+
+/- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
+/-- Explicit presentation-agent completion for an exact old-generation image use. -/
+def completePresentationUse (frame : FrameHandle) : Transition Unit := fun s => do
+  check s .frame frame
+  let some f := s.frames.find? (fun x => x.handle == frame) | throw (.invalidHandle .frame)
+  if !f.presentationEngineLease || !f.presentWaitConsumed then throw .invalidFrameState
+  let frames := s.frames.map fun x => if x.handle == frame then
+    { x with presentationEngineLease := false, imageReuseCredit := true } else x
+  let clearUse (image : Image) : Image :=
+    if image.handle == f.image && image.presentationUseBy == some frame then
+      { image with presentationUseBy := none }
+    else image
+  let images := s.images.map clearUse
+  let retiredBackings := s.retiredBackings.map fun backing =>
+    { backing with images := backing.images.map clearUse }
+  pure ((), { s with
+    frames := frames
+    images := images
+    retiredBackings := retiredBackings
+    audit := s.audit ++ [.presentationUseRetired frame f.image] })
 
 /- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
 /-- Reuse requires reacquisition-derived credit; a host render fence is insufficient. -/
@@ -562,39 +656,61 @@ def retireFrame (frame : FrameHandle) : Transition Unit := fun s => do
   let some f := s.frames.find? (fun x => x.handle == frame) | throw (.invalidHandle .frame)
   if !f.hostObserved || !f.presentWaitConsumed || !f.imageReuseCredit || f.presentationEngineLease ||
       f.renderSubmissionLease || f.depthSubmissionLease then throw .imageStillOwned
-  let semaphores := s.semaphores.map fun x => if x.frame == some frame then
-    { x with
-      acquireSignalAvailable := false
-      acquireSignalConsumed := false
-      renderSignalPending := false
-      renderSignalAvailable := false
-      presentWaitRegistered := false
-      presentWaitConsumed := false
-      frame := none } else x
+  let ownsFrame : SemaphoreUse → Bool
+    | .idle => false
+    | .acquireSignaled owner | .acquireConsumed owner | .renderReserved owner |
+      .renderPending owner | .renderSignaled owner | .presentWaitPendingSignal owner |
+      .presentWaitSignalAvailable owner | .presentWaitConsumed owner => owner == frame
+  let semaphores := s.semaphores.map fun x => if ownsFrame x.use then { x with use := .idle } else x
   let s' := { s with
     frames := s.frames.filter (fun x => x.handle != frame)
     semaphores := semaphores
+    presentReady := s.presentReady.filter (fun w => w.frame != frame)
     audit := s.audit ++ [.frameRetired frame] }
   pure ((), retire s' .frame frame.slot frame.generation)
 
 def invalidateSwapchain (swapchain : SwapchainHandle) (suboptimal : Bool := false) : Transition Unit := fun s => do
   check s .swapchain swapchain
   let swapchains := s.swapchains.map fun x => if x.handle == swapchain then
-    { x with outOfDate := !suboptimal, suboptimal := suboptimal } else x
+    if suboptimal then { x with suboptimal := true }
+    else { x with outOfDate := true }
+    else x
   pure ((), { s with swapchains := swapchains, audit := s.audit ++ [.swapchainInvalidated swapchain] })
 
 /- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
 /-- Images are implementation-owned; handle destruction transfers them to a backing-retirement ledger. -/
 def destroySwapchain (swapchain : SwapchainHandle) : Transition Unit := fun s => do
   check s .swapchain swapchain
-  if s.images.any (fun i => i.swapchain == swapchain && i.acquiredBy.isSome) ||
-      s.frames.any (fun f => f.swapchain == swapchain && f.renderSubmissionLease) then throw .swapchainStillOwned
+  if s.frames.any (fun f => f.swapchain == swapchain &&
+      (f.renderSubmissionLease || (f.presentWaitRegistered && !f.presentWaitConsumed))) then
+    throw .swapchainStillOwned
+  let closingFrames := s.frames.filter (fun f =>
+    f.swapchain == swapchain && f.imageAcquired && f.submission.isNone && !f.presentWaitRegistered)
+  if s.images.any (fun i => i.swapchain == swapchain && i.acquiredBy.any (fun owner =>
+      !(closingFrames.any (fun f => f.handle == owner)))) then throw .swapchainStillOwned
   let owned := s.images.filter (fun i => i.swapchain == swapchain)
+    |>.map (fun i => { i with acquiredBy := none })
+  let ownsClosingFrame (use : SemaphoreUse) : Bool :=
+    match use with
+    | .idle => false
+    | .acquireSignaled owner | .acquireConsumed owner | .renderReserved owner |
+      .renderPending owner | .renderSignaled owner | .presentWaitPendingSignal owner |
+      .presentWaitSignalAvailable owner | .presentWaitConsumed owner =>
+        closingFrames.any (fun f => f.handle == owner)
+  let semaphores := s.semaphores.map fun sem =>
+    if ownsClosingFrame sem.use then { sem with use := .idle } else sem
   let s' := { s with
     images := s.images.filter (fun i => i.swapchain != swapchain)
     swapchains := s.swapchains.filter (fun x => x.handle != swapchain)
     retiredBackings := { swapchain := swapchain, images := owned } :: s.retiredBackings
-    audit := s.audit ++ [.swapchainHandleDestroyed swapchain] }
+    frames := s.frames.filter (fun f => !(closingFrames.any (fun closed => closed.handle == f.handle)))
+    semaphores := semaphores
+    presentReady := s.presentReady.filter (fun w =>
+      !(closingFrames.any (fun closed => closed.handle == w.frame)))
+    audit := s.audit ++ closingFrames.map (fun f => .frameRetired f.handle) ++
+      [.swapchainHandleDestroyed swapchain] }
+  let s' := closingFrames.foldl (fun st f => retire st .frame f.handle.slot f.handle.generation) s'
+  let s' := owned.foldl (fun st image => retire st .image image.handle.slot image.handle.generation) s'
   pure ((), retire s' .swapchain swapchain.slot swapchain.generation)
 
 def retirePresentationBacking (swapchain : SwapchainHandle) : Transition Unit := fun s => do

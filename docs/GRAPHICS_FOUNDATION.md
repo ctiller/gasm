@@ -146,12 +146,39 @@ dependency without inventing Vulkan memory relations before profile intake. Rend
 return command/pipeline/depth leases but cannot retire present-engine use or its semaphore wait.
 Optional begin-present observation is separate and is not called display visibility.
 
+Binary semaphore use is a single linear, frame-indexed sum state. Acquire and render-finished roles
+must use distinct idle semaphore generations; every signal, queue-wait registration, signal
+availability, and wait-consumption transition checks its exact frame owner. Recording may name a
+shared depth attachment, but submission atomically rechecks and acquires its depth lease, closing the
+record/submit TOCTOU interval.
+
+A same-image reacquisition is eligible to retire prior presentation use only after that exact prior
+frame's render execution and registered presentation wait have completed. Out-of-date and
+surface-lost present results are modeled as enqueued rejections: they register and later consume the
+semaphore wait and release image acquisition, but create no presentation-engine/display lease.
+Pre-enqueue host/device allocation failures are separate no-effect outcomes and do not consume the
+one-shot readiness witness. Device loss remains an uncertain transition that preserves records.
+
 Reacquisition of the same image generation is the selected witness that retires its prior present
 use and grants reuse credit; a host render fence is insufficient. Recreation allows coexisting
 swapchain generations and retires the old swapchain for new acquisitions even when replacement
 creation fails. Already-acquired images may continue through presentation. Swapchain images are
 implementation-owned: destroying the handle moves them to a separate backing-retirement ledger,
 which may outlive the handle. Surface/device loss preserves unresolved ownership records.
+
+An explicit presentation-agent completion transition provides the selected closure path for a
+retired old swapchain generation when reacquisition is no longer possible. It is intentionally not
+derived from a render fence. Swapchain destruction waits for application render leases and queued
+semaphore waits, retires every implementation-owned image generation, and may leave presentation
+backing in the independent ledger until the presentation agent closes its exact use. Out-of-date is
+monotone, recreation requires the same surface and a previously non-retired old swapchain, and frame
+capacity exceeds image capacity so the correlation record needed for reacquisition credit is not
+itself exhausted.
+
+The base-KHR model has no public acquired-image release operation. The optional
+`releaseAcquiredImageExt` transition is feature-gated by `swapchainMaintenance1`; when the extension
+is absent it returns `extensionUnavailable` without changing ownership. Otherwise an unsubmitted
+acquired image remains obligated until presentation or parent swapchain destruction.
 
 The presentation model captures a local serialization digest for each shader only as correlation
 data. It does not prove that a native shader module has those bytes or that the Vulkan implementation
