@@ -137,57 +137,46 @@ def linuxSyscallUpdate (s : ComposedState x86_64 InState) : ComposedState x86_64
 
 ## 4. BasicBlock Structure & Target-Parametric Terminators
 
-A `BasicBlock` is parameterized **only by `InState`**. It executes instructions transforming `InState` to an internal exit state, producing a typed terminator strictly indexed over the resulting exit state `s_exit`:
+A `BasicBlock` owns a dependent `BlockEntry`: an erased typestate, a label, an expected stack
+depth, and the complete predicate demanded of predecessors. Its body can be invoked only with that
+predicate established. A jump carries a `BlockEdge`, which supplies the destination state, preserves
+the concrete machine and framed ghost resources, and proves the destination predicate. Conditional
+edges make that last proof conditional on the target-owned meaning of the branch condition.
 
 ```lean
-class TargetArch (Arch : Type) where
-  wordWidth  : Nat
-  Terminator : ∀ {S : Type}, ComposedState Arch S → Type
-
-structure BasicBlock (Arch : Type) [TargetArch Arch] (InState : Type) where
-  label         : String
+structure BlockEntry (Arch : Type) [TargetArch Arch] where
+  State : Type
+  label : String
   expectedDepth : Nat
-  entryProof    : ComposedState Arch InState → Prop
-  body          : Σ (S_exit : Type), ComposedState Arch InState → (Σ (s_exit : ComposedState Arch S_exit), TargetArch.Terminator Arch s_exit)
+  accepts : ComposedState Arch State → Prop
+
+structure BlockEdge {Arch : Type} [TargetArch Arch] {Source : Type}
+    (source : ComposedState Arch Source) where
+  target : BlockEntry Arch
+  targetState : ComposedState Arch target.State
+  framePreserved : JumpFramePreserved source targetState
+  depthEstablished : target.expectedDepth = targetState.stackDepth
+  entryEstablished : target.accepts targetState
 
 inductive CpuTerminator (Arch : Type) [TargetArch Arch] {S : Type} (s_exit : ComposedState Arch S) where
-  /-- Unconditional Direct Jump: Target InState, entryProof, and expected depth must match exit state -/
-  | jmp   {TargetIn : Type}
-          (target  : BasicBlock Arch TargetIn)
-          (h_state : S = TargetIn)
-          (h_entry : target.entryProof (h_state ▸ s_exit))
-          (h_depth : target.expectedDepth = s_exit.stackDepth) : CpuTerminator Arch s_exit
-  
-  /-- Indirect Jump via Register: Target must belong to a verified Jump Table -/
-  | jmpIndirect
-          (reg     : Register Arch (TargetArch.wordWidth Arch))
-          (targets : List (BasicBlock Arch S))
-          (h_valid : s_exit.machine.getReg reg ∈ targets.map (·.labelAddress))
-          (h_entry : ∀ (t ∈ targets), t.entryProof s_exit)
-          (h_depth : ∀ (t ∈ targets), t.expectedDepth = s_exit.stackDepth) : CpuTerminator Arch s_exit
-
-  /-- Conditional Branch (structured control flow) -/
-  | jcc   {TrueIn FalseIn : Type}
-          (cond        : ConditionCode Arch)
-          (targetTrue  : BasicBlock Arch TrueIn)   (h_true    : S = TrueIn)
-          (h_entry_t   : targetTrue.entryProof (h_true ▸ s_exit))
-          (h_depth_t   : targetTrue.expectedDepth = s_exit.stackDepth)
-          (targetFalse : BasicBlock Arch FalseIn) (h_false   : S = FalseIn)
-          (h_entry_f   : targetFalse.entryProof (h_false ▸ s_exit))
-          (h_depth_f   : targetFalse.expectedDepth = s_exit.stackDepth) : CpuTerminator Arch s_exit
-
-  /-- Function Return: Requires local stackDepth = 0, obligations match exported list -/
+  | jmp (edge : BlockEdge s_exit)
+  | jcc (cond : ConditionCode Arch)
+      (targetTrue : ConditionalBlockEdge s_exit (cond.holds s_exit.machine))
+      (targetFalse : ConditionalBlockEdge s_exit (¬ cond.holds s_exit.machine))
   | ret   (exportedObligations : List Obligation) (bytesToPop : UInt16 := 0)
           (h_zero      : s_exit.stackDepth = 0)
           (h_match     : s_exit.obligations = exportedObligations)
           (h_callee    : CalleeDiscipline Arch s_exit) : CpuTerminator Arch s_exit
-  
-  /-- Clean Exit / Halt: All remaining obligations must be droppable on exit -/
-  | sysExit (exitCode  : UInt8)
-            (h_droppable : ∀ o ∈ s_exit.obligations, o.isDroppableOnExit) : CpuTerminator Arch s_exit
 
-  | halt    (h_droppable : ∀ o ∈ s_exit.obligations, o.isDroppableOnExit) : CpuTerminator Arch s_exit
+structure BasicBlock (Arch : Type) [TargetArch Arch] where
+  entry : BlockEntry Arch
+  body : (state : ComposedState Arch entry.State) → entry.accepts state →
+    Σ ExitState, Σ exit : ComposedState Arch ExitState, CpuTerminator Arch exit
 ```
+
+The direct and conditional edge constructors are implemented. Closed-set resolution for indirect
+jumps and the generic finite-CFG composition theorem remain required work; until those land, this
+module is not yet the complete routine-verification surface.
 
 ---
 

@@ -28,14 +28,11 @@ structure Register (Arch : Type) (width : Nat) where
   deriving DecidableEq, Repr, Inhabited
 
 /- REF: docs/API_STATE_MODELS.md#4-basicblock-structure-target-parametric-terminators -/
-/-- Architectural condition codes for branching. -/
-inductive ConditionCode (Arch : Type) where
-  | ZeroFlag
-  | NonZeroFlag
-  | CarryFlag
-  | SignFlag
-  | Always
-  deriving DecidableEq, Repr, Inhabited
+/-- A target-owned branch condition together with its meaning on machine state.
+    Naming a condition without this predicate is insufficient for typed edges. -/
+structure ConditionCode (Arch : Type) [TargetArch Arch] where
+  name : String
+  holds : TargetArch.MachineState Arch → Prop
 
 /- REF: docs/STACK_DISCIPLINE.md#2-multi-abi-calling-conventions-stack-restoration-laws -/
 /-- Current minimal callee stack-clean predicate.
@@ -43,15 +40,59 @@ It contains no register-preservation or external-boundary/link certificate by it
 structure CalleeDiscipline (Arch : Type) [TargetArch Arch] {S : Type} (s : ComposedState Arch S) : Prop where
   stack_clean : s.stackDepth = 0
 
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- The contract owned by a basic-block entry.  `State` is erased typestate;
+    `accepts` is the complete entry property demanded from every predecessor. -/
+structure BlockEntry (Arch : Type) [TargetArch Arch] where
+  State : Type
+  label : String
+  expectedDepth : Nat
+  accepts : ComposedState Arch State → Prop
+
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- A jump changes control location but cannot manufacture authority.  The
+    target may refine the erased API typestate, while the concrete state and
+    framed ghost resources are preserved exactly across the edge. -/
+structure JumpFramePreserved {Arch : Type} [TargetArch Arch]
+    {Source Target : Type}
+    (source : ComposedState Arch Source) (target : ComposedState Arch Target) : Prop where
+  machine : target.machine = source.machine
+  stackDepth : target.stackDepth = source.stackDepth
+  permissions : target.perms = source.perms
+  obligations : target.obligations = source.obligations
+  causalClock : target.causalClock = source.causalClock
+  eventHistory : target.eventHistory = source.eventHistory
+
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- Evidence for one direct control-flow edge. -/
+structure BlockEdge {Arch : Type} [TargetArch Arch] {Source : Type}
+    (source : ComposedState Arch Source) where
+  target : BlockEntry Arch
+  targetState : ComposedState Arch target.State
+  framePreserved : JumpFramePreserved source targetState
+  depthEstablished : target.expectedDepth = targetState.stackDepth
+  entryEstablished : target.accepts targetState
+
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- Evidence for a conditional successor.  Only the selected edge must establish
+    its target, avoiding an artificial obligation to prove mutually exclusive
+    path refinements simultaneously. -/
+structure ConditionalBlockEdge {Arch : Type} [TargetArch Arch] {Source : Type}
+    (source : ComposedState Arch Source) (enabled : Prop) where
+  target : BlockEntry Arch
+  targetState : ComposedState Arch target.State
+  framePreserved : JumpFramePreserved source targetState
+  depthEstablished : target.expectedDepth = targetState.stackDepth
+  entryEstablished : enabled → target.accepts targetState
+
 /- REF: docs/API_STATE_MODELS.md#4-basicblock-structure-target-parametric-terminators -/
 /-- Architecture-defined control-flow terminator family indexed over the terminal state. -/
 inductive CpuTerminator (Arch : Type) [TargetArch Arch] {S : Type} (s_exit : ComposedState Arch S) where
-  | jmp   (targetLabel : String) (targetDepth : Nat)
-          (h_depth : targetDepth = s_exit.stackDepth) : CpuTerminator Arch s_exit
+  | jmp   (edge : BlockEdge s_exit) : CpuTerminator Arch s_exit
   | jcc   (cond : ConditionCode Arch)
-          (targetTrue targetFalse : String)
-          (targetDepth : Nat)
-          (h_depth : targetDepth = s_exit.stackDepth) : CpuTerminator Arch s_exit
+          (targetTrue : ConditionalBlockEdge s_exit (cond.holds s_exit.machine))
+          (targetFalse : ConditionalBlockEdge s_exit (¬ cond.holds s_exit.machine)) :
+          CpuTerminator Arch s_exit
   | ret   (exportedObligations : List ObligationToken) (bytesToPop : UInt16 := 0)
           (h_zero      : s_exit.stackDepth = 0)
           (h_match     : s_exit.obligations = exportedObligations)
@@ -61,11 +102,11 @@ inductive CpuTerminator (Arch : Type) [TargetArch Arch] {S : Type} (s_exit : Com
   | halt    (h_droppable : ∀ o ∈ s_exit.obligations, o.isDroppableOnExit) : CpuTerminator Arch s_exit
 
 /- REF: docs/API_STATE_MODELS.md#4-basicblock-structure-target-parametric-terminators -/
-/-- Single-entry basic block with typed entry preconditions and monadic body. -/
-structure BasicBlock (Arch : Type) [TargetArch Arch] (InState : Type) where
-  label         : String
-  expectedDepth : Nat
-  entryProof    : ComposedState Arch InState → Prop
-  body          : Σ (S_exit : Type), ComposedState Arch InState → (Σ (s_exit : ComposedState Arch S_exit), CpuTerminator Arch s_exit)
+/-- Single-entry basic block whose body is callable only with its typed entry
+    contract established. -/
+structure BasicBlock (Arch : Type) [TargetArch Arch] where
+  entry : BlockEntry Arch
+  body : (state : ComposedState Arch entry.State) → entry.accepts state →
+    Σ (ExitState : Type), Σ (exit : ComposedState Arch ExitState), CpuTerminator Arch exit
 
 end Gasm.Core

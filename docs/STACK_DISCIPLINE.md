@@ -92,8 +92,9 @@ class AbiDiscipline (Arch : Type) (ABI : Type) where
 
 ## 3. BasicBlock Structure & Typed Terminators
 
-The completed basic-block authoring surface must check CFG transitions against `expectedDepth` and
-`s_exit.stackDepth`; current structures provide only part of that substrate:
+The basic-block authoring surface checks direct and conditional CFG transitions against typed entry
+contracts and `expectedDepth`. Closed-set indirect resolution and the generic whole-CFG theorem are
+the remaining parts of this substrate:
 
 A jump is a local call-like proof boundary. Its source proves the destination entry relation over
 the complete logical state, not merely representation compatibility or stack depth. That relation is
@@ -110,37 +111,30 @@ by `VerifiedProgram`; path enumeration or restating target-block proofs at whole
 an acceptable substitute.
 
 ```lean
-structure BasicBlock (Arch : Type) [TargetArch Arch] (InState : Type) where
-  label         : String
+structure BlockEntry (Arch : Type) [TargetArch Arch] where
+  State : Type
+  label : String
   expectedDepth : Nat
-  entryProof    : ComposedState Arch InState → Prop
-  body          : Σ (S_exit : Type), ComposedState Arch InState → (Σ (s_exit : ComposedState Arch S_exit), TargetArch.Terminator Arch s_exit)
+  accepts : ComposedState Arch State → Prop
+
+structure BlockEdge {Arch : Type} [TargetArch Arch] {Source : Type}
+    (source : ComposedState Arch Source) where
+  target : BlockEntry Arch
+  targetState : ComposedState Arch target.State
+  framePreserved : JumpFramePreserved source targetState
+  depthEstablished : target.expectedDepth = targetState.stackDepth
+  entryEstablished : target.accepts targetState
 
 inductive CpuTerminator (Arch : Type) [TargetArch Arch] {S : Type} (s_exit : ComposedState Arch S) where
-  | jmp   {TargetIn : Type}
-          (target  : BasicBlock Arch TargetIn)
-          (h_state : S = TargetIn)
-          (h_entry : target.entryProof (h_state ▸ s_exit))
-          (h_depth : target.expectedDepth = s_exit.stackDepth) : CpuTerminator Arch s_exit
+  | jmp (edge : BlockEdge s_exit)
+  | jcc (cond : ConditionCode Arch)
+      (targetTrue : ConditionalBlockEdge s_exit (cond.holds s_exit.machine))
+      (targetFalse : ConditionalBlockEdge s_exit (¬ cond.holds s_exit.machine))
 
-  | jcc   {TrueIn FalseIn : Type}
-          (cond        : ConditionCode Arch)
-          (targetTrue  : BasicBlock Arch TrueIn)   (h_true    : S = TrueIn)
-          (h_entry_t   : targetTrue.entryProof (h_true ▸ s_exit))
-          (h_depth_t   : targetTrue.expectedDepth = s_exit.stackDepth)
-          (targetFalse : BasicBlock Arch FalseIn) (h_false   : S = FalseIn)
-          (h_entry_f   : targetFalse.entryProof (h_false ▸ s_exit))
-          (h_depth_f   : targetFalse.expectedDepth = s_exit.stackDepth) : CpuTerminator Arch s_exit
-
-  | ret   (exportedObligations : List Obligation) (bytesToPop : UInt16 := 0)
-          (h_zero      : s_exit.stackDepth = 0)
-          (h_match     : s_exit.obligations = exportedObligations)
-          (h_callee    : CalleeDiscipline Arch s_exit) : CpuTerminator Arch s_exit
-
-  | sysExit (exitCode : UInt8)
-            (h_droppable : ∀ o ∈ s_exit.obligations, o.isDroppableOnExit) : CpuTerminator Arch s_exit
-
-  | halt    (h_droppable : ∀ o ∈ s_exit.obligations, o.isDroppableOnExit) : CpuTerminator Arch s_exit
+structure BasicBlock (Arch : Type) [TargetArch Arch] where
+  entry : BlockEntry Arch
+  body : (state : ComposedState Arch entry.State) → entry.accepts state →
+    Σ ExitState, Σ exit : ComposedState Arch ExitState, CpuTerminator Arch exit
 ```
 
 ---
