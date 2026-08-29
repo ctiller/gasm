@@ -2,6 +2,11 @@
 
 `gasm` is a formal framework in Lean 4 for writing **proof-carrying assembly routines**, expressing **high-level behavioral specifications**, and formally proving the **mathematical equivalence** between the two across multiple hardware, shader, and OS targets.
 
+**Implementation status:** this README describes the intended framework as well as current pieces.
+Universal memory-capability enforcement and concurrent x86/AArch64 semantics are not implemented;
+their honest current inventory and canonical completion plan are in
+[**`docs/MEMORY_MODEL.md`**](MEMORY_MODEL.md) §2 and §14.
+
 ---
 
 ## Vision: The Specification Is the Program
@@ -55,6 +60,8 @@ Progress in `gasm` is driven by continuous, end-to-end executable **Spikes** con
 - **Spike 5**: GZIP/GUNZIP utility over `Stdlib.Zlib` (RFC 1950/1951/1952, differential fuzzing vs. Python oracle).
 - **Spike 6 (planned)**: Headless parametric compute pipeline (`Stdlib.Png`, SPIR-V/Vulkan 1.3, compute-only) — Windows x64 + Vulkan only, no Wasm/DX12/WebGPU (see `docs/GRAPHICS_ARCHITECTURE.md` §2).
 - **Spike 7 (planned)**: Interactive windowed swapchain & event loop.
+- **Spike 8 (planned)**: Cross-architecture multithreading across x86-64 and AArch64, hosted and
+  bare-metal, including borrowing, locks, futex/parking, and causal traces.
 
 See [**`docs/SPIKES.md`**](SPIKES.md) for roadmap and continuous verification details.
 
@@ -113,15 +120,21 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 ## Documentation Index
 
 - [**Vision**](VISION.md): The three insights, the gate-is-the-product trust model, modular contract decomposition, and performance modeling as the optimizing-compiler superpower.
+- [**Canonical Memory & Concurrency Model**](MEMORY_MODEL.md): Common event graph, x86-TSO and
+  AArch64 weak memory, borrowing, locks/obligations, scheduler, futex/Windows parking, and both
+  bare-metal SMP paths, with staged exit criteria.
 - [**Spikes & Integration Roadmap**](SPIKES.md): Spike progression, continuous testing, and stop-and-design invariant.
 - [**Review Protocol & Citation Laws**](REVIEW.md): `REF:` syntax, repository laws, and automated backlog tool.
 - [**Continuous Integration**](CI.md): the GitHub Actions gate inventory, Windows/Linux platform matrix, caching soundness argument, and cost split.
 - [**Software Modeling & Architecture SDLC**](SOFTWARE_MODELING_SDLC.md): Typeclasses, theorem weaving, seams, and lowering.
 - [**Global Architecture**](ARCHITECTURE.md): System architecture, vertical slices, and common helper libraries.
-- [**API State Models**](API_STATE_MODELS.md): Formal protocol modeling, capability tokens, and the universal `Callable` typeclass.
-- [**Linear Obligations & Causality**](OBLIGATIONS_AND_CAUSALITY.md): Obligation ledgers, cleanup invariants, and `assertHappensBefore`/`After`.
+- [**API State Models**](API_STATE_MODELS.md): Current state/contract substrate and the explicitly
+  unimplemented indexed protocol surface.
+- [**Linear Obligations & Causality**](OBLIGATIONS_AND_CAUSALITY.md): Current generic tokens and
+  vector clocks versus the required typed obligations and labelled causal relations.
 - [**Stack Discipline & Jump Typing**](STACK_DISCIPLINE.md): Stack-indexed basic blocks and local jump obligations automating stack preservation.
 - [**Composable Boundary ABI Contexts**](ABI_CONTEXT.md): Per-boundary ghost and runtime capabilities, placement, composition, scoped allocation accounting, cancellation, and zero-overhead erasure.
-- [**Proof-Carrying Assembly DSL**](PROOF_CARRYING_ASSEMBLY.md): Discrete memory permissions, architecture-defined memory disciplines, and decoder soundness.
+- [**Proof-Carrying Assembly DSL**](PROOF_CARRYING_ASSEMBLY.md): Current typed assembly pieces and
+  design-only capability/memory-discipline boundaries.
 - [**Equivalence Proofs**](EQUIVALENCE_PROOFS.md): Split Theorem Principle (`Functional Equivalence`, `Callability & ABI`, `Memory Safety`) and layered function proof composition.
 - [**Target Specifications**](TARGETS/TARGET_MODEL.md): Target models, calling conventions, and platform specifics.

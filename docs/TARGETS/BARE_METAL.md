@@ -1,6 +1,14 @@
 # Target Specification: Bare Metal & Freestanding Execution
 
-This document defines the machine state model, hardware control mechanisms, MMIO and Port I/O protocol proofs, minimal ELF64 binary packaging, and QEMU PVH boot protocol for **bare-metal execution** (operating system kernels, embedded hypervisors, and firmware).
+**Status (2026-08-28): current single-CPU substrate plus design sketch.** The tree has an x86-64
+Spike 1/QEMU bare-metal path and preliminary AArch64 machine/MMIO pieces. It does not have a generic
+MMU, the illustrated MMIO transition API, proved device barriers, TLB invalidation, IDT/VBAR
+machinery, multi-CPU/PE state, AP/secondary bring-up, or bare-metal locks. Fenced Lean below is
+design-only unless tied to a source declaration. The canonical dual-architecture SMP and
+device-memory design is `docs/MEMORY_MODEL.md` §10 and stages M7-X/M7-A.
+
+This document records the design space for machine state, hardware control, I/O protocols, binary
+packaging, and QEMU boot in **bare-metal execution**.
 
 ---
 
@@ -32,12 +40,14 @@ Asynchronous hardware interrupts (timer interrupts, device IRQs) push the interr
 
 ## 2. Memory-Mapped I/O (MMIO) vs Port I/O
 
-`gasm` strictly distinguishes between **Port I/O** (x86 specific separate address space) and **MMIO** (physical address space):
+The required model strictly distinguishes **Port I/O** (x86-specific separate address space) from
+**MMIO** (physical address space):
 
 ### 2.1 Non-Idempotent Destructive Reads
 Unlike standard RAM (where reads are idempotent), MMIO device registers often have **destructive side effects** (e.g. reading a UART FIFO register pops the next byte from hardware buffers, and reading an interrupt status register clears the pending interrupt).
 
-`gasm` models MMIO reads as **explicit state-transforming transitions targeting hardware registers**:
+The planned model represents MMIO reads as **explicit state-transforming transitions targeting
+hardware registers**:
 
 ```lean
 /-- MMIO read is a non-idempotent transition updating a destination register -/
@@ -127,6 +137,9 @@ For automated test termination in virtualized environments:
 
 ## 5. Paging & Translation Invariants
 
+**Status: design-only.** The current bare-metal machine does not implement the following generic
+translation or invalidation proofs.
+
 - **4-Level / 5-Level Paging**: Page table entries (PTEs) must be 4 KB aligned.
 - **TLB Invalidation Proofs**: Modifying a mapping requires proof of `invlpg` (x86) or `tlbi` (ARM) before referencing the virtual address.
 
@@ -134,8 +147,32 @@ For automated test termination in virtualized environments:
 
 ## 6. Interrupt & Exception Vector Management
 
+**Status: design-only.** The current bare-metal path does not provide the following verified vector
+tables.
+
 - **x86 IDT**: Verified 64-bit interrupt descriptor table loaded via `lidt`.
 - **ARM VBAR_EL1**: 16 vector entries spaced by 128 bytes with verified exception handler bindings.
+
+---
+
+### 6.1 SMP Lifecycle and Memory Ordering
+
+The portable SMP contract starts a finite set of CPUs/PEs, gives each a unique identity and stack,
+establishes coherent shared memory, and joins secondaries to a generic scheduler rendezvous.
+Startup and notification are not synchronization by themselves:
+
+- x86-64 needs an INIT–SIPI–SIPI/xAPIC or justified x2APIC path, a verified real-mode trampoline or
+  declared TCB blob, and a WB-memory release/acquire boot-mailbox publication;
+- AArch64 needs a selected PSCI `CPU_ON` or spin-table profile, exception-level/conduit assumptions,
+  `MPIDR_EL1` identity, and an acquire/release mailbox protocol; `WFE`/`SEV` do not act as RAM
+  fences;
+- LAPIC, GIC, and UART accesses use target-specific device-memory events and barrier/completion
+  rules, not ordinary-RAM assumptions;
+- QEMU TCG can validate boot and functional controls, but cannot establish weak-memory outcomes.
+
+The generic contract, target refinements, proof obligations, and backend-honesty rule are in
+`docs/MEMORY_MODEL.md` §10. The executable validation matrix is
+`docs/SPIKES/SPIKE8_MULTITHREADING.md`.
 
 ---
 

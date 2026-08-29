@@ -203,7 +203,7 @@ $$\forall (s_0 : \text{ComposedState Arch InState}), \text{Trace}(\text{Realize}
 
 ## 6. The Observation Algebra (Canonical Coalescing Congruence)
 
-Equivalence in `gasm` is observational **up to a coalescing congruence** on contract traces (see `docs/EQUIVALENCE_PROOFS.md` §1.1). That congruence is defined **here, once, per effect** — alongside the effect typeclasses it governs — and is to be consumed by every equivalence proof once PA5 lands (see §6.3 below for implementation status). Programs and proofs never define their own observation algebra; target specifications may refine an entry only where a platform genuinely observes differently, and must document why.
+Equivalence in `gasm` is observational **up to a coalescing congruence** on contract traces (see `docs/EQUIVALENCE_PROOFS.md` §1.1). That congruence is defined **here, once, per effect** — alongside the effect typeclasses it governs — and is to be consumed by every equivalence proof (see §6.3 for implementation status). Programs and proofs never define their own observation algebra; target specifications may refine an entry only where a platform genuinely observes differently, and must document why.
 
 ### 6.1 Per-Effect Coalescing Rules
 
@@ -224,14 +224,29 @@ Equivalence in `gasm` is observational **up to a coalescing congruence** on cont
 
 ### 6.3 Canonical Trace Normal Form (with Happens-After Tracking)
 
-The congruence is specified as a **normalization function** `canonicalizeTrace` in `Gasm.Effects` (implementation tracked as PA5, `docs/tasks/PA5-canonicalize-trace.md`), and equivalence obligations are to be stated as `canonicalizeTrace machTrace = canonicalizeTrace specTrace` once PA5 lands. Current obligations are raw-trace equality — this section deprecates that state, but it is the state today; `canonicalizeTrace` does not yet exist in the tree. Stating obligations against raw traces is prohibited once this lands: raw-trace equality accidentally observes chunking, which violates the exclusion of internal detail.
+`Gasm/Effects/CanonicalizeTrace.lean` now implements `canonicalizeTrace`,
+`canonicalizeCausalTrace`, `CausalEvent`, and single-thread causal stamping. Not every
+`VerifiedProgram` consumer has migrated to this normal form, and multi-thread stamping is not
+implemented. Raw-trace equality accidentally observes chunking and is deprecated for contracts
+whose effect algebra has a canonicalizer.
 
 The normal form carries **happens-after tracking** from day one, even while all programs are single-threaded:
 
-- The canonical representation is conceptually a **causally-ordered event set** — each event stamped with its position in the happens-after partial order (vector clocks per `docs/OBLIGATIONS_AND_CAUSALITY.md`) — not a bare list. In a single-threaded program the partial order is total and the representation degenerates to today's list, so nothing is lost now.
+- The concurrent representation is a labelled partial order with stable event identities. Vector
+  clocks project already-established program happens-before onto observables; they are not an ISA
+  memory-consistency model (`docs/MEMORY_MODEL.md` §11). In one thread the order is total.
 - **Coalescing respects causality**: adjacent same-stream writes fold together only when causally consecutive — no observable event ordered between them. This is what makes the congruence correct once multiple loops/threads interleave: two writes with an intervening causally-ordered observable on another stream must not merge.
-- **Equivalence under concurrency** is then equality of canonical causal orders — equivalently, agreement up to linearizations consistent with the declared happens-after relation. Interleavings the causal order does not distinguish are NOT observables; ordering constraints that ARE observable must appear as happens-after edges (e.g. a synchronizes-with edge from a lock release to an acquire), never as accidental list positions.
-- Implementation guidance: build `canonicalizeTrace`'s signature and event representation to accommodate the causal stamp now (single-threaded programs stamp trivially); do not bake total-order assumptions into consumers. The full concurrent semantics goes through Law 5 design before the first threaded spike.
+- **Equivalence under concurrency** is equality of labelled canonical causal orders — equivalently,
+  agreement up to linearizations consistent with program happens-before. A release/acquire edge is
+  included only when the architecture model establishes the relevant read-from relationship; plain
+  reads-from and futex wake are not automatically synchronizes-with.
+- The concurrent normal form uses an explicit total, non-inventing quotient from raw observables to
+  canonical nodes. Coalescing is allowed only by the per-effect rules above and must preserve the
+  stream, label, specified payload fold, and causal barriers; labelled edges are then faithful in
+  both directions between quotient nodes.
+- The multi-thread representation and trace-order soundness theorem are stage M8 of
+  `docs/MEMORY_MODEL.md` §14. Current list-based single-thread normalization is its degeneration,
+  not the final concurrent representation.
 
 ### 6.4 Input Events Are Causal Anchors and Coalescing Barriers (Protocol Causality)
 

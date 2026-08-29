@@ -53,7 +53,10 @@ Rather than forcing a single rigid implementation, a Gasm library can provide a 
 2. **Throughput-Optimized Variants (`impl_fast`)**: Maximizes execution speed using loop unrolling, register renaming idioms (`xor r32, r32`), SIMD/vector instructions, and port-balanced micro-op scheduling.
 3. **Concurrency Variants (`impl_single_threaded` vs. `impl_thread_safe`)**:
    - *Single-Threaded / Unsynchronized*: Zero synchronization overhead (no atomic `lock` prefixes, no mutex contention) for thread-local or single-threaded workloads.
-   - *Thread-Safe / Concurrent*: Thread-safe execution using atomic memory operations (e.g. `lock cmpxchg`), memory barriers, or spinlocks.
+   - *Thread-Safe / Concurrent*: Planned variants use the architecture-specific atomics, lock
+     invariants, ownership transfer, and obligations in `docs/MEMORY_MODEL.md`. **Status:** no
+     general thread-safe library variant is implemented today; the label must not be used until its
+     target realization discharges that contract.
 4. **Architecture / Platform Variants**: Implementations targeting different ISAs (x86-64, ARM64) and calling conventions (Windows Fastcall, Linux SysV, Freestanding).
 
 ### 2.3 Layer 3: Constructive Equivalence Proofs (`Equivalence.lean`)

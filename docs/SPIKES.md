@@ -92,20 +92,24 @@ graph TD
                                                   |
                                                   v
 +---------------------------------------------------------------------------------------------------+
-| Spike 8: Multithreading (x86-TSO Litmus Battery, XCHG Spinlock, Windows/Linux Threads, SMP)       |
+| Spike 8: Cross-Architecture MT (x86 TSO, AArch64, locks, futex, Windows/Linux, bare-metal SMP)   |
 +---------------------------------------------------------------------------------------------------+
 ```
 
-Spike 8 is design-stage only (`docs/SPIKES/SPIKE8_MULTITHREADING.md`, tasks MT1–MT6);
-its ordering relative to Spikes 6/7 in this diagram is roadmap numbering, not a build
-dependency — the multithreading and graphics paths are independent.
+Spike 8 is design-stage only (`docs/SPIKES/SPIKE8_MULTITHREADING.md`). Its canonical
+memory, ownership, synchronization, futex, and per-architecture implementation sequence is
+`docs/MEMORY_MODEL.md` §14. Its ordering relative to Spikes 6/7 in this diagram is roadmap
+numbering, not a build dependency — the multithreading and graphics paths are independent.
 
 ---
 
 ## 4. Continuous Spike Testing & Verification Protocol
 
-1. **Formal Proof Typechecking**: `lake build` verifies that all specifications, proof-carrying assembly routines, and equivalence theorems typecheck with zero errors and zero unapproved axioms.
+1. **Formal Proof Typechecking and Axiom Audit**: `lake build` verifies that specifications,
+   proof-carrying assembly routines, and equivalence theorems typecheck with zero errors;
+   `lake exe check_gates_axioms` separately rejects unapproved axioms.
 2. **Citation Audit**: `python scripts/check_refs.py` validates that all Lean items cite in-tree documentation and reports progress on the specification backlog.
-3. **Binary Emission & Hash Verification**: The compiled Lean tool executes to emit physical binaries (e.g. `spikes/spike1_hello_windows/hello.exe`).
+3. **Binary Emission & Hash Verification**: The compiled Lean tool executes to emit physical binaries
+   (for example, the Spike 1 Windows emitter currently writes repository-root `hello.exe`).
 4. **Hardware Execution Check**: The emitted binary is executed on the target host (e.g. Windows x64 powershell), capturing stdout and verifying exact string matching and exit code `0`.
 5. **Host Wasm Runtime Absence Is a Failure, Not a Pass**: for Wasm spikes, the in-Lean formal trace check (step 1) is never treated as a substitute for actually executing the emitted binary on a host engine. Each spike's `Wasm/Test.lean` uses the shared `Spikes.Common.WasmHostRunner` helper to probe `node`, `wasmtime`, `wasmer`, and `deno` in turn; the resulting exit code distinguishes three outcomes so CI/tooling can tell them apart: exit `0` = in-Lean check passed AND a host runner executed and verified the binary; exit `1` = a genuine verification failure (in-Lean mismatch, or a found runner produced the wrong output); exit `2` = no host Wasm CLI runner was found on PATH at all — host-runtime validation did NOT run, and this must be reported honestly rather than as a synthesized "100% sound" success (Law 13(4)).

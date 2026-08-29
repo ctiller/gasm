@@ -1,107 +1,144 @@
-# Linear Obligations, Monotonic Causality & Synchronizes-With
+# Obligations and Causality
 
-When low-level systems code executes across threads, OS kernels, and MMIO hardware devices, it must guarantee two orthogonal safety properties:
-1. **Linear Obligation Tracking**: Resources (file descriptors, database connections, locks, hardware channels) must be cleaned up along all control paths, preventing leaks.
-2. **Monotonic Causal Ordering**: Concurrency operations across threads or asynchronous device queues must establish formal happens-before relationships, preventing data races and memory ordering bugs.
+**Status (2026-08-28): current-code inventory plus design boundary.** The generic obligation
+records and vector-clock operations described below exist. Typed lock/join obligations,
+multi-thread execution, architecture memory models, and concurrent trace projection do not. Their
+canonical design and implementation sequence are `docs/MEMORY_MODEL.md` §§6–14.
+
+This file is an orientation note. It must not be used as evidence that a protocol is implemented.
 
 ---
 
 ## 1. The Linear Obligation Ledger
 
-In `gasm`, `ComposedState` contains an explicit `obligations : List Obligation` tracking open resources:
+`Gasm/Core/Obligations.lean` defines a generic, value-level `ObligationToken` containing a string
+kind, numeric resource identifier, and `droppableOnExit` flag. `ComposedState` stores a list of
+those tokens, and helper functions add, remove, and test them. This is useful bookkeeping, but it is
+not yet a typed linear resource system:
 
-```lean
-inductive ObligationType where
-  | MustCloseFD (fd : Nat)
-  | MustUnlockMutex (mutexAddr : Nat)
-  | MustFreeMemory (addr : Nat) (size : Nat)
-  | MustCommitOrAbortTx (txId : Nat)
-  | MustResetDevice (devId : Nat)
+- tags and identifiers can be forged or confused;
+- the token type is `Inhabited` and ordinary values are duplicable;
+- no acquisition generation prevents address reuse/ABA confusion;
+- `BlockM.set` can replace the obligation list through a general state transition;
+- no existing token constructor encodes `MustRelease`, `MustJoin`, or a live lock guard.
 
-structure Obligation where
-  type              : ObligationType
-  acquiredTimestamp : Nat
-  isDroppableOnExit : Bool
+`Gasm/Core/Types.lean` defines `ThreadId`, `VectorClock.happensBefore`, `join`, and `tick`.
+`ComposedState` has one clock. There is no scheduler-owned table of independently executing thread
+states, so current vector-clock use is the one-thread-degenerate case.
 
-def ObligationLedger := List Obligation
-```
+The following names appeared in an older version of this document but do **not** exist in Lean:
+`ObligationType`, `MustUnlockMutex`, and `MutexState.lastReleaseClock`.
 
 ### 1.1 Multiset Obligation Subtraction (`List.eraseAll`)
 
-When an operation discharges obligations, `gasm` uses exact multiset subtraction rather than naive set removal, preventing double-free or ghost obligation duplication exploits:
-
-```lean
-def List.eraseAll {α : Type} [DecidableEq α] (xs : List α) (toRemove : List α) : List α :=
-  toRemove.foldl (fun acc x => acc.erase x) xs
-```
+`List.eraseAll` removes one matching element per requested discharge. `eraseAllChecked` additionally
+fails when a requested token is absent. These are current list operations, not proof that token
+values are linear or that their string kinds implement a protocol.
 
 ---
 
 ## 2. Obligation Preservation across Control Flow Transitions
 
 ### 2.1 Function Returns (`CpuTerminator.ret`)
-A function cannot issue `ret` while holding un-exported local obligations:
 
-```lean
-inductive CpuTerminator (Arch : Type) [TargetArch Arch] {S : Type} (s_exit : ComposedState Arch S) where
-  | ret (exportedObligations : List Obligation) (bytesToPop : UInt16 := 0)
-        (h_zero   : s_exit.stackDepth = 0)
-        (h_match  : s_exit.obligations = exportedObligations)
-        (h_callee : CalleeDiscipline Arch s_exit) : CpuTerminator Arch s_exit
-```
+The current ledger predicate `ObligationLedger.isValidAtReturn` requires an empty token list, but
+`CpuTerminator.ret` does not use it: it can export any caller-selected list equal to the current
+ledger. Return/CFG code therefore carries selected value-level conditions, not the typed, closed
+transition or sealed postcondition required below.
 
 ### 2.2 Unconditional Exits (`CpuTerminator.sysExit`)
-When an application terminates via `exit(code)` or halts, all remaining obligations must have `isDroppableOnExit = true`:
 
-```lean
-  | sysExit (exitCode : UInt8)
-            (h_droppable : ∀ o ∈ s_exit.obligations, o.isDroppableOnExit) : CpuTerminator Arch s_exit
+`ObligationLedger.isValidAtExit` accepts only tokens marked `isDroppableOnExit`. That Boolean is a
+current process-scope convention, not authority for thread exit to discard locks, join rights, or
+arbitrary resources.
 
-  | halt    (h_droppable : ∀ o ∈ s_exit.obligations, o.isDroppableOnExit) : CpuTerminator Arch s_exit
-```
+### 2.3 Required obligation model
+
+Checked assembly needs typed, generational resources in an indexed authoring context, including:
+
+- `MustRelease lockInstance acquisitionGeneration owner protectedRegion`;
+- `MustReturnLoan loan issuer holder region`;
+- `MustJoin child joinRight` or an explicit detach transition;
+- `MustCloseHandle handle` and other OS-resource obligations;
+- allocation and typed-view destruction obligations.
+
+The matching capability, guard, and obligation are separate resources. An operation such as
+successful acquire updates them atomically; failed acquire changes none of them. Release requires
+and consumes the generation-matched guard, protected authority, and must-release obligation.
+
+Ordinary return exports exactly the postcondition promised by its callable contract. Thread exit
+seals a terminal bundle accounting for every authority, loan, grant, guard, and obligation; an
+obligation-free capability cannot be stranded in a dead thread. Detach is legal only for an empty
+join-owned bundle or an explicit process-owned sink. Process exit is a separate transition, checks
+all thread contexts and terminal bundles, and may discard only resources explicitly declared
+process-scoped. Scheduler-owned wait registrations
+are not author-visible obligations: the scheduler removes them on wake, timeout, supported
+interruption/cancellation, or exit.
+
+The checked surface must close over safe constructors. A public operation that can arbitrarily
+replace `ComposedState.perms` or `.obligations` is outside that surface. See
+`docs/MEMORY_MODEL.md` §§6.2, 7.3, and stages M1/M4/M5-S.
 
 ---
 
 ## 3. Monotonic Causality & Vector Clocks
 
-To model concurrent execution across CPU cores, GPU threads, and DMA devices, `gasm` embeds **Vector Clocks**:
+### 3.1 Four different ordering relations
 
-```lean
-def ThreadId := Nat
+Keeping these relations distinct prevents circular or architecture-unsound proofs:
 
-structure VectorClock where
-  clock : ThreadId → Nat
+1. **ISA execution consistency** says which memory executions are permitted. x86-64 WB/TSO and
+   AArch64 weak memory use different predicates over program order, reads-from, coherence,
+   dependencies, atomics, and barriers.
+2. **Program happens-before** is created by same-thread order and proved synchronization such as
+   spawn, successful join, or a release/acquire pair connected to the relevant write.
+3. **Scheduler control causality** records events such as a wake causing a blocked thread to become
+   runnable. It does not imply that ordinary memory is visible.
+4. **Observable causal order** projects the labelled program and scheduler relations onto external
+   effect events.
 
-def VectorClock.happensBefore (vc₁ vc₂ : VectorClock) : Prop :=
-  (∀ t, vc₁.clock t ≤ vc₂.clock t) ∧ (∃ t, vc₁.clock t < vc₂.clock t)
+The labelled edge graph is authoritative. Vector clocks are only relation-aware reachability caches
+after source edges have been proved; one clock over the union cannot recover or invent whether an
+edge came from program synchronization, scheduler control, or both. They do not define the x86 or
+AArch64 memory model and cannot turn a plain read into synchronization.
 
-def VectorClock.join (vc₁ vc₂ : VectorClock) : VectorClock :=
-  { clock := fun t => max (vc₁.clock t) (vc₂.clock t) }
+In particular:
 
-def VectorClock.tick (vc : VectorClock) (t : ThreadId) : VectorClock :=
-  { clock := fun tid => if tid = t then vc.clock tid + 1 else vc.clock tid }
+- a successful acquire synchronizes with the particular release whose value/publication it
+  observes under the target architecture's rules;
+- a failed CAS or AArch64 store-exclusive transfers no authority and creates no acquire handoff;
+- `FUTEX_WAKE` and Windows address wake create wake-to-resume scheduler causality, not a release
+  fence or memory synchronizes-with edge;
+- successful logical join creates a lifecycle edge only through the platform's proved visibility
+  refinement and returns only the child's declared sealed bundle.
+
+---
+
+## 4. Concurrent Trace Requirement
+
+Concurrent canonical traces compare labelled partial orders, not arbitrary interleaving lists or
+raw vector-clock values. A total, non-inventing quotient maps every raw observable to exactly one
+canonical node and coalesces only under named per-effect rules. Between distinct quotient nodes,
+projection must be faithful in both directions:
+
+```text
+trace edge exists  iff  the corresponding labelled program/scheduler causal edge exists
 ```
 
-### 3.1 Inter-Thread Causal Handover & Synchronizes-With
+Equality is modulo schedule-independent event-key renaming and partial-order isomorphism. Edge
+labels preserve the distinction between memory/lifecycle happens-before and scheduler causality.
+This is the M8 exit criterion in `docs/MEMORY_MODEL.md` §14.
 
-When Thread 1 releases a lock (`atomic_store_release`) and Thread 2 acquires the lock (`atomic_load_acquire`), a **synchronizes-with** edge is established:
+---
 
-```mermaid
-sequenceDiagram
-    participant T1 as Thread 1 (Producer)
-    participant M as Shared Mutex / Atomic
-    participant T2 as Thread 2 (Consumer)
+## 5. Completion Checklist
 
-    T1->>T1: Write payload to buffer
-    T1->>M: Release Lock / Store Release (Clock: VC_1)
-    Note over M: Mutex Invariant Stores VC_1
-    M-->>T2: Acquire Lock / Load Acquire (Sync with T1)
-    T2->>T2: Join Clock: VC_2' = max(VC_2, VC_1)
-    T2->>T2: Read payload from buffer (Happens-After Verified!)
-```
+This note can be promoted from design boundary to implemented contract only when:
 
-```lean
-def acquireLockSoundness (s : ComposedState Arch InState) (mutex : MutexState) : ComposedState Arch OutState :=
-  let newClock := VectorClock.join s.causalClock mutex.lastReleaseClock
-  { s with causalClock := newClock }
-```
+- typed obligations and closed indexed transitions replace stringly value-level protocol tokens;
+- the process machine has separate per-thread states and true thread exit/join;
+- x86 and AArch64 synchronization edges are derived from their respective memory models;
+- futex/parking transitions preserve their non-fence semantics;
+- trace projection satisfies the bidirectional fidelity theorem; and
+- negative controls demonstrate that failed acquire, missing release, wake-only publication, and
+  dropped causal edges are rejected.

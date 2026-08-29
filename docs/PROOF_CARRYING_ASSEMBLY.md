@@ -1,12 +1,21 @@
 # Proof-Carrying Assembly DSL & Invariant Model
 
-In `gasm`, assembly code is not represented as raw, untyped strings or unstructured instruction streams. Instead, assembly routines are constructed inside a **Typed Proof-Carrying Monad (`BlockM`)** where every memory dereference, stack allocation, and register access is verified against formal invariants and discrete capability tokens.
+**Status (2026-08-28): mixed current inventory and design sketch.** Typed instruction ASTs,
+`BlockM`, permission value types, and selected ABI/equivalence proofs exist. The checked authoring
+surface does **not** currently verify every dereference or enforce linear capabilities, and neither
+the x86-TSO nor AArch64 weak-memory model is implemented. Fenced examples below are illustrative
+unless tied to a current declaration. See `docs/MEMORY_MODEL.md` §§2 and 4–7.
+
+`gasm` represents assembly with typed instruction structures rather than raw strings. The required
+next layer is a closed indexed authoring surface where memory access, stack use, and protocol
+transitions carry formal authority and obligations.
 
 ---
 
 ## 1. Capability-Based Discrete Memory Permissions
 
-To eliminate spatial memory safety vulnerabilities (out-of-bounds reads/writes, buffer overflows, and use-after-free) at the machine level, `gasm` models physical memory via **Discrete Memory Permissions**:
+The current tree defines the following **discrete memory-permission values**, but does not yet make
+them linear or require them at every access:
 
 ```lean
 inductive PermissionShare where
@@ -30,10 +39,13 @@ $$\frac{P \vdash \text{Perm}(base, L_1, S) \otimes \text{Perm}(base + L_1, L_2, 
 
 ## 2. Architecture-Defined Memory Disciplines
 
-Different hardware targets enforce distinct memory ordering models. `gasm` captures these semantics via explicit architecture typeclasses:
+Different hardware targets enforce distinct memory-ordering models. `gasm` must capture them with
+separate target predicates connected to a common event graph; this is planned, not current:
 
-- **x86 TSO (Total Store Order)**: Hardware guarantees Stores are ordered after earlier Loads, Stores to different locations are globally ordered, but Store-Load reordering can occur without `MFENCE`.
-- **ARMv8 Weak Memory**: Loads and Stores can be freely reordered unless separated by explicit address/data dependencies or memory barrier instructions (`DMB ISHLD`, `DMB ISHST`, `DSB`).
+- **x86-64 WB/TSO**: the profile preserves load-load, load-store, and store-store order while
+  permitting the store-buffer store-load relaxation; locked operations and fences add constraints.
+- **AArch64 weak memory**: plain accesses are weakly ordered but remain constrained by coherence,
+  dependencies, acquire/release operations, barriers, and the selected formal Arm profile.
 - **SPIR-V Vulkan Memory Model**: Memory operations across invocations within a subgroup or workgroup require explicit `OpMemoryBarrier` and `OpControlBarrier` with `Acquire`/`Release` storage semantics.
 
 ---

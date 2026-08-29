@@ -1,10 +1,12 @@
 # x86-64 ISA Expansion: Prerequisites Assessment
 
-**Status**: this is a planning document, not a design of built machinery. Every mechanism it
-proposes and does not already exist in the tree is marked with its own `**Status**:` line per
-`CONTRIBUTING.md`'s convention; everything described as existing was verified by reading the tree
-or by running commands, at commit `1e39e7e` (2026-08-28), except where a different commit is
-named. Nothing in this document is implemented by this document.
+**Status:** historical assessment snapshot at commit `1e39e7e` (2026-08-28), with selected
+post-assessment corrections. “Today,” task IDs, counts, and blocker labels in the preserved analysis
+refer to that snapshot and are not an active task board. Current authority/borrowing work is owned by
+`docs/MEMORY_MODEL.md` M1/M4; current target and decoder status by `docs/TARGETS/X86_64.md`;
+calibration by `docs/CALIBRATION_GOVERNANCE.md`; and live merge gates by `docs/CI.md`. Where an
+explicit “Current status” paragraph below conflicts with the historical diagnosis, that paragraph
+wins. Nothing in this document is itself implementation.
 
 **The question**: the owner is considering a massive expansion of the x86-64 instruction set —
 a deliberate, eyes-open departure from Law 5 / D7 / `docs/VISION.md` §3.3's spike-by-spike
@@ -29,14 +31,14 @@ would be baseline here." Half confirmed, half redirected:
   to a 39-module rebuild) and *coverage convention* (curated witness lists), not proof shape.
 - **The performance model is a confirmed blocker, in a specific sense**: every one of the 88
   instruction forms carries invented, uncited latency/port/throughput coefficients inline
-  (`MODEL_DEBT.md` A8), and there is no calibration harness (F1), no governance mechanism
+  (`docs/TECHNICAL_NOTES.md` §2), and there is no calibration harness, no governance mechanism
   (F2/Law 14 — gate not yet implemented), and no per-instruction obligation. A 10× expansion
   multiplies invented coefficients into a model the owner calls a superpower, with the holes
   invisible by construction.
 - **The largest prerequisite is one the hypothesis did not name: the machine-state schema and the
   memory-operand contract.** `X86_64MachineState` has no XMM/YMM registers, no MXCSR, no x87, no
   fault model beyond `#DE`, no segment registers, and a total `memory : Address → Byte` with no
-  permissions (`MODEL_DEBT.md` B3/B4/B5). Any expansion worth calling "massive" reaches SIMD and
+  permissions (`docs/TECHNICAL_NOTES.md` §2). Any expansion worth calling "massive" reaches SIMD and
   memory-operand forms — the exact surface the current state type cannot represent and Law 11's
   unbuilt capability contract (PA4: zero modules migrated) does not yet govern. Instructions
   written against today's state type and today's raw-memory-operand convention would be written
@@ -75,7 +77,7 @@ With the prerequisites in §3 met, the expansion is a sound project. Without P1�
 | Oracle debt added by a new *instruction* (`SyscallOp`, same merge) | **0 entries** — its roundtrip shard is plain `decide` | allowlist diff |
 | Forms with `canFuzzHardware := false` (zero silicon validation of semantics) | 50 of 88 (57%) | grep, type-level only; instance-level RSP filtering excludes more cases |
 | Forms covered by the NASM encoding oracle | ≈21 of 88 (24%) — a hand-maintained 22-way `match` in `EncodingFuzzer.lean:78-115`, **not** derived from the registry | read directly |
-| Forms whose uop/latency coefficients cite any calibrated or vendored source | 0 of 88 | `MODEL_DEBT.md` A8; spot-confirmed in `Add.lean` (`latencyCycles := 1, reciprocalThroughput := 0.25`, inline literals) |
+| Forms whose uop/latency coefficients cite any calibrated or vendored source | 0 of 88 | `docs/TECHNICAL_NOTES.md` §2; spot-confirmed in `Add.lean` (`latencyCycles := 1, reciprocalThroughput := 0.25`, inline literals) |
 | Dead perf fields still carried by every instance | `reciprocalThroughput` has zero read sites (with 4 more dead `MicroarchProfile` fields per A3) | grep re-confirmed |
 | `partial def` in the x86-64/Linux/BareMetal instruction path | none — fuel recursion throughout | grep |
 
@@ -91,7 +93,7 @@ cheaper or safer but does not invalidate its output.
 
 **Exists today?** No. `X86_64MachineState` (`Gasm/Targets/X86_64/Registers.lean`) is 16 GPRs +
 RFLAGS + `rip` + a total `memory : Address → Byte` + a `faulted` bit. No XMM/YMM/ZMM, no MXCSR,
-no x87, no segment bases, no fault taxonomy beyond `#DE` (`MODEL_DEBT.md` B3/B4/B5). The
+no x87, no segment bases, no fault taxonomy beyond `#DE` (`docs/TECHNICAL_NOTES.md` §2). The
 hardware harness's 136-byte result record captures GPRs+RFLAGS only.
 
 **Why it is the top item.** Every instruction's `step` function, every step lemma, every
@@ -101,13 +103,13 @@ and every proof over them — is touched again. This is structurally identical t
 failure the owner described: "we didn't get the instruction model right and built out too much of
 the isa as code." The current model is not neutral about SIMD; it is *wrong* for it, and
 `PCLMULQDQ`/`MOVDQU`-class instructions are explicitly on the zlib epic's demand list
-(`PLAN.md`, F6).
+(`docs/ROADMAP.md`'s codec/performance direction).
 
 **What "done" means.** A ratified design (Law 5, D18-gated — this is unambiguously a >10 kLOC
 umbrella) covering: the extended register file and how existing GPR code migrates (ideally
 without touching the 88 existing `step` functions — e.g. an extension-by-composition shape rather
 than field surgery); MXCSR and the FP-semantics question (which interacts with the graphics
-track's determinism problem, `GRAPHICS_PREBUILD_AUDIT.md`); the fault taxonomy the expansion's
+  track's determinism problem, `docs/GRAPHICS_ARCHITECTURE.md`); the fault taxonomy the expansion's
 classes need; and the harness record extension for XMM capture. The design must state which
 instruction classes it deliberately does **not** cover, so the expansion's scope can be cut to
 match the model rather than the model silently lagging the expansion.
@@ -117,11 +119,11 @@ full `wsc` replay. This is the single highest-stakes item.
 
 ### P2 — BLOCKING: the memory-operand contract (Law 11 / PA4), at least at the instruction layer
 
-**Exists today?** No. Law 11's own Status line: "zero modules are migrated to the
-capability-authoring path today." PA4 is `ready` but sequenced after PA2's design, and both sit
-on D18's gated-scoping-conversation list. The owner's directive is explicit: "the instructions
-should be validating they have access to an address and failing to assemble if that proof
-doesn't carry."
+**Current status:** the descriptor/frame layer exists, but the checked capability-authoring path
+does not. `docs/MEMORY_MODEL.md` M1/M4 now owns the indexed provenance, typed-view, authority, and
+cross-thread transition design that replaced the retired PA2/PA4 task labels. The owner's directive
+remains explicit: instructions must validate access authority and fail to assemble when its proof is
+absent.
 
 **Why blocking.** A massive expansion is mostly *memory-operand* forms — that is where the
 current ISA is thinnest and where real workloads live. Every memory-touching instruction
@@ -130,23 +132,25 @@ wrong contract and must be rewritten when PA4 lands — the precise class of rew
 prevent. Law 11's own text already prohibits new programs on the bypass path; an expansion that
 adds hundreds of memory forms on it would be a law violation at scale.
 
-**What "done" means.** Not full PA4 migration of `Stdlib/Zlib/Windows.lean` — that can lag. What
+**What "done" means.** Not full migration of `Stdlib/Zlib/Windows.lean` — that can lag. What
 must exist *before* memory-form instructions are mass-authored is the **instruction-level
 obligation shape**: how a memory-operand instruction structure carries its capability parameter,
-what the assembler checks, and what the failing-to-assemble path looks like — designed (PA2 →
-PA4 design tranche), reviewed, and exercised on at least one real instruction family
-end-to-end. **Status**: none of this exists; PA2/PA4 are the tracking tasks.
+what the assembler checks, and what the failing-to-assemble path looks like, reviewed and exercised
+on at least one real instruction family end-to-end. **Status:** this is the M1/M4 exit path in
+`docs/MEMORY_MODEL.md`; it is not implemented.
 
 **Cost of getting it wrong**: every memory-form instruction written twice; the second writing
 also invalidates any proofs written against the first.
 
 ### P3 — BLOCKING: B3 decoder modularization + the registry's import-closure hole
 
-**Exists today?** No. `docs/tasks/B3-stage-b-decoder-modularization.md` is `ready`, fully
-designed (design in `docs/TARGETS/X86_64.md` §5 "Stage B"), unimplemented.
+**Current status (updated 2026-08-28):** the Stage B decoder modularization described in
+`docs/TARGETS/X86_64.md` §5 has landed. That section owns the measured build-shape result and
+remaining explicit-CI caveat; the retired task record is no longer a coordination surface.
 
-**The measured problem.** Adding one declaration to `Instructions/Add.lean` rebuilds **39
-modules in 130 s** today, because `Decoder.lean` (a 774-line monolithic opcode chain) imports
+**Historical measured problem (before Stage B landed).** Adding one declaration to
+`Instructions/Add.lean` rebuilt **39 modules in 130 s** in the assessment snapshot because
+`Decoder.lean` (then a 774-line monolithic opcode chain) imported
 every instruction file, and all 26 `RoundtripGate/*` shards import the decoder through
 `Common.lean`. The cascade is proportional to **total ISA size, not to the change**. At 10×
 (≈250 families, a ~7,000-line decoder, ~260 shards) the per-edit cascade projects to hundreds of
@@ -174,35 +178,17 @@ flight.
 
 ### P4 — BLOCKING: make per-instruction validation obligations mandatory and *visible*
 
-**Exists today?** Partially — and the part that exists is genuinely good. Verified live for this
-assessment (§4.1): an `instance : X86_64Instruction Foo` without a manifest entry fails the
-build, and `roundtripCases` has no default, so a new instruction *cannot* skip encode/decode
-roundtrip. But the same mutation probe demonstrated the other side: an instruction with
-**identity semantics, an empty uop list, and zero fuzz states** compiles and passes everything
-except registration. Concretely, three validation surfaces are convention-only today:
+**Current status (post-assessment): substantially landed.** `roundtripCases`,
+`validationOracle`, and `costProvenance` are mandatory instruction fields. The NASM encoding and
+hardware-semantics suites are derived from `Registry.allEncodableInstructions`, and
+`lake exe check_x86_obligations` checks non-vacuous uops/fuzz vectors, oracle consistency,
+justifications, and explicit opt-outs against `scripts/x86_obligation_allowlist.txt`. The original
+mutation finding below remains useful provenance for why those gates exist.
 
-1. **Silicon semantics are silently optional.** `canFuzzHardware := false` is a bare field with
-   no justification, no ledger, no count in gate output. 50/88 forms (57%) opt out —
-   legitimately, since the harness cannot yet run memory-operand or branch instructions
-   (`PLAN.md` Phase 3) — but the opt-out is indistinguishable from a forgotten validation, and
-   nothing reports the aggregate. An expansion's memory/branch/SIMD forms would land ~100%
-   opted-out under today's harness.
-2. **The NASM encoding oracle is a stale hand-list.** `generateComprehensiveRandomInstruction`
-   (`EncodingFuzzer.lean:78-115`) is a 22-way hand-maintained `match` covering ≈21 of 88 forms.
-   This is precisely the drift class the registry was built to kill — and the semantics fuzzer's
-   suite *was* re-derived from the registry (`docs/TARGETS/X86_64.md` §4) while the encoding
-   fuzzer was missed. New instructions get NASM cross-validation only if someone remembers.
-3. **Perf coefficients have no obligation at all** — see P5.
-
-**What "done" means.** (a) `EncodingFuzzer`'s generator derived from `allEncodableInstructions`
-like the semantics suite already is — small, high-value, no design risk. (b) `canFuzzHardware :=
-false` requires a justification ledger entry in the style of `scripts/gate_allowlist.txt`
-(counted and printed every gate run, never silently exempt), **or** the harness grows
-scratch-region/landing-pad support first (`PLAN.md` Phase 3) so the opt-out population stops
-growing. (c) A per-instruction validation-status table in gate output: N forms
-silicon-validated / M SDM-transcription-only / K NASM-covered — so the expansion's debt is at
-least *measured* while it accrues. **Status**: none of (a)–(c) exists today; (a) is a
-one-file change, (b)/(c) are small tooling tasks not yet filed.
+**Remaining gap:** hardware coverage is still limited for memory, control-flow, privileged, and
+future SIMD forms, and all current cost coefficients remain explicitly uncalibrated. Expansion work
+must extend the harness or carry counted, justified oracle debt; it may not revive a hand-maintained
+generator or silent `canFuzzHardware := false` convention.
 
 **Cost of getting it wrong**: hundreds of instructions whose semantics nothing ever checked,
 with no ledger even recording which ones. `VISION.md` §3.3: "A complete, unvalidated model is a
@@ -210,13 +196,12 @@ liability."
 
 ### P5 — BLOCKING for the perf model's integrity: calibration governance before mass coefficient entry (F2 → F1; A3 cleanup)
 
-**Exists today?** No. Law 14 is ratified but its gate (`scripts/check_calibration.py`) is
-explicitly "not yet implemented" (Law 14's own Status note); F2 is `designing` with a redesign
-verdict on `docs/CALIBRATION_GOVERNANCE.md`; F1 (RDTSC harness) is `ready`, not started; F3
-(actual calibration) is blocked on both. Today the perf fuzzer validates the model against
-itself (`MODEL_DEBT.md` A7), and every instruction instance embeds invented coefficients inline
-— `MODEL_DEBT.md` A8's spot-checks suggest some are wrong by 3–6× (`SHL r64, CL` as 1 uop vs ~3;
-`DIV r64` at 14 cycles vs 30–90).
+**Current status (post-assessment): partial.** The RDTSC/RDTSCP measurement implementation now
+exists in `Gasm/Targets/X86_64/HardwareTimingHarness.lean` with its contract in
+`docs/RDTSC_HARNESS.md`. `costProvenance` is mandatory and `check_x86_obligations` reports every
+uncalibrated coefficient. The remaining blocker is the governed calibration artifact/binding and
+staleness gate described by `docs/CALIBRATION_GOVERNANCE.md`; `scripts/check_calibration.py` still
+does not exist, and current instruction coefficients remain explicitly model-internal/unvalidated.
 
 **Why blocking rather than desirable.** The owner has defined the perf model as the strategic
 asset, and its failure mode under expansion is uniquely quiet: an instruction *cannot* land
@@ -226,17 +211,16 @@ current convention = hundreds of additional invented coefficients that are synta
 indistinguishable from measured ones. The holes develop exactly where the new instructions are,
 and are invisible — the owner's own framing of the risk, confirmed by the tree.
 
-**What "done" means.** Not full calibration of the existing 88 forms (that is F3, and can
-proceed in parallel with early expansion waves). The floor is: (i) F2's mechanism exists — a
-place calibration data lives, a citation convention, and the staleness/hand-edit gates, wired
-into `scripts/run_gates.py`; (ii) F1's harness can measure a new instruction (containment
-`real ∈ [min,max]` + rank-order tracking); (iii) the instruction-authoring convention requires a
-new coefficient to either cite a calibration artifact or carry a mechanical `model-internal`
-marking that gate output counts (Law 14's "honesty in output" clause) — so uncalibrated cost
-data is loud, not silent. Also, before 10× copies are stamped out: delete or wire the dead
+**What "done" means.** Not full calibration of every existing form, which can proceed in parallel
+with early expansion waves. The remaining floor is: (i) a governed place for calibration data, a
+citation convention, and staleness/hand-edit gates wired into `scripts/run_gates.py`; (ii) the live
+harness measures each demanded instruction under the recorded profile; and (iii) every new
+coefficient either binds to a calibration artifact or remains mechanically marked and counted as
+model-internal. Also, before 10× copies are stamped out: delete or wire the dead
 fields (`reciprocalThroughput` on `X86_64Uop`, the four dead `MicroarchProfile` fields —
-`MODEL_DEBT.md` A3), since every dead field replicated into 800 instances is Law 8 debt that
-gets 10× harder to remove. **Status**: (i)–(iii) all unbuilt; F1/F2/F3 are the tracking tasks.
+`docs/TECHNICAL_NOTES.md` §2), since every dead field replicated into 800 instances is Law 8 debt that
+gets 10× harder to remove. **Status:** harness and loud marking exist; governed binding/staleness and
+broad calibration remain open in the named calibration documents.
 
 **Cost of getting it wrong**: the "superpower" becomes a plausible-looking fiction precisely
 over the new surface, and mis-ranks the optimization search (`VISION.md` §5's "actively
@@ -249,7 +233,7 @@ D24 lesson: a number that is plausibly wrong is worse than one that is obviously
 `1e39e7e` fails `lake build` deterministically. Two branches, each green in isolation, merged
 red; D6's rule ("agents' claimed results are unverified until re-run in the merged tree")
 exists on paper and was not mechanically enforced. CI exists (GitHub Actions, `docs/CI.md`) but
-did not block the merge; TC5's consolidated runner is landed per the oracle-debt audit, but
+did not block the historical merge; the consolidated runner is now documented in `docs/CI.md`, but
 nothing forces it between merge and push.
 
 **What "done" means.** A merge cannot reach `main` without a full-mode gate run of the *merged*
@@ -257,9 +241,8 @@ tree exiting 0 — branch protection on the GitHub side or an enforced local mer
 either way mechanical, not conventional (Law 13). At expansion throughput — dozens of agents
 landing instruction families concurrently — the two-green-branches-one-red-merge interaction
 rate grows quadratically with in-flight branches; this is the single cheapest prerequisite and
-the one with the steepest scaling payoff. **Status**: not in place; no task ID tracks the
-branch-protection/merge-train enforcement specifically (TC5/TC6 cover the runner and CI but not
-the blocking wiring).
+the one with the steepest scaling payoff. **Status:** the runner exists; repository/branch
+enforcement is an external configuration concern recorded by `docs/CI.md`, not a retired task ID.
 
 ### P7 — DESIRABLE (strongly): a stable proof-facing interface before mass proof authoring (PA2)
 
@@ -267,15 +250,16 @@ The incident in §7.1 happened because a proof used `simp only [runProgramWithLo
 definitional unfolding of the interpreter — and the interpreter's internals changed shape
 (B4's indexed lookup). PA15's own loop-invariant work created the first reusable unfolding
 lemmas (`runProgramWithLoops_step`/`_stuck`), which is the right instinct, but they too are
-proved *by* definitional simp and broke with it. PA2 (step-lemma library + composition
-calculus, D18-gated) is exactly the fix: proofs consume a lemma API, and interpreter
+proved *by* definitional simp and broke with it. The stable step-lemma/composition API historically
+labelled PA2 is the fix: proofs consume a lemma API, and interpreter
 restructurings re-prove a handful of lemmas instead of breaking every downstream proof. The
-expansion's per-instruction step lemmas should be authored against PA2's shapes, which argues
-for PA2's *design* (not full implementation) preceding the expansion's convention freeze.
+expansion's per-instruction step lemmas should be authored against the stable shapes, which argues
+for their design (not full implementation) preceding the expansion's convention freeze.
 Desirable rather than blocking because the expansion's first waves could restrict themselves to
 encode/decode/uops/fuzz surface and defer step-lemma authoring — but if per-instruction lemmas
-are in the expansion's definition of done (they should be), PA2's design becomes blocking for
-that part.
+are in the expansion's definition of done (they should be), that API design becomes blocking for
+that part. Current ownership is `docs/SOFTWARE_MODELING_SDLC.md` plus the relevant subsystem stage,
+including `docs/MEMORY_MODEL.md` M0/M1 for memory-facing proofs.
 
 ### P8 — DESIRABLE: registry-scale hygiene items
 
@@ -419,7 +403,7 @@ that lands it (keeping D7's *validation* half even while relaxing its *demand-dr
    ADC/SBB/BT*, MOVSX/MOVZX widths, etc.): representable in today's state type; safe after
    P3+P4+P6, with P5's marking convention so their coefficients land honest.
 2. **Wave B — memory-operand forms**: after P2's instruction-level capability shape and the
-   harness's scratch-region support (`PLAN.md` Phase 3), so their semantics are actually
+   harness's scratch-region support, so their semantics are actually
    fuzzable on silicon and their contracts are the final ones.
 3. **Wave C — branches/calls variants**: after harness landing-pad support (same Phase 3 item).
 4. **Wave D — SIMD/FP**: only after P1's schema lands; this wave is where the expansion earns
@@ -466,10 +450,10 @@ Multiple `scripts/gate_allowlist.txt` justification fields contain double-encode
 evidence that some tool in the pipeline wrote the file under the wrong codepage; worth fixing
 before the ledger becomes the public face of the debt count. **Status**: unfixed; no task ID.
 
-### 7.4 TASKS.md status board vs reality
+### 7.4 Retired task-board status vs reality
 
-The board still shows PA1/TC5/B4 and others unchecked while the oracle-debt audit and the git
-log show them landed (`ORACLE_DEBT.md` Part 6 corrected six stale statuses; B4 landed in
+The retired board still showed PA1/TC5/B4 and others unchecked while the historical oracle-debt
+audit and the git log showed them landed (six stale statuses were corrected; B4 landed in
 `170f3e4` yesterday against a task file still `ready`). Known gap (TC13 unbuilt), but at
 expansion concurrency a hand-synced board is not a coordination surface — TC13's regenerator
 graduates from convenience to prerequisite-adjacent.
@@ -477,22 +461,21 @@ graduates from convenience to prerequisite-adjacent.
 ### 7.5 `docs/TARGETS/X86_64.md` §3 still displays a theorem about symbols that do not exist
 
 `x86_mov_store_is_release` references `m.getMemoryType` / `m.isNonTemporalInstr`; neither
-exists anywhere in the tree (`MODEL_DEBT.md` B1 flagged this; still true). It survives the
+exists anywhere in the tree (the historical model-debt audit flagged this; still true). It survives the
 doc-facade linter (a display-quoted theorem, not a MUST-claim), but an expansion team reading
 the target spec as ground truth would be misled about the memory model's actual state. Fix is a
 one-paragraph honesty edit — do it before onboarding an expansion team onto that document.
 
 **RESOLVED 2026-08-28**: the theorem block is removed; `docs/TARGETS/X86_64.md` §3 now carries
 an explicit `**Status**:` marker separating hardware ground truth (real) from model claims
-(none). The memory-ordering design itself is `docs/X86_MEMORY_MODEL.md`, implemented via
-Spike 8 (`docs/SPIKES/SPIKE8_MULTITHREADING.md`, MT1–MT6). It also fixes the expansion
-dependency: any wave containing a `LOCK`-prefixed RMW, `CMPXCHG`/`XADD`, a memory-operand
-`XCHG`, or a fence acquires that model and MT1's pattern-setting landing as prerequisites
-(the model's §6; `MODEL_DEBT.md` §B2). The linter blind spot this finding exposed — a
+(none). The cross-architecture design is `docs/MEMORY_MODEL.md`; its x86 realization is
+stage M2-X and Spike 8 is the validation vehicle. Any wave containing a `LOCK`-prefixed RMW,
+`CMPXCHG`/`XADD`, a memory-operand `XCHG`, or a fence therefore depends on M0 plus M2-X, so
+atomicity and ordering semantics land with the first such form rather than after it. The linter blind spot this finding exposed — a
 fenced ` ```lean ` code block declaring a theorem whose name exists nowhere in the tree is
 structurally invisible to `MECHANISM_ABSENT`'s same-line prose shape, and a fabricated
-theorem is *more* misleading than fabricated prose — is a Law 13 missing-gate finding, filed
-with a measured precision analysis as `docs/tasks/TC22-doc-lean-fence-facade.md`.
+theorem is *more* misleading than fabricated prose — is now covered by
+`scripts/check_doc_facade.py`'s `THEOREM_FENCE_ABSENT` check.
 
 ---
 
@@ -500,12 +483,12 @@ with a measured precision analysis as `docs/tasks/TC22-doc-lean-fence-facade.md`
 
 | # | Prerequisite | Exists? | Blocking? | Tracking |
 | :-- | :-- | :-- | :-- | :-- |
-| P1 | Machine-state schema for expansion classes (XMM/MXCSR/faults) | No | **Yes — highest stakes** | none filed; MODEL_DEBT B3/B4/B5; D18 conversation required |
-| P2 | Memory-operand capability contract at instruction layer | No (zero migrated) | **Yes** for memory forms | PA2 → PA4; D18 |
-| P3 | B3 decoder modularization + import-closure check + shard-parallelism cap | No (designed) | **Yes** — measured 39-mod/130 s per edit | B3, B1 notes |
-| P4 | Mandatory, visible per-instruction validation (NASM derivation; opt-out ledger; status table) | Partial (roundtrip only) | **Yes** | none filed for (a)–(c) |
-| P5 | Calibration governance + RDTSC harness + coefficient marking; delete dead uop fields | No | **Yes** for perf-model integrity | F2, F1, (F3); A3 cleanup unfiled |
-| P6 | Merge gating on merged-tree full build | No (red main observed) | **Yes** — cheapest item | TC5/TC6 adjacent; wiring unfiled |
-| P7 | PA2 proof-facing lemma API (design) before step-lemma authoring | No | Desirable→blocking for lemma deliverables | PA2; D18 |
+| P1 | Machine-state schema for expansion classes (XMM/MXCSR/faults) | No | **Yes — highest stakes** | `docs/TECHNICAL_NOTES.md` §2; design decision required |
+| P2 | Memory-operand capability contract at instruction layer | No (zero migrated) | **Yes** for memory forms | `docs/MEMORY_MODEL.md` M1/M4 |
+| P3 | Decoder modularization + import-closure check + shard-parallelism cap | Yes, with explicit-CI caveat | previously blocking | `docs/TARGETS/X86_64.md` §5 |
+| P4 | Mandatory, visible per-instruction validation (registry-derived encoding, opt-out ledger, status table) | Yes, with hardware-coverage debt | Maintain as a gate | `check_x86_obligations`; registry-derived fuzzers |
+| P5 | Calibration governance + RDTSC harness + coefficient marking; delete dead uop fields | Partial: harness/marking exist, governed binding does not | **Yes** for perf-model integrity | `docs/RDTSC_HARNESS.md`; `docs/CALIBRATION_GOVERNANCE.md` |
+| P6 | Merge gating on merged-tree full build | Runner exists; external enforcement must be checked | **Yes** — cheapest item | `docs/CI.md` |
+| P7 | Stable proof-facing lemma API before step-lemma authoring | No | Desirable→blocking for lemma deliverables | `docs/SOFTWARE_MODELING_SDLC.md`; owning subsystem stage |
 | P8 | Registry-scale hygiene (toLean injectivity, manifest sharding, naming doc, forfeit-list) | No | Desirable | unfiled |
-| P9 | Expansion validation vehicles that mint no pointwise oracle debt | Convention risk | Desirable (policy) | PA6/PA7/PA8 context; D29 |
+| P9 | Expansion validation vehicles that mint no pointwise oracle debt | Convention risk | Desirable (policy) | `docs/EQUIVALENCE_PROOFS.md`; `docs/REVIEW.md` oracle gates |

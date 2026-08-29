@@ -1,14 +1,26 @@
 # API State Models, Boundary Contracts & The Universal `Callable` System
 
+**Status (2026-08-28): design sketch with a partial substrate.** `ComposedState`, `BlockM`,
+generic value-level permissions/obligations, vector-clock operations, and a narrower `Callable`
+surface exist. Path-sensitive linear enforcement, typed lock/join obligations, closed indexed
+constructors, and automatic `Callable` derivation do not. Fenced Lean below is illustrative unless
+it names a current source declaration. The canonical completion design is
+`docs/MEMORY_MODEL.md` §§6–8 and 11–14.
+
 When low-level assembly routines interact with external operating system kernels, databases, GPU command processors, or hardware controllers, they cross **external execution boundaries**.
 
-In `gasm`, external runtimes and APIs are formally modeled as **State Transition Systems**. Assembly routines cannot invoke boundary operations without presenting formal **proof witnesses** that satisfy the API's current state preconditions. All invocations—internal basic blocks, external symbols, function pointers, and syscalls—are unified under a single **`Callable` typeclass** operating within **Indexed Typestate Monads** carrying **Path-Sensitive Linear Obligations** and **Monotonic Causal Effects**.
+The target design models external runtimes and APIs as **state-transition systems**. Checked
+assembly will require proof witnesses for boundary preconditions and will unify internal and
+external calls through indexed contracts carrying typed resources and causal effects. The current
+tree provides pieces of that representation, not the claimed end-to-end enforcement.
 
 ---
 
 ## 1. The Composed State Model & Zero-Cost Proof Erasure
 
-An execution state in `gasm` is a composite structure bundling the low-level machine registers/memory with high-level API typestate, concrete stack frame depth, discrete permission capabilities, linear obligation ledgers, and monotonic causal event clocks:
+The current `ComposedState` bundles low-level machine state with API state, stack depth,
+value-level permission and obligation fields, and causal clocks. Those fields are not yet discrete
+linear capabilities:
 
 ```lean
 inductive PermissionShare where
@@ -21,14 +33,20 @@ structure ComposedState (Arch : Type) (ApiStateType : Type) where
   stackDepth   : Nat                         -- Current stack frame depth relative to function entry
   api          : ApiStateType
   perms        : MemoryPermissions Arch     -- Discrete capability permissions (PermissionShare)
-  obligations  : List Obligation             -- Linear obligation ledger (multiset of obligations)
+  obligations  : List ObligationToken        -- Current value-level token multiset
   causalClock  : VectorClock                 -- Local monotonic logical timestamps
   eventHistory : EventTag → VectorClock      -- Monotonic event history map
 ```
 
-### Zero Runtime Overhead via Proof Erasure
+This sketch reflects the current field names but not a sound concurrent exit rule. The required
+thread terminator seals a result-indexed bundle accounting for all authority, loans, grants, guards,
+and obligations. Process exit is a separate transition that checks every thread context and sealed
+terminal bundle before discharging only explicitly process-scoped resources; see
+`docs/MEMORY_MODEL.md` §6.4.
 
-All API states, capability tokens, obligation ledgers, and causal clocks are **computational ghosts** in Lean 4:
+### Intended zero runtime overhead via proof erasure
+
+The intended checked-authoring metadata is computational ghost state in Lean 4:
 - They exist solely at Lean typechecking and theorem verification time to mathematically eliminate invalid sequences (e.g. issuing SQL queries outside a transaction or writing to a closed file descriptor).
 - During binary serialization (`toBinary`, `toELF`, `toPE`), all proof metadata is completely erased.
 - The resulting machine binary consists only of raw, optimal instructions (`mov eax, 0x10`, `syscall`, `call sym`, `ret`) with **zero runtime overhead**.
@@ -49,7 +67,9 @@ def BlockM (Arch : Type) (S₁ S₂ : Type) (α : Type) : Type :=
 
 ## 3. The `Callable` Typeclass & Automatic Derivation
 
-For **internal basic blocks**, `Callable` instances are **automatically derived** from the block's verified definition. For **external boundaries**, contracts define preconditions, obligations, and causal effects:
+The desired surface derives contracts for verified internal blocks and gives external boundaries
+explicit preconditions, obligations, and causal effects. Automatic derivation of this full shape is
+not implemented:
 
 ```lean
 /-- Universal structural contract for invocations -/

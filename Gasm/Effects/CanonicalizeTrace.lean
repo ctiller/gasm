@@ -15,11 +15,11 @@ limitations under the License.
 -/
 
 /-
-Gasm/Effects/CanonicalizeTrace.lean -- PA5 canonical trace normal form
-(docs/tasks/PA5-canonicalize-trace.md, docs/SYSTEM_EFFECTS.md §6.3-§6.4).
+Gasm/Effects/CanonicalizeTrace.lean -- canonical trace normal form
+(`docs/SYSTEM_EFFECTS.md` §6.3-§6.4; concurrent extension: `docs/MEMORY_MODEL.md` §11/M8).
 
-This is a scoped, honestly-bounded slice of PA5's full acceptance criteria, built to satisfy the
-two properties `docs/READ_BINDER_CONTRACT.md` §4 names as what any PA5 implementation must have
+This is a scoped, honestly-bounded sequential slice, built to satisfy the
+two properties `docs/READ_BINDER_CONTRACT.md` §4 names as what canonicalization must have
 for the read-binder contract shape to compose with it: (1) input events keep a distinguishable
 causal position, and (2) `canonicalizeTrace` never coalesces two reads' payloads together, or an
 output across an input event, the way it is licensed to fold two consecutive same-stream writes.
@@ -27,7 +27,7 @@ Console `out`/`err` coalescing (§6.1's first row) is implemented against the re
 representation already in the tree (`Gasm/Effects/Inject.lean`); `FileSystemEvent.write`
 coalescing (structurally identical) and live wiring into `VerifiedProgram`/`VerifiedRoutine`'s
 `traceEquivalence` obligations are named explicitly as NOT done here -- see "What remains" at the
-end of this file, and the top-level task report.
+end of this file and `docs/SYSTEM_EFFECTS.md`.
 -/
 
 import Gasm.Core.Types

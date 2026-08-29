@@ -1,6 +1,13 @@
 # `gasm` Architecture: Independent Vertical Slices
 
-`gasm` is structured as a collection of **independent vertical slices** per target, supported by small, focused library modules for common proof helpers.
+**Status (2026-08-28): architectural intent, not a literal tree map.** The live layout is
+`Gasm/Core/`, `Gasm/Effects/`, and `Gasm/Targets/<Target>/`; the `Gasm/Common` and top-level target
+paths shown below do not exist. Permission/lock names in the diagram are historical sketches, not
+evidence of enforced borrowing. The current layout index is `docs/README.md`; the shared
+concurrency boundary is `docs/MEMORY_MODEL.md` §5.3.
+
+`gasm` is intended to preserve **independent vertical slices** per target, supported by small,
+focused modules for common proof-facing contracts.
 
 ---
 
@@ -12,7 +19,7 @@ Rather than building a heavyweight, over-abstracted compiler framework, `gasm` i
 gasm/
 ├── Gasm/
 │   ├── Common/                  # Shared proof helper libraries
-│   │   ├── Memory.lean          # Capability models (Unlocked & Locked memory)
+│   │   ├── Memory.lean          # Planned common authority/event contracts
 │   │   ├── Simulation.lean      # Equivalence & step relation helpers
 │   │   └── ApiState.lean        # LTS and boundary contract primitives
 │   │
@@ -54,7 +61,8 @@ graph LR
 ```
 
 1. **Pure Lean Model**: Defines the high-level algorithm or API state protocol.
-2. **Hand-Written Assembly Routine**: Authored in the target's DSL, requiring explicit proof witnesses for all memory permissions, ABI obligations, and API transitions.
+2. **Hand-Written Assembly Routine**: Authored in the target's DSL; selected properties are proved
+   today, while universal memory-permission and obligation witnesses remain planned.
 3. **Split Proofs for Independent Consumers**:
    - **Equivalence Theorem**: Proves functional correctness against the spec.
    - **Callability Theorem**: Proves machine-ABI preservation and satisfaction of the callee's

@@ -1,5 +1,12 @@
 # Target Specification: Linux Platform
 
+**Concurrency status (2026-08-28): unimplemented.** The x86-64 and AArch64 syscall dispatchers do
+not implement `clone` or futex operations, and currently map thread exit and process exit through a
+single whole-machine termination path. The required process/thread split, child-TID join protocol,
+and process-private 32-bit `FUTEX_WAIT`/`FUTEX_WAKE` refinement are specified in
+`docs/MEMORY_MODEL.md` §§8–9 and stages M6-P/M6-X/M6-A. The executable checks are in
+`docs/SPIKES/SPIKE8_MULTITHREADING.md`.
+
 This document defines the calling conventions, system call ABIs, kernel interface state models, ELF64 binary emission standards, and module architecture for the **Linux platform target** in `gasm`.
 
 ---
@@ -47,7 +54,8 @@ Standard stream descriptors (FD 0 stdin, FD 1 stdout, FD 2 stderr) map directly 
 ### 2.2 Memory Mapping (`mmap`) State Model
 - Intercepts `SYS_mmap` (nr 9) to provide simulated memory regions (base address `0x70000000`) for user heap allocations.
 - Intercepts `SYS_munmap` (nr 11) returning success (`0`).
-- Validates memory safety: programs allocate required buffers before passing memory pointers to subroutines.
+- Programs conventionally allocate required buffers before passing pointers to subroutines; the
+  current hook does not enforce capability-based memory safety.
 
 ### 2.3 Semantic Syscall Interception
 `Gasm.Targets.Linux.Syscall` provides a `SyscallInterceptor` / dispatch hook that intercepts `syscall` execution in `runAsmTrace`:
@@ -55,6 +63,17 @@ Standard stream descriptors (FD 0 stdin, FD 1 stdout, FD 2 stderr) map directly 
 - Reads argument registers (`RDI, RSI, RDX, R10, R8, R9`).
 - Emits strongly typed effect events (`ConsoleEvent.out`, `ConsoleEvent.err`, `ProcessEvent.exit`, `NetworkEvent.send`).
 - Updates `RAX` with return value / bytes written / error code, and advances `RIP`.
+
+### 2.4 Required thread, join, and futex refinement
+
+The first concurrency profile must add the architecture-specific raw thread-creation ABI, distinct
+thread exit versus `exit_group`, and a true join based on child-TID clear-and-wake semantics. A
+user-written done flag is not enough to prove actual termination or stack reclamation.
+
+Parking supports aligned, mapped, stable-lifetime 32-bit words; atomic compare-and-block,
+value-changed/error results, permitted return/recheck loops, nondeterministic bounded wake, and
+waiter cleanup. Futex wake changes scheduler state but is not a memory fence; publication remains an
+x86- or AArch64-proved atomic release/acquire protocol.
 
 ---
 
@@ -166,7 +185,7 @@ binary -- `Gasm/` never depends downward on `Spikes/` elsewhere in this tree, an
 implemented, verified via **constructive** `native_decide` proofs", attributing `native_decide`
 to all five uniformly. Two things were wrong. **`native_decide` is not constructive** — it is an
 oracle, evaluated by the compiler and not re-checked by the kernel, which is why Law 10 governs
-it, `TCB.md` T14 records it as trusted-but-unprovable, and every use needs a
+it, `docs/TECHNICAL_NOTES.md` §1 records it as trusted-but-unprovable, and every use needs a
 `scripts/gate_allowlist.txt` entry. Calling it constructive is the facade Law 8 exists to catch.
 The uniform attribution was also **wrong in the direction that undersells the best result here**:
 Spike 1's Linux proof is `decide`, fully kernel-checked, needing no oracle and no allowlist entry

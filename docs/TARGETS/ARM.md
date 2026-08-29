@@ -1,6 +1,12 @@
 # Target Specification: ARM (AArch64 & AArch32)
 
-This document defines the machine state model, instruction encodings, and semantics for the **ARM architecture**, focusing primarily on 64-bit **AArch64** (ARMv8-A / ARMv9-A) with design provisions for 32-bit **AArch32** (ARMv7-A).
+**Status (2026-08-28): partial AArch64 substrate plus design sketch.** The tree does not enforce
+the stack/access claims or implement the weak-memory/barrier/exclusive semantics sketched below.
+The live implementation inventory is `docs/TARGETS/ARM64.md`; the canonical concurrency design is
+`docs/MEMORY_MODEL.md` §§4–5.2 and 10.2.
+
+This document records target intent for the **ARM architecture**, focusing primarily on 64-bit
+**AArch64**. Exact architecture/profile scope must be pinned before its weak-memory semantics land.
 
 ---
 
@@ -72,8 +78,18 @@ def aarch64FunctionTemplate :
 
 ## 4. Weak Memory Model & Proof Obligations
 
-1. **Acquire Semantics**: Proving acquire ordering requires demonstrating the presence of `LDAR` (Load-Acquire) or `DMB ISH`.
-2. **Release Semantics**: Proving release ordering requires demonstrating the presence of `STLR` (Store-Release) or `DMB ISH`.
-3. **Exclusive Atomic Monitor Invariant (`LDXR`/`STXR`)**:
-   - In ARMv8 silicon, the exclusive monitor is invalidated by any exception/interrupt, any second `LDXR` to *any* address, cache maintenance, or context switching.
-   - `gasm` restricts `LDXR`/`STXR` sequences to **tight, atomic-only basic blocks** containing zero function calls, zero intermediate loads, and bounded instruction counts.
+**Status: designed in the canonical model, unimplemented.** AArch64 uses a separate consistency
+predicate pinned to official Arm formal-model material; it does not refine x86 TSO.
+
+1. **Acquire/release semantics**: `LDAR`/`STLR` and relevant exclusive variants emit explicit
+   acquire/release events. Barrier sequences carry their exact access classes, scope,
+   ordering/completion, and instruction-synchronization semantics rather than being recognized by
+   syntax alone.
+2. **Exclusive monitors**: `LDXR`/`STXR` are two events connected by reservation/monitor state.
+   The model includes reservation granules, architecturally required invalidation/`CLREX`, and
+   permitted spurious store-exclusive failure. Only a successful store-exclusive is an acquisition
+   linearization point; failure transfers no authority.
+3. **Progress**: any eventual-success claim states a fairness/progress assumption separately from
+   mutual-exclusion safety.
+
+See `docs/MEMORY_MODEL.md` §5.2 for the normative model and stage M2-A for its exit criteria.
