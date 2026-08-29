@@ -82,10 +82,52 @@ durable decisions future implementations must preserve:
   execution, device/interrupt delivery, a transport acknowledgement, or persistence. Equivalence is
   over induced reachability between observable quotient nodes, not one primitive-edge encoding or a
   CPU-only vector clock.
-- **Lifecycle is explicit**: spawn commits donated authority and a release publication before the
-  child becomes runnable; a fresh one-shot `JoinRight` observes actual termination through an
-  acquire publication and returns only the child's sealed terminal bundle. Detach requires an empty
-  join-owned bundle or a named process sink, and thread exit and process exit are distinct.
+- **Thread/task lifecycle is explicit and process lifecycle is separate**: M3 covers one hosted
+  address space or one bare-metal machine with logical threads/PEs; independently completed
+  M4 proves cross-thread authority partition and sealed terminal-bundle/join conservation;
+  independently completed M6-T[Linux]/M6-T[Windows] profiles refine hosted threads;
+  the M6-P family introduces generative processes, address spaces, images, namespaces, status and
+  process objects through independently selectable Linux M6-PL and Windows M6-PW profiles; and
+  M6-PS is an optional POSIX/Linux process-shared robust-synchronization semantic profile, with
+  independently completed M6-PS-X/A target realizations. A
+  fresh one-shot `JoinRight` is a task/thread contract: spawn commits donated authority and a
+  release publication before the child becomes runnable, and successful join observes actual
+  termination through a proved acquire publication and returns only the child's sealed terminal
+  bundle. Detach requires an empty join-owned bundle or an explicit transfer to a named live
+  recipient whose cleanup remains tracked. No dead or terminating process is a magic resource sink.
+- **Process identity, failure and handles remain typed**: process termination/status observation,
+  POSIX status consumption/reaping and Windows process-object lifetime are distinct consequences;
+  none is `JoinRight`. Every process belongs to an explicit failure domain, and graceful or forced
+  termination applies the selected survivor, close, invalidation, owner-death, orphan/reparent,
+  cancellation, leak or indeterminate transition per resource instead of globally invalidating a
+  world or pretending normal discharge. Handle/object derivation distinguishes local entries,
+  underlying objects, rights, generations and close obligations across copy/alias, move,
+  attenuation, inheritance, name import and object-specific transfer.
+- **ABI and lifecycle boundaries bind logical identity relationally**: an ordinary caller/link proof
+  or loader/platform start transition establishes the exact physical-entry-to-arguments/binding/live-
+  world tuple. Fresh erased result identities and authority changes live in a relational exit/after-
+  world binding unless a functional projection is proved to be non-authorizing physical scalar data.
+  Concrete target admissibility and artifact identity remain mandatory before execution is certified.
+  Independently selected M2-B profiles own one exact ordinary-call, syscall, loader-root or handler
+  entry kind; proving one proves none of the others. Hosted lifecycle semantics, their native
+  M6-NX/M6-NA realization, and optional M6-X/M6-A address parking are separate certificates, so a
+  consumer takes only the pieces its reachable implementation uses.
+- **Asynchronous and restricted-lifecycle callability are profile-indexed**: interrupt, exception,
+  NMI, signal, APC, trap and cancellation handlers do not inherit an ordinary thread's callable
+  surface; each proves its exact authority, nesting/mask/reentrancy, stack,
+  blocking/allocation/fault/host-call, cleanup and progress bounds. At-fork callbacks, restricted
+  fork-child code and vfork-borrowed children are separate lifecycle phases with their own callable
+  operations, authority, allowed exits and failure transitions rather than handler-stack fields.
+  When selected, SEH resume, continue-search/propagation and nonlocal unwind are distinct outcomes;
+  unwind accounts for intervening frames and cleanup handlers through exact emitted metadata rather
+  than masquerading as ordinary return or fatal termination.
+- **Proof burden follows the mechanically derived applicability closure across all proof domains**:
+  functional, ABI/link, memory/provenance, effect/observable, lifecycle, security, performance and
+  liveness claims all use the same rule. Selected targets,
+  reachable effects/operations, advertised guarantees and failure paths determine the required proof
+  set. Unselected profiles and stronger unclaimed properties impose no obligation; selected claims
+  bring all transitive safety/platform duties. Generic proofs are reused once, while specialized
+  implementations prove only their refinement delta and stronger advertised properties.
 - **Bare metal is a first-class two-architecture target**: x86 AP/LAPIC and AArch64
   PSCI-or-spin-table/GIC paths implement the same lifecycle/lock contracts through distinct startup
   and device-order rules. Startup notification alone is not RAM synchronization.

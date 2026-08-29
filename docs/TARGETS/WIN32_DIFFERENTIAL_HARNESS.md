@@ -5,6 +5,8 @@
 > ReadFile/WriteFile/handle/VirtualAlloc rebuild) and `N3` (real socket model). Not yet
 > implemented — no Lean code in this repository currently satisfies this design;
 > `Gasm/Targets/Windows/Win32API.lean` is the pre-harness state this design replaces.
+> The M1–M8 labels below are revision-local review items, not the canonical M0–M9 stages in
+> `docs/MEMORY_MODEL.md` and not an active task ledger.
 
 ## Revision notes (round 1 → round 2)
 

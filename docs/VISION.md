@@ -61,6 +61,17 @@ must also preserve the contract's progress, performance, failure, and observable
 The specification should make unsafe realizations unrepresentable or mechanically rejectable
 while leaving everything inside the proved envelope open to creative implementation.
 
+Proof burden is proportional to that envelope across all of gasm: functional equivalence, ABI and
+linking, memory/provenance, effects and observables, lifecycle, security, performance bounds and
+liveness/progress. Proof planning derives an applicability closure from
+the selected targets, reachable effects and failure paths, and the guarantees actually advertised.
+Every obligation in that closure is mandatory, but optional architectures, APIs, progress classes and
+stronger properties outside it impose no work. Stage packaging is not a semantic dependency: when a
+stage contains independent certificates, a consumer takes only the certificate it uses. Generic DSL,
+contract and library theorems are proved once; an implementation proves its refinement delta and any
+stronger property it elects to claim. A proof request should be traceable to the unsafe behavior,
+platform rule or advertised consequence it excludes.
+
 Synchronization and communication preserve that freedom through three proof levels. A high-level
 program states the demand and required consequences. A domain plan chooses an ISA-independent
 architecture—such as a lock protocol, Vulkan/WebGPU dependency plan, asynchronous-I/O queue,
@@ -69,6 +80,18 @@ the demand. Target realizations then prove that plan against each concrete ISA, 
 and transport. This lets one domain architecture be reused across targets and lets agents explore
 different domain plans, while preventing either an attractive ISA instruction or a convenient API
 event from being credited with a consequence its owning profile does not guarantee.
+
+Lifecycle and failure boundaries obey the same rule. A high-level task may demand eventual result
+transfer and one-shot join without prescribing whether the domain plan uses a thread, a process or
+a remote worker. A process realization must then prove generative identity, explicit result/IPC
+channels, status observation versus consumption/reaping, handle/object rights and resource-specific
+survival within a named failure domain; termination is neither a magic capability sink nor a global
+world invalidation. Code callable from an interrupt, exception, signal, APC, trap or cancellation
+handler must separately prove that handler context's authority, nesting/mask/reentrancy, stack,
+blocking/allocation/fault, cleanup and progress bounds. At-fork callbacks, restricted fork-child
+code and vfork-borrowed children are distinct lifecycle phases with their own callable surface,
+authority, allowed exits and failure rules—not handler stacks. This preserves implementation freedom
+without allowing a convenient lifecycle or asynchronous event to inherit unproved thread semantics.
 
 ### The Target Systems
 
@@ -233,6 +256,13 @@ for realistically sized programs. It **is** tractable as a composition:
    per-instruction step lemmas and loop invariants. The proof burden is local: a routine's
    proof depends only on the step lemmas of the instructions it uses and the contracts of
    the routines it calls.
+   The intended checker must derive an **applicability closure** from the routine's selected targets,
+   effects, profiles, guarantees, reachable calls, and failure paths. Unselected GPU,
+   process, RDMA, interrupt, architecture, or progress profiles impose no proof burden;
+   once a feature or claim is selected, all of its transitive safety/platform obligations
+   remain mandatory and cannot be escaped by omitting a label. A generic DSL or library
+   theorem is paid once and reused; a specialized implementation proves only its declared
+   refinement delta and any stronger guarantee it advertises.
 3. **Composition rules.** Sequential composition, call, and loop rules assemble routine
    contracts into whole-program theorems. The whole-program equivalence statement
    (`VerifiedProgram`) becomes a *derived theorem*, not an obligation discharged by

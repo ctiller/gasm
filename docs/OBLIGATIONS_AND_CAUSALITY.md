@@ -49,8 +49,9 @@ transition or sealed postcondition required below.
 ### 2.2 Unconditional Exits (`CpuTerminator.sysExit`)
 
 `ObligationLedger.isValidAtExit` accepts only tokens marked `isDroppableOnExit`. That Boolean is a
-current process-scope convention, not authority for thread exit to discard locks, join rights, or
-arbitrary resources.
+legacy value-level convention: the predicate merely tests the marker and neither consumes a token
+nor proves that an OS operation released its resource. It is not authority for thread exit or
+process exit to discard locks, join rights, memory, handles, or arbitrary resources.
 
 ### 2.3 Required obligation model
 
@@ -59,26 +60,44 @@ Checked assembly needs typed, generational resources in an indexed authoring con
 - `MustRelease lockInstance acquisitionGeneration owner protectedRegion`;
 - profile-specific mutex recovery and contributed queue-node withdrawal obligations;
 - `MustReturnLoan loan issuer holder region`;
-- `MustJoin child joinRight` or an explicit detach transition;
-- `MustCloseHandle handle` and other OS-resource obligations;
+- `MustJoin child joinRight` or an explicit detach transition for a logical task/thread;
+- process-status observation grants, a platform-specific reap/status-consumption right where one
+  exists, and independently owned status/process-object resources;
+- generational `MustCloseHandle` obligations indexed by local entry, underlying object and rights,
+  plus result-indexed copy/alias, move, attenuation, inheritance and object-specific derivations;
 - allocation and typed-view destruction obligations.
 
 The matching capability, guard, and obligation are separate resources. An ordinary healthy acquire
-updates them atomically. A not-acquired outcome transfers no guard/authority and returns every
-acquisition-scoped loan; a selected robust/abandoned profile can instead grant exceptional ownership
-plus its exact recovery/repair obligation. Release requires and consumes the owner- and generation-
-matched guard, protected authority, must-release obligation, and any result-specific prerequisite.
+updates them atomically. A not-acquired outcome transfers no guard or protected authority; every
+acquisition-scoped loan is either returned before that result or remains governed by an explicit
+deferred-withdrawal obligation that prevents reuse. A selected robust/abandoned profile can instead
+grant exceptional ownership plus its exact recovery/repair obligation. Release requires and
+consumes the owner- and generation-matched guard, protected authority, must-release obligation, and
+any result-specific prerequisite.
 
 Ordinary return exports exactly the postcondition promised by its callable contract. Thread exit
 seals a terminal bundle accounting for every authority, loan, grant, guard, and obligation; an
 obligation-free capability cannot be stranded in a dead thread. Detach is legal only for an empty
-join-owned bundle or an explicit process-owned sink. Process exit is a separate transition, checks
-all thread contexts and terminal bundles, and may discard only resources explicitly declared
-process-scoped. Scheduler-owned wait registrations
-are not author-visible obligations: the scheduler removes them on wake, timeout, supported
-interruption/cancellation, or exit.
-Forced process termination with live threads is an abort/world-invalidation result, not proof that
-their guards and obligations were normally discharged.
+join-owned bundle or an atomic transfer to an explicitly named live recipient/system sink whose
+lifetime and cleanup contract remain tracked. `JoinRight` is not a process wait, process-object
+handle, status-observation grant, or reap right.
+
+M3 provides only the single-address-space logical-thread/PE machine; M4 supplies authority partition,
+sealed terminal-bundle and one-shot join conservation; M6-T supplies hosted thread refinements. Each
+separately gated M6-P family transition (Linux M6-PL or Windows M6-PW) is indexed
+by a generative `ProcessInstanceId` and `FailureDomainId`. It produces only its platform
+terminal/status facts and
+applies one declared disposition to each affected resource: private resources may close or become
+invalid, while shared mappings, refcounted objects, children, device operations and remote effects
+may survive, recover, orphan, continue, leak or become indeterminate. Results or authority cross a
+process boundary only through an explicit IPC/shared-memory/object-transfer channel. Forced
+termination is therefore not a global world invalidation and neither graceful nor forced exit
+proves that live guards and obligations were normally discharged. Optional process-shared robust
+owner-death recovery belongs to M6-PS, not to ordinary M6-PL lifecycle exit.
+
+Scheduler-owned wait registrations are not author-visible obligations. The selected scheduler or
+platform transition must account for their removal or retention on wake, timeout,
+interruption/cancellation and thread/process termination; no blanket exit rule supplies it.
 
 The checked surface must close over safe constructors. A public operation that can arbitrarily
 replace `ComposedState.perms` or `.obligations` is outside that surface. See
@@ -147,7 +166,10 @@ This is the M8 exit criterion in `docs/MEMORY_MODEL.md` §14.
 This note can be promoted from design boundary to implemented contract only when:
 
 - typed obligations and closed indexed transitions replace stringly value-level protocol tokens;
-- the process machine has separate per-thread states and true thread exit/join;
+- the M3 thread-domain machine has separate per-thread/PE states and true task/thread exit/join;
+- M4 proves authority partition and sealed terminal-bundle/join conservation across that lifecycle;
+- any multiprocessing claim additionally uses the selected M6-PL/M6-PW process/system topology,
+  generative identities, status/observation/reap split and resource-specific failure dispositions;
 - x86 and AArch64 synchronization edges are derived from their respective memory models;
 - futex/parking transitions preserve their non-fence semantics;
 - trace projection satisfies the bidirectional fidelity theorem; and

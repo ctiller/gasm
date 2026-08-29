@@ -28,7 +28,10 @@ def MachineStep (Arch : Type) [TargetArch Arch] (instr : TargetArch.Instruction 
   s₂ = TargetArch.stepPure instr s₁
 
 /- REF: docs/API_STATE_MODELS.md#3-the-callable-typeclass-automatic-derivation -/
-/-- Universal contract for invocations across internal blocks, symbols, and OS boundaries. -/
+/-- Structural transition contract for an invocation target.
+External calls, symbols, syscalls, loader roots, and other platform boundaries additionally require
+the relational entry/exit, target-admissibility, and artifact/link witnesses specified by the memory
+model; this class alone is not that boundary certificate. -/
 class Callable (Arch : Type) [TargetArch Arch] (Target : Type) (InState : outParam Type) (OutState : outParam Type) where
   Precondition          : ComposedState Arch InState → Prop
   validTransition       : Target → InState → TargetArch.MachineState Arch → OutState → Prop

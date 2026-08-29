@@ -128,7 +128,7 @@ Each decomposed component is implemented as a set of structured, hand-written `B
      +-----------------------------------------------------------------------------+
      |                       gasm Concrete Realization                             |
      +-----------------------------------------------------------------------------+
-     | 1. Seam Interface     --> Callable Boundary Contract with Linear Obligations|
+     | 1. Seam Interface     --> Logical contract + relational boundary/link proof |
      | 2. Pure Lean Spec     --> Spec Functional Model (processTransaction)       |
      | 3. Hand-written ASM   --> Structured BasicBlock CFG (SESE Blocks)           |
      | 4. Verification       --> Tripartite Split Theorems (Equivalence, ABI, Mem) |
@@ -213,5 +213,8 @@ theorem tx_manager_functional_equivalence :
 
 1. **Top-Down Mathematical Integrity**: You prove total system correctness at the high-level typeclass tier before writing a single line of assembly.
 2. **Natural Architectural Seams**: Deconstruction creates clean, decoupled component boundaries informed by the proved mathematical dependencies.
-3. **Zero Impedance Mismatch**: Component seam contracts map 1-to-1 to `gasm`'s `Callable` typeclass and `BlockM` typestates.
+3. **Checked Boundary Composition**: Component seam contracts reuse `Callable`/`BlockM` structural
+   proofs, while each selected external boundary separately proves its relational logical-world
+   entry/exit, concrete ABI/admissibility, precondition, and artifact/link connection. No 1-to-1
+   encoding into one typeclass is assumed.
 4. **Optimal Bare-Metal Performance**: The resulting software runs as bare-metal machine code with hand-optimized register scheduling and **zero proof runtime overhead**.

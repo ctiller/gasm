@@ -71,7 +71,10 @@ Every concrete implementation variant ships with a formal, machine-checked theor
 ### 3.1 Caller Choice: Pre-Made Linking vs. Inlined Customization
 When a downstream program or spike consumes a Gasm library, it has two principled choices:
 - **Choice A: Link a Pre-Made Implementation**:
-  The caller imports the pre-verified assembly routine (e.g. `impl_fast`) and calls it as a subroutine or basic block. The caller inherits the library's formal equivalence guarantees out of the box without needing to re-prove the routine's internal semantics.
+  The caller imports the pre-verified assembly routine (e.g. `impl_fast`) and calls it as a subroutine
+  or basic block. The routine's internal equivalence proof is reused without re-proving its semantics;
+  the caller still discharges the selected relational entry/precondition/world contract and concrete
+  ABI/admissibility/artifact-link obligation for that call edge.
 - **Choice B: Inline and Specialize**:
   The caller inlines the specification into its own custom CFG (for example, fusing loops or co-allocating registers with surrounding caller code). The caller then proves equivalence for the specialized composed block against the imported specification.
 

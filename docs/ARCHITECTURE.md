@@ -65,9 +65,12 @@ graph LR
    today, while universal memory-permission and obligation witnesses remain planned.
 3. **Split Proofs for Independent Consumers**:
    - **Equivalence Theorem**: Proves functional correctness against the spec.
-   - **Callability Theorem (required shape, not yet implemented for context rows)**: will combine
-     machine-ABI preservation with satisfaction and physical realization of the callee's
-     placement-free boundary-context contract. See [Composable Boundary ABI Contexts](ABI_CONTEXT.md).
+   - **Structural Callability Theorem**: Proves the selected routine's internal transition and ABI
+     preservation facts (such as stack pointer and callee-saved registers). A caller/integrator also
+     discharges M1's relational entry/world/precondition contract and the selected concrete M2-B
+     target/admissibility/artifact-link certificate; `Callable` alone is not an external-boundary proof.
+     Context-row integration with `Callable` remains required work; see
+     [Composable Boundary ABI Contexts](ABI_CONTEXT.md).
 4. **Binary Emission**: Pure deterministic serialization from verified AST to machine bytes with zero runtime overhead.
 
 ### 2.1 Platform-neutral whole-program boundary

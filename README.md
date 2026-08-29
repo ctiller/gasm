@@ -14,6 +14,12 @@ For every routine and system component, three artifacts are authored and verifie
 2. **Program** (Program.lean): Concrete machine instructions or AST nodes in gasm's typed assembly DSL, tracking registers, memory permissions, and ABI calling conventions.
 3. **Equivalence Theorem** (Equivalence.lean): A kernel-checked Lean theorem proving that evaluating the program produces identical execution traces to the specification.
 
+Across all gasm proof domains, obligations follow the selected program/profile's applicability
+closure: every reachable safety and platform duty is mandatory, while unused targets, APIs and
+stronger unclaimed guarantees impose no proof burden. Reusable abstract theorems are proved once;
+each implementation proves only its refinement delta and the stronger properties it advertises.
+See `docs/VISION.md` and the proof-applicability audit in `docs/REVIEW.md`.
+
 `
        ┌──────────────────────────────────────────────┐
        │     High-Level Monadic Specification         │
@@ -48,7 +54,7 @@ For every routine and system component, three artifacts are authored and verifie
 
 ## Standard Library & Codecs
 
-* **Stdlib.SmolAlloc**: Compact, bump-pointer dynamic memory allocator with process-scoped obligation tracking.
+* **Stdlib.SmolAlloc**: Compact, bump-pointer dynamic memory allocator with payload obligations and a legacy value-level exit marker for retained backing pages.
 * **Stdlib.Zlib**: Verified RFC 1950 (ZLIB), RFC 1951 (DEFLATE), and RFC 1952 (GZIP) compression/decompression with output-size bounds.
 * **Stdlib.Png**: Fully verified PNG encoder/decoder with RGBA8 roundtrip soundness proofs.
 * **Stdlib.Http11**: HTTP/1.1 request/response parser and routing engine.

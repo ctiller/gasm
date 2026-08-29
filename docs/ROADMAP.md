@@ -16,6 +16,17 @@ below are descriptive workstreams, not a second stage namespace.
   domains, resource ownership, barrier participation, and RAW/WAR/WAW hazards without flattening
   them into one vector clock. Model sparse bind/unbind/rebind generations and physical-backing
   alias/overlap separately from logical resource/descriptor identity and lifetime.
+  The host-memory refinement must distinguish coherent from noncoherent mappings and prove the exact
+  `nonCoherentAtomSize` range/alignment and availability/visibility effects of
+  `vkFlushMappedMemoryRanges` and `vkInvalidateMappedMemoryRanges`; neither host cache maintenance
+  operation is a generic CPU fence.
+* **Vulkan WSI/presentation profile (Spike 7):** Keep this independently gated from the current
+  compute-only profile. Pin surface/swapchain and acquired-image generations, recreation, image
+  layout and queue-family/presentation-engine ownership, acquire/present semaphore and fence
+  relations, queue completion versus presentation acceptance versus display visibility,
+  frame-availability backpressure, and out-of-date/suboptimal/surface-loss/device-loss outcomes.
+  Select and ingest the exact platform WSI extensions and window-system contracts before adding
+  public types or claims.
 * **WGSL/WebGPU refinement:** After exact WGSL/WebGPU reference intake, prove the constrained WGSL
   atomics/barriers and WebGPU content/device/queue timelines refine the shared heterogeneous graph;
   do not treat WGSL as merely another SPIR-V spelling.
@@ -33,8 +44,8 @@ below are descriptive workstreams, not a second stage namespace.
 * **Networking Buildout:** Implementing a "real socket model" alongside a verified reactive network contract.
 * **Common asynchronous-operation profile:** Generative operation identities and captured dynamic
   binding generations; separately typed publication, acceptance, consumption, effect completion,
-  terminality, result publication/observation, notification, resource return, and SQ/CQ slot
-  reclamation; zero/one/many event correlation; cancellation; and in-flight obligations shared by
+  terminality, result publication/observation, notification, resource return, and profile-defined
+  capacity/queue-entry reclamation; zero/one/many event correlation; cancellation; and in-flight obligations shared by
   kernel and device queues. No consequence constructor implies another without a profile theorem.
 * **Linux `io_uring` profiles:** Prove the SQ and CQ release/acquire protocols separately
   from operation execution; model links, multishot and zero-copy completions, SQPOLL/shared-ring
@@ -53,11 +64,23 @@ below are descriptive workstreams, not a second stage namespace.
   consumption and CQ-head reclamation from operation terminality. A registered-resource update can
   publish a new binding while an accepted operation still holds the captured old generation; any
   later tag CQE/resource-release event retires that old generation rather than re-resolving the slot.
-* **Transport and process profiles:** TCP byte-stream and datagram flow identities,
-  delivery versus application acknowledgement, shared-memory object identity across address spaces,
-  process-shared parking, message IPC, and typed handle/capability transfer. Distinct file
-  descriptors received through mechanisms such as `SCM_RIGHTS` can alias one open-file description;
-  equal numeric descriptors in different process namespaces need not alias.
+* **Hosted process lifecycle profiles:** Add the independently gated M6-PL POSIX/Linux and M6-PW
+  Windows refinements of the common M6-P-family system topology for
+  generative process/image/address-space/namespace identities; fork/clone/vfork, exec/spawn or
+  `CreateProcess`; terminality, status observation, POSIX reaping and Windows persistent process
+  objects; PID/handle reuse; parent/reaper/job relations; and resource-specific failure-domain
+  dispositions. Thread `JoinRight` remains a high-level task contract rather than an OS process wait.
+* **IPC and handle/object derivation profiles:** Model shared-memory object identity across address
+  spaces and message IPC. Keep portable process-shared futex/robust owner-death/recovery semantics in
+  optional M6-PS, with independently completed M6-PS-X/A target realizations. Distinguish local descriptor/handle entries,
+  intermediate open descriptions/provider objects, underlying objects, rights and close obligations;
+  prove copy/alias, move, attenuation, inheritance, name import and object-specific transfer with
+  result-indexed source disposition and failure atomicity. `SCM_RIGHTS` normally creates a fresh
+  receiver descriptor alias while retaining the sender entry; equal numeric entries across
+  namespaces prove nothing.
+* **Transport profiles:** TCP byte-stream and datagram flow identities, local completion versus
+  delivery versus application acknowledgement, connection shutdown and reset, retransmission and
+  explicit failure/recovery assumptions.
 * **libverbs and RDMA transport profiles:** PD/MR/MW/QP/CQ/SRQ resource authority,
   work-request and completion lifetimes, QP/transport ordering, local DMA, remote placement versus
   observation, provider/transport variants, and optional persistent/global-flush consequences.
@@ -81,16 +104,25 @@ below are descriptive workstreams, not a second stage namespace.
   only CPU program/scheduler edges.
 * **Two architecture models:** x86-64 WB/TSO with store buffers and locked operations; AArch64
   weak memory with acquire/release, barriers, and exclusive monitors.
-* **Hosted concurrency:** Windows lifecycle/address waits and Linux thread lifecycle plus
-  process-private futex wait/wake on x86-64 and AArch64. Keep unary address parking narrow; add a
+* **Hosted concurrency:** Keep semantic thread/object lifecycle, native lifecycle/ABI realization,
+  and optional address parking as independently consumable certificates. Windows thread-object
+  lifecycle must not depend on `WaitOnAddress`; Linux native creation/join must not depend on a
+  process-private futex unless it uses one. Keep unary address parking narrow; add a
   separate future composite-wait profile for futex2 wait vectors and Windows wait-any/wait-all with
   atomic registration and result-indexed ownership/interruption effects.
 * **Portable mutex extension profiles:** The initial thread-affine healthy-only `ParkedMutex32`
-  library proves a named system-progress class. Future POSIX robust and Windows abandoned-mutex
+  library must advertise and prove the Gate-11-selected progress class, or remain explicitly
+  safety-only; this roadmap does not choose that class in advance. Future POSIX robust and Windows abandoned-mutex
   refinements retain their distinct ownership/recovery outcomes. Queue-lock implementations use a
   stable lock core plus acquisition- or per-agent-contributed nodes with generative publication,
   handoff, cancellation, affinity/nesting and exact-return obligations; MCS and qspinlock are not
   misdescribed as fixed instance-owned footprints.
+* **Future CPU synchronization libraries:** Give read/write locks, condition variables and
+  semaphores separate contracts rather than treating them as mutex aliases. RW locks need
+  reader/writer authority, upgrade/downgrade and preference/fairness rules; condition variables need
+  atomic mutex-release/registration, predicate-loop, spurious-wake, cancellation and reacquisition
+  rules; semaphores need bounded generative permits, cross-thread post, overflow, cancellation,
+  visibility, destruction and progress rules. Pin exact POSIX/Windows contracts before public types.
 * **Linux restartable-sequence profile:** Model one registered logical thread, CPU/memory-
   concurrency-domain observation, critical range, final commit instruction and kernel abort redirect.
   Pre-commit effects are not rolled back and must be restart-safe or quarantined; repeated aborts need
@@ -102,8 +134,10 @@ below are descriptive workstreams, not a second stage namespace.
   it neither changes logical thread identity nor transfers a thread-affine mutex guard by itself.
 * **Two bare-metal SMP paths:** x86 AP/LAPIC startup and AArch64 PE/PSCI-or-spin-table startup,
   each including device-memory ordering and honest emulator/silicon classification.
-* **Interrupt/exception contexts:** Model handler stacks on execution agents, entry/return,
-  masks/priorities/nesting, save/restore and reservation invalidation; suspend rather than transfer
+* **Interrupt/exception contexts:** Model handler stacks on execution agents, entry and distinct
+  ordinary-return, resumable-continuation, search/propagation, nonlocal-unwind/cleanup,
+  non-returning exec/immediate-exit and fatal outcomes; model masks/priorities/nesting, save/restore
+  and reservation invalidation; suspend rather than transfer
   interrupted-thread authority; grant explicit handler authority; and reject locks that can
   self-deadlock against the interrupted context. Keep CPU exceptions, device interrupts, hosted
   signals, Wasm traps and embedding cancellation as distinct profiles/outcomes.
@@ -118,7 +152,9 @@ below are descriptive workstreams, not a second stage namespace.
 * **Future WebAssembly shared-memory profile:** Keep current Wasm single-agent/unshared. Pin the
   exact Core threads snapshot and embedding; sequentially consistent atomics, specified racy/tearing
   behavior, `memory.atomic.wait32`/`wait64`, notify, multi-memory identity, main-agent blocking
-  eligibility and asynchronous embedding APIs; validate against each admitted engine profile.
+  eligibility and asynchronous embedding APIs; include concurrent shared `memory.grow`, atomic size,
+  failure/zero-initialization and embedding buffer/view-length behavior; validate against each
+  admitted engine profile.
 * **Future RISC-V/RVWMO profile:** Pin an exact unprivileged ISA/platform profile and formal RVWMO
   artifact; model preserved program order, dependencies, `FENCE` predecessor/successor `I`, `O`,
   `R`, and `W` sets, AMO and LR/SC `.aq`/`.rl` semantics—including SC success/failure and the failed-
@@ -136,6 +172,18 @@ end-to-end validation vehicle in `docs/SPIKES/SPIKE8_MULTITHREADING.md`.
 * **Provenance and indexed authority:** Generative regions, provenanced pointers, temporal read
   loans, causally delivered donation, result-indexed join returns, and a global access-mode
   invariant separating ordinary-exclusive, frozen/read-loan, and registered-atomic regions.
+* **Relational ABI/boundary entry and exit:** Connect physical entry state to exact logical arguments,
+  binding and live authority/obligation world with an entry-origin relation, not a function that
+  reconstructs erased provenance or generations from bits. A caller/link proof establishes ordinary
+  calls; loader/platform transitions establish roots, thread/process starts and handlers. Bind exit
+  results/outcomes relationally whenever fresh erased identity is involved, or prove any functional
+  projection is limited to non-authorizing physical scalars. The selected target proves complete
+  physical admissibility for its entry/exit kind, and artifact identity connects the theorem to
+  emitted bytes. M1 owns only the abstract seam; independently selectable M2-B[p] certificates own
+  exact ordinary-call, syscall, loader-root and handler profiles, and proving one must not burden or
+  certify another. Converge the ABI-context implementation on this split; do not connect it to
+  `Callable` or `VerifiedProgram` until the applicable whole-program caller-or-loader link theorem
+  exists.
 * **Lock invariants and obligations:** An implementation-independent mutex contract separates
   atomic synchronization-representation authority from exclusive protected-region ownership;
   result-indexed guards and typed must-release obligations are shared by a preferred verified

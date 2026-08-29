@@ -198,8 +198,9 @@ theorem spike4_linux_404_trace_equivalence :
     below), but the domain gap is still substantive: malformed request lines that the model maps
     to 400 Bad Request receive a different response from at least one lowering. The checked
     surviving counterexamples are listed under `spike4GeneralClaimCounterexamples` below.
-    `spike4_windows_trace_equivalence_for_request` and
-    `spike4_wasm_trace_equivalence_for_request` below restate the six facts this file already
+    `spike4_windows_trace_equivalence_for_request`,
+    `spike4_wasm_trace_equivalence_for_request`, and
+    `spike4_linux_trace_equivalence_for_request` below restate the nine facts this file already
     proves with their real, narrow domain (one of three literal request strings) made an
     explicit, checkable hypothesis instead of an implicit `HttpRoute` case split. They do not
     extend coverage to arbitrary request bytes; the fully general claim remains false on the
@@ -818,7 +819,12 @@ def spike4WindowsVerifiedProgram : VerifiedProgram HttpRoute AnyEvent where
   traceEquivalence := spike4_windows_route_equivalence
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- Instantiation of the First-Class Parametric VerifiedLinuxProgram contract for Spike 4 on Linux x86_64 across all routing branches. -/
+/-- Instantiation of the First-Class Parametric VerifiedLinuxProgram contract for Spike 4 on Linux
+    x86_64 across all routing branches.
+    NOTE (PA17 domain-honesty finding): see the identical note on
+    `spike4WindowsVerifiedProgram` above. The route theorem covers the three literal requests selected
+    by `HttpRoute`, not arbitrary request bytes; the checked malformed-request counterexamples remain
+    outside this contract. -/
 def spike4LinuxVerifiedProgram : VerifiedLinuxProgram HttpRoute AnyEvent where
   name := "spike4_http_server_linux"
   executable := Linux.spike4Executable

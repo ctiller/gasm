@@ -70,7 +70,8 @@ def defaultSampleInput : ByteArray :=
     6. In-place lexicographical bubble sort over line descriptors.
     7. Streams sorted lines sequentially to stdout via WriteFile.
     8. Discharges all memory obligations via smol_free for every allocated string, node, and table.
-    9. Releases virtual memory pages via VirtualFree and terminates with ExitProcess(0). -/
+    9. Retains the backing arena under the legacy exit-marker convention and terminates with
+       ExitProcess(0); this program does not call VirtualFree. -/
 def spike3SymbolicProgram : List SymbolicInstr := [
   -- 1. Setup 120-byte stack frame to maintain (RSP - 120) % 16 == 0 before Win32 calls
   instr (sub_rsp 120),
@@ -512,7 +513,8 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (mov_r64 .rsi .rbx),                 -- rsi = nextNode
   jmp_near_label "free_nodes_loop",
 
-  -- 11. Process Termination (Process-Scoped Arena Obligation Auto-Discharged):
+  -- 11. Root-program termination; the current ledger accepts the legacy page exit marker, but
+  --     this instruction stream does not release the arena or prove M6-PW process teardown:
   label "cleanup_and_exit",
   instr (xor_r32 .ecx .ecx),
   call_import "ExitProcess"

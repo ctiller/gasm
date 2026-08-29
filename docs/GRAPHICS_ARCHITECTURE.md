@@ -84,6 +84,13 @@ slices above: `docs/TARGETS/WIN32_WINDOWING.md` (`RegisterClassEx`/`CreateWindow
 `GetMessage`/`DispatchMessage`/`WM_*`) does not exist, and no windowing source is registered in
 `references.json`.
 
+The future Vulkan WSI profile is also independent of the committed compute-only profile. It must pin
+the exact surface/swapchain extensions and presentation platform, then model surface and swapchain
+generations, acquired-image lifetime, queue-family/presentation-engine ownership, layouts,
+acquire/present semaphore and fence relations, queue completion versus presentation acceptance versus
+display visibility, backpressure, recreation, and out-of-date/suboptimal/surface-loss/device-loss
+outcomes. None of these consequences is implied by the current headless dispatch/readback contract.
+
 ---
 
 ## 3. High-Level Monadic Specification (`Gasm.Targets.Vulkan`)
@@ -228,6 +235,12 @@ part of that contract's equivalence obligation.
 > use of freed backing follow their own lifetime rules. Hazard and visibility checks must retain both
 > the logical reference scopes and the resolved backing overlap; neither raw handle equality nor raw
 > address equality is an alias proof.
+>
+> Host-visible memory is likewise profile-sensitive. Coherent and noncoherent mappings are distinct;
+> the noncoherent profile must preserve the exact `nonCoherentAtomSize` range/alignment rules and the
+> host-to-device/device-to-host availability and visibility consequences of
+> `vkFlushMappedMemoryRanges` and `vkInvalidateMappedMemoryRanges`. Those operations are not generic
+> CPU fences, and a CPU fence is not a substitute for required Vulkan host cache management.
 
 ### 3.4 Floating-Point Kernel Determinism — SUPERSEDED, replacement pending
 
