@@ -79,6 +79,26 @@ def buildWasiModule (startFn : WasmFunction) (extraFuncs : List WasmFunction := 
   { imports := imports, functions := functions, memoryPages := some 1, dataSegments := dataSegments, exports := exports }
 
 /- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
+/-- Builds a WASI Preview 1 module whose entry point reads the external byte stream.
+    The import order is part of the artifact ABI: `fd_read` is index 0, `fd_write`
+    index 1, and `proc_exit` index 2.  Keep this separate from `buildWasiModule` so
+    existing output-only modules retain their established import indices. -/
+def buildWasiStdinModule (startFn : WasmFunction) (extraFuncs : List WasmFunction := [])
+    (dataSegments : List WasmDataSegment := []) : WasmModule :=
+  let imports : List Import := [
+    { module := wasiModuleName, name := "fd_read", desc := .func 0 },
+    { module := wasiModuleName, name := "fd_write", desc := .func 1 },
+    { module := wasiModuleName, name := "proc_exit", desc := .func 2 }
+  ]
+  let startExported := { startFn with exportName := some "_start" }
+  let functions := [startExported] ++ extraFuncs
+  let exports : List Export := [
+    { name := "memory", desc := .mem 0 }
+  ]
+  { imports := imports, functions := functions, memoryPages := some 1,
+    dataSegments := dataSegments, exports := exports }
+
+/- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
 /-- Initializes linear memory with all active data segments, returning the sealed `WasmMemory`
     cell (`MemoryCell.lean`). The data-segment install loop below builds an ordinary, freely
     mutable local `ByteArray` and wraps it via `WasmMem.ofBytes` only once at the end -- exactly
