@@ -34,6 +34,9 @@ open Gasm.Targets
 open Gasm.Targets.X86_64
 open Gasm.Targets.Windows
 
+local instance : ExternalCallInterceptor X86_64 AnyEvent :=
+  standardWindowsRuntime AnyEvent
+
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Constructive proof of semantic trace equivalence between high-level spec and lowered machine
     execution.
@@ -54,13 +57,13 @@ theorem spike1_canonical_effect_trace_equivalence :
 /-- The concrete Spike 1 execution reaches only input-independent host boundaries and returns
     cleanly within the platform budget. -/
 theorem spike1_selected_termination :
-    selectedExecutionTerminates (Event := AnyEvent) false selectedNonInputPlatformCall
+    selectedExecutionTerminates (Event := AnyEvent) false selectedNonInputWin32Call
       (indexInstructions spike1Executable.load.rip spike1Instructions) 50000
       spike1Executable.load = true := by
   decide
 
 def spike1TerminationCertificate :
-    SelectedTerminationCertificate (Event := AnyEvent) false selectedNonInputPlatformCall
+    SelectedTerminationCertificate (Event := AnyEvent) false selectedNonInputWin32Call
       spike1Executable.load.rip spike1Instructions spike1Executable.load where
   fuel := 50000
   verifies := spike1_selected_termination
@@ -74,7 +77,10 @@ theorem spike1_outcome_external_input_frame (environment : Environment) :
           environment.stdin environment.incomingRequests := by
   exact spike1TerminationCertificate.externalInputFrame
     (fun instr _ => instruction_preserves_external_input_frame instr)
-    platformCallInterceptor_preserves_selected_external_input_frame
+    (by
+      intro address state stdin requests hselected
+      exact win32CallIntercept_preserves_selected_external_input_frame
+        address state stdin requests hselected)
     environment.stdin environment.incomingRequests
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
@@ -87,7 +93,7 @@ def spike1WindowsArtifact : WindowsX86_64Artifact := {
 
 /-- Sole universal whole-program contract for Spike 1 (Windows Hello World). -/
 def spike1VerifiedProgram :
-    VerifiedProgram (WindowsX86_64 AnyEvent) (windowsHostCapabilities AnyEvent) := {
+    VerifiedProgram (WindowsX86_64 AnyEvent) (standardWindowsHostCapabilities AnyEvent) := {
   name             := "Spike 1: Windows Hello World"
   artifact         := spike1WindowsArtifact
   exports          := VerifiedExportSet.empty _ _ _ _ _ () rfl rfl rfl
@@ -95,16 +101,43 @@ def spike1VerifiedProgram :
   artifactConnection := by rfl
   spec             := fun _ => runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit)
   importsCovered   := by
-    intro imported _
-    trivial
-  providersLinked := by simp [windowsHostCapabilities, windowsHostCapability]
+    intro imported himported
+    change imported ∈ [GetStdHandleDef, ReadFileDef, WriteFileDef, ExitProcessDef,
+      VirtualAllocDef, VirtualFreeDef] at himported
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at himported
+    rcases himported with rfl | rfl | rfl | rfl | rfl | rfl
+    all_goals
+      first
+      | exact ⟨windowsProvider GetStdHandleDef 0 0, by simp [standardWindowsHostCapabilities,
+          standardWindowsProviders, windowsHostCapability], rfl⟩
+      | exact ⟨windowsProvider ReadFileDef 1 1, by simp [standardWindowsHostCapabilities,
+          standardWindowsProviders, windowsHostCapability], rfl⟩
+      | exact ⟨windowsProvider WriteFileDef 2 2, by simp [standardWindowsHostCapabilities,
+          standardWindowsProviders, windowsHostCapability], rfl⟩
+      | exact ⟨windowsProvider ExitProcessDef 3 3, by simp [standardWindowsHostCapabilities,
+          standardWindowsProviders, windowsHostCapability], rfl⟩
+      | exact ⟨windowsProvider VirtualAllocDef 4 4, by simp [standardWindowsHostCapabilities,
+          standardWindowsProviders, windowsHostCapability], rfl⟩
+      | exact ⟨windowsProvider VirtualFreeDef 5 5, by simp [standardWindowsHostCapabilities,
+          standardWindowsProviders, windowsHostCapability], rfl⟩
+  providersLinked := by
+    intro provider hprovider
+    simp only [standardWindowsHostCapabilities, standardWindowsProviders, windowsHostCapability,
+      List.mem_cons, List.not_mem_nil, or_false] at hprovider
+    rcases hprovider with rfl | rfl | rfl | rfl | rfl | rfl
+    all_goals
+      change (_ = _) ∧ _
+      constructor
+      · native_decide
+      · rfl
   entryContext     := fun _ => ()
   entryEstablished := by
     intro environment
     trivial
   platformAdmissible := by
     intro environment
-    change (runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
+    change (@runProgramOutcomeWithLoops AnyEvent (standardWindowsRuntime AnyEvent)
+      spike1Executable.load.rip
       spike1Instructions 50000
       (spike1Executable.load.withExternalInputs environment.stdin
         environment.incomingRequests)).isAdmissible false
@@ -113,7 +146,8 @@ def spike1VerifiedProgram :
     exact spike1TerminationCertificate.isAdmissible
   traceEquivalence := by
     intro environment
-    change (runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
+    change (@runProgramOutcomeWithLoops AnyEvent (standardWindowsRuntime AnyEvent)
+      spike1Executable.load.rip
       spike1Instructions 50000
       (spike1Executable.load.withExternalInputs environment.stdin
         environment.incomingRequests)).events =

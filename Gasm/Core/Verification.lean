@@ -254,6 +254,58 @@ def windowsProvider (imported : Win32Function) (importIndex iatIndex : Nat) :
   importIndex := importIndex
   iatIndex := iatIndex
 
+/- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
+/-- Exact provider table for artifacts linked with `linkWindowsProgram`'s default KERNEL32 import
+    vector.  `importIndex` and physical `iatIndex` coincide because this is one DLL. -/
+def standardWindowsProviders : List WindowsX86_64Provider :=
+  [windowsProvider GetStdHandleDef 0 0,
+   windowsProvider ReadFileDef 1 1,
+   windowsProvider WriteFileDef 2 2,
+   windowsProvider ExitProcessDef 3 3,
+   windowsProvider VirtualAllocDef 4 4,
+   windowsProvider VirtualFreeDef 5 5]
+
+@[instance_reducible] def standardWindowsRuntime (Event : Type)
+    [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
+    Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event where
+  interceptCall := Gasm.Targets.Windows.win32Intercept
+
+/- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
+/-- The production Win32 dispatcher supports every provider in the exact standard table whenever
+    that provider is linked into the final artifact.  This target-owned fact is proved once here,
+    not replayed by each `VerifiedProgram`. -/
+theorem standardWindowsRuntimeSupports (Event : Type)
+    [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
+    ∀ artifact provider, provider ∈ standardWindowsProviders →
+      Platform.providerLinked (P := WindowsX86_64 Event) artifact provider →
+      Platform.runtimeSupports (P := WindowsX86_64 Event)
+        (standardWindowsRuntime Event)
+        artifact provider := by
+  intro artifact provider hprovider hlinked
+  rcases hlinked with ⟨_, hlinkedSlot⟩
+  let layout := computeSectionLayout artifact.executable.textBytes.size
+    artifact.executable.rdataBytes.size 512
+  let slots := artifact.executable.iatFunctionSlots layout.idataRva
+  change (match slots[provider.importIndex]? with
+    | some address => ∀ state, Gasm.Targets.Windows.findIatIndex state address =
+        some provider.iatIndex →
+        ((standardWindowsRuntime Event).interceptCall
+          address state).isSome
+    | none => False)
+  change (match slots[provider.importIndex]? with
+    | some address => _
+    | none => False) at hlinkedSlot
+  generalize hslot : slots[provider.importIndex]? = resolved at hlinkedSlot ⊢
+  cases resolved with
+  | none => exact hlinkedSlot.elim
+  | some address =>
+      intro state hfind
+      simp only [standardWindowsProviders, List.mem_cons, List.not_mem_nil, or_false] at hprovider
+      rcases hprovider with rfl | rfl | rfl | rfl | rfl | rfl
+      all_goals
+        change (Gasm.Targets.Windows.win32Intercept (Event := Event) address state).isSome
+        simp [Gasm.Targets.Windows.win32Intercept, windowsProvider, hfind]
+
 /-- Windows host services form an explicit typed capability row. Provider
     selection is artifact-specific; an empty or catch-all helper cannot cover a
     PE import table soundly. -/
@@ -277,6 +329,15 @@ def windowsHostCapabilities (Event : Type) (providers : List WindowsX86_64Provid
   realizeSupports := by
     intro context artifact provider membership linked
     exact supports artifact provider membership linked
+
+def standardWindowsHostCapabilities (Event : Type)
+    [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
+    CapabilityComposition (WindowsX86_64 Event) :=
+  { root := windowsHostCapability Event standardWindowsProviders
+    realize := fun _ _ => standardWindowsRuntime Event
+    realizeSupports := by
+      intro context artifact provider membership linked
+      exact standardWindowsRuntimeSupports Event artifact provider membership linked }
 
 def linuxHostCapabilities (Event : Type)
     [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :

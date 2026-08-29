@@ -28,6 +28,7 @@ import Spikes.Spike1Hello.Wasm.Program
 namespace Spikes.Spike1Hello.Wasm
 
 open Gasm.Core
+open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.Targets.Wasm
@@ -129,9 +130,8 @@ private theorem spike1_wasi_emits :
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Sole universal whole-program contract for Spike 1 (Hello World WASI). -/
-def spike1VerifiedWasmProgram : VerifiedProgram WasiPlatform wasiHostCapabilities where
-  name := "Spike 1: Hello World (WebAssembly / WASI Preview 1)"
+/-- Artifact-owned serialization and public-manifest certificate. -/
+def spike1WasiArtifactCertificate : ProgramArtifactCertificate WasiPlatform where
   artifact := spike1WasiArtifact
   exports := spike1WasiExports
   exportsArtifact := rfl
@@ -139,7 +139,10 @@ def spike1VerifiedWasmProgram : VerifiedProgram WasiPlatform wasiHostCapabilitie
     constructor
     · rfl
     constructor <;> rfl
-  spec := fun _ => .exited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
+
+/-- Provider-owned import coverage and final-link certificate. -/
+theorem spike1WasiProviderCertificate :
+    ProgramProviderCertificate WasiPlatform wasiHostCapabilities spike1WasiArtifact where
   importsCovered := by
     intro imported himported
     change imported ∈ ["fd_write", "proc_exit"] at himported
@@ -160,12 +163,27 @@ def spike1VerifiedWasmProgram : VerifiedProgram WasiPlatform wasiHostCapabilitie
     simp only [wasiHostCapabilities, wasiHostCapability, List.mem_cons,
       List.not_mem_nil, or_false] at hprovider
     rcases hprovider with rfl | rfl <;> rfl
+
+/-- Root-entry capability establishment. -/
+def spike1WasiEntryCertificate :
+    ProgramEntryCertificate WasiPlatform wasiHostCapabilities spike1WasiArtifact where
   entryContext := fun _ => ()
   entryEstablished := by intro; trivial
+
+/-- Artifact serialization is the platform admissibility fact for WASI emission. -/
+theorem spike1WasiAdmissibilityCertificate :
+    ProgramAdmissibilityCertificate WasiPlatform wasiHostCapabilities spike1WasiArtifact
+      spike1WasiEntryCertificate where
   platformAdmissible := by
     intro
     refine ⟨spike1WasiEmittedBytes, ?_⟩
     exact spike1_wasi_emits
+
+/-- Universal behavior, composed from one closed outcome and the platform frame theorem. -/
+def spike1WasiBehaviorCertificate :
+    ProgramBehaviorCertificate WasiPlatform wasiHostCapabilities spike1WasiArtifact
+      spike1WasiEntryCertificate where
+  spec := fun _ => .exited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
   traceEquivalence := by
     intro environment
     change (runWasiOutcome spike1WasmInstructions spike1DataSegments environment.stdin
@@ -173,5 +191,13 @@ def spike1VerifiedWasmProgram : VerifiedProgram WasiPlatform wasiHostCapabilitie
       { fuel := defaultWasmFuel, memoryPages := 65536 }).observable = _
     rw [runWasiOutcome_output_only_observable_external_input_frame]
     exact spike1_wasi_reference_outcome
+
+/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Sole universal whole-program contract for Spike 1 (Hello World WASI). -/
+def spike1VerifiedWasmProgram : VerifiedProgram WasiPlatform wasiHostCapabilities :=
+  VerifiedProgram.compose "Spike 1: Hello World (WebAssembly / WASI Preview 1)"
+    spike1WasiArtifactCertificate spike1WasiProviderCertificate spike1WasiEntryCertificate
+    spike1WasiAdmissibilityCertificate spike1WasiBehaviorCertificate
 
 end Spikes.Spike1Hello.Wasm
