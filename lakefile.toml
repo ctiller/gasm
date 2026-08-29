@@ -288,3 +288,10 @@ root = "Spikes.Spike5Gzip.Test"
 name = "validate_spike_wasm"
 root = "Tools.ValidateSpikeWasm"
 
+# Nonnormative pre-profile graphics foundation. Intentionally not a default target and not imported
+# by Gasm. It serializes SPIR-V words in memory and exercises pure Vulkan/Win32 state models only;
+# it has no VerifiedProgram or artifact-emission authority.
+[[lean_exe]]
+name = "test_graphics_foundation"
+root = "Spikes.GraphicsFoundation.Test"
+
