@@ -60,7 +60,14 @@ import Gasm.Targets.X86_64.SemanticsFuzzer
 -- pull in the module.
 import Gasm.Targets.X86_64.MemoryFrameAudit
 
+import Gasm.Execution.QEMUAArch64
+
 import Gasm.Targets.AArch64
+import Gasm.Targets.AArch64.BareMetal.Device
+import Gasm.Targets.AArch64.BareMetal.Emitter
+import Gasm.Targets.AArch64.BareMetal.Executable
+import Gasm.Targets.AArch64.BareMetal.Linker
+import Gasm.Targets.AArch64.QEMU
 
 import Gasm.Targets.Windows.ABI
 import Gasm.Targets.Windows.PEFormat
@@ -69,6 +76,7 @@ import Gasm.Targets.Windows.Emitter
 
 import Gasm.Targets.ELF.Format
 import Gasm.Targets.ELF.Notes
+import Gasm.Targets.ELF.Parser
 
 import Gasm.Targets.Linux.ABI
 import Gasm.Targets.Linux.Syscall
@@ -87,6 +95,13 @@ import Gasm.Targets.Wasm.Linker
 import Gasm.Targets.Wasm.Fuzzable
 import Gasm.Targets.Wasm.HostOracle
 import Gasm.Targets.Wasm.SemanticsFuzzer
+
+import Gasm.Targets.X86_64.EncodingFuzzer
+import Gasm.Targets.X86_64.Fuzzer
+import Gasm.Targets.X86_64.HardwareTimingHarness
+import Gasm.Targets.X86_64.NASM
+import Gasm.Targets.X86_64.PerfHardwareFuzzer
+import Gasm.Targets.X86_64.Performance
 
 import Gasm.Targets.BareMetal.ELFFormat
 import Gasm.Targets.BareMetal.UART
