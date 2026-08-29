@@ -290,6 +290,25 @@ theorem jneWrite_target :
       digitWriteLoopAddr := by
   rw [digitWriteLoopAddr_eq, digitWriteLoopAddrEnd_eq]; decide
 
+/-- Bridges `digitWriteLoopAddr + <offset>` (the relational form used by the write-loop
+    induction) to the `cumLen`-position form `iFetch_movMem`/`iFetch_addRdi`/`iFetch_subRcx`/
+    `iFetch_jneWrite` are stated against. -/
+theorem writeMovAddr_eq :
+    digitWriteLoopAddr + 1 = spike2Executable.load.rip + (cumLen (spike2Instructions.take 51) : Nat).toUInt64 := by
+  rw [digitWriteLoopAddr_eq]; decide
+
+theorem writeAddRdiAddr_eq :
+    digitWriteLoopAddr + 3 = spike2Executable.load.rip + (cumLen (spike2Instructions.take 52) : Nat).toUInt64 := by
+  rw [digitWriteLoopAddr_eq]; decide
+
+theorem writeSubRcxAddr_eq :
+    digitWriteLoopAddr + 7 = spike2Executable.load.rip + (cumLen (spike2Instructions.take 53) : Nat).toUInt64 := by
+  rw [digitWriteLoopAddr_eq]; decide
+
+theorem writeJneAddr_eq :
+    digitWriteLoopAddr + 11 = spike2Executable.load.rip + (cumLen (spike2Instructions.take 54) : Nat).toUInt64 := by
+  rw [digitWriteLoopAddr_eq]; decide
+
 /-
 ## Part 3: `StackHolds`, a pointwise/closed-form stack-content predicate
 
@@ -330,6 +349,69 @@ theorem StackHolds_append (mem : X86_64Memory) (top : Address) (L1 : List UInt8)
         UInt64.add_comm ((8 : UInt64) * rest.length.toUInt64) 8, ← UInt64.add_assoc]
     rw [haddr, and_assoc]
 
+/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
+/-- `BufHolds mem start L` says the byte-granular slots `start, start+1, start+2, ...` hold
+    exactly `L` -- the `digit_write_loop` output-buffer counterpart of `StackHolds` (step 1,
+    width `.w8`, instead of step 8, width `.w64`). -/
+def BufHolds (mem : X86_64Memory) (start : Address) : List UInt8 → Prop
+  | [] => True
+  | b :: rest => X86_64Mem.read .w8 start mem = b.toUInt64 ∧ BufHolds mem (start + 1) rest
+
+/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
+theorem BufHolds_append (mem : X86_64Memory) (start : Address) (L1 : List UInt8) :
+    ∀ L2 : List UInt8,
+      BufHolds mem start (L1 ++ L2) ↔
+        BufHolds mem start L1 ∧ BufHolds mem (start + L1.length.toUInt64) L2 := by
+  induction L1 generalizing start with
+  | nil => intro L2; simp [BufHolds]
+  | cons b rest ih =>
+    intro L2
+    simp only [List.cons_append, BufHolds]
+    rw [ih]
+    have haddr : start + (b :: rest).length.toUInt64 = start + 1 + rest.length.toUInt64 := by
+      have hlen : (b :: rest).length.toUInt64 = rest.length.toUInt64 + 1 := by
+        simp only [List.length_cons]
+        simp [Nat.toUInt64]
+      rw [hlen, UInt64.add_assoc,
+        UInt64.add_comm (rest.length.toUInt64) 1, ← UInt64.add_assoc]
+    rw [haddr, and_assoc]
+
+/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
+/-- A single-byte write far enough below an address (`buf` at or above the entire `.w64`-aligned
+    span `[top, top + 8*L.length)`) never disturbs what `StackHolds` reads there -- the fact
+    `digit_write_loop`'s single `mov [rdi], dl` byte write needs to leave the still-unpopped
+    stack region readable exactly as before. -/
+theorem StackHolds_write8_disjoint (mem : X86_64Memory) (top buf : Address) (byte : UInt64)
+    (L : List UInt8) (hdisj : buf.toNat ≥ top.toNat + 8 * L.length) :
+    StackHolds (X86_64Mem.write .w8 buf byte mem) top L = StackHolds mem top L := by
+  induction L generalizing top with
+  | nil => rfl
+  | cons c rest ih =>
+    have hlen : (c :: rest).length = rest.length + 1 := rfl
+    rw [hlen] at hdisj
+    have hbufBound : buf.toNat < 18446744073709551616 := buf.toNat_lt_size
+    have htopBound8 : top.toNat + 8 < 18446744073709551616 := by omega
+    show (X86_64Mem.read .w64 top (X86_64Mem.write .w8 buf byte mem) = c.toUInt64 ∧
+        StackHolds (X86_64Mem.write .w8 buf byte mem) (top + 8) rest) =
+      (X86_64Mem.read .w64 top mem = c.toUInt64 ∧ StackHolds mem (top + 8) rest)
+    have hread : X86_64Mem.read .w64 top (X86_64Mem.write .w8 buf byte mem) =
+        X86_64Mem.read .w64 top mem := by
+      apply X86_64Mem.read_congr
+      intro k hk
+      have hk8 : k < 8 := by simpa [MemWidth.bytes] using hk
+      have hadd : (top + k.toUInt64).toNat = top.toNat + k := by
+        have hkbound : k < 18446744073709551616 := by omega
+        simp [UInt64.toNat_add, UInt64.size, Nat.toUInt64]
+        omega
+      apply X86_64Mem.readByte_write_disjoint .w8 buf byte mem (top + k.toUInt64)
+        (by simp only [MemWidth.bytes]; omega)
+      left
+      omega
+    have htopAdd : (top + (8 : UInt64)).toNat = top.toNat + 8 := by
+      simp [UInt64.toNat_add, UInt64.size, Nat.toUInt64]
+      omega
+    rw [hread, ih (top + 8) (by omega)]
+
 /-
 ## Part 4: `digit_extract_loop`'s pointwise closed-form characterization
 
@@ -351,6 +433,34 @@ theorem UInt64.sub_sub (a b c : UInt64) : a - b - c = a - (b + c) := by
   apply UInt64.eq_of_toBitVec_eq
   simp only [UInt64.toBitVec_sub, UInt64.toBitVec_add]
   exact BitVec.sub_sub _ _ _
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- `digit_write_loop`'s branch test (`sub rcx, 1` immediately followed by `jne`, no separate
+    `cmp`, unlike `fibIterInstructions`'s loop) needs ZF after subtracting `1`, not `0` --
+    `setFlagsCmp64_zero_zf` (`Windows/LoopInvariant.lean`) doesn't cover this. `setFlagsSub64` is
+    definitionally `setFlagsCmp64` (`Registers.lean`), so the same bit-6-isolation lemma set
+    applies; the only new piece is including `if_bit6_zero` for CF's own `if a < 1 then ... else
+    ...` branch (bit 0, trivially bit-6-transparent either way via `decide`) instead of
+    eliminating that case split the way the `b = 0` specialization does -- CF's `a < 1` truth
+    value is never needed. -/
+theorem setFlagsSub64_one_zf (s : X86_64MachineState) (a : UInt64) :
+    (s.setFlagsSub64 a 1).zf = (a == 1) := by
+  unfold X86_64MachineState.setFlagsSub64 X86_64MachineState.setFlagsCmp64 X86_64MachineState.zf
+  dsimp only
+  generalize hcf : (if a < (1 : UInt64) then (1 : UInt64) <<< 0 else 0) = cf
+  have hcfbit6 : cf &&& ((1 : UInt64) <<< 6) = 0 := by
+    rw [← hcf]; split <;> decide
+  simp only [and_or_distrib, preserved_bit6, computeParity8_bit6, computeAuxCarry_bit6, hcfbit6,
+    if_bit6_zero _ ((1 : UInt64) <<< 7) (by decide), if_bit6_zero _ ((1 : UInt64) <<< 11) (by decide),
+    UInt64.zero_or, UInt64.or_zero]
+  by_cases h : a = 1
+  · subst h; decide
+  · have hne : a - 1 ≠ (0 : UInt64) := by
+      intro hcontra
+      apply h
+      have := congrArg (· + (1 : UInt64)) hcontra
+      simpa [UInt64.sub_add_cancel] using this
+    simp [hne, h]
 
 /-- The one arithmetic fact bridging the assembly's `add rdx, 0x30` (widened `UInt64` addition) to
     `Stdlib.Fmt.byteOfDigit` (a `UInt8`-truncating `Nat` computation): for any genuine digit
@@ -796,5 +906,386 @@ theorem digitExtractLoop_run (n : Nat) (hn : n < 18446744073709551616) :
       rw [hframe' a haS1, hframe1 a ha]
     · intro r hra hrd hrc hrs
       rw [hregframe' r hra hrd hrc hrs, hregframe1 r hra hrd hrc hrs]
+
+/-
+## Part 5: `digit_write_loop`'s pointwise closed-form characterization
+
+Content-agnostic in the popped list (never tied to digit extraction specifically): given the
+stack holds an arbitrary `b :: rest`, `rcx = rest.length + 1`, and `rdi = buf`, one iteration
+pops `b`, writes it to `[buf]`, advances `rdi`/`rsp`, decrements `rcx`, and continues (or falls
+through to `digitWriteLoopAddrEnd` when `rest = []`) -- a decrementing-counter loop, driven by
+`sub rcx, 1`'s own flags (no separate `cmp`, unlike `fibIterInstructions`'s loop), hence
+`setFlagsSub64_one_zf` above.
+-/
+
+/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
+/-- **One iteration of `digit_write_loop`.** -/
+theorem digitWriteLoop_oneIter (b : UInt8) (rest : List UInt8) (buf : Address) (fuel : Nat)
+    (s : X86_64MachineState)
+    (hrip : s.rip = digitWriteLoopAddr)
+    (hstack : StackHolds s.memory s.rsp (b :: rest))
+    (hrcx : s.gprs .rcx = (rest.length + 1 : Nat).toUInt64)
+    (hrdi : s.gprs .rdi = buf)
+    (hdisj : buf.toNat ≥ s.rsp.toNat + 8 * (rest.length + 1))
+    (hfault : s.fault = none) :
+    ∃ s1,
+      runProgramWithLoops spike2Executable.load.rip spike2Instructions (fuel + 5) s =
+        runProgramWithLoops spike2Executable.load.rip spike2Instructions fuel s1 ∧
+      s1.rip = (if rest.length = 0 then digitWriteLoopAddrEnd else digitWriteLoopAddr) ∧
+      s1.gprs .rcx = rest.length.toUInt64 ∧
+      s1.gprs .rdi = buf + 1 ∧
+      s1.rsp = s.rsp + 8 ∧
+      s1.fault = none ∧
+      X86_64Mem.read .w8 buf s1.memory = b.toUInt64 ∧
+      StackHolds s1.memory s1.rsp rest ∧
+      (∀ a : Address, a ≠ buf → X86_64Mem.read .w8 a s1.memory = X86_64Mem.read .w8 a s.memory) ∧
+      (∀ r : Reg64, r ≠ .rdx → r ≠ .rdi → r ≠ .rcx → r ≠ .rsp → s1.gprs r = s.gprs r) := by
+  have hfaulted0 : s.faulted = false := X86_64MachineState.faulted_of_fault_none hfault
+  -- step 1: pop rdx
+  have hfetch1 : instructionAtRip spike2Executable.load.rip spike2Instructions s.rip =
+      some (pop_r64 .rdx) := by rw [hrip]; exact iFetch_pop
+  rw [show fuel + 5 = fuel + 4 + 1 from rfl, runProgramWithLoops_step hfetch1 hfaulted0]
+  generalize hs1 : X86_64Instruction.step (pop_r64 .rdx) s = s1
+  have hrip1 : s1.rip = digitWriteLoopAddr + 1 := by
+    rw [← hs1, step_pop_rdx, hrip]
+  have hfault1 : s1.fault = none := by rw [← hs1, step_pop_rdx]; exact hfault
+  have hrdx1 : s1.gprs .rdx = b.toUInt64 := by
+    rw [← hs1, step_pop_rdx]
+    show s.pop64.1 = b.toUInt64
+    exact hstack.1
+  have hrsp1 : s1.rsp = s.rsp + 8 := by
+    rw [← hs1, step_pop_rdx]
+    show (s.pop64.2.setGpr64 .rdx s.pop64.1).rsp = s.rsp + 8
+    rfl
+  have hrdi1 : s1.gprs .rdi = buf := by
+    rw [← hs1, step_pop_rdx]
+    show (s.pop64.2.setGpr64 .rdx s.pop64.1).gprs .rdi = buf
+    exact hrdi
+  have hrcx1 : s1.gprs .rcx = (rest.length + 1 : Nat).toUInt64 := by
+    rw [← hs1, step_pop_rdx]
+    show (s.pop64.2.setGpr64 .rdx s.pop64.1).gprs .rcx = _
+    exact hrcx
+  have hstackRest1 : StackHolds s1.memory s1.rsp rest := by
+    rw [← hs1, step_pop_rdx]
+    show StackHolds (s.pop64.2.setGpr64 .rdx s.pop64.1).memory
+      (s.pop64.2.setGpr64 .rdx s.pop64.1).rsp rest
+    exact hstack.2
+  have hmemFrame1 : ∀ a : Address, a ≠ buf →
+      X86_64Mem.read .w8 a s1.memory = X86_64Mem.read .w8 a s.memory := by
+    intro a _; rw [← hs1, step_pop_rdx]; rfl
+  have hregFrame1 : ∀ r : Reg64, r ≠ .rdx → r ≠ .rdi → r ≠ .rcx → r ≠ .rsp →
+      s1.gprs r = s.gprs r := by
+    intro r hrdx' _ _ hrsp'
+    rw [← hs1, step_pop_rdx]
+    show (s.pop64.2.setGpr64 .rdx s.pop64.1).gprs r = s.gprs r
+    simp [X86_64MachineState.setGpr64, hrdx', X86_64MachineState.pop64, hrsp']
+  have hfaulted1 : s1.faulted = false := X86_64MachineState.faulted_of_fault_none hfault1
+  -- step 2: mov [rdi], dl
+  have hfetch2 : instructionAtRip spike2Executable.load.rip spike2Instructions s1.rip =
+      some (mov_mem8 .rdi .rdx) := by
+    rw [hrip1, writeMovAddr_eq]; exact iFetch_movMem
+  rw [show fuel + 4 = fuel + 3 + 1 from rfl, runProgramWithLoops_step hfetch2 hfaulted1]
+  generalize hs2 : X86_64Instruction.step (mov_mem8 .rdi .rdx) s1 = s2
+  have hrip2 : s2.rip = digitWriteLoopAddr + 3 := by
+    rw [← hs2, step_mov_mem8_rdi_rdx]
+    show s1.rip + 2 = digitWriteLoopAddr + 3
+    rw [hrip1, UInt64.add_assoc]; rfl
+  have hfault2 : s2.fault = none := by rw [← hs2, step_mov_mem8_rdi_rdx]; exact hfault1
+  have hwritten2 : X86_64Mem.read .w8 buf s2.memory = b.toUInt64 := by
+    rw [← hs2, step_mov_mem8_rdi_rdx]
+    show X86_64Mem.read .w8 buf (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).memory = b.toUInt64
+    rw [hrdi1, hrdx1]
+    show X86_64Mem.read .w8 buf (s1.write8 buf (b.toUInt64.toUInt8)).memory = b.toUInt64
+    show (X86_64Mem.readByte (X86_64Mem.write .w8 buf (b.toUInt64.toUInt8).toUInt64 s1.memory) buf).toUInt64
+      = b.toUInt64
+    congr 1
+    simp only [X86_64Mem.write, X86_64Mem.readByte_writeByte_same, UInt8.toUInt8_toUInt64]
+  have hrdi2 : s2.gprs .rdi = buf := by
+    rw [← hs2, step_mov_mem8_rdi_rdx]
+    show (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).gprs .rdi = buf
+    exact hrdi1
+  have hrcx2 : s2.gprs .rcx = (rest.length + 1 : Nat).toUInt64 := by
+    rw [← hs2, step_mov_mem8_rdi_rdx]
+    show (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).gprs .rcx = _
+    exact hrcx1
+  have hrsp2 : s2.rsp = s.rsp + 8 := by
+    rw [← hs2, step_mov_mem8_rdi_rdx]
+    show (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).rsp = s.rsp + 8
+    rw [show (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).rsp = s1.rsp from rfl]
+    exact hrsp1
+  have hstackRest2 : StackHolds s2.memory s2.rsp rest := by
+    rw [← hs2, step_mov_mem8_rdi_rdx]
+    show StackHolds (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).memory
+      (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).rsp rest
+    rw [show (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).rsp = s1.rsp from rfl]
+    show StackHolds
+      (X86_64Mem.write .w8 (s1.gprs .rdi) ((s1.gprs .rdx).toUInt8).toUInt64 s1.memory) s1.rsp rest
+    rw [hrdi1, hrdx1]
+    have hdisj1 : buf.toNat ≥ s1.rsp.toNat + 8 * rest.length := by
+      have hbufBound : buf.toNat < 18446744073709551616 := buf.toNat_lt_size
+      have hadd : s1.rsp.toNat = s.rsp.toNat + 8 := by
+        rw [hrsp1]
+        have hup : s.rsp.toNat < 18446744073709551608 := by omega
+        simp [UInt64.toNat_add, UInt64.size, Nat.toUInt64]
+        omega
+      omega
+    rw [StackHolds_write8_disjoint s1.memory s1.rsp buf (((b.toUInt64).toUInt8).toUInt64) rest hdisj1]
+    exact hstackRest1
+  have hregFrame2 : ∀ r : Reg64, r ≠ .rdx → r ≠ .rdi → r ≠ .rcx → r ≠ .rsp →
+      s2.gprs r = s.gprs r := by
+    intro r hrdx' hrdi' hrcx' hrsp'
+    rw [← hs2, step_mov_mem8_rdi_rdx]
+    show (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).gprs r = s.gprs r
+    rw [show (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).gprs r = s1.gprs r from rfl]
+    exact hregFrame1 r hrdx' hrdi' hrcx' hrsp'
+  have hfaulted2 : s2.faulted = false := X86_64MachineState.faulted_of_fault_none hfault2
+  -- step 3: add rdi, 1
+  have hfetch3 : instructionAtRip spike2Executable.load.rip spike2Instructions s2.rip =
+      some (add_r64_imm8 .rdi 1) := by
+    rw [hrip2, writeAddRdiAddr_eq]; exact iFetch_addRdi
+  rw [show fuel + 3 = fuel + 2 + 1 from rfl, runProgramWithLoops_step hfetch3 hfaulted2]
+  generalize hs3 : X86_64Instruction.step (add_r64_imm8 .rdi 1) s2 = s3
+  have hrip3 : s3.rip = digitWriteLoopAddr + 7 := by
+    rw [← hs3, step_add_r64_imm8]
+    show s2.rip + 4 = digitWriteLoopAddr + 7
+    rw [hrip2, UInt64.add_assoc]; rfl
+  have hfault3 : s3.fault = none := by rw [← hs3, step_add_r64_imm8]; exact hfault2
+  have hrdi3 : s3.gprs .rdi = buf + 1 := by
+    rw [← hs3, step_add_r64_imm8]
+    show s2.gprs .rdi + signExtend8To64 (1 : UInt8) = buf + 1
+    rw [hrdi2, show signExtend8To64 (1 : UInt8) = 1 from rfl]
+  have hrcx3 : s3.gprs .rcx = (rest.length + 1 : Nat).toUInt64 := by
+    rw [← hs3, step_add_r64_imm8]; exact hrcx2
+  have hrsp3 : s3.rsp = s.rsp + 8 := by rw [← hs3, step_add_r64_imm8]; exact hrsp2
+  have hwritten3 : X86_64Mem.read .w8 buf s3.memory = b.toUInt64 := by
+    rw [← hs3, step_add_r64_imm8]; exact hwritten2
+  have hstackRest3 : StackHolds s3.memory s3.rsp rest := by
+    rw [← hs3, step_add_r64_imm8]; exact hstackRest2
+  have hregFrame3 : ∀ r : Reg64, r ≠ .rdx → r ≠ .rdi → r ≠ .rcx → r ≠ .rsp →
+      s3.gprs r = s.gprs r := by
+    intro r hrdx' hrdi' hrcx' hrsp'
+    rw [← hs3, step_add_r64_imm8]
+    show (s2.setGpr64 .rdi (s2.gprs .rdi + signExtend8To64 (1:UInt8))).gprs r = s.gprs r
+    rw [show (s2.setGpr64 .rdi (s2.gprs .rdi + signExtend8To64 (1:UInt8))).gprs r = s2.gprs r
+      from by simp [X86_64MachineState.setGpr64, hrdi']]
+    exact hregFrame2 r hrdx' hrdi' hrcx' hrsp'
+  have hfaulted3 : s3.faulted = false := X86_64MachineState.faulted_of_fault_none hfault3
+  -- step 4: sub rcx, 1
+  have hfetch4 : instructionAtRip spike2Executable.load.rip spike2Instructions s3.rip =
+      some (sub_r64_imm8 .rcx 1) := by
+    rw [hrip3, writeSubRcxAddr_eq]; exact iFetch_subRcx
+  rw [show fuel + 2 = fuel + 1 + 1 from rfl, runProgramWithLoops_step hfetch4 hfaulted3]
+  generalize hs4 : X86_64Instruction.step (sub_r64_imm8 .rcx 1) s3 = s4
+  have hrip4 : s4.rip = digitWriteLoopAddr + 11 := by
+    rw [← hs4, step_sub_r64_imm8]
+    show s3.rip + 4 = digitWriteLoopAddr + 11
+    rw [hrip3, UInt64.add_assoc]; rfl
+  have hfault4 : s4.fault = none := by rw [← hs4, step_sub_r64_imm8]; exact hfault3
+  have hrcx4 : s4.gprs .rcx = rest.length.toUInt64 := by
+    rw [← hs4, step_sub_r64_imm8]
+    show s3.gprs .rcx - signExtend8To64 (1 : UInt8) = rest.length.toUInt64
+    rw [hrcx3, show signExtend8To64 (1 : UInt8) = 1 from rfl]
+    simp [Nat.toUInt64]
+  have hzf4 : s4.zf = ((rest.length + 1 : Nat).toUInt64 == 1) := by
+    have hz : s4.zf = (s3.setFlagsSub64 (s3.gprs .rcx) (signExtend8To64 (1 : UInt8))).zf := by
+      rw [← hs4]; rfl
+    rw [hz, show signExtend8To64 (1 : UInt8) = 1 from rfl, setFlagsSub64_one_zf, hrcx3]
+  have hrdi4 : s4.gprs .rdi = buf + 1 := by rw [← hs4, step_sub_r64_imm8]; exact hrdi3
+  have hrsp4 : s4.rsp = s.rsp + 8 := by rw [← hs4, step_sub_r64_imm8]; exact hrsp3
+  have hwritten4 : X86_64Mem.read .w8 buf s4.memory = b.toUInt64 := by
+    rw [← hs4, step_sub_r64_imm8]; exact hwritten3
+  have hstackRest4 : StackHolds s4.memory s4.rsp rest := by
+    rw [← hs4, step_sub_r64_imm8]; exact hstackRest3
+  have hregFrame4 : ∀ r : Reg64, r ≠ .rdx → r ≠ .rdi → r ≠ .rcx → r ≠ .rsp →
+      s4.gprs r = s.gprs r := by
+    intro r hrdx' hrdi' hrcx' hrsp'
+    rw [← hs4, step_sub_r64_imm8]
+    show (s3.setGpr64 .rcx (s3.gprs .rcx - signExtend8To64 (1:UInt8))).gprs r = s.gprs r
+    rw [show (s3.setGpr64 .rcx (s3.gprs .rcx - signExtend8To64 (1:UInt8))).gprs r = s3.gprs r
+      from by simp [X86_64MachineState.setGpr64, hrcx']]
+    exact hregFrame3 r hrdx' hrdi' hrcx' hrsp'
+  have hfaulted4 : s4.faulted = false := X86_64MachineState.faulted_of_fault_none hfault4
+  -- step 5: jne (branches back to digitWriteLoopAddr if rest ≠ [], else falls through to
+  -- digitWriteLoopAddrEnd)
+  have hfetch5 : instructionAtRip spike2Executable.load.rip spike2Instructions s4.rip =
+      some (jne_rel8 (Assembler.toDisp8 digitWriteLoopAddr digitWriteLoopAddrEnd)) := by
+    rw [hrip4, writeJneAddr_eq]; exact iFetch_jneWrite
+  have hnf5 : (X86_64Instruction.step
+      (jne_rel8 (Assembler.toDisp8 digitWriteLoopAddr digitWriteLoopAddrEnd)) s4).faulted = false := by
+    rw [step_jne_rel8]; exact hfaulted4
+  rw [show fuel + 1 = fuel + 0 + 1 from rfl, runProgramWithLoops_step hfetch5 hnf5]
+  generalize hs5 : X86_64Instruction.step
+    (jne_rel8 (Assembler.toDisp8 digitWriteLoopAddr digitWriteLoopAddrEnd)) s4 = s5
+  have hfault5 : s5.fault = none := by rw [← hs5, step_jne_rel8]; exact hfault4
+  have hrcx5 : s5.gprs .rcx = rest.length.toUInt64 := by rw [← hs5, step_jne_rel8]; exact hrcx4
+  have hrdi5 : s5.gprs .rdi = buf + 1 := by rw [← hs5, step_jne_rel8]; exact hrdi4
+  have hrsp5 : s5.rsp = s.rsp + 8 := by rw [← hs5, step_jne_rel8]; exact hrsp4
+  have hwritten5 : X86_64Mem.read .w8 buf s5.memory = b.toUInt64 := by
+    rw [← hs5, step_jne_rel8]; exact hwritten4
+  have hstackRest5 : StackHolds s5.memory s5.rsp rest := by
+    rw [← hs5, step_jne_rel8]; exact hstackRest4
+  have hregFrame5 : ∀ r : Reg64, r ≠ .rdx → r ≠ .rdi → r ≠ .rcx → r ≠ .rsp →
+      s5.gprs r = s.gprs r := by
+    intro r hrdx' hrdi' hrcx' hrsp'
+    rw [← hs5, step_jne_rel8]
+    exact hregFrame4 r hrdx' hrdi' hrcx' hrsp'
+  have hmemFrame5 : ∀ a : Address, a ≠ buf →
+      X86_64Mem.read .w8 a s5.memory = X86_64Mem.read .w8 a s.memory := by
+    intro a ha
+    rw [← hs5, step_jne_rel8, ← hs4, step_sub_r64_imm8, ← hs3, step_add_r64_imm8, ← hs2,
+      step_mov_mem8_rdi_rdx]
+    show X86_64Mem.read .w8 a (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).memory
+      = X86_64Mem.read .w8 a s.memory
+    rw [show (s1.write8 (s1.gprs .rdi) (s1.gprs .rdx).toUInt8).memory
+      = X86_64Mem.write .w8 (s1.gprs .rdi) ((s1.gprs .rdx).toUInt8).toUInt64 s1.memory from rfl,
+      hrdi1]
+    have hstep : X86_64Mem.read .w8 a
+        (X86_64Mem.write .w8 buf ((s1.gprs .rdx).toUInt8).toUInt64 s1.memory) =
+        X86_64Mem.read .w8 a s1.memory :=
+      congrArg UInt8.toUInt64 (X86_64Mem.readByte_write_disjoint .w8 buf
+        ((s1.gprs .rdx).toUInt8).toUInt64 s1.memory a
+        (by have hb : buf.toNat < 18446744073709551616 := buf.toNat_lt_size
+            simp only [MemWidth.bytes]; omega)
+        (by
+          have hne : a.toNat ≠ buf.toNat := fun he => ha (UInt64.toNat_inj.mp he)
+          simp only [MemWidth.bytes]; omega))
+    rw [hstep]
+    exact hmemFrame1 a ha
+  have hrip5 : s5.rip = if rest.length = 0 then digitWriteLoopAddrEnd else digitWriteLoopAddr := by
+    rw [← hs5, step_jne_rel8]
+    show (if !s4.zf then s4.rip + 2 +
+      signExtend8To64 (Assembler.toDisp8 digitWriteLoopAddr digitWriteLoopAddrEnd) else s4.rip + 2) = _
+    rw [hzf4, hrip4]
+    by_cases hz : rest.length = 0
+    · rw [if_pos hz, hz]
+      show (if !((1 : UInt64) == 1) then _ else digitWriteLoopAddr + 11 + 2) = digitWriteLoopAddrEnd
+      rw [digitWriteLoopAddrEnd_eq, digitWriteLoopAddr_eq]; decide
+    · rw [if_neg hz]
+      have hne0 : ((rest.length + 1 : Nat).toUInt64 == (1 : UInt64)) = false := by
+        have hbufBound : buf.toNat < 18446744073709551616 := buf.toNat_lt_size
+        have hbnd : rest.length + 1 < 18446744073709551616 := by omega
+        simp only [beq_eq_false_iff_ne, ne_eq, ← UInt64.toNat_inj]
+        simp [Nat.toUInt64, hbnd]
+        omega
+      rw [hne0]
+      show digitWriteLoopAddr + 11 + 2 +
+        signExtend8To64 (Assembler.toDisp8 digitWriteLoopAddr digitWriteLoopAddrEnd) =
+        digitWriteLoopAddr
+      exact jneWrite_target
+  exact ⟨s5, rfl, hrip5, hrcx5, hrdi5, hrsp5, hfault5, hwritten5, hstackRest5, hmemFrame5, hregFrame5⟩
+
+/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
+/-- **Closed form for `digit_write_loop` over an arbitrary nonempty list.** Structural induction
+    on the list (unlike `digitExtractLoop_run`'s well-founded recursion on a shrinking numeral):
+    each iteration pops one byte and writes it forward into the output buffer, so the recursion
+    measure is simply the list itself. `hbufTop` is the write-side analog of `digitExtractLoop_run`'s
+    `hrspTop`: it rules out the output buffer's address range wrapping past `2⁶⁴`. -/
+theorem digitWriteLoop_run :
+    ∀ (L : List UInt8) (buf : Address) (fuel : Nat) (s : X86_64MachineState),
+    L ≠ [] →
+    s.rip = digitWriteLoopAddr →
+    StackHolds s.memory s.rsp L →
+    s.gprs .rcx = (L.length : Nat).toUInt64 →
+    s.gprs .rdi = buf →
+    buf.toNat ≥ s.rsp.toNat + 8 * L.length →
+    buf.toNat + L.length < 18446744073709551616 →
+    s.fault = none →
+    ∃ s',
+      runProgramWithLoops spike2Executable.load.rip spike2Instructions (fuel + 5 * L.length) s =
+        runProgramWithLoops spike2Executable.load.rip spike2Instructions fuel s' ∧
+      s'.rip = digitWriteLoopAddrEnd ∧
+      s'.gprs .rcx = 0 ∧
+      s'.gprs .rdi = buf + L.length.toUInt64 ∧
+      s'.rsp = s.rsp + 8 * L.length.toUInt64 ∧
+      s'.fault = none ∧
+      BufHolds s'.memory buf L ∧
+      (∀ a : Address, (a.toNat < buf.toNat ∨ a.toNat ≥ buf.toNat + L.length) →
+        X86_64Mem.read .w8 a s'.memory = X86_64Mem.read .w8 a s.memory) ∧
+      (∀ r : Reg64, r ≠ .rdx → r ≠ .rdi → r ≠ .rcx → r ≠ .rsp → s'.gprs r = s.gprs r) := by
+  intro L
+  induction L with
+  | nil => intro buf fuel s hne; exact absurd rfl hne
+  | cons b rest ih =>
+    intro buf fuel s _ hrip hstack hrcx hrdi hdisj hbufTop hfault
+    by_cases hz : rest.length = 0
+    · -- base case: rest = [], one iteration finishes at digitWriteLoopAddrEnd
+      have hrestNil : rest = [] := by
+        cases rest with
+        | nil => rfl
+        | cons _ _ => simp at hz
+      subst hrestNil
+      obtain ⟨s1, heq1, hrip1, hrcx1, hrdi1, hrsp1, hfault1, hwritten1, hstackRest1, hmemFrame1,
+        hregFrame1⟩ := digitWriteLoop_oneIter b [] buf fuel s hrip hstack hrcx hrdi hdisj hfault
+      rw [if_pos hz] at hrip1
+      refine ⟨s1, ?_, hrip1, ?_, ?_, ?_, hfault1, ?_, ?_, hregFrame1⟩
+      · simpa using heq1
+      · simpa using hrcx1
+      · simpa using hrdi1
+      · simpa using hrsp1
+      · exact ⟨hwritten1, trivial⟩
+      · intro a ha
+        apply hmemFrame1
+        simp only [List.length_cons, List.length_nil] at ha
+        intro he
+        subst he
+        omega
+    · -- step case: recurse on rest via ih
+      have hrestNe : rest ≠ [] := by
+        intro he; subst he; simp at hz
+      have hlen0 : (b :: rest).length = rest.length + 1 := rfl
+      rw [hlen0] at hdisj hbufTop
+      obtain ⟨s1, heq1, hrip1, hrcx1, hrdi1, hrsp1, hfault1, hwritten1, hstackRest1, hmemFrame1,
+        hregFrame1⟩ := digitWriteLoop_oneIter b rest buf (fuel + 5 * rest.length) s hrip hstack
+          hrcx hrdi hdisj hfault
+      rw [if_neg hz] at hrip1
+      have hbufBound : buf.toNat < 18446744073709551616 := buf.toNat_lt_size
+      have hbufToNat1 : (buf + (1:UInt64)).toNat = buf.toNat + 1 := by
+        have hb : buf.toNat + 1 < 18446744073709551616 := by omega
+        simp [UInt64.toNat_add, UInt64.size, Nat.toUInt64]
+        omega
+      have hrspToNat1 : s1.rsp.toNat = s.rsp.toNat + 8 := by
+        rw [hrsp1]
+        have hb : s.rsp.toNat + 8 < 18446744073709551616 := by omega
+        simp [UInt64.toNat_add, UInt64.size, Nat.toUInt64]
+        omega
+      have hdisj1' : (buf + (1:UInt64)).toNat ≥ s1.rsp.toNat + 8 * rest.length := by
+        rw [hbufToNat1, hrspToNat1]; omega
+      have hbufTop1 : (buf + (1:UInt64)).toNat + rest.length < 18446744073709551616 := by
+        rw [hbufToNat1]; omega
+      obtain ⟨s', heq', hrip', hrcx', hrdi', hrsp', hfault', hbufHeld', hmemFrame', hregFrame'⟩ :=
+        ih (buf + 1) fuel s1 hrestNe hrip1 hstackRest1 hrcx1 hrdi1 hdisj1' hbufTop1 hfault1
+      have hlen1 : ((rest.length + 1 : Nat)).toUInt64 = rest.length.toUInt64 + 1 := by
+        simp [Nat.toUInt64]
+      refine ⟨s', ?_, hrip', hrcx', ?_, ?_, hfault', ?_, ?_, ?_⟩
+      · show runProgramWithLoops spike2Executable.load.rip spike2Instructions
+          (fuel + 5 * (rest.length + 1)) s =
+          runProgramWithLoops spike2Executable.load.rip spike2Instructions fuel s'
+        rw [show fuel + 5 * (rest.length + 1) = (fuel + 5 * rest.length) + 5 from by omega,
+          heq1, heq']
+      · show s'.gprs .rdi = buf + (rest.length + 1 : Nat).toUInt64
+        rw [hlen1, hrdi', UInt64.add_assoc, UInt64.add_comm (1:UInt64) rest.length.toUInt64]
+      · show s'.rsp = s.rsp + 8 * (rest.length + 1 : Nat).toUInt64
+        rw [hlen1, UInt64.mul_add, UInt64.mul_one]
+        rw [show s.rsp + (8 * rest.length.toUInt64 + 8) = (s.rsp + 8) + 8 * rest.length.toUInt64
+          from by rw [UInt64.add_comm (8 * rest.length.toUInt64) 8, ← UInt64.add_assoc]]
+        rw [← hrsp1]; exact hrsp'
+      · show BufHolds s'.memory buf (b :: rest)
+        show X86_64Mem.read .w8 buf s'.memory = b.toUInt64 ∧ BufHolds s'.memory (buf + 1) rest
+        refine ⟨?_, hbufHeld'⟩
+        have hbufIn : buf.toNat < (buf + (1:UInt64)).toNat := by rw [hbufToNat1]; omega
+        rw [hmemFrame' buf (Or.inl hbufIn)]
+        exact hwritten1
+      · intro a ha
+        simp only [List.length_cons] at ha
+        rcases ha with ha | ha
+        · have haNe : a ≠ buf := by intro he; subst he; omega
+          have ha1 : a.toNat < (buf + (1:UInt64)).toNat := by rw [hbufToNat1]; omega
+          rw [hmemFrame' a (Or.inl ha1), hmemFrame1 a haNe]
+        · have haNe : a ≠ buf := by intro he; subst he; omega
+          have ha1 : a.toNat ≥ (buf + (1:UInt64)).toNat + rest.length := by
+            rw [hbufToNat1]; omega
+          rw [hmemFrame' a (Or.inr ha1), hmemFrame1 a haNe]
+      · intro r hne1 hne2 hne3 hne4
+        rw [hregFrame' r hne1 hne2 hne3 hne4, hregFrame1 r hne1 hne2 hne3 hne4]
 
 end Spikes.Spike2Fibonacci.Windows
