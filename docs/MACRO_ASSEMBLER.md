@@ -139,6 +139,19 @@ This is intentionally an adapter input, not a `ProgramBehaviorCertificate`, `Ver
 `VerifiedProgram`. Once native target profiles acquire real callable export manifests and boundary
 semantics, the same staged evidence can feed `ContextBoundaryRealization` and `PublishedBoundary`.
 
+## Placement construction
+
+Consumers need not prove contextual indexed lookup separately for every body decomposition.
+`IndexedLayoutCertificate` states the final linker's global resolution law once, while
+`ContiguousInstructionSubsequence` proves that the body index beginning at its selected base is
+included in that final index. `ContextualStraightLinePlacement.ofSubsequence` combines those facts
+with the body's constructor-derived ordinary classification and entry RIP.
+
+The construction derives prefix RIP from encoded instruction sizes and proves membership through
+the target indexer's append law. A differential relayout therefore regenerates only final layout
+resolution and subsequence inclusion; the symbolic/local compiler proof remains reusable. The linker
+is expected to derive `IndexedLayoutCertificate` from its injective, aligned address assignment.
+
 This initial straight-line slice therefore supplies instruction realization, local ABI realization,
 and an exact byte boundary, but does not claim whole-function callability merely from its RAX theorem.
 A platform composition must still establish the core entry/exit, stack, obligation-world, placement,

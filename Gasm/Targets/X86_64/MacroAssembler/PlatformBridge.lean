@@ -54,6 +54,62 @@ theorem runLocalSteps_fault_eq (code : List X86_64Instr)
           ih (fun instruction hi => ordinary instruction (by simp [hi])) _
         _ = state.fault := ControlFlowFree.step_fault_eq (ordinary first (by simp)) state
 
+/- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
+/-- Encoded byte span, computed in the same modular address arithmetic as target lookup. -/
+def instructionSpan : List X86_64Instr → UInt64
+  | [] => 0
+  | instruction :: rest =>
+      (X86_64Instruction.encode instruction).size.toUInt64 + instructionSpan rest
+
+/- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
+theorem indexInstructions_loop_append (baseRip : UInt64)
+    (first second : List X86_64Instr) :
+    indexInstructions.loop baseRip (first ++ second) =
+      indexInstructions.loop baseRip first ++
+        indexInstructions.loop (baseRip + instructionSpan first) second := by
+  induction first generalizing baseRip with
+  | nil => simp [indexInstructions.loop, instructionSpan]
+  | cons instruction rest ih =>
+      simp only [List.cons_append, indexInstructions.loop, instructionSpan, List.cons.injEq,
+        true_and]
+      rw [ih]
+      simp [UInt64.add_assoc]
+
+/- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
+theorem indexInstructions_prefix_mem (bodyBase : UInt64)
+    (code beforeCode : List X86_64Instr) (instruction : X86_64Instr)
+    (suffix : List X86_64Instr) (split : code = beforeCode ++ instruction :: suffix) :
+    (bodyBase + instructionSpan beforeCode, instruction) ∈ indexInstructions bodyBase code := by
+  rw [split, indexInstructions, indexInstructions_loop_append]
+  simp [indexInstructions.loop]
+
+/- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
+theorem runLocalSteps_rip_eq (code : List X86_64Instr)
+    (ordinary : ∀ instruction ∈ code, ControlFlowFree instruction)
+    (state : X86_64MachineState) :
+    (runLocalSteps code state).rip = state.rip + instructionSpan code := by
+  induction code generalizing state with
+  | nil => simp [runLocalSteps, instructionSpan]
+  | cons first rest ih =>
+      simp only [runLocalSteps, instructionSpan]
+      rw [ih (fun instruction hi => ordinary instruction (by simp [hi])),
+        ControlFlowFree.step_rip_eq (ordinary first (by simp))]
+      simp [UInt64.add_assoc]
+
+/- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
+/-- One final-artifact index certificate. Linkers derive it once from layout injectivity; body
+    consumers reuse it for every included straight-line subsequence. -/
+structure IndexedLayoutCertificate (indexed : List (UInt64 × X86_64Instr)) : Prop where
+  resolves : ∀ entry ∈ indexed,
+    instructionAtRipIndexed indexed entry.1 = some entry.2
+
+/- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
+/-- A body's serialized instruction index is included in the final artifact index. This is the
+    layout-stable fact regenerated after relayout or differential byte changes. -/
+structure ContiguousInstructionSubsequence (indexed : List (UInt64 × X86_64Instr))
+    (bodyBase : UInt64) (code : List X86_64Instr) : Prop where
+  included : ∀ entry ∈ indexInstructions bodyBase code, entry ∈ indexed
+
 /- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
 /-- Exact target-owned placement evidence for a straight-line body inside a larger indexed stream.
     It connects each locally executed prefix to production instruction lookup. -/
@@ -62,6 +118,30 @@ structure ContextualStraightLinePlacement (indexed : List (UInt64 × X86_64Instr
   entryRip : initial.rip = bodyBase
   lookup : ∀ beforeCode instruction suffix, code = beforeCode ++ instruction :: suffix →
     instructionAtRipIndexed indexed (runLocalSteps beforeCode initial).rip = some instruction
+
+/- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
+/-- Construct contextual lookup evidence from reusable final-layout resolution and one contiguous
+    body inclusion proof. No per-prefix lookup proof is required from consumers. -/
+theorem ContextualStraightLinePlacement.ofSubsequence
+    (indexed : List (UInt64 × X86_64Instr)) (bodyBase : UInt64)
+    (code : List X86_64Instr) (initial : X86_64MachineState)
+    (ordinary : ∀ instruction ∈ code, ControlFlowFree instruction)
+    (entryRip : initial.rip = bodyBase)
+    (layout : IndexedLayoutCertificate indexed)
+    (subsequence : ContiguousInstructionSubsequence indexed bodyBase code) :
+    ContextualStraightLinePlacement indexed bodyBase code initial where
+  entryRip := entryRip
+  lookup := by
+    intro beforeCode instruction suffix split
+    have memberBody := indexInstructions_prefix_mem bodyBase code beforeCode instruction suffix split
+    have memberArtifact := subsequence.included _ memberBody
+    have resolves := layout.resolves _ memberArtifact
+    rw [runLocalSteps_rip_eq beforeCode]
+    · simpa [entryRip] using resolves
+    · intro selected hi
+      apply ordinary selected
+      rw [split]
+      exact List.mem_append_left _ hi
 
 /- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
 /-- The selected runtime does not reinterpret an admitted ordinary step as an external call.
