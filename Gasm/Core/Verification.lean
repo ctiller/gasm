@@ -179,24 +179,24 @@ def emitVerifiedLinuxExecutable {Env : Type} {Event : Type}
     (p : VerifiedLinuxProgram Env Event) : ByteArray :=
   p.executable.emit
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Typeclass defining how an abstract environment `Env` is loaded into an AArch64 Linux machine's initial execution state. -/
 class AArch64LinuxEnvironmentLoader (Env : Type) where
   loadEnvironment : AArch64LinuxExecutable → Env → AArch64MachineState
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 instance : AArch64LinuxEnvironmentLoader Unit where
   loadEnvironment exe _ := exe.load
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 instance : AArch64LinuxEnvironmentLoader ByteArray where
   loadEnvironment exe stdin := exe.loadWithStdin stdin
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 instance : AArch64LinuxEnvironmentLoader (List String) where
   loadEnvironment exe reqs := exe.loadWithRequests reqs
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 instance : AArch64LinuxEnvironmentLoader Environment where
   loadEnvironment exe env :=
     let s0 := exe.loadWithStdin env.stdin

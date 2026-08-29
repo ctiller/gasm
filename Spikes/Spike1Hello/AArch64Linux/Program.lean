@@ -1,5 +1,5 @@
 /-
-Copyright 2026 Google LLC
+Copyright 2026 Craig Tiller
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,16 +30,16 @@ open Gasm.Targets.AArch64
 open Gasm.Targets.AArch64.Instructions
 open Gasm.Targets.AArch64.Linux
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def helloMessage : ByteArray :=
   "Hello, World!\n".toUTF8
 
 -- Helpers
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 private def instr {ι : Type} [Gasm.Targets.AArch64.AArch64Instruction ι] (i : ι) : SymbolTable → Address → Gasm.Targets.AArch64.Instructions.AnyAArch64Instruction :=
   fun _ _ => Gasm.Targets.AArch64.Instructions.AnyAArch64Instruction.mk i
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 private def adrLabel (rd : Reg64) (lbl : String) : SymbolTable → Address → Gasm.Targets.AArch64.Instructions.AnyAArch64Instruction :=
   fun syms pc =>
     let target := lookupSymbol syms lbl
@@ -48,7 +48,7 @@ private def adrLabel (rd : Reg64) (lbl : String) : SymbolTable → Address → G
     let offset : Int64 := int64OfInt (targetInt - pcInt)
     Gasm.Targets.AArch64.Instructions.AnyAArch64Instruction.mk (adrInstr rd offset)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Symbolic program for Spike 1 AArch64 Linux. -/
 def spike1AArch64LinuxSymbolicProgram : List ProgramElement := [
   -- 1. SYS_write (64)
@@ -70,15 +70,15 @@ def spike1AArch64LinuxSymbolicProgram : List ProgramElement := [
   .instr (instr (svcInstr 0))
 ]
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def spike1AArch64LinuxLinked : LinkedLinuxProgram :=
   linkLinuxProgram 0x400000 spike1AArch64LinuxSymbolicProgram [("helloMessage", helloMessage)]
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def spike1AArch64LinuxInstructions : List Gasm.Targets.AArch64.Instructions.AnyAArch64Instruction :=
   spike1AArch64LinuxLinked.instructions
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def spike1AArch64LinuxExecutable : AArch64LinuxExecutable :=
   spike1AArch64LinuxLinked.executable
 

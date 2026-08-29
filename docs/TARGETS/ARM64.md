@@ -432,7 +432,7 @@ ret                          // Return to caller via LR (X30)
 
 ---
 
-## Bare Metal Execution Model & QEMU Virt Platform
+## 13. Bare Metal Target: QEMU virt Platform Execution
 
 The bare-metal execution environment executes directly on physical hardware or virtualized hardware without an operating system kernel.
 
@@ -488,7 +488,7 @@ Program termination under virtualized test harnesses uses ARM Semihosting:
 
 ---
 
-## Linux Execution Model & System Call Interface
+## 14. Linux Target: Static ELF64 & SVC #0 ABI
 
 Under the Linux platform target, user executables interact with the Linux kernel through static ELF64 emission and the AArch64 Linux system call ABI.
 

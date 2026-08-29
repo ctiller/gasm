@@ -1,5 +1,5 @@
 /-
-Copyright 2026 Google LLC
+Copyright 2026 Craig Tiller
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ open Gasm.Core.Verification
 open Spikes.Spike1Hello
 open Spikes.Spike1Hello.AArch64Linux
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- CLI Test Target: Verifies Linux AArch64 execution via in-Lean trace checking and QEMU hardware runner.
     Exit codes: `0` = in-Lean check passed AND QEMU executed and verified the binary;
     `1` = verification failure (in-Lean mismatch or QEMU output mismatch);

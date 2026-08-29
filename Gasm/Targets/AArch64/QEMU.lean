@@ -1,5 +1,5 @@
 /-
-Copyright 2026 Google LLC
+Copyright 2026 Craig Tiller
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ def findQemuSystemPath (overridePath : Option String := none) : IO (Option Strin
       return some p
   return none
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Resolves the path to the `qemu-aarch64` user-mode emulator executable used to validate Linux AArch64.
     Checks (1) explicit override, (2) `GASM_QEMU_USER_AARCH64` env var, (3) `qemu-aarch64` on PATH,
     (4) standard package-manager install locations. -/

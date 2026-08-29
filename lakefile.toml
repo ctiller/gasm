@@ -50,28 +50,7 @@ defaultTargets = [
 
 [[lean_lib]]
 name = "Gasm"
-roots = [
-  "Gasm",
-  "Gasm.Targets.AArch64",
-  "Gasm.Targets.AArch64.Instructions.Base",
-  "Gasm.Targets.AArch64.Instructions.Add",
-  "Gasm.Targets.AArch64.Instructions.Sub",
-  "Gasm.Targets.AArch64.Instructions.Logical",
-  "Gasm.Targets.AArch64.Instructions.Mov",
-  "Gasm.Targets.AArch64.Instructions.LoadStore",
-  "Gasm.Targets.AArch64.Instructions.Branch",
-  "Gasm.Targets.AArch64.Instructions.System",
-  "Gasm.Targets.AArch64.BareMetal.Device",
-  "Gasm.Targets.AArch64.BareMetal.Emitter",
-  "Gasm.Targets.AArch64.BareMetal.Executable",
-  "Gasm.Targets.AArch64.BareMetal.Linker",
-  "Gasm.Targets.AArch64.Linux.ELFFormat",
-  "Gasm.Targets.AArch64.Linux.Emitter",
-  "Gasm.Targets.AArch64.Linux.Linker",
-  "Gasm.Targets.AArch64.Linux.Syscall",
-  "Gasm.Targets.AArch64.QEMU",
-  "Gasm.Execution.QEMUAArch64"
-]
+roots = ["Gasm"]
 
 [[lean_lib]]
 name = "Spikes"

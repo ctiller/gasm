@@ -1,5 +1,5 @@
 /-
-Copyright 2026 Google LLC
+Copyright 2026 Craig Tiller
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import Spikes.Spike1Hello.AArch64Linux.Equivalence
 open Gasm.Core.Verification
 open Spikes.Spike1Hello.AArch64Linux
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- CLI Emitter Target: Serializes and writes spike1_hello_aarch64_linux to disk strictly from the verified program contract. -/
 def main : IO UInt32 := do
   let elfBytes := emitVerifiedAArch64LinuxExecutable spike1AArch64LinuxVerifiedProgram

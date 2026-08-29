@@ -151,7 +151,7 @@ theorem nat_be_or (b0 b1 b2 b3 : Nat) (h0 : b0 < 256) (h1 : b1 < 256) (h2 : b2 <
   · exact h3
 
 open Stdlib.Zlib in
-/- REF: docs/STDLIB_PNG.md#31-png-critical-chunks -/
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
 /-- Reassembling the four written big-endian bytes of `n.toUInt32` recovers `n`, at the
     `Nat` level the chunk parser works at. -/
 theorem nat_be_roundtrip (n : Nat) (hn : n < 2 ^ 32) :

@@ -1,5 +1,5 @@
 /-
-Copyright 2026 Google LLC
+Copyright 2026 Craig Tiller
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -51,7 +51,7 @@ def runBareMetal (elfPath : String) (expectedStdout : String) (expectedExitCode 
     catch _ =>
       return .runnerAbsent
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Runs the given static AArch64 Linux ELF executable under qemu-aarch64 user-mode emulator. -/
 def runLinux (elfPath : String) (stdin : ByteArray) (expectedStdout : String) (expectedExitCode : UInt32 := 0) : IO QemuRunOutcome := do
   match ← findQemuUserPath with

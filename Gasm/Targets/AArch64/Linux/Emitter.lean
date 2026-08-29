@@ -1,5 +1,5 @@
 /-
-Copyright 2026 Google LLC
+Copyright 2026 Craig Tiller
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,14 +23,14 @@ namespace Gasm.Targets.AArch64.Linux
 open Gasm.Core
 open Gasm.Targets.ELF
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def padTo (b : ByteArray) (targetSize : Nat) : ByteArray :=
   if b.size >= targetSize then b
   else
     let zeros := ByteArray.mk (Array.replicate (targetSize - b.size) (0 : UInt8))
     b ++ zeros
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def buildShStrTab (names : List String) : ByteArray × List (String × UInt32) :=
   let rec loop (items : List String) (bytes : ByteArray) (offsets : List (String × UInt32)) :=
     match items with
@@ -41,7 +41,7 @@ def buildShStrTab (names : List String) : ByteArray × List (String × UInt32) :
       loop rest (bytes ++ nameBytes) (offsets ++ [(name, off)])
   loop names (ByteArray.mk #[0]) []
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Emits a valid static ELF64 binary image for AArch64 Linux. -/
 def emitELF64Executable (baseVma : Address) (textBytes : ByteArray) (rodataBytes : ByteArray) : ByteArray := Id.run do
   let (shstrtabBytes, shstrOffsets) := buildShStrTab [".text", ".rodata", ".shstrtab"]

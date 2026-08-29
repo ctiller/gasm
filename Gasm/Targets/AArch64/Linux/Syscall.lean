@@ -1,5 +1,5 @@
 /-
-Copyright 2026 Google LLC
+Copyright 2026 Craig Tiller
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,40 +32,40 @@ open Gasm.Effects
 open Gasm.Targets.AArch64
 open Gasm.Targets.AArch64.Instructions
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_read : UInt64 := 63
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_write : UInt64 := 64
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_openat : UInt64 := 56
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_close : UInt64 := 57
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_mmap : UInt64 := 222
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_munmap : UInt64 := 215
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_socket : UInt64 := 198
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_accept : UInt64 := 202
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_bind : UInt64 := 200
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_listen : UInt64 := 201
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_exit : UInt64 := 93
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def SYS_exit_group : UInt64 := 94
 
 private def getRegFin (s : AArch64MachineState) (i : Nat) : UInt64 :=
@@ -92,7 +92,7 @@ private def writeBytesToMemory (bufAddr : Address) (bytes : List Byte) (m : AArc
     | b :: rest => loop (addr + 1) rest (AArch64Mem.writeByte mem addr b)
   loop bufAddr bytes m
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysWriteHook {Event : Type} [Inject ConsoleEvent Event] [Inject NetEvent Event] (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   let fd := getRegFin s 0
   let bufAddr := getRegFin s 1
@@ -113,13 +113,13 @@ def sysWriteHook {Event : Type} [Inject ConsoleEvent Event] [Inject NetEvent Eve
     let s' := { (setRegFin s 0 0xFFFFFFFFFFFFFFF7) with pc := nextPc }
     (s', none)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysExitHook {Event : Type} [Inject ProcessEvent Event] (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   let exitCode := (getRegFin s 0).toUInt32
   let s' := { s with pc := 0, fault := none, terminated := true, exitCode := exitCode }
   (s', some (Inject.inject (ProcessEvent.exit exitCode)))
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysReadHook {Event : Type} [Inject NetEvent Event] (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   let fd := getRegFin s 0
   let nextPc := s.syscallReturnPc
@@ -162,13 +162,13 @@ def sysReadHook {Event : Type} [Inject NetEvent Event] (s : AArch64MachineState)
     let s' := { (setRegFin s 0 0xFFFFFFFFFFFFFFF7) with pc := nextPc }
     (s', none)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysOpenatHook {Event : Type} (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   let nextPc := s.syscallReturnPc
   let s' := { (setRegFin s 0 3) with pc := nextPc }
   (s', none)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysCloseHook {Event : Type} [Inject NetEvent Event] (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   let fd := getRegFin s 0
   let nextPc := s.syscallReturnPc
@@ -179,37 +179,37 @@ def sysCloseHook {Event : Type} [Inject NetEvent Event] (s : AArch64MachineState
     let s' := { (setRegFin s 0 0) with pc := nextPc }
     (s', none)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysMmapHook {Event : Type} (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   let nextPc := s.syscallReturnPc
   let s' := { (setRegFin s 0 0x70000000) with pc := nextPc }
   (s', none)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysMunmapHook {Event : Type} (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   let nextPc := s.syscallReturnPc
   let s' := { (setRegFin s 0 0) with pc := nextPc }
   (s', none)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysSocketHook {Event : Type} (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   let nextPc := s.syscallReturnPc
   let s' := { (setRegFin s 0 100) with pc := nextPc }
   (s', none)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysBindHook {Event : Type} (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   let nextPc := s.syscallReturnPc
   let s' := { (setRegFin s 0 0) with pc := nextPc }
   (s', none)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysListenHook {Event : Type} [Inject NetEvent Event] (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   let nextPc := s.syscallReturnPc
   let s' := { (setRegFin s 0 0) with pc := nextPc }
   (s', some (Inject.inject (NetEvent.listen 8080)))
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def sysAcceptHook {Event : Type} [Inject NetEvent Event] (s : AArch64MachineState) : AArch64MachineState × Option Event :=
   match s.incomingRequests with
   | [] =>
@@ -220,7 +220,7 @@ def sysAcceptHook {Event : Type} [Inject NetEvent Event] (s : AArch64MachineStat
     let s' := { (setRegFin s 0 101) with pc := nextPc }
     (s', some (Inject.inject (NetEvent.accept "127.0.0.1")))
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def linuxSyscallIntercept {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event]
     (addr : Address) (s : AArch64MachineState) : Option (AArch64MachineState × Option Event) :=
   if addr == linuxSyscallEntry then

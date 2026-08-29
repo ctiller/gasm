@@ -1,5 +1,5 @@
 /-
-Copyright 2026 Google LLC
+Copyright 2026 Craig Tiller
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ open Gasm.Core
 open Gasm.Targets.AArch64
 open Gasm.Targets.AArch64.Instructions
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Structured definition of a static AArch64 Linux ELF executable image. -/
 structure AArch64LinuxExecutable where
   imageBase   : Address := 0x400000
@@ -37,11 +37,11 @@ structure AArch64LinuxExecutable where
 
 namespace AArch64LinuxExecutable
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def emit (exe : AArch64LinuxExecutable) : ByteArray :=
   emitELF64Executable exe.imageBase exe.textBytes exe.rodataBytes
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def load (exe : AArch64LinuxExecutable) : AArch64MachineState :=
   let shstrtabSize := (buildShStrTab [".text", ".rodata", ".shstrtab"]).1.size
   let layout := computeElf64Layout exe.imageBase exe.textBytes.size exe.rodataBytes.size shstrtabSize
@@ -58,34 +58,34 @@ def load (exe : AArch64LinuxExecutable) : AArch64MachineState :=
     stdinBuffer      := ByteArray.empty,
     incomingRequests := [] }
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def loadWithStdin (exe : AArch64LinuxExecutable) (stdin : ByteArray) : AArch64MachineState :=
   { exe.load with stdinBuffer := stdin }
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def loadWithRequests (exe : AArch64LinuxExecutable) (requests : List String) : AArch64MachineState :=
   { exe.load with incomingRequests := requests }
 
 end AArch64LinuxExecutable
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Mappings from named labels or data constants to absolute addresses. -/
 abbrev SymbolTable := List (String × Address)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Resolves a symbol's absolute address from the symbol table. -/
 def lookupSymbol (syms : SymbolTable) (name : String) : Address :=
   match syms.find? (fun (n, _) => n == name) with
   | some (_, addr) => addr
   | none => 0
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Symbolic representation of a program element in AArch64 assembly. -/
 inductive ProgramElement where
   | label (name : String)
   | instr (builder : SymbolTable → Address → Gasm.Targets.AArch64.Instructions.AnyAArch64Instruction)
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 def layoutDataSection (baseDataAddr : Address) (dataItems : List (String × ByteArray)) : SymbolTable × ByteArray :=
   let rec loop (curAddr : Address) (items : List (String × ByteArray)) (symAcc : SymbolTable) (bytesAcc : ByteArray) :=
     match items with
@@ -96,17 +96,17 @@ def layoutDataSection (baseDataAddr : Address) (dataItems : List (String × Byte
       loop (curAddr + bytes.size.toUInt64) rest symAcc' bytesAcc'
   loop baseDataAddr dataItems [] ByteArray.empty
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 structure LinkedLinuxProgram where
   instructions : List Gasm.Targets.AArch64.Instructions.AnyAArch64Instruction
   executable   : AArch64LinuxExecutable
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Serializes a list of AnyAArch64Instruction into a flat ByteArray. -/
 def serializeInstructions (instrs : List Gasm.Targets.AArch64.Instructions.AnyAArch64Instruction) : ByteArray :=
   instrs.foldl (fun acc i => acc ++ AArch64Instruction.encode i) ByteArray.empty
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Links a symbolic ProgramElement-based AArch64 Linux program and data items. -/
 def linkLinuxProgram (imageBase : Address) (elements : List ProgramElement)
                      (dataItems : List (String × ByteArray) := []) : LinkedLinuxProgram :=

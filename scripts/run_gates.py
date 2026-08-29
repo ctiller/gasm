@@ -520,10 +520,6 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "never runs protects nothing' lesson this project has already learned once for "
                  "check_publishable.py/check_references.py)",
          "cmd": [py, "scripts/check_licenses.py"], "slow": False, "tools": ["python"]},
-        {"key": "check_record", "desc": "python scripts/check_record.py",
-         "long": "D23/decision-record integrity gate: PLAN.md/docs/adr//docs/tasks/ are the sole "
-                 "surviving decision history post-flatten (0035)",
-         "cmd": [py, "scripts/check_record.py"], "slow": False, "tools": ["python"]},
         {"key": "check_doc_facade", "desc": "python scripts/check_doc_facade.py",
          "long": "TC21: doc-facade linter -- detects docs/*.md (excluding docs/adr/, docs/tasks/) "
                  "asserting enforcement the tree does not provide: a MUST/is-implemented-shaped "

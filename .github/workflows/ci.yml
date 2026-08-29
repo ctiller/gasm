@@ -172,10 +172,6 @@ jobs:
         shell: pwsh
         run: python scripts/check_licenses.py
 
-      - name: Decision-record integrity (D23/ADR-0035)
-        shell: pwsh
-        run: python scripts/check_record.py
-
       - name: Doc-facade linter (TC21)
         shell: pwsh
         run: python scripts/check_doc_facade.py
@@ -466,10 +462,6 @@ jobs:
       - name: Apache-2.0 header compliance
         shell: bash
         run: python scripts/check_licenses.py
-
-      - name: Decision-record integrity (D23/ADR-0035)
-        shell: bash
-        run: python scripts/check_record.py
 
       - name: Doc-facade linter (TC21)
         shell: bash

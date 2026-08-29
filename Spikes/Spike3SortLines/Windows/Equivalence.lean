@@ -63,7 +63,7 @@ theorem spike3_canonical_effect_trace_equivalence_inst :
   native_decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-native_decide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
 /-- Constructive proof of semantic trace equivalence on empty input, discharged by an **honest
     kernel-checked `decide`** -- no `native_decide`, no `bv_decide`, and therefore no allowlist
     entry (`#print axioms` -> `[propext, Classical.choice, Quot.sound]`).

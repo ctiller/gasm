@@ -47,7 +47,7 @@ instance [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEven
     else
       win32Intercept addr s
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Platform call interceptor for AArch64 routing Linux syscalls. -/
 instance [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
     Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event where

@@ -53,13 +53,17 @@ WHY THE EXISTING GATES ARE NOT THIS GATE
 `lake exe check_gates_axioms` and `lake exe check_refs_coverage` both already go red
 on an orphan -- they enumerate `.lean` files from the FILESYSTEM and then fail to
 open the missing `.olean`. But they report it as a bare exit 1 alongside "0 NOT
-allowlisted" / "0 uncited": zero substantive violations, no named cause, two gates
-red at once for one unwired file (observed on `DispatchExhaustive` above). ADR-0035
-records what an unexplained red costs -- it trains people to stop reading failures.
+allowlisted" / "0 uncited": zero substantive violations and no named cause. Worse,
+that signal does not separate the one real orphan from the 47 modules their own
+closure simply does not model (the census below), so the same red means "a proof is
+unchecked" and "this tool cannot see executables" indistinguishably. ADR-0035 records
+what an unexplained red costs -- it trains people to stop reading failures.
+
 This gate's contribution is therefore not detection, which partly existed; it is
-naming the file, the umbrella, and the exact line to add. Its filesystem-walk-free
-enumeration also means it does not go red on an agent's uncommitted work-in-progress
-the way those two do (see the enumeration section below).
+naming the file, the umbrella, and the exact line to add, with a root model that
+does not raise the other 47. Its filesystem-walk-free enumeration also means it does
+not go red on an agent's uncommitted work-in-progress the way those two do (see the
+enumeration section below).
 
 WHAT IS CHECKED
 ---------------
@@ -80,14 +84,41 @@ module with no file on disk is itself a hard failure (exit 1), not a skipped roo
 BOTH lean_lib AND lean_exe ROOTS COUNT, and that is deliberate. The property being
 enforced is "`lake build` compiles this file", and a `[[lean_exe]]` root is a real
 build root: Lake compiles it and produces its `.olean` exactly as it does for a
-library umbrella. Measured on this tree at the time of writing, restricting the
-roots to `[[lean_lib]]` alone reports 52 orphans, 51 of which are `lean_exe` roots
-(every `Spikes/*/Emit.lean`, every `*/Test.lean`, every `Tools/Check*.lean`, ...)
-or modules reached only through one. Those files ARE compiled; reporting them
-would be a false positive, and a gate that must be argued around is a gate that
-gets disabled. NOTE that "compiled" is a weaker property than "inside the axiom
-gate's environment walk" -- the `lean_exe`-only closure is exactly TCB.md's T2
-blind spot (tracked as TC15), which this gate does not close and does not claim to.
+library umbrella. All 46 `[[lean_exe]]` and all 4 `[[lean_lib]]` targets declared
+here are in `defaultTargets`, so a plain `lake build` compiles every one of them.
+
+THE CENSUS BEHIND THAT DECISION, because it also explains a number other gates
+report. Restricting the roots to the `Gasm`/`Stdlib`/`Spikes` `[[lean_lib]]`
+umbrellas alone leaves 48 modules unreachable -- the same 48 that `lake exe
+check_gates_axioms` reports as "not reachable from the baseline import graph".
+Classified, that population is:
+
+    42  are themselves a declared [[lean_exe]] root (every `Spikes/*/Emit.lean`,
+        every `*/Test.lean`, the fuzzer CLIs, ...)
+     5  are reached only THROUGH an exe root (X86_64/{EncodingFuzzer, Fuzzer,
+        NASM, Performance}.lean and Spikes/Common/WasmHostRunner.lean)
+     1  is reachable from no declared root at all: RoundtripGate/
+        DispatchExhaustive.lean, a documented deliberate exclusion
+        (scripts/orphan_allowlist.txt)
+
+47 of those 48 are compiled; exactly one is not. Counting them all as orphans would
+make this gate 98% allowlist -- enforcement in appearance only, the failure ADR-0038
+and the doc-facade rollout both warn about -- and a gate that must be argued around
+is a gate that gets disabled. The 48 is a MODELLING GAP in the tools that walk only
+the three lib umbrellas, not 48 defects in the tree.
+
+The same gap explains the 23 "stale" entries `check_gates_axioms` reports against
+scripts/gate_allowlist.txt: all 23 are category `axiom-only`, and every one names a
+file in the 48 above. They are not stale. They correctly pre-authorize declarations
+the scanner never reaches, and it calls them stale because it cannot see their
+subjects. Deleting them would be the wrong fix.
+
+NOTE that "compiled" is a weaker property than "inside the axiom gate's environment
+walk": a `sorry` in those 47 modules is a compiler warning that `lake build` exits 0
+on, and the axiom tool that would harden it into a failure never sees them. That is
+TCB.md's T2 blind spot (tracked as TC15). This gate does not close it and does not
+claim to -- closing it means widening those tools' closure to every declared target,
+which would also retire both FAILED sections described above.
 
 ENUMERATION IS `git ls-files`, NEVER A FILESYSTEM WALK
 ------------------------------------------------------

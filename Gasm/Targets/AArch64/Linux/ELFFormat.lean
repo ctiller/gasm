@@ -1,5 +1,5 @@
 /-
-Copyright 2026 Google LLC
+Copyright 2026 Craig Tiller
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,12 +23,12 @@ namespace Gasm.Targets.AArch64.Linux
 open Gasm.Core
 open Gasm.Targets.ELF
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Aligns a value up to the nearest multiple of alignment. -/
 def alignUp (val : Nat) (alignment : Nat) : Nat :=
   Gasm.Targets.ELF.alignUp val alignment
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Computed memory and file offsets for a 64-bit static AArch64 Linux ELF binary. -/
 structure Elf64Layout where
   textOffset     : Nat
@@ -43,7 +43,7 @@ structure Elf64Layout where
   fileSize       : Nat
   deriving Repr, DecidableEq
 
-/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64--svc-0-abi -/
+/- REF: docs/TARGETS/ARM64.md#14-linux-target-static-elf64-svc-0-abi -/
 /-- Computes canonical static ELF64 layout with 4KB page alignment for AArch64. -/
 def computeElf64Layout (baseVma : Address) (textSize : Nat) (rodataSize : Nat) (shstrtabSize : Nat) : Elf64Layout :=
   let textOffset := 0x1000

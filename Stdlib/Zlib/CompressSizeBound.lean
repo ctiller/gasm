@@ -169,7 +169,7 @@ theorem tokensBitsDyn_length (litL distL : Array Nat) : ∀ l : List LZToken,
     simp only [List.length_cons]
     omega
 
-/- REF: rfc1951#section-3.2.7 -/
+/- REF: zlib-rfc1951#section-3.2.7 -/
 /-- The code-length-order header is at most 57 bits. -/
 theorem clenHeaderBits_length (plan : DynPlan) (h : plan.hclen ≤ 19) :
     (clenHeaderBits plan).length ≤ 57 := by
@@ -186,7 +186,7 @@ theorem clenHeaderBits_length (plan : DynPlan) (h : plan.hclen ≤ 19) :
   rw [hflat, List.length_range]
   omega
 
-/- REF: rfc1951#section-3.2.7 -/
+/- REF: zlib-rfc1951#section-3.2.7 -/
 /-- The RLE'd code-length stream costs at most 14 bits per RLE token. -/
 theorem rleBitsF_length (cl : Array Nat) : ∀ ts : List (Nat × Nat × Nat),
     (∀ t ∈ ts, t.2.1 ≤ 7 ∧ cl[t.1]! ≤ 7) →
@@ -204,7 +204,7 @@ theorem rleBitsF_length (cl : Array Nat) : ∀ ts : List (Nat × Nat × Nat),
     simp only [List.length_cons]
     omega
 
-/- REF: rfc1951#section-3.2.7 -/
+/- REF: zlib-rfc1951#section-3.2.7 -/
 /-- Every RLE token expands at least one code length, so the stream has at most as many
     tokens as there are lengths to transmit. -/
 theorem rleOk_count : ∀ (ts : List (Nat × Nat × Nat)) (done full : List Nat),
@@ -572,7 +572,7 @@ theorem compress_size_bound (data : ByteArray) :
     have hf := flushed_size_le_bits (emitFixedBlock (tokenize data))
     omega
 
-/- REF: docs/STDLIB_ZLIB.md#5-zlib-container-rfc-1950 -/
+/- REF: docs/STDLIB_ZLIB.md#51-zlib-format-rfc-1950 -/
 /-- **ZLIB container output-size bound**: header and checksum add six bytes. -/
 theorem zlibCompress_size_bound (data : ByteArray) :
     (zlibCompress data).size ≤ 6 * data.size + 610 := by
