@@ -32,6 +32,7 @@ namespace Spikes.Spike2Fibonacci.Linux
 open Gasm.Core
 open Gasm.Core.Verification
 open Gasm.Effects
+open Gasm.Targets
 open Gasm.Targets.X86_64
 open Gasm.Targets.Linux
 open Spikes.Spike2Fibonacci
@@ -46,15 +47,81 @@ theorem spike2_canonical_effect_trace_equivalence :
      runModelTrace (fibonacciSpec : TraceM AnyEvent Unit)) = true := by
   native_decide
 
+theorem spike2_selected_termination :
+    selectedExecutionTerminates (Event := AnyEvent) true selectedNonInputPlatformCall
+      (indexInstructions spike2Executable.load.rip spike2Instructions) 50000
+      spike2Executable.load = true := by
+  native_decide
+
+def spike2TerminationCertificate :
+    SelectedTerminationCertificate (Event := AnyEvent) true selectedNonInputPlatformCall
+      spike2Executable.load.rip spike2Instructions spike2Executable.load where
+  fuel := 50000
+  verifies := spike2_selected_termination
+
+theorem spike2_outcome_external_input_frame (environment : Environment) :
+    runProgramOutcomeWithLoops (Event := AnyEvent) spike2Executable.load.rip
+        spike2Instructions 50000
+        (spike2Executable.load.withExternalInputs environment.stdin environment.incomingRequests) =
+      (runProgramOutcomeWithLoops (Event := AnyEvent) spike2Executable.load.rip
+        spike2Instructions 50000 spike2Executable.load).withExternalInputs
+          environment.stdin environment.incomingRequests := by
+  exact spike2TerminationCertificate.externalInputFrame
+    (fun instr _ => instruction_preserves_external_input_frame instr)
+    platformCallInterceptor_preserves_selected_external_input_frame
+    environment.stdin environment.incomingRequests
+
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- First-class VerifiedLinuxProgram contract instantiation for Spike 2 (Linux Fibonacci Driver). -/
-def spike2VerifiedProgram : VerifiedLinuxProgram Unit AnyEvent := {
+/-- Complete Linux artifact whose emitted bytes and operational instructions are tied together. -/
+def spike2LinuxArtifact : LinuxX86_64Artifact := {
+  executable := spike2Executable
+  instructions := spike2Instructions
+}
+
+/-- Sole universal whole-program contract for Spike 2 (Linux Fibonacci Driver). -/
+def spike2VerifiedProgram :
+    VerifiedProgram (LinuxX86_64 AnyEvent) (linuxHostCapabilities AnyEvent) := {
   name             := "Spike 2: Linux Fibonacci Driver"
-  executable       := spike2Executable
-  instructions     := spike2Instructions
+  artifact         := spike2LinuxArtifact
+  exports          := VerifiedExportSet.empty _ _ _ _ _ () rfl rfl rfl
+  exportsArtifact  := rfl
+  artifactConnection := by rfl
   spec             := fun _ => runModelTrace (fibonacciSpec : TraceM AnyEvent Unit)
-  traceEquivalence := fun _ => spike2_canonical_effect_trace_equivalence
+  importsCovered   := by
+    intro imported h
+    change imported ∈ [] at h
+    contradiction
+  providersLinked := by
+    intro provider h
+    change provider ∈ [] at h
+    contradiction
+  entryContext     := fun _ => ()
+  entryEstablished := by
+    intro environment
+    trivial
+  platformAdmissible := by
+    intro environment
+    change (runProgramOutcomeWithLoops (Event := AnyEvent) spike2Executable.load.rip
+      spike2Instructions 50000
+      (spike2Executable.load.withExternalInputs environment.stdin
+        environment.incomingRequests)).isAdmissible true
+    rw [spike2_outcome_external_input_frame]
+    simp only [NativeRunOutcome.withExternalInputs_isAdmissible]
+    exact spike2TerminationCertificate.isAdmissible
+  traceEquivalence := by
+    intro environment
+    change (runProgramOutcomeWithLoops (Event := AnyEvent) spike2Executable.load.rip
+      spike2Instructions 50000
+      (spike2Executable.load.withExternalInputs environment.stdin
+        environment.incomingRequests)).events =
+      runModelTrace (fibonacciSpec : TraceM AnyEvent Unit)
+    rw [spike2_outcome_external_input_frame]
+    simp only [NativeRunOutcome.withExternalInputs_events]
+    rw [runProgramOutcomeWithLoops_events]
+    change runAsmTrace (Event := AnyEvent) spike2Instructions spike2Executable.load = _
+    have h := spike2_canonical_effect_trace_equivalence
+    simpa only [beq_iff_eq] using h
 }
 
 end Spikes.Spike2Fibonacci.Linux

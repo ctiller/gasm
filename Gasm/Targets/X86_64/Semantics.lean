@@ -445,6 +445,7 @@ theorem selectedExecutionTerminates_isAdmissible {Event : Type}
           by_cases hselected : selected (X86_64Instruction.step instr state).rip
               (X86_64Instruction.step instr state) = true
           · simp [hselected] at hcertificate
+
             cases hfault : (nativeOutcomeTransition (Event := Event) instr state []).1.fault with
             | none =>
                 simp [hfault] at hcertificate
@@ -510,6 +511,7 @@ theorem runProgramOutcomeLoop_external_input_frame {Event : Type}
       by_cases hselected : selected (X86_64Instruction.step instr state).rip
           (X86_64Instruction.step instr state) = true
       · simp [hselected] at hcert
+
         have htransition := nativeOutcomeTransition_external_input_frame
           selected instr state eventsRev hinstr hinterceptor hselected stdin requests
         have hfst := nativeOutcomeTransition_fst_independent_events
@@ -528,6 +530,39 @@ theorem runProgramOutcomeLoop_external_input_frame {Event : Type}
           | divideError => simp [hfault] at hcert
           | memFault kind width address => simp [hfault] at hcert
       · simp [hselected] at hcert
+
+/-- Artifact-facing admissibility projection.  The platform proves the generic induction once;
+    each program supplies only its concrete executable certificate. -/
+theorem SelectedTerminationCertificate.isAdmissible {Event : Type}
+    [ExternalCallInterceptor X86_64 Event]
+    {allowHalted : Bool} {selected : Address → X86_64MachineState → Bool}
+    {baseRip : UInt64} {instructions : List X86_64Instr} {initial : X86_64MachineState}
+    (certificate : SelectedTerminationCertificate (Event := Event) allowHalted selected
+      baseRip instructions initial) :
+    (runProgramOutcomeWithLoops (Event := Event) baseRip instructions certificate.fuel
+      initial).isAdmissible allowHalted := by
+  exact selectedExecutionTerminates_isAdmissible allowHalted selected
+    (indexInstructions baseRip instructions) certificate.fuel initial [] certificate.verifies
+
+/-- Artifact-facing universal-environment transport.  Instruction and interceptor frame laws stay
+    at their owning layers; a caller only combines them with its concrete termination certificate. -/
+theorem SelectedTerminationCertificate.externalInputFrame {Event : Type}
+    [ExternalCallInterceptor X86_64 Event]
+    {allowHalted : Bool} {selected : Address → X86_64MachineState → Bool}
+    {baseRip : UInt64} {instructions : List X86_64Instr} {initial : X86_64MachineState}
+    (certificate : SelectedTerminationCertificate (Event := Event) allowHalted selected
+      baseRip instructions initial)
+    (hinstructions : ∀ instr, instr ∈ (indexInstructions baseRip instructions).map Prod.snd →
+      InstructionPreservesExternalInputFrame instr)
+    (hinterceptor : InterceptorPreservesExternalInputFrame (Event := Event) selected)
+    (stdin : ByteArray) (requests : List ByteArray) :
+    runProgramOutcomeWithLoops (Event := Event) baseRip instructions certificate.fuel
+        (initial.withExternalInputs stdin requests) =
+      (runProgramOutcomeWithLoops (Event := Event) baseRip instructions certificate.fuel
+        initial).withExternalInputs stdin requests := by
+  exact runProgramOutcomeLoop_external_input_frame selected
+    (indexInstructions baseRip instructions) hinstructions hinterceptor certificate.fuel initial []
+    allowHalted certificate.verifies stdin requests
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Executes an x86-64 instruction sequence supporting branches and loops with fuel-based termination. -/
