@@ -157,23 +157,23 @@ def initMachineState (entryPc : UInt64) (args : List UInt64 := []) (stackTop : U
 def runProgramTraceLoop {Event : Type} [interceptor : ExternalCallInterceptor AArch64 Event]
     (indexed : List (UInt64 × AnyAArch64Instruction)) (fuel : Nat)
     (state : AArch64MachineState) : List Event :=
-  match fuel with
-  | 0 => []
-  | fuel + 1 =>
-    match instructionAtPcIndexed indexed state.pc with
-    | none => []
-    | some instr =>
-      let stepped := AArch64Instruction.step instr state
-      match interceptor.interceptCall stepped.pc stepped with
-      | some (hooked, some event) =>
-        if hooked.terminated || hooked.fault.isSome then [event]
-        else event :: runProgramTraceLoop indexed fuel hooked
-      | some (hooked, none) =>
-        if hooked.terminated || hooked.fault.isSome then []
-        else runProgramTraceLoop indexed fuel hooked
-      | none =>
-        if stepped.terminated || stepped.fault.isSome then []
-        else runProgramTraceLoop indexed fuel stepped
+  if state.fault.isSome || state.terminated then []
+  else match fuel with
+    | 0 => []
+    | fuel + 1 =>
+      match instructionAtPcIndexed indexed state.pc with
+      | none => []
+      | some instr =>
+        let stepped := AArch64Instruction.step instr state
+        if stepped.fault.isSome || stepped.terminated then []
+        else match interceptor.interceptCall stepped.pc stepped with
+          | some (hooked, some event) =>
+            if hooked.terminated || hooked.fault.isSome then [event]
+            else event :: runProgramTraceLoop indexed fuel hooked
+          | some (hooked, none) =>
+            if hooked.terminated || hooked.fault.isSome then []
+            else runProgramTraceLoop indexed fuel hooked
+          | none => runProgramTraceLoop indexed fuel stepped
 
 /- REF: docs/TARGETS/ARM64.md#machine-state -/
 /-- Trace evaluator executing an AArch64 program with dynamic branches, loops, and external API interception. -/
@@ -199,28 +199,55 @@ def runAArch64OutcomeLoop {Event : Type}
     [interceptor : ExternalCallInterceptor AArch64 Event]
     (indexed : List (UInt64 × AnyAArch64Instruction)) (fuel : Nat)
     (state : AArch64MachineState) (eventsRev : List Event) : AArch64RunOutcome Event :=
-  match fuel with
-  | 0 => .fuelExhausted state eventsRev.reverse
-  | fuel + 1 =>
-    match instructionAtPcIndexed indexed state.pc with
-    | none => .completed state eventsRev.reverse
-    | some instr =>
-      let stepped := AArch64Instruction.step instr state
-      match interceptor.interceptCall stepped.pc stepped with
-      | some (hooked, event) =>
-        let eventsRev' := match event with | some emitted => emitted :: eventsRev | none => eventsRev
-        if hooked.fault.isSome then .faulted hooked eventsRev'.reverse
-        else if hooked.terminated then .completed hooked eventsRev'.reverse
-        else runAArch64OutcomeLoop indexed fuel hooked eventsRev'
-      | none =>
+  if state.fault.isSome then .faulted state eventsRev.reverse
+  else if state.terminated then .completed state eventsRev.reverse
+  else match fuel with
+    | 0 => .fuelExhausted state eventsRev.reverse
+    | fuel + 1 =>
+      match instructionAtPcIndexed indexed state.pc with
+      | none => .completed state eventsRev.reverse
+      | some instr =>
+        let stepped := AArch64Instruction.step instr state
         if stepped.fault.isSome then .faulted stepped eventsRev.reverse
         else if stepped.terminated then .completed stepped eventsRev.reverse
-        else runAArch64OutcomeLoop indexed fuel stepped eventsRev
+        else match interceptor.interceptCall stepped.pc stepped with
+          | some (hooked, event) =>
+            let eventsRev' := match event with
+              | some emitted => emitted :: eventsRev
+              | none => eventsRev
+            if hooked.fault.isSome then .faulted hooked eventsRev'.reverse
+            else if hooked.terminated then .completed hooked eventsRev'.reverse
+            else runAArch64OutcomeLoop indexed fuel hooked eventsRev'
+          | none => runAArch64OutcomeLoop indexed fuel stepped eventsRev
 
 def runAArch64Outcome {Event : Type} [ExternalCallInterceptor AArch64 Event]
     (basePc : UInt64) (instructions : List AnyAArch64Instruction) (fuel : Nat)
     (initial : AArch64MachineState) : AArch64RunOutcome Event :=
   runAArch64OutcomeLoop (indexInstructions basePc instructions) fuel initial []
+
+/-- A pre-existing machine fault is terminal even when no instruction is mapped at the PC. -/
+theorem runAArch64OutcomeLoop_preexisting_fault {Event : Type}
+    [ExternalCallInterceptor AArch64 Event]
+    (indexed : List (UInt64 × AnyAArch64Instruction)) (fuel : Nat)
+    (state : AArch64MachineState) (eventsRev : List Event)
+    (hfault : state.fault.isSome = true) :
+    runAArch64OutcomeLoop indexed fuel state eventsRev =
+      .faulted state eventsRev.reverse := by
+  cases fuel <;> simp [runAArch64OutcomeLoop, hfault]
+
+/-- A fault raised by the CPU step is terminal before any host interceptor can run. -/
+theorem runAArch64OutcomeLoop_step_fault {Event : Type}
+    [ExternalCallInterceptor AArch64 Event]
+    (indexed : List (UInt64 × AnyAArch64Instruction)) (fuel : Nat)
+    (state : AArch64MachineState) (eventsRev : List Event)
+    (instruction : AnyAArch64Instruction)
+    (hstateFault : state.fault.isSome = false)
+    (hstateTerminated : state.terminated = false)
+    (hlookup : instructionAtPcIndexed indexed state.pc = some instruction)
+    (hstepFault : (AArch64Instruction.step instruction state).fault.isSome = true) :
+    runAArch64OutcomeLoop indexed (fuel + 1) state eventsRev =
+      .faulted (AArch64Instruction.step instruction state) eventsRev.reverse := by
+  simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated, hlookup, hstepFault]
 
 namespace AArch64RunOutcome
 
@@ -242,50 +269,75 @@ theorem runAArch64OutcomeLoop_events {Event : Type}
     (runAArch64OutcomeLoop indexed fuel state eventsRev).events =
       eventsRev.reverse ++ runProgramTraceLoop indexed fuel state := by
   induction fuel generalizing state eventsRev with
-  | zero => simp [runAArch64OutcomeLoop, runProgramTraceLoop, AArch64RunOutcome.events]
+  | zero =>
+      by_cases hstateFault : state.fault.isSome
+      · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+          AArch64RunOutcome.events]
+      · by_cases hstateTerminated : state.terminated
+        · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+            hstateTerminated, AArch64RunOutcome.events]
+        · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+            hstateTerminated, AArch64RunOutcome.events]
   | succ fuel ih =>
-      cases hlookup : instructionAtPcIndexed indexed state.pc with
-      | none =>
-          simp [runAArch64OutcomeLoop, runProgramTraceLoop, hlookup,
-            AArch64RunOutcome.events]
-      | some instruction =>
-          let stepped := AArch64Instruction.step instruction state
-          cases hintercept : interceptor.interceptCall stepped.pc stepped with
+      by_cases hstateFault : state.fault.isSome
+      · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+          AArch64RunOutcome.events]
+      · by_cases hstateTerminated : state.terminated
+        · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+            hstateTerminated, AArch64RunOutcome.events]
+        · cases hlookup : instructionAtPcIndexed indexed state.pc with
           | none =>
-              by_cases hfault : stepped.fault.isSome
-              · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hlookup, hintercept,
-                  stepped, hfault, AArch64RunOutcome.events]
-              · by_cases hterminated : stepped.terminated
-                · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hlookup, hintercept,
-                    stepped, hfault, hterminated, AArch64RunOutcome.events]
-                · simp only [runAArch64OutcomeLoop, runProgramTraceLoop, hlookup, hintercept,
-                    stepped, hfault, hterminated, Bool.false_or, ↓reduceIte]
-                  exact ih stepped eventsRev
-          | some result =>
-              rcases result with ⟨hooked, emitted⟩
-              cases emitted with
-              | none =>
-                  by_cases hfault : hooked.fault.isSome
-                  · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hlookup, hintercept,
-                      stepped, hfault, AArch64RunOutcome.events]
-                  · by_cases hterminated : hooked.terminated
-                    · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hlookup, hintercept,
-                        stepped, hfault, hterminated, AArch64RunOutcome.events]
-                    · simp only [runAArch64OutcomeLoop, runProgramTraceLoop, hlookup, hintercept,
-                        stepped, hfault, hterminated, Bool.false_or, ↓reduceIte]
-                      exact ih hooked eventsRev
-              | some event =>
-                  by_cases hfault : hooked.fault.isSome
-                  · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hlookup, hintercept,
-                      stepped, hfault, AArch64RunOutcome.events, List.reverse_cons,
-                      List.append_assoc]
-                  · by_cases hterminated : hooked.terminated
-                    · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hlookup, hintercept,
-                        stepped, hfault, hterminated, AArch64RunOutcome.events,
-                        List.reverse_cons, List.append_assoc]
-                    · simp only [runAArch64OutcomeLoop, runProgramTraceLoop, hlookup, hintercept,
-                        stepped, hfault, hterminated, Bool.false_or, ↓reduceIte]
-                      simpa [List.reverse_cons, List.append_assoc] using ih hooked (event :: eventsRev)
+              simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+                hstateTerminated, hlookup, AArch64RunOutcome.events]
+          | some instruction =>
+              let stepped := AArch64Instruction.step instruction state
+              by_cases hstepFault : stepped.fault.isSome
+              · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+                  hstateTerminated, hlookup, stepped, hstepFault, AArch64RunOutcome.events]
+              · by_cases hstepTerminated : stepped.terminated
+                · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+                    hstateTerminated, hlookup, stepped, hstepFault, hstepTerminated,
+                    AArch64RunOutcome.events]
+                · cases hintercept : interceptor.interceptCall stepped.pc stepped with
+                  | none =>
+                      simp only [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+                        hstateTerminated, hlookup, stepped, hstepFault, hstepTerminated,
+                        hintercept, Bool.false_or, ↓reduceIte]
+                      exact ih stepped eventsRev
+                  | some result =>
+                      rcases result with ⟨hooked, emitted⟩
+                      cases emitted with
+                      | none =>
+                          by_cases hfault : hooked.fault.isSome
+                          · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+                              hstateTerminated, hlookup, stepped, hstepFault, hstepTerminated,
+                              hintercept, hfault, AArch64RunOutcome.events]
+                          · by_cases hterminated : hooked.terminated
+                            · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+                                hstateTerminated, hlookup, stepped, hstepFault, hstepTerminated,
+                                hintercept, hfault, hterminated, AArch64RunOutcome.events]
+                            · simp only [runAArch64OutcomeLoop, runProgramTraceLoop,
+                                hstateFault, hstateTerminated, hlookup, stepped, hstepFault,
+                                hstepTerminated, hintercept, hfault, hterminated,
+                                Bool.false_or, ↓reduceIte]
+                              exact ih hooked eventsRev
+                      | some event =>
+                          by_cases hfault : hooked.fault.isSome
+                          · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+                              hstateTerminated, hlookup, stepped, hstepFault, hstepTerminated,
+                              hintercept, hfault, AArch64RunOutcome.events, List.reverse_cons,
+                              List.append_assoc]
+                          · by_cases hterminated : hooked.terminated
+                            · simp [runAArch64OutcomeLoop, runProgramTraceLoop, hstateFault,
+                                hstateTerminated, hlookup, stepped, hstepFault, hstepTerminated,
+                                hintercept, hfault, hterminated, AArch64RunOutcome.events,
+                                List.reverse_cons, List.append_assoc]
+                            · simp only [runAArch64OutcomeLoop, runProgramTraceLoop,
+                                hstateFault, hstateTerminated, hlookup, stepped, hstepFault,
+                                hstepTerminated, hintercept, hfault, hterminated,
+                                Bool.false_or, ↓reduceIte]
+                              simpa [List.reverse_cons, List.append_assoc] using
+                                ih hooked (event :: eventsRev)
 
 theorem runAArch64Outcome_events {Event : Type}
     [ExternalCallInterceptor AArch64 Event]
@@ -395,24 +447,47 @@ def selectedExecutionTerminates {Event : Type}
     (selected : UInt64 → AArch64MachineState → Bool)
     (indexed : List (UInt64 × AnyAArch64Instruction)) (fuel : Nat)
     (state : AArch64MachineState) : Bool :=
-  match fuel with
-  | 0 => false
-  | fuel + 1 =>
-    match instructionAtPcIndexed indexed state.pc with
-    | none => true
-    | some instruction =>
-      let stepped := AArch64Instruction.step instruction state
-      if !selected stepped.pc stepped then false
-      else
-        match interceptor.interceptCall stepped.pc stepped with
-        | some (hooked, _) =>
-          if hooked.fault.isSome then false
-          else if hooked.terminated then true
-          else selectedExecutionTerminates (Event := Event) selected indexed fuel hooked
-        | none =>
-          if stepped.fault.isSome then false
-          else if stepped.terminated then true
-          else selectedExecutionTerminates (Event := Event) selected indexed fuel stepped
+  if state.fault.isSome then false
+  else if state.terminated then true
+  else match fuel with
+    | 0 => false
+    | fuel + 1 =>
+      match instructionAtPcIndexed indexed state.pc with
+      | none => true
+      | some instruction =>
+        let stepped := AArch64Instruction.step instruction state
+        if stepped.fault.isSome then false
+        else if stepped.terminated then true
+        else if !selected stepped.pc stepped then false
+        else
+          match interceptor.interceptCall stepped.pc stepped with
+          | some (hooked, _) =>
+            if hooked.fault.isSome then false
+            else if hooked.terminated then true
+            else selectedExecutionTerminates (Event := Event) selected indexed fuel hooked
+          | none => selectedExecutionTerminates (Event := Event) selected indexed fuel stepped
+
+/-- The executable certificate mirrors production fault ordering and cannot certify a pre-fault. -/
+theorem selectedExecutionTerminates_preexisting_fault {Event : Type}
+    [ExternalCallInterceptor AArch64 Event]
+    (selected : UInt64 → AArch64MachineState → Bool)
+    (indexed : List (UInt64 × AnyAArch64Instruction)) (fuel : Nat)
+    (state : AArch64MachineState) (hfault : state.fault.isSome = true) :
+    selectedExecutionTerminates (Event := Event) selected indexed fuel state = false := by
+  cases fuel <;> simp [selectedExecutionTerminates, hfault]
+
+/-- The certificate rejects a CPU-step fault without consulting the selected host boundary. -/
+theorem selectedExecutionTerminates_step_fault {Event : Type}
+    [ExternalCallInterceptor AArch64 Event]
+    (selected : UInt64 → AArch64MachineState → Bool)
+    (indexed : List (UInt64 × AnyAArch64Instruction)) (fuel : Nat)
+    (state : AArch64MachineState) (instruction : AnyAArch64Instruction)
+    (hstateFault : state.fault.isSome = false)
+    (hstateTerminated : state.terminated = false)
+    (hlookup : instructionAtPcIndexed indexed state.pc = some instruction)
+    (hstepFault : (AArch64Instruction.step instruction state).fault.isSome = true) :
+    selectedExecutionTerminates (Event := Event) selected indexed (fuel + 1) state = false := by
+  simp [selectedExecutionTerminates, hstateFault, hstateTerminated, hlookup, hstepFault]
 
 structure SelectedTerminationCertificate {Event : Type}
     [ExternalCallInterceptor AArch64 Event]
@@ -431,52 +506,72 @@ theorem selectedExecutionTerminates_isAdmissible {Event : Type}
     (certificate : selectedExecutionTerminates (Event := Event) selected indexed fuel state = true) :
     (runAArch64OutcomeLoop indexed fuel state eventsRev).isAdmissible := by
   induction fuel generalizing state eventsRev with
-  | zero => simp [selectedExecutionTerminates] at certificate
+  | zero =>
+      by_cases hstateFault : state.fault.isSome
+      · simp [selectedExecutionTerminates, hstateFault] at certificate
+      · by_cases hstateTerminated : state.terminated
+        · simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated,
+            AArch64RunOutcome.isAdmissible]
+        · simp [selectedExecutionTerminates, hstateFault, hstateTerminated] at certificate
   | succ fuel ih =>
-      cases hlookup : instructionAtPcIndexed indexed state.pc with
-      | none => simp [runAArch64OutcomeLoop, hlookup, AArch64RunOutcome.isAdmissible]
-      | some instruction =>
-          let stepped := AArch64Instruction.step instruction state
-          by_cases hselected : selected stepped.pc stepped = true
-          · cases hintercept : interceptor.interceptCall stepped.pc stepped with
-            | none =>
-                cases hfault : stepped.fault with
-                | some fault =>
-                    simp [selectedExecutionTerminates, hlookup, stepped, hselected,
-                      hintercept, hfault] at certificate
-                | none =>
-                  by_cases hterminated : stepped.terminated
-                  · simp [runAArch64OutcomeLoop, hlookup, stepped, hintercept, hfault,
-                      hterminated, AArch64RunOutcome.isAdmissible]
-                  · have hrecursive : selectedExecutionTerminates (Event := Event)
-                        selected indexed fuel stepped = true := by
-                      simpa [selectedExecutionTerminates, hlookup, stepped, hselected,
-                        hintercept, hfault, hterminated] using certificate
-                    simp [runAArch64OutcomeLoop, hlookup, stepped, hintercept, hfault,
-                      hterminated]
-                    exact ih _ _ hrecursive
-            | some result =>
-                rcases result with ⟨hooked, emitted⟩
-                cases hfault : hooked.fault with
-                | some fault =>
-                    simp [selectedExecutionTerminates, hlookup, stepped, hselected,
-                      hintercept, hfault] at certificate
-                | none =>
-                  by_cases hterminated : hooked.terminated
-                  · simp [runAArch64OutcomeLoop, hlookup, stepped, hintercept, hfault,
-                      hterminated, AArch64RunOutcome.isAdmissible]
-                  · have hrecursive : selectedExecutionTerminates (Event := Event)
-                        selected indexed fuel hooked = true := by
-                      simpa [selectedExecutionTerminates, hlookup, stepped, hselected,
-                        hintercept, hfault, hterminated] using certificate
-                    simp [runAArch64OutcomeLoop, hlookup, stepped, hintercept, hfault,
-                      hterminated]
-                    exact ih _ _ hrecursive
-          · have hselectedFalse : selected stepped.pc stepped = false := by
-              cases hvalue : selected stepped.pc stepped with
-              | false => rfl
-              | true => exact False.elim (hselected hvalue)
-            simp [selectedExecutionTerminates, hlookup, stepped, hselectedFalse] at certificate
+      by_cases hstateFault : state.fault.isSome
+      · simp [selectedExecutionTerminates, hstateFault] at certificate
+      · by_cases hstateTerminated : state.terminated
+        · simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated,
+            AArch64RunOutcome.isAdmissible]
+        · cases hlookup : instructionAtPcIndexed indexed state.pc with
+          | none =>
+              simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated, hlookup,
+                AArch64RunOutcome.isAdmissible]
+          | some instruction =>
+              let stepped := AArch64Instruction.step instruction state
+              cases hstepFault : stepped.fault with
+              | some fault =>
+                  simp [selectedExecutionTerminates, hstateFault, hstateTerminated,
+                    hlookup, stepped, hstepFault] at certificate
+              | none =>
+                by_cases hstepTerminated : stepped.terminated
+                · simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated, hlookup,
+                    stepped, hstepFault, hstepTerminated, AArch64RunOutcome.isAdmissible]
+                · by_cases hselected : selected stepped.pc stepped = true
+                  · cases hintercept : interceptor.interceptCall stepped.pc stepped with
+                    | none =>
+                        have hrecursive : selectedExecutionTerminates (Event := Event)
+                            selected indexed fuel stepped = true := by
+                          simpa [selectedExecutionTerminates, hstateFault, hstateTerminated,
+                            hlookup, stepped, hstepFault, hstepTerminated, hselected,
+                            hintercept] using certificate
+                        simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated, hlookup,
+                          stepped, hstepFault, hstepTerminated, hintercept]
+                        exact ih _ _ hrecursive
+                    | some result =>
+                        rcases result with ⟨hooked, emitted⟩
+                        cases hfault : hooked.fault with
+                        | some fault =>
+                            simp [selectedExecutionTerminates, hstateFault, hstateTerminated,
+                              hlookup, stepped, hstepFault, hstepTerminated, hselected,
+                              hintercept, hfault] at certificate
+                        | none =>
+                          by_cases hterminated : hooked.terminated
+                          · simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated,
+                              hlookup, stepped, hstepFault, hstepTerminated, hintercept,
+                              hfault, hterminated, AArch64RunOutcome.isAdmissible]
+                          · have hrecursive : selectedExecutionTerminates (Event := Event)
+                                selected indexed fuel hooked = true := by
+                              simpa [selectedExecutionTerminates, hstateFault,
+                                hstateTerminated, hlookup, stepped, hstepFault,
+                                hstepTerminated, hselected, hintercept, hfault,
+                                hterminated] using certificate
+                            simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated,
+                              hlookup, stepped, hstepFault, hstepTerminated, hintercept,
+                              hfault, hterminated]
+                            exact ih _ _ hrecursive
+                  · have hselectedFalse : selected stepped.pc stepped = false := by
+                      cases hvalue : selected stepped.pc stepped with
+                      | false => rfl
+                      | true => exact False.elim (hselected hvalue)
+                    simp [selectedExecutionTerminates, hstateFault, hstateTerminated,
+                      hlookup, stepped, hstepFault, hstepTerminated, hselectedFalse] at certificate
 
 private theorem outcomeTransition_external_input_frame {Event : Type}
     [interceptor : ExternalCallInterceptor AArch64 Event]
@@ -513,64 +608,101 @@ theorem runAArch64OutcomeLoop_external_input_frame {Event : Type}
     runAArch64OutcomeLoop indexed fuel (state.withExternalInputs stdin requests) eventsRev =
       (runAArch64OutcomeLoop indexed fuel state eventsRev).withExternalInputs stdin requests := by
   induction fuel generalizing state eventsRev with
-  | zero => simp [selectedExecutionTerminates] at certificate
+  | zero =>
+      by_cases hstateFault : state.fault.isSome
+      · simp [selectedExecutionTerminates, hstateFault] at certificate
+      · by_cases hstateTerminated : state.terminated
+        · simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated,
+            AArch64RunOutcome.withExternalInputs]
+        · simp [selectedExecutionTerminates, hstateFault, hstateTerminated] at certificate
   | succ fuel ih =>
-      cases hlookup : instructionAtPcIndexed indexed state.pc with
-      | none => simp [runAArch64OutcomeLoop, hlookup, AArch64RunOutcome.withExternalInputs]
-      | some instruction =>
-          have hmember : instruction ∈ indexed.map Prod.snd :=
-            instructionAtPcIndexed_some_mem_snd hlookup
-          have hinstruction := hinstructions instruction hmember
-          let stepped := AArch64Instruction.step instruction state
-          by_cases hselected : selected stepped.pc stepped = true
-          ·
-            simp only [runAArch64OutcomeLoop, AArch64MachineState.withExternalInputs_pc, hlookup]
-            rw [hinstruction state stdin requests]
-            simp only [AArch64MachineState.withExternalInputs_pc]
-            rw [hinterceptor _ _ stdin requests hselected]
-            cases hintercept : interceptor.interceptCall stepped.pc stepped with
-            | none =>
-                simp only [Option.map_none]
-                cases hfault : stepped.fault with
-                | some fault =>
-                    simp [stepped, hfault, AArch64MachineState.withExternalInputs_fault,
-                      AArch64RunOutcome.withExternalInputs]
-                | none =>
-                  by_cases hterminated : stepped.terminated
-                  · simp [stepped, hfault, hterminated, AArch64RunOutcome.withExternalInputs]
-                  · have hrecursive : selectedExecutionTerminates (Event := Event)
-                        selected indexed fuel stepped = true := by
-                      simpa [selectedExecutionTerminates, hlookup, stepped, hselected,
-                        hintercept, hfault, hterminated] using certificate
-                    simp only [stepped, AArch64MachineState.withExternalInputs_fault,
-                      AArch64MachineState.withExternalInputs_terminated, hfault, hterminated,
-                      Bool.false_or, ↓reduceIte]
-                    exact ih _ _ hrecursive
-            | some result =>
-                rcases result with ⟨hooked, emitted⟩
-                simp only [Option.map_some]
-                cases hfault : hooked.fault with
-                | some fault =>
-                    simp [hfault, AArch64MachineState.withExternalInputs_fault,
-                      AArch64RunOutcome.withExternalInputs]
-                | none =>
-                  by_cases hterminated : hooked.terminated
-                  · simp [hfault, hterminated, AArch64RunOutcome.withExternalInputs]
-                  · have hrecursive : selectedExecutionTerminates (Event := Event)
-                        selected indexed fuel hooked = true := by
-                      simpa [selectedExecutionTerminates, hlookup, stepped, hselected,
-                        hintercept, hfault, hterminated] using certificate
+      by_cases hstateFault : state.fault.isSome
+      · simp [selectedExecutionTerminates, hstateFault] at certificate
+      · by_cases hstateTerminated : state.terminated
+        · simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated,
+            AArch64RunOutcome.withExternalInputs]
+        · cases hlookup : instructionAtPcIndexed indexed state.pc with
+          | none =>
+              simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated, hlookup,
+                AArch64RunOutcome.withExternalInputs]
+          | some instruction =>
+              have hmember : instruction ∈ indexed.map Prod.snd :=
+                instructionAtPcIndexed_some_mem_snd hlookup
+              have hinstruction := hinstructions instruction hmember
+              let stepped := AArch64Instruction.step instruction state
+              cases hstepFault : stepped.fault with
+              | some fault =>
+                  simp [selectedExecutionTerminates, hstateFault, hstateTerminated,
+                    hlookup, stepped, hstepFault] at certificate
+              | none =>
+                by_cases hstepTerminated : stepped.terminated
+                · simp [runAArch64OutcomeLoop, hstateFault, hstateTerminated, hlookup,
+                    stepped, hinstruction state stdin requests, hstepFault, hstepTerminated,
+                    AArch64RunOutcome.withExternalInputs]
+                · by_cases hselected : selected stepped.pc stepped = true
+                  · simp only [runAArch64OutcomeLoop,
+                        AArch64MachineState.withExternalInputs_fault,
+                        AArch64MachineState.withExternalInputs_terminated,
+                        AArch64MachineState.withExternalInputs_pc, hstateFault,
+                        hstateTerminated, hlookup, ↓reduceIte]
+                    rw [hinstruction state stdin requests]
                     simp only [AArch64MachineState.withExternalInputs_fault,
-                      AArch64MachineState.withExternalInputs_terminated, hfault, hterminated,
-                      Bool.false_or, ↓reduceIte]
-                    cases emitted with
-                    | none => exact ih _ _ hrecursive
-                    | some event => exact ih _ _ hrecursive
-          · have hselectedFalse : selected stepped.pc stepped = false := by
-              cases hvalue : selected stepped.pc stepped with
-              | false => rfl
-              | true => exact False.elim (hselected hvalue)
-            simp [selectedExecutionTerminates, hlookup, stepped, hselectedFalse] at certificate
+                      AArch64MachineState.withExternalInputs_terminated,
+                      AArch64MachineState.withExternalInputs_pc, hstepFault,
+                      hstepTerminated, ↓reduceIte]
+                    rw [hinterceptor _ _ stdin requests hselected]
+                    cases hintercept : interceptor.interceptCall stepped.pc stepped with
+                    | none =>
+                        simp only [Option.map_none]
+                        have hrecursive : selectedExecutionTerminates (Event := Event)
+                            selected indexed fuel stepped = true := by
+                          simpa [selectedExecutionTerminates, hstateFault,
+                            hstateTerminated, hlookup, stepped, hstepFault,
+                            hstepTerminated, hselected, hintercept] using certificate
+                        simpa [stepped, hstateFault, hstateTerminated, hstepFault,
+                          hstepTerminated, AArch64RunOutcome.withExternalInputs] using
+                          ih stepped eventsRev hrecursive
+                    | some result =>
+                        rcases result with ⟨hooked, emitted⟩
+                        simp only [Option.map_some]
+                        cases hfault : hooked.fault with
+                        | some fault =>
+                            simp [stepped, hstateFault, hstateTerminated, hstepFault,
+                              hstepTerminated, hfault,
+                              AArch64MachineState.withExternalInputs_fault,
+                              AArch64RunOutcome.withExternalInputs]
+                        | none =>
+                          by_cases hterminated : hooked.terminated
+                          · simp [stepped, hstateFault, hstateTerminated, hstepFault,
+                              hstepTerminated, hfault, hterminated,
+                              AArch64RunOutcome.withExternalInputs]
+                          · have hrecursive : selectedExecutionTerminates (Event := Event)
+                                selected indexed fuel hooked = true := by
+                              simpa [selectedExecutionTerminates, hstateFault,
+                                hstateTerminated, hlookup, stepped, hstepFault,
+                                hstepTerminated, hselected, hintercept, hfault,
+                                hterminated] using certificate
+                            simp only [AArch64MachineState.withExternalInputs_fault,
+                              AArch64MachineState.withExternalInputs_terminated, hfault,
+                              hterminated, ↓reduceIte]
+                            cases emitted with
+                            | none =>
+                                simpa [stepped, hstateFault, hstateTerminated,
+                                  hstepFault, hstepTerminated,
+                                  AArch64RunOutcome.withExternalInputs] using
+                                  ih hooked eventsRev hrecursive
+                            | some event =>
+                                simpa [stepped, hstateFault, hstateTerminated,
+                                  hstepFault, hstepTerminated,
+                                  AArch64RunOutcome.withExternalInputs] using
+                                  ih hooked (event :: eventsRev) hrecursive
+                  · have hselectedFalse : selected stepped.pc stepped = false := by
+                      cases hvalue : selected stepped.pc stepped with
+                      | false => rfl
+                      | true => exact False.elim (hselected hvalue)
+                    simp [selectedExecutionTerminates, hstateFault, hstateTerminated,
+                      hlookup, stepped, hstepFault, hstepTerminated,
+                      hselectedFalse] at certificate
 
 theorem SelectedTerminationCertificate.isAdmissible {Event : Type}
     [ExternalCallInterceptor AArch64 Event]
