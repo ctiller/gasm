@@ -20,14 +20,26 @@ structure Environment where
   fileSystem       : List (String × ByteArray) := []
   clockTime        : UInt64 := 0
 
-/-- Typeclass defining how an abstract environment `Env` is loaded into a machine's initial execution state. -/
-class EnvironmentLoader (Env : Type) where
-  loadEnvironment : WindowsExecutable → Env → X86_64MachineState
-
-/-- Typeclass defining how an abstract environment `Env` is loaded into initial WASI state. -/
-class WasiEnvironmentLoader (Env : Type) where
-  loadWasiEnvironment : Env → ByteArray × List String
+/-- An ISA/host profile owns loading, execution, safety, and serialization. -/
+class Platform (P : Type) where
+  Artifact : Type
+  State : Type
+  Observation : Type
+  Import : Type
+  Export : Type
+  imports : Artifact → List Import
+  artifactExports : Artifact → List Export
+  artifactConnected : Artifact → Prop
+  load : Artifact → Environment → State
+  run : Artifact → State → Observation
+  admissible : Artifact → State → Prop
+  emit : Artifact → Except String ByteArray
 ```
+
+There is no caller-selected `Env` type and no target-specific environment-loader escape hatch.
+Every `VerifiedProgram` quantifies over the canonical `Environment`; platform profiles decide how
+each field is physically supplied. Capability composition is a separate argument, so ISA, host
+environment, and library/runtime requirements remain independently selectable.
 
 ---
 

@@ -103,7 +103,7 @@ structure ComposedState (Arch : Type) (ApiStateType : Type) where
 - **Audited Observable Tracing for External Subsystems**: Where interaction with external subsystems (OS APIs, allocators, peripherals) is modeled, formal theorems MUST prove that observable effects or calls (e.g., `VirtualAlloc`, `WriteFile`) actually occur in the execution trace.
 
 ### Law 9: Universal Quantification & Input Completeness Mandate (The Anti-Pointwise Law)
-> **Whole-program verification contracts (`VerifiedProgram`, `VerifiedWasmProgram`) MUST be universally quantified across all valid environment inputs $\forall (env : Env)$. Pointwise verification over single hardcoded test vectors is strictly prohibited.**
+> **The sole whole-program verification contract (`VerifiedProgram`) MUST be universally quantified across the canonical `Environment`. Pointwise verification over a caller-selected domain or single hardcoded test vectors is unrepresentable and strictly prohibited.**
 
 - **No Single-Point Bypasses**: Instantiating a whole-program contract with a static, hardcoded sample vector (e.g. testing only a fixed 63-byte buffer) and asserting equivalence solely on that point constitutes mock verification and fails code review.
 - **Dynamic Syscall Soundness**: Any binary program that queries the operating system via syscalls (`ReadFile`, `recv`, `fd_read`) must mathematically prove that for **all possible byte buffers** returned by the host environment, its machine code computes the exact transformation mandated by the high-level specification.

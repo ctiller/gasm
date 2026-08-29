@@ -176,20 +176,29 @@ Whole-program verification in `gasm` rejects pointwise, single-sample test asser
 
 ### The Universal Whole-Program Equivalence Law
 
-For any binary executable $P_{\text{asm}}$ and monadic specification $S_{\text{spec}}$ operating in an environment domain $\text{Env}$:
+For any platform artifact $P_{\text{asm}}$ and monadic specification $S_{\text{spec}}$ operating
+over the canonical environment:
 
 $$\forall (\text{env} \in \text{Env}),\ \text{Trace}\big(\text{runAsm}(P_{\text{asm}}, \text{loadEnvironment}(P_{\text{asm}}, \text{env}))\big) = \text{Trace}\big(S_{\text{spec}}(\text{env})\big)$$
 
 ```lean
-structure VerifiedProgram (Env : Type := Unit) (Event : Type := AnyEvent)
-    [ExternalCallInterceptor X86_64 Event] [BEq Event] [EnvironmentLoader Env] where
-  name             : String
-  executable       : WindowsExecutable
-  instructions     : List X86_64Instr
-  spec             : Env → List Event
-  traceEquivalence : ∀ (env : Env),
-    let s0 := EnvironmentLoader.loadEnvironment executable env
-    (runAsmTrace (Event := Event) instructions s0 == spec env) = true
+structure VerifiedProgram (P : Type) [Platform P]
+    (capabilities : CapabilityComposition P) where
+  name : String
+  artifact : Platform.Artifact
+  exports : List Platform.Export
+  exportsMatch : exports = Platform.artifactExports artifact
+  artifactConnection : Platform.artifactConnected artifact
+  spec : Environment → Platform.Observation
+  importsCovered : ∀ imported, imported ∈ Platform.imports artifact →
+    capabilities.root.provides imported
+  entryEstablished : ∀ environment, ∃ context,
+    capabilities.root.establishes artifact environment
+      (Platform.load artifact environment) context
+  platformAdmissible : ∀ environment,
+    Platform.admissible artifact (Platform.load artifact environment)
+  traceEquivalence : ∀ environment,
+    Platform.run artifact (Platform.load artifact environment) = spec environment
 ```
 
 ### Why Pointwise Single-Sample Equivalence Is Prohibited

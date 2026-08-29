@@ -60,7 +60,7 @@ class Platform (P : Type u) where
   admissible : Artifact → State → Prop
   emit : Artifact → Except String ByteArray
 
-/- REF: docs/ABI_CONTEXT.md#4-context-rows-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
 /-- One logical capability at a program entry boundary.  `Context` may contain
     concrete runtime values, erased ghost authority, or both.  Establishment is
     relational so equal physical states may carry different generations or
@@ -122,7 +122,7 @@ theorem compose_establishes_comm {P : Type} [Platform P]
 
 end Capability
 
-/- REF: docs/ABI_CONTEXT.md#4-context-rows-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
 /-- The selected composition of library/runtime capabilities for a verified
     program.  The root is a real dependent context row, not an allowlist. -/
 structure CapabilityComposition (P : Type) [Platform P] where

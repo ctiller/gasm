@@ -756,14 +756,14 @@ For Wasm it is discharged at run time by the interpreter, per access, automatica
 the Wasm-shaped version of Law 11's goal is not "prove you may access this address," it
 is **"prove this program does not trap"** (a liveness/functional-correctness property of
 the *program*, not a memory-safety property of the *access*) — and that property is
-already exactly what `VerifiedWasmProgram.traceEquivalence`
+already exactly what the WASI platform's `VerifiedProgram.traceEquivalence`
 (`Gasm/Targets/WASI/ABI.lean`) plus each spike's own `#guard
 !(runWasiTraceState ...).isError` check are in the business of proving: a spike's
 `traceEquivalence` theorem is false if the modeled run ever traps somewhere the spec
 doesn't say it should, because a trapped run's event trace stops short of the
 spec's. **Recommendation, not a ruling**: Law 11 should not be reworded to cover Wasm; a
 future Wasm-specific law/clause (if one is ever warranted) would read "every
-`VerifiedWasmProgram` MUST prove its execution trace never traps outside the cases its
+The WASI `VerifiedProgram` MUST prove its complete execution outcome never traps outside the cases its
 `spec` models," which is a restatement of the existing equivalence-proof obligation, not
 a new mechanism. No such clause is proposed here — Law 5: nothing currently demands it,
 `traceEquivalence` already carries the weight, and writing a law around one restated

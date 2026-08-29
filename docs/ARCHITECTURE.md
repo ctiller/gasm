@@ -69,3 +69,18 @@ graph LR
      machine-ABI preservation with satisfaction and physical realization of the callee's
      placement-free boundary-context contract. See [Composable Boundary ABI Contexts](ABI_CONTEXT.md).
 4. **Binary Emission**: Pure deterministic serialization from verified AST to machine bytes with zero runtime overhead.
+
+### 2.1 Platform-neutral whole-program boundary
+
+`Gasm.Core.Platform.VerifiedProgram` is the only whole-program emission authority. Its platform
+parameter selects the ISA and host execution semantics; its `CapabilityComposition` argument
+selects library/runtime context independently. The contract quantifies over the one canonical
+`Environment`, carries the published export list, proves typed import coverage and root-context
+establishment, proves target admissibility, and connects the semantic artifact to the exact bytes
+selected for emission. Target-specific `VerifiedWindowsProgram`, `VerifiedLinuxProgram`, and
+`VerifiedWasmProgram` alternatives do not exist.
+
+Non-total libraries use `Gasm.Core.VerifiedComponent`: every published entry point has an
+assume/guarantee `ContextBoundaryRealization` tied to the same artifact, while callers establish
+the required entry world. This supports shared objects and dynamically loaded Gasm components
+without fabricating a whole-process root theorem.

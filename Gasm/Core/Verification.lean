@@ -122,7 +122,7 @@ instance {Event : Type} [Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Ev
     final.fault = none
   emit := fun artifact => .ok artifact.executable.emit
 
-/- REF: docs/ABI_CONTEXT.md#4-context-rows-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
 /-- Windows host services form an explicit typed capability row. -/
 def windowsHostCapability (Event : Type)
     [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :

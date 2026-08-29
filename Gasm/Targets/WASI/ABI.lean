@@ -501,7 +501,7 @@ instance : Platform WasiPlatform where
   admissible := fun artifact _ => ∃ bytes, emitWasmBinary artifact.module artifact.typeSignatures = .ok bytes
   emit := fun artifact => emitWasmBinary artifact.module artifact.typeSignatures
 
-/- REF: docs/ABI_CONTEXT.md#4-context-rows-and-composition -/
+/- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
 def wasiHostCapability : Capability WasiPlatform where
   Context := Unit
   provides := fun _ => True
