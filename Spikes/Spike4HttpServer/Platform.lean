@@ -249,13 +249,12 @@ def spike4WasiCapabilities : CapabilityComposition WasiPlatform where
     simp [spike4WasiRuntime, Wasm.spike4WasmImports]
 
 def spike4WindowsArtifact : WindowsX86_64Artifact :=
-  { executable := Windows.spike4Executable, instructions := Windows.spike4Instructions, fuel := 40 }
+  { executable := Windows.spike4Executable, instructions := Windows.spike4Instructions }
 
 def spike4LinuxArtifact : LinuxX86_64Artifact :=
   { executable := Linux.spike4Executable
     instructions := Linux.spike4Instructions
-    imports := [linuxParserImport]
-    fuel := 40 }
+    imports := [linuxParserImport] }
 
 def spike4WasiArtifact : WasiArtifact :=
   { module := Wasm.spike4WasmModule
