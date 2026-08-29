@@ -44,11 +44,16 @@ def defaultSampleInput : ByteArray :=
   "cherry\r\napple\r\nbanana\r\n".toUTF8
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
-/-- Explicit resource-aware result for the canonical executable trace.  New universal proofs use
-    `runSpike3WasiWithStrategy`; this named outcome keeps the sample theorem from treating fuel
-    exhaustion as an ordinary empty or partial trace. -/
+/-- Finite capability selected at the Spike 3 WASI boundary.  It does not constrain stdin: an
+    allocation or execution shortfall is represented in `WasiObservable`, rather than converted
+    to a partial output trace. -/
+def spike3WasiResources : WasiResourceBudget :=
+  { fuel := defaultWasmFuel, memoryPages := 65536 }
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
+/-- Explicit resource-aware result for the canonical executable trace. -/
 def spike3WasmCanonicalOutcome : WasiRunOutcome :=
-  runSpike3WasiOutcome defaultSampleInput { fuel := defaultWasmFuel, memoryPages := 65536 }
+  runSpike3WasiOutcome defaultSampleInput spike3WasiResources
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Observable Wasm trace on canonical 3-line input. -/
@@ -68,9 +73,15 @@ def specTraceCanonical : List AnyEvent := [
 ]
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Canonical high-level outcome.  Other finite resource outcomes remain representable by
+    `WasiObservable.memoryExhausted` and `.fuelExhausted` in the verified-program contract. -/
+def specOutcomeCanonical : WasiObservable AnyEvent :=
+  .exited 0 specTraceCanonical
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Formally verified theorem: WebAssembly operational trace on canonical stdin matches specification trace. -/
 theorem spike3_wasm_canonical_effect_trace_equivalence :
-    (runWasiTrace spike3WasmInstructions spike3DataSegments defaultSampleInput ["fd_read", "fd_write", "proc_exit"] == specTraceCanonical) = true := by
+    (spike3WasmCanonicalOutcome.observable == specOutcomeCanonical) = true := by
   native_decide
 
 -- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witness (see the identical
@@ -98,7 +109,8 @@ def spike3VerifiedWasmProgram : VerifiedWasmProgram Spike3SampleEnv AnyEvent := 
   instructions     := spike3WasmInstructions
   dataSegments     := spike3DataSegments
   imports          := ["fd_read", "fd_write", "proc_exit"]
-  spec             := fun _ => specTraceCanonical
+  resources        := spike3WasiResources
+  spec             := fun _ => specOutcomeCanonical
   traceEquivalence := fun _ => spike3_wasm_canonical_effect_trace_equivalence
 }
 
