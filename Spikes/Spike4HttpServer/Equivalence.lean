@@ -288,9 +288,9 @@ theorem spike4_wasm_trace_equivalence_for_request (req : String) (r : HttpRoute)
     identically here. Parity fix: the original PA17 pass added this wrapper for Windows and Wasm
     but not Linux, even though `spike4_linux_route_equivalence` (above) has the identical
     `HttpRoute`-proxy-domain shape and the identical "not the real per-request domain" caveat. -/
-theorem spike4_linux_trace_equivalence_for_request (req : String) (r : HttpRoute)
-    (h : req = routeRequestStr r) :
-    (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [req]) == routeModelTrace r) = true := by
+theorem spike4_linux_trace_equivalence_for_request (request : ByteArray) (r : HttpRoute)
+    (h : request = routeRequestStr r) :
+    (runAsmTrace (Event := AnyEvent) Linux.spike4Instructions (Linux.spike4Executable.loadWithRequests [request]) == routeModelTrace r) = true := by
   subst h
   exact spike4_linux_route_equivalence r
 
