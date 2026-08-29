@@ -202,6 +202,95 @@ structure VerifiedProgram (P : Type) [Platform P] (capabilities : CapabilityComp
     Platform.run (capabilities.realize artifact (entryContext environment))
       artifact (Platform.load artifact environment) = spec environment
 
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Final-artifact and public-boundary evidence, reusable independently of a
+    program's behavior theorem. -/
+structure ProgramArtifactCertificate (P : Type) [Platform P] where
+  artifact : Platform.Artifact (P := P)
+  exports : @VerifiedExportSet
+    (Platform.BoundaryWorld (P := P))
+    (Platform.BoundaryKey (P := P))
+    (Platform.BoundaryTarget (P := P))
+    (Platform.boundarySpec (P := P))
+    (Platform.boundarySemantics (P := P))
+  exportsArtifact : exports.artifact = Platform.boundaryArtifact artifact
+  artifactConnection : Platform.artifactConnected artifact
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Import coverage and final-provider linkage. This certificate contains no
+    entry-state or behavioral obligation. -/
+structure ProgramProviderCertificate (P : Type) [Platform P]
+    (capabilities : CapabilityComposition P)
+    (artifact : Platform.Artifact (P := P)) where
+  importsCovered : ∀ imported, imported ∈ Platform.imports artifact →
+    ∃ provider, provider ∈ capabilities.root.providers ∧
+      Platform.providerProvides provider imported
+  providersLinked : ∀ provider, provider ∈ capabilities.root.providers →
+    Platform.providerLinked artifact provider
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Canonical-environment entry-context establishment, reusable by safety and
+    behavior certificates for the same artifact. -/
+structure ProgramEntryCertificate (P : Type) [Platform P]
+    (capabilities : CapabilityComposition P)
+    (artifact : Platform.Artifact (P := P)) where
+  entryContext : Environment → capabilities.root.Context
+  entryEstablished : ∀ environment,
+    capabilities.root.establishes artifact environment
+      (Platform.load artifact environment) (entryContext environment)
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Target safety/admissibility for the exact realized artifact and established
+    entry context. -/
+structure ProgramAdmissibilityCertificate (P : Type) [Platform P]
+    (capabilities : CapabilityComposition P)
+    (artifact : Platform.Artifact (P := P))
+    (entry : ProgramEntryCertificate P capabilities artifact) where
+  platformAdmissible : ∀ environment,
+    Platform.admissible (capabilities.realize artifact (entry.entryContext environment))
+      artifact (Platform.load artifact environment)
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Universal observable refinement, deliberately independent of artifact
+    serialization, provider lookup, and export-layout proofs. -/
+structure ProgramBehaviorCertificate (P : Type) [Platform P]
+    (capabilities : CapabilityComposition P)
+    (artifact : Platform.Artifact (P := P))
+    (entry : ProgramEntryCertificate P capabilities artifact) where
+  spec : Environment → Platform.Observation (P := P)
+  traceEquivalence : ∀ environment,
+    Platform.run (capabilities.realize artifact (entry.entryContext environment))
+      artifact (Platform.load artifact environment) = spec environment
+
+namespace VerifiedProgram
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- The general whole-program composition law. Each argument proves one
+    ownership-scoped certificate; their dependent indices force agreement on
+    the platform, capability composition, final artifact, and entry relation. -/
+def compose {P : Type} [Platform P] {capabilities : CapabilityComposition P}
+    (name : String)
+    (artifact : ProgramArtifactCertificate P)
+    (providers : ProgramProviderCertificate P capabilities artifact.artifact)
+    (entry : ProgramEntryCertificate P capabilities artifact.artifact)
+    (admissibility : ProgramAdmissibilityCertificate P capabilities artifact.artifact entry)
+    (behavior : ProgramBehaviorCertificate P capabilities artifact.artifact entry) :
+    VerifiedProgram P capabilities where
+  name := name
+  artifact := artifact.artifact
+  exports := artifact.exports
+  exportsArtifact := artifact.exportsArtifact
+  artifactConnection := artifact.artifactConnection
+  spec := behavior.spec
+  importsCovered := providers.importsCovered
+  providersLinked := providers.providersLinked
+  entryContext := entry.entryContext
+  entryEstablished := entry.entryEstablished
+  platformAdmissible := admissibility.platformAdmissible
+  traceEquivalence := behavior.traceEquivalence
+
+end VerifiedProgram
+
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- Serialization is available only from the sole universal proof authority. -/
 def emitVerifiedProgram {P : Type} [Platform P] {capabilities : CapabilityComposition P}

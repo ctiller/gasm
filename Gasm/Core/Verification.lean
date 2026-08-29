@@ -41,6 +41,8 @@ open Gasm.Targets.AArch64.Linux
 
 export Gasm.Core.Platform
   (Environment Platform Capability CapabilityComposition VerifiedProgram
+   ProgramArtifactCertificate ProgramProviderCertificate ProgramEntryCertificate
+   ProgramAdmissibilityCertificate ProgramBehaviorCertificate
    emitVerifiedProgram FuzzingEmitter rawEmitForFuzzing)
 
 /-! Native platform profiles. The artifact pairs the emitted image with the
