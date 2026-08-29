@@ -16,6 +16,7 @@ limitations under the License.
 
 import Lean
 import Gasm.Core.Types
+import Gasm.Core.Platform
 import Gasm.Effects.Inject
 import Gasm.Effects.Trace
 import Gasm.Effects.Console
@@ -466,69 +467,48 @@ def runWasiTrace (instrs : List WasmInstr) (segments : List WasmDataSegment) (st
   | .ok (finalState, _) => finalState.events
   | .error partialState => partialState.events
 
-/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
-/-- Typeclass defining how an abstract environment `Env` is loaded into initial WASI state. -/
-class WasiEnvironmentLoader (Env : Type) where
-  loadWasiEnvironment : Env → ByteArray × List String
+open Gasm.Core.Platform
 
-/- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
-/-- Default loader for standalone WASI programs with closed/empty environment. -/
-instance : WasiEnvironmentLoader Unit where
-  loadWasiEnvironment _ := (ByteArray.empty, [])
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Complete WASI artifact tied to the instructions, resources, and import ABI
+    whose behavior is proved by the sole `VerifiedProgram`. -/
+structure WasiArtifact where
+  module : WasmModule
+  typeSignatures : List FuncType
+  instructions : List WasmInstr
+  dataSegments : List WasmDataSegment
+  imports : List String := ["fd_write", "proc_exit"]
+  resources : WasiResourceBudget
 
-/- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
-/-- Loader for WASI CLI filter programs taking dynamic standard input. -/
-instance : WasiEnvironmentLoader ByteArray where
-  loadWasiEnvironment stdin := (stdin, [])
+inductive WasiPlatform
 
-/- REF: docs/TARGETS/WASI.md#1-wasi-snapshot-preview-1-architecture -/
-/-- Loader for WASI server modules handling incoming network request queues. -/
-instance : WasiEnvironmentLoader (List String) where
-  loadWasiEnvironment reqs := (ByteArray.empty, reqs)
+instance : Platform WasiPlatform where
+  Artifact := WasiArtifact
+  State := Environment
+  Observation := WasiObservable AnyEvent
+  Import := String
+  Export := String
+  imports := fun artifact => artifact.imports
+  artifactExports := fun artifact => artifact.module.exports.map (fun exported => exported.name)
+  load := fun _ environment => environment
+  run := fun artifact environment =>
+    (runWasiOutcome artifact.instructions artifact.dataSegments environment.stdin
+      artifact.imports environment.incomingRequests artifact.resources).observable
+  admissible := fun artifact _ => ∃ bytes, emitWasmBinary artifact.module artifact.typeSignatures = .ok bytes
+  emit := fun artifact => emitWasmBinary artifact.module artifact.typeSignatures
 
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- First-Class Universally Parametric Verified WebAssembly Program Contract.
-    A WebAssembly binary or WAT artifact CANNOT be emitted without supplying:
-    1. The WasmModule and its instructions/data segments.
-    2. The finite platform resource capability (`resources`) and high-level parametric outcome
-       specification (`spec`).
-    3. THE MATHEMATICAL UNIVERSAL EQUIVALENCE PROOF TERM (`traceEquivalence`)
-       proving that for ALL possible external environments `env : Env`, the complete WASI outcome
-       (including recoverable resource exhaustion) matches the specification. -/
-structure VerifiedWasmProgram (Env : Type := Unit) (Event : Type := AnyEvent)
-    [BEq Event] [Inject Event AnyEvent] [WasiEnvironmentLoader Env] where
-  name             : String
-  module           : WasmModule
-  typeSignatures   : List FuncType
-  instructions     : List WasmInstr
-  dataSegments     : List WasmDataSegment
-  imports          : List String := ["fd_write", "proc_exit"]
-  resources        : WasiResourceBudget
-  spec             : Env → WasiObservable Event
-  traceEquivalence : ∀ (env : Env),
-    let (stdin, reqs) := WasiEnvironmentLoader.loadWasiEnvironment env
-    ((runWasiOutcome instructions dataSegments stdin imports reqs resources).observable ==
-      (spec env).mapEvents Inject.inject) = true
+/- REF: docs/ABI_CONTEXT.md#4-context-rows-and-composition -/
+def wasiHostCapability : Capability WasiPlatform where
+  Context := Unit
+  provides := fun _ => True
+  establishes := fun _ _ _ _ => True
+
+def wasiHostCapabilities : CapabilityComposition WasiPlatform where
+  root := wasiHostCapability
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- First-Class Verified WebAssembly Program Contract for dynamic stdin stream filters. -/
-abbrev VerifiedWasmStdinProgram (Event : Type := AnyEvent) [BEq Event] [Inject Event AnyEvent] :=
-  VerifiedWasmProgram ByteArray Event
-
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- Type-Enforced Code Emission for WebAssembly binaries. Fails closed (the Wasm fail-closed emission contract) if
-    `p.module`'s functions don't all resolve against `p.typeSignatures`. -/
-def emitVerifiedWasmBinary {Env : Type} {Event : Type}
-    [BEq Event] [Inject Event AnyEvent] [WasiEnvironmentLoader Env]
-    (p : VerifiedWasmProgram Env Event) : Except String ByteArray :=
-  emitWasmBinary p.module p.typeSignatures
-
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- Type-Enforced Code Emission for WebAssembly WAT text format. -/
-def emitVerifiedWasmText {Env : Type} {Event : Type}
-    [BEq Event] [Inject Event AnyEvent] [WasiEnvironmentLoader Env]
-    (p : VerifiedWasmProgram Env Event) : String :=
-  emitWasmText p.module p.typeSignatures
+/-- WAT rendering remains gated by the same sole proof authority as binary emission. -/
+def renderVerifiedWasmText (program : VerifiedProgram WasiPlatform wasiHostCapabilities) : String :=
+  emitWasmText program.artifact.module program.artifact.typeSignatures
 
 end Gasm.Targets.WASI

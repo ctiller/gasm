@@ -25,6 +25,7 @@ import Gasm.Core.CFG
 import Gasm.Core.Callable
 import Gasm.Core.ABI
 import Gasm.Core.AbiContext
+import Gasm.Core.Platform
 import Gasm.Core.Verification
 
 import Gasm.Effects.Inject

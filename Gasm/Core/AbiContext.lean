@@ -143,4 +143,23 @@ structure EstablishedBoundaryEntry
   requirementsHeld : ∀ environment,
     spec.requires (args environment) (binding environment) (world environment)
 
+/- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
+/--
+A non-total artifact intended to be loaded or linked as a library.  It makes no
+whole-process root claim: each published export instead carries an
+assume/guarantee boundary realization, and every realization is tied to the one
+artifact selected for component emission.  Callers must separately establish
+`relatesEntry` and `requires` at each invocation.
+-/
+structure VerifiedComponent
+    (World Key Target : Type)
+    [BoundaryContextSpec World Key]
+    [target : TargetBoundarySemantics Target] where
+  Export : Type
+  artifact : target.Artifact
+  exports : List Export
+  exportsNonempty : exports ≠ []
+  realization : Export → ContextBoundaryRealization World Key Target
+  realizationUsesArtifact : ∀ exported, (realization exported).artifact = artifact
+
 end Gasm.Core

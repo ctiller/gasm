@@ -275,7 +275,26 @@ Before ABI contexts may participate in `VerifiedProgram`, the implementation mus
 environment behavior. No legacy constructor, compatibility API, allowlist, axiom, `sorry`, or
 narrowed input domain may bypass them.
 
-## 11. Current implementation boundary
+## 11. Non-total components and exported boundaries
+
+`VerifiedProgram` is the whole-process authority and therefore establishes a root context for every
+external environment. It is not the right contract for a shared object, plugin, or code blob loaded
+with `dlopen`: such an artifact is intentionally non-total and runs only when another component
+calls one of its exports.
+
+`VerifiedComponent` represents that case. It publishes a nonempty export list, supplies a
+`ContextBoundaryRealization` for every listed export, and proves that every realization names the
+same emitted artifact. It does not invent a root environment or prove a callee precondition.
+Instead, each caller must establish the export's relational entry tuple and `requires` predicate;
+the realization then guarantees the result/outcome-dependent obligation transition. This permits a
+Gasm component to be a verified base library for arbitrary surrounding code without pretending the
+surrounding process is part of its theorem.
+
+Final shared-library serialization still requires target-specific artifact-format and export-table
+connection proofs. `VerifiedComponent` supplies the semantic boundary authority; it does not yet
+claim that a PE DLL, ELF shared object, or Wasm component emitter is wired to it.
+
+## 12. Current implementation boundary
 
 Implemented in `Gasm.Core.AbiContext`:
 
@@ -289,6 +308,8 @@ Implemented in `Gasm.Core.AbiContext`:
 - assume/guarantee realization requiring physical admissibility and logical refinement for every
   execution entered from a related world satisfying the contract precondition; and
 - caller-side `EstablishedBoundaryEntry` evidence for every canonical external environment.
+- non-total `VerifiedComponent` contracts with a proof-bearing realization for every export and a
+  single shared artifact identity.
 
 Not implemented:
 
