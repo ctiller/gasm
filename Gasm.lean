@@ -33,6 +33,7 @@ import Gasm.MemoryModel.ProgramOrder
 import Gasm.MemoryModel.FiniteSearch
 import Gasm.MemoryModel.CpuGraphNegativeControls
 import Gasm.MemoryModel.FiniteSearchNegativeControls
+import Gasm.MemoryModel.StructuralBaselineFixture
 
 import Gasm.Effects.Inject
 import Gasm.Effects.Console
