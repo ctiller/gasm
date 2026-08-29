@@ -8,6 +8,9 @@ This document supersedes the retired x86-only memory-model and borrowing plans a
 architecture shared by Spike 8. Target documents own
 instruction encodings and platform details; this document owns how their memory, concurrency,
 ownership, and synchronization semantics fit together.
+[Composable boundary ABI contexts](ABI_CONTEXT.md) consume this model's common authority and
+obligation world and prove that concrete calling mechanisms transport its transitions; they do not
+define a parallel ownership, cancellation, or cleanup model.
 
 The design has one central rule:
 

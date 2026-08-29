@@ -19,30 +19,24 @@ import Lean
 namespace Gasm.Core
 
 /-!
-This module contains staging vocabulary for the ABI-context design.  It deliberately does not
-define a Boolean link gate or a whole-program callability theorem.  In particular, constructing
-one of these descriptive values is not authority to emit a `VerifiedProgram`.  The missing target
-realization and whole-program connection proofs are tracked in `docs/ABI_CONTEXT.md`.
+This module contains staging vocabulary for composable boundary contexts. It deliberately does not
+define a link gate or a whole-program callability theorem. Constructing one of these descriptive
+values is not authority to emit a `VerifiedProgram`; the required connection theorem is tracked in
+`docs/ABI_CONTEXT.md`.
+
+The logical vocabulary is a projection of the common authority/obligation world specified by
+`docs/MEMORY_MODEL.md`. It is not a second ownership or cleanup system.
 -/
 
-/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
-/-- Whether a logical context is erased or must have a runtime realization. -/
+/- REF: docs/ABI_CONTEXT.md#3-nominal-placement-free-contracts -/
+/-- Whether a logical context is erased or requires a runtime realization. -/
 inductive ContextMateriality where
   | erasedGhost
   | runtime
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
-/-- The authority a callee requests over a logical resource. -/
-inductive ContextAccess where
-  | observe
-  | mutate
-  | consume
-  | provide
-  deriving Repr, DecidableEq, BEq
-
-/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
-/-- Logical extent is independent of where a runtime binding is stored. -/
+/- REF: docs/ABI_CONTEXT.md#3-nominal-placement-free-contracts -/
+/-- Logical lifetime is independent of the storage selected by a target realization. -/
 inductive ContextExtent where
   | call
   | lexical
@@ -53,8 +47,8 @@ inductive ContextExtent where
   | object
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
-/-- How a binding may cross a child or nested execution boundary. -/
+/- REF: docs/ABI_CONTEXT.md#3-nominal-placement-free-contracts -/
+/-- How authority may cross a child or nested execution boundary. -/
 inductive ContextPropagation where
   | borrow
   | copy
@@ -63,118 +57,131 @@ inductive ContextPropagation where
   | doNotPropagate
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
-/-- Whether the binding may follow work between execution agents. -/
+/- REF: docs/ABI_CONTEXT.md#3-nominal-placement-free-contracts -/
+/-- Whether a binding may follow work between execution agents. -/
 inductive ContextScheduling where
   | pinned
   | migratable
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
-/-- Exit classes for which a context contract must define cleanup. -/
-inductive ContextTeardown where
-  | normalReturn
-  | failure
-  | cancellation
-  | executorDestruction
-  | callback
-  deriving Repr, DecidableEq, BEq
+/- REF: docs/ABI_CONTEXT.md#3-nominal-placement-free-contracts -/
+/--
+A nominal context key selects one canonical contract, including its common logical world and its
+argument-, result-, and outcome-dependent obligation flow. `requiredObligations` and
+`emittedObligations` are caller-facing projections; `transitions` remains the authoritative account
+of preservation, transfer, discharge, creation, poisoning, and framing.
 
-/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
-/-- A placement-free logical requirement. `Key` and `Protocol` are type-level identities, not
-    forgeable string names. `valid` and `establishes` connect a runtime value to boundary state;
-    they are the proof source for a binding. -/
-structure LogicalContextRequirement (Key Resource Protocol State : Type) where
+Rows will contain keys, not freely constructed records containing predicates. The eventual row
+implementation must enforce coherent instances for every admitted key.
+-/
+class BoundaryContextSpec (World Key : Type) where
+  Args : Type
+  Binding : Type
+  Result : Type
+  Outcome : Type
+  ObligationFragment : Type
   materiality : ContextMateriality
-  access : ContextAccess
   extent : ContextExtent
   propagation : ContextPropagation
   scheduling : ContextScheduling
-  teardown : List ContextTeardown
-  valid : Protocol → State → Resource → Prop
-  establishes : Protocol → State → Resource → State → Prop
+  carries : World → ObligationFragment → Prop
+  requiredObligations : Args → Binding → ObligationFragment
+  emittedObligations : Args → Binding → Result → Outcome → ObligationFragment
+  requires : Args → Binding → World → Prop
+  transitions : Args → Binding → Result → Outcome → World → World → Prop
+  requires_carries : ∀ {args binding world},
+    requires args binding world → carries world (requiredObligations args binding)
+  transition_carries : ∀ {args binding result outcome before after},
+    transitions args binding result outcome before after →
+      carries after (emittedObligations args binding result outcome)
 
-/- REF: docs/ABI_CONTEXT.md#4-establishment-and-satisfaction -/
-/-- Evidence for one exact requirement.  Lifecycle, representation, and protocol cannot be dropped
-    by a string comparison because the complete requirement and its types index the evidence. -/
-structure EstablishedContextBinding
-    (requirement : LogicalContextRequirement Key Resource Protocol State)
-    (protocol : Protocol) (before after : State) where
-  value : Resource
-  established : requirement.establishes protocol before value after
-  validAfter : requirement.valid protocol after value
+/- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
+/-- Proof that one call followed its nominal, value-dependent world transition. -/
+structure ContextBoundaryTransition (World Key : Type) [spec : BoundaryContextSpec World Key]
+    (args : spec.Args) (binding : spec.Binding) (result : spec.Result) (outcome : spec.Outcome)
+    (before after : World) : Prop where
+  requirementsHeld : spec.requires args binding before
+  transitioned : spec.transitions args binding result outcome before after
 
-/- REF: docs/ABI_CONTEXT.md#4-establishment-and-satisfaction -/
-/-- A protocol upgrade is explicit proof-producing data.  Keeping a diagnostic name while changing
-    a protocol does not create this value. -/
-structure ContextProtocolRefinement
-    (OldResource OldProtocol NewResource NewProtocol : Type)
-    (oldValid : OldProtocol → OldResource → Prop)
-    (newValid : NewProtocol → NewResource → Prop) where
-  adaptResource : OldResource → NewResource
-  adaptProtocol : OldProtocol → NewProtocol
-  preserves : ∀ protocol resource,
-    oldValid protocol resource → newValid (adaptProtocol protocol) (adaptResource resource)
+/- REF: docs/ABI_CONTEXT.md#9-protocol-evolution-and-linking -/
+/--
+An explicit stateful refinement between two nominal context contracts. Worlds and obligation
+fragments are related rather than assumed equal. A refinement must preserve both preconditions and
+every result-indexed transition; equality of diagnostic names is irrelevant.
+-/
+structure ContextContractRefinement
+    (OldWorld OldKey NewWorld NewKey : Type)
+    [oldSpec : BoundaryContextSpec OldWorld OldKey]
+    [newSpec : BoundaryContextSpec NewWorld NewKey] where
+  relateWorld : OldWorld → NewWorld → Prop
+  adaptArgs : oldSpec.Args → newSpec.Args
+  adaptBinding : oldSpec.Binding → newSpec.Binding
+  adaptResult : oldSpec.Result → newSpec.Result
+  adaptOutcome : oldSpec.Outcome → newSpec.Outcome
+  adaptObligations : oldSpec.ObligationFragment → newSpec.ObligationFragment
+  preservesRequiredObligations : ∀ args binding,
+    adaptObligations (oldSpec.requiredObligations args binding) =
+      newSpec.requiredObligations (adaptArgs args) (adaptBinding binding)
+  preservesEmittedObligations : ∀ args binding result outcome,
+    adaptObligations (oldSpec.emittedObligations args binding result outcome) =
+      newSpec.emittedObligations (adaptArgs args) (adaptBinding binding)
+        (adaptResult result) (adaptOutcome outcome)
+  preservesRequirements : ∀ {args binding oldWorld newWorld},
+    relateWorld oldWorld newWorld → oldSpec.requires args binding oldWorld →
+      newSpec.requires (adaptArgs args) (adaptBinding binding) newWorld
+  preservesTransitions : ∀ {args binding result outcome oldBefore oldAfter newBefore},
+    relateWorld oldBefore newBefore →
+    oldSpec.transitions args binding result outcome oldBefore oldAfter →
+      ∃ newAfter,
+        relateWorld oldAfter newAfter ∧
+        newSpec.transitions (adaptArgs args) (adaptBinding binding) (adaptResult result)
+          (adaptOutcome outcome) newBefore newAfter
 
-/- REF: docs/ABI_CONTEXT.md#5-target-realization -/
-/-- Calls, callbacks, signals, and interrupts may select different conventions on the same target. -/
-inductive BoundaryEntryKind where
-  | ordinaryCall
-  | callback
-  | signal
-  | interrupt
-  deriving Repr, DecidableEq, BEq
+/- REF: docs/ABI_CONTEXT.md#5-target-realization-interface -/
+/--
+A target/environment profile owns its entry and exit classes, classified signatures, physical
+states, executions, and complete admissibility predicate. `admissible` is where that profile states
+phase/path-sensitive access, byte-range aliasing, intended handoffs, value agreement, helper-call
+clobbers, unwind behavior, and preservation. No universal pairwise access matrix can replace it.
+-/
+class TargetBoundarySemantics (Target : Type) where
+  Signature : Type
+  EntryKind : Type
+  ExitKind : Type
+  PhysicalState : Type
+  Execution : Type
+  runs : Signature → EntryKind → PhysicalState → Execution → ExitKind → PhysicalState → Prop
+  admissible : Signature → EntryKind → PhysicalState → Execution → ExitKind → PhysicalState → Prop
 
-/- REF: docs/ABI_CONTEXT.md#5-target-realization -/
-/-- A target supplies canonical physical locations and a hardware-aware alias relation.  Locations
-    therefore cannot be raw register names or unqualified TLS/table indices. -/
-class PhysicalLocationModel (Target : Type) where
-  Location : Type
-  overlaps : Location → Location → Prop
-  overlaps_refl : ∀ location, overlaps location location
-  overlaps_symm : ∀ {left right}, overlaps left right → overlaps right left
-
-abbrev PhysicalLocation (Target : Type) [model : PhysicalLocationModel Target] := model.Location
-
-/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
-inductive PhysicalAccessMode where
-  | read
-  | write
-  | clobber
-  deriving Repr, DecidableEq, BEq
-
-/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
-structure PhysicalAccess (Target : Type) [PhysicalLocationModel Target] where
-  location : PhysicalLocation Target
-  mode : PhysicalAccessMode
-
-/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
-def PhysicalAccess.Conflicts [model : PhysicalLocationModel Target]
-    (left right : PhysicalAccess Target) : Prop :=
-  model.overlaps left.location right.location ∧
-    ¬(left.mode = .read ∧ right.mode = .read)
-
-/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
-/-- The resolved footprint includes setup, access, body preservation, and teardown work. -/
-structure PhysicalFootprint (Target : Type) [PhysicalLocationModel Target] where
-  accesses : List (PhysicalAccess Target)
-
-/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
-def PhysicalFootprint.Compatible [PhysicalLocationModel Target]
-    (left right : PhysicalFootprint Target) : Prop :=
-  ∀ l ∈ left.accesses, ∀ r ∈ right.accesses, ¬l.Conflicts r
-
-/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
-/-- A realized boundary checks context footprints against the convention's complete classified
-    signature footprint and against one another.  There is intentionally no untyped Boolean
-    `firstConflict`: a target proof supplies physical non-interference. -/
-structure RealizedBoundary (Target Signature : Type) [PhysicalLocationModel Target] where
-  signature : Signature
-  entryKind : BoundaryEntryKind
-  conventionFootprint : PhysicalFootprint Target
-  contextFootprints : List (PhysicalFootprint Target)
-  conventionCompatible :
-    ∀ context ∈ contextFootprints, conventionFootprint.Compatible context
-  contextsPairwiseCompatible : contextFootprints.Pairwise PhysicalFootprint.Compatible
+/- REF: docs/ABI_CONTEXT.md#5-target-realization-interface -/
+/--
+A staged realization connects every physical execution of one boundary to the exact nominal logical
+transition. Physical admissibility is mandatory, not an optional footprint supplied by the
+realization. This remains disconnected from `VerifiedProgram` until the whole-program theorem and
+closed target profiles exist.
+-/
+structure ContextBoundaryRealization
+    (World Key Target : Type)
+    [spec : BoundaryContextSpec World Key]
+    [target : TargetBoundarySemantics Target] where
+  signature : target.Signature
+  entryKind : target.EntryKind
+  logicalArgs : target.PhysicalState → target.Execution → spec.Args
+  logicalBinding : target.PhysicalState → target.Execution → spec.Binding
+  logicalResult : target.Execution → target.PhysicalState → spec.Result
+  logicalOutcome : target.ExitKind → target.Execution → target.PhysicalState → spec.Outcome
+  logicalWorld : target.PhysicalState → World
+  physicalAdmissibility : ∀ {before execution exitKind after},
+    target.runs signature entryKind before execution exitKind after →
+      target.admissible signature entryKind before execution exitKind after
+  refinesContract : ∀ {before execution exitKind after},
+    target.runs signature entryKind before execution exitKind after →
+      ContextBoundaryTransition World Key
+        (logicalArgs before execution)
+        (logicalBinding before execution)
+        (logicalResult execution after)
+        (logicalOutcome exitKind execution after)
+        (logicalWorld before)
+        (logicalWorld after)
 
 end Gasm.Core
