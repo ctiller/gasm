@@ -1288,4 +1288,74 @@ theorem digitWriteLoop_run :
       · intro r hne1 hne2 hne3 hne4
         rw [hregFrame' r hne1 hne2 hne3 hne4, hregFrame1 r hne1 hne2 hne3 hne4]
 
+/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
+/-- **Connection theorem**: `digit_extract_loop` immediately followed by `digit_write_loop`,
+    starting from `digitExtractLoopAddr`, writes the exact decimal ASCII encoding of `n`
+    (`Stdlib.Fmt.formatDecimal n`) into the buffer at `buf` and leaves the stack pointer exactly
+    where it started -- the extract loop's push discipline and the write loop's matching pop
+    discipline cancel out, so the stack is used purely as scratch space between the two loops. -/
+theorem itoa_run (n : Nat) (hn : n < 18446744073709551616) (buf : Address) :
+    ∀ (fuel : Nat) (s : X86_64MachineState),
+    s.rip = digitExtractLoopAddr →
+    s.gprs .rax = n.toUInt64 →
+    s.gprs .r10 = 10 →
+    s.gprs .rcx = 0 →
+    s.gprs .rdi = buf →
+    s.fault = none →
+    8 * (Stdlib.Fmt.digits n).length ≤ s.rsp.toNat →
+    s.rsp.toNat < 18446744073709551608 →
+    buf.toNat ≥ s.rsp.toNat →
+    buf.toNat + (Stdlib.Fmt.digits n).length < 18446744073709551616 →
+    ∃ s',
+      runProgramWithLoops spike2Executable.load.rip spike2Instructions
+          (fuel + 7 * (Stdlib.Fmt.digits n).length + 5 * (Stdlib.Fmt.digits n).length) s =
+        runProgramWithLoops spike2Executable.load.rip spike2Instructions fuel s' ∧
+      s'.rip = digitWriteLoopAddrEnd ∧
+      s'.rsp = s.rsp ∧
+      s'.gprs .rdi = buf + (Stdlib.Fmt.digits n).length.toUInt64 ∧
+      s'.fault = none ∧
+      BufHolds s'.memory buf (Stdlib.Fmt.formatDecimal n) ∧
+      (∀ r : Reg64, r ≠ .rax → r ≠ .rdx → r ≠ .rcx → r ≠ .rdi → r ≠ .rsp → s'.gprs r = s.gprs r) := by
+  intro fuel s hrip hrax hr10 hrcx hrdi hfault hrspBound hrspTop hbufGe hbufTop
+  obtain ⟨s1, heq1, hrip1, hrax1, hrcx1, hrsp1, hfault1, hpushed1, hframe1, hregframe1⟩ :=
+    digitExtractLoop_run n hn 0 (fuel + 5 * (Stdlib.Fmt.digits n).length) s hrip hrax hr10 hrcx
+      hfault hrspBound hrspTop
+  have hrdi1 : s1.gprs .rdi = buf := by
+    rw [hregframe1 .rdi (by decide) (by decide) (by decide) (by decide)]; exact hrdi
+  have hlenEq : (Stdlib.Fmt.formatDecimal n).length = (Stdlib.Fmt.digits n).length :=
+    Stdlib.Fmt.formatDecimal_length_eq n
+  have hrcx1' : s1.gprs .rcx = (Stdlib.Fmt.formatDecimal n).length.toUInt64 := by
+    rw [hlenEq]; simpa using hrcx1
+  have hne : Stdlib.Fmt.formatDecimal n ≠ [] := Stdlib.Fmt.formatDecimal_ne_nil n
+  have hupBound : s.rsp.toNat < 18446744073709551616 := by omega
+  have hlenBound : (Stdlib.Fmt.digits n).length < 18446744073709551616 := by omega
+  have hmulCast : (8 * (Stdlib.Fmt.digits n).length.toUInt64).toNat
+      = 8 * (Stdlib.Fmt.digits n).length := by
+    simp [UInt64.toNat_mul, UInt64.size, Nat.toUInt64]
+    omega
+  have hs8 : (s.rsp - 8 * (Stdlib.Fmt.digits n).length.toUInt64).toNat
+      = s.rsp.toNat - 8 * (Stdlib.Fmt.digits n).length := by
+    have hdiv : (18446744073709551616 - 8 * (Stdlib.Fmt.digits n).length + s.rsp.toNat)
+        / 18446744073709551616 = 1 := by omega
+    simp [UInt64.toNat_sub, UInt64.size, hmulCast]
+    omega
+  have hrsp1Nat : s1.rsp.toNat = s.rsp.toNat - 8 * (Stdlib.Fmt.digits n).length := by
+    rw [hrsp1]; exact hs8
+  have hdisjRun : buf.toNat ≥ s1.rsp.toNat + 8 * (Stdlib.Fmt.formatDecimal n).length := by
+    rw [hlenEq, hrsp1Nat]; omega
+  have hbufTop1 : buf.toNat + (Stdlib.Fmt.formatDecimal n).length < 18446744073709551616 := by
+    rw [hlenEq]; exact hbufTop
+  obtain ⟨s', heq', hrip', hrcx', hrdi', hrsp', hfault', hbufHeld', hmemFrame', hregFrame'⟩ :=
+    digitWriteLoop_run (Stdlib.Fmt.formatDecimal n) buf fuel s1 hne hrip1 hpushed1 hrcx1' hrdi1
+      hdisjRun hbufTop1 hfault1
+  rw [hlenEq] at heq' hrsp' hrdi'
+  refine ⟨s', ?_, hrip', ?_, ?_, hfault', hbufHeld', ?_⟩
+  · rw [show fuel + 7 * (Stdlib.Fmt.digits n).length + 5 * (Stdlib.Fmt.digits n).length
+      = (fuel + 5 * (Stdlib.Fmt.digits n).length) + 7 * (Stdlib.Fmt.digits n).length from by omega,
+      heq1, heq']
+  · rw [hrsp', hrsp1, UInt64.sub_add_cancel]
+  · rw [hrdi']
+  · intro r hra hrd hrc hri hrs
+    rw [hregFrame' r hrd hri hrc hrs, hregframe1 r hra hrd hrc hrs]
+
 end Spikes.Spike2Fibonacci.Windows
