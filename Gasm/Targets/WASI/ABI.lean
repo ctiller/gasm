@@ -478,14 +478,48 @@ structure WasiArtifact where
 
 inductive WasiPlatform
 
+/- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
+/-- A callable Wasm export carries its independent logical contract, concrete
+    module-function identity, and complete function ABI. -/
+structure WasiExportedFunction where
+  name : String
+  contract : Environment → WasiObservable AnyEvent
+  implementation : Nat
+  abi : List FuncType
+
+/-- Names of all callable exports physically published by a module. Memory
+    exports are intentionally excluded because they are not call boundaries. -/
+def callableWasmExports (module : WasmModule) : List String :=
+  module.functions.filterMap (fun fn => fn.exportName) ++
+    module.exports.filterMap (fun exported =>
+      match exported.desc with
+      | .func _ => some exported.name
+      | .mem _ => none)
+
 instance : Platform WasiPlatform where
   Artifact := WasiArtifact
   State := Environment
   Observation := WasiObservable AnyEvent
   Import := String
-  Export := String
+  ExportName := String
+  ABIRequirement := FuncType
+  ConcreteImplementation := Nat
+  Export := WasiExportedFunction
   imports := fun artifact => artifact.imports
-  artifactExports := fun artifact => artifact.module.exports.map (fun exported => exported.name)
+  artifactExports := fun artifact => callableWasmExports artifact.module
+  exportName := fun exported => exported.name
+  exportContract := fun exported => exported.contract
+  exportImplementation := fun exported => exported.implementation
+  exportABI := fun exported => exported.abi
+  realizesExport := fun artifact exported =>
+    ∃ fn,
+      artifact.module.functions[exported.implementation]? = some fn ∧
+      fn.exportName = some exported.name ∧
+      exported.abi = [{ params := fn.params, results := fn.results }] ∧
+      exported.implementation = 0 ∧
+      exported.contract = fun environment =>
+        (runWasiOutcome artifact.instructions artifact.dataSegments environment.stdin
+          artifact.imports environment.incomingRequests artifact.resources).observable
   artifactConnected := fun artifact =>
     artifact.module.functions.head?.map (fun fn => fn.body) = some artifact.instructions ∧
     artifact.module.dataSegments = artifact.dataSegments ∧

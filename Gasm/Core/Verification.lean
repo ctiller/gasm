@@ -60,15 +60,26 @@ inductive WindowsX86_64 (Event : Type)
 inductive LinuxX86_64 (Event : Type)
 inductive LinuxAArch64 (Event : Type)
 
+/-- Standalone executables publish no callable library boundary. -/
+inductive NoExport
+
 instance {Event : Type} [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
     Platform (WindowsX86_64 Event) where
   Artifact := WindowsX86_64Artifact
   State := X86_64MachineState
   Observation := List Event
   Import := Win32Function
-  Export := String
+  ExportName := String
+  ABIRequirement := String
+  ConcreteImplementation := Address
+  Export := NoExport
   imports := fun artifact => artifact.executable.imports
   artifactExports := fun _ => []
+  exportName := fun exported => nomatch exported
+  exportContract := fun exported => nomatch exported
+  exportImplementation := fun exported => nomatch exported
+  exportABI := fun exported => nomatch exported
+  realizesExport := fun _ exported => nomatch exported
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
       Gasm.Targets.X86_64.Assembler.serializeInstructions artifact.instructions
@@ -86,9 +97,17 @@ instance {Event : Type} [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Even
   State := X86_64MachineState
   Observation := List Event
   Import := Unit
-  Export := String
+  ExportName := String
+  ABIRequirement := String
+  ConcreteImplementation := Address
+  Export := NoExport
   imports := fun _ => []
   artifactExports := fun _ => []
+  exportName := fun exported => nomatch exported
+  exportContract := fun exported => nomatch exported
+  exportImplementation := fun exported => nomatch exported
+  exportABI := fun exported => nomatch exported
+  realizesExport := fun _ exported => nomatch exported
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
       Gasm.Targets.X86_64.Assembler.serializeInstructions artifact.instructions
@@ -106,9 +125,17 @@ instance {Event : Type} [Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Ev
   State := AArch64MachineState
   Observation := List Event
   Import := Unit
-  Export := String
+  ExportName := String
+  ABIRequirement := String
+  ConcreteImplementation := Address
+  Export := NoExport
   imports := fun _ => []
   artifactExports := fun _ => []
+  exportName := fun exported => nomatch exported
+  exportContract := fun exported => nomatch exported
+  exportImplementation := fun exported => nomatch exported
+  exportABI := fun exported => nomatch exported
+  realizesExport := fun _ exported => nomatch exported
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
       Gasm.Targets.AArch64.Linux.serializeInstructions artifact.instructions

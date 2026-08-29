@@ -51,9 +51,17 @@ class Platform (P : Type u) where
   State : Type
   Observation : Type
   Import : Type
+  ExportName : Type
+  ABIRequirement : Type
+  ConcreteImplementation : Type
   Export : Type
   imports : Artifact → List Import
-  artifactExports : Artifact → List Export
+  artifactExports : Artifact → List ExportName
+  exportName : Export → ExportName
+  exportContract : Export → Environment → Observation
+  exportImplementation : Export → ConcreteImplementation
+  exportABI : Export → List ABIRequirement
+  realizesExport : Artifact → Export → Prop
   artifactConnected : Artifact → Prop
   load : Artifact → Environment → State
   run : Artifact → State → Observation
@@ -145,7 +153,8 @@ structure VerifiedProgram (P : Type) [Platform P] (capabilities : CapabilityComp
   name : String
   artifact : Platform.Artifact (P := P)
   exports : List (Platform.Export (P := P))
-  exportsMatch : exports = Platform.artifactExports artifact
+  exportsMatch : exports.map Platform.exportName = Platform.artifactExports artifact
+  exportsRealized : ∀ exported, exported ∈ exports → Platform.realizesExport artifact exported
   artifactConnection : Platform.artifactConnected artifact
   spec : Environment → Platform.Observation (P := P)
   importsCovered : ∀ imported, imported ∈ Platform.imports artifact →
