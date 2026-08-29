@@ -397,6 +397,16 @@ allocation order. Logical `ThreadId` values are generative and never reused with
 trace; platform TIDs, handles, APIC IDs, and MPIDR values map to the current logical instance but are
 not program-event or vector-clock identities.
 
+The aligned, non-overlapping v1 CPU subset has one reusable `CpuGraph.WellFormed` algebra rather
+than target proofs rebuilding graph hygiene independently. It requires: every read byte has exactly
+one `rf` source (an explicit initial write or a compatible write event); source and returned values,
+locations, widths, and byte lanes agree; each modeled Normal-memory location has exactly one initial
+write; `co` is a strict total order over writes to each location and contains no unrelated events;
+`fr` is derived from `rf` and `co`, not freely supplied; and atomic/RMW/exclusive reads and successful
+writes obey the profile's indivisibility and read-source constraints. Target consistency predicates
+accept only a `CpuGraph.WellFormed` graph and then add ISA ordering rules. Mixed-size and overlapping
+accesses require an explicit later extension of this algebra rather than weakening v1 well-formedness.
+
 The event graph is the common proof-facing representation. Each ISA may use the executable model
 best suited to it, provided connection theorems relate that model to this graph.
 
@@ -444,9 +454,13 @@ Required x86 connection theorems:
 1. one-thread, drained executions agree observationally with the existing sequential interpreter;
 2. an atomic descriptor corresponds to one indivisible dynamic action;
 3. every admitted operational execution satisfies the x86 execution-graph consistency predicate;
-4. bounded graph-consistent executions are represented by the operational enumerator (adequacy),
-   so the two views have equal observable litmus outcomes rather than only one-way soundness;
-5. the model-derived outcome sets for the x86 litmus suite match the stated TSO profile.
+4. every native observation is contained in the pinned model's allowed outcomes; and
+5. the model-derived outcome sets for the finite named x86 litmus suite match the stated TSO profile.
+
+Reverse inclusion—every bounded graph-consistent execution being produced by the operational
+enumerator—is required only when that enumerator is advertised as a complete model checker. Such an
+`EnumeratorComplete` profile proves general adequacy and obtains named-suite equality as a
+corollary; ordinary verified programs and soundness-only execution engines do not pay that cost.
 
 ### 5.2 AArch64: Weak Memory, Acquire/Release, and Exclusives
 
@@ -489,10 +503,14 @@ Required AArch64 connection theorems mirror x86 but are architecture-specific:
 2. exclusive-monitor success and failure correspond to the emitted event sequence;
 3. acquire, release, and barrier descriptors are faithful to dynamic ordering behavior;
 4. every admitted execution satisfies the chosen AArch64 consistency predicate;
-5. every bounded execution consistent with the pinned Arm predicate is represented by the
-   executable enumerator (adequacy), so it cannot pass by silently excluding allowed executions;
-6. bounded outcome sets equal those of the pinned formal Arm profile, including but not limited to
-   the named litmus suite, and every native observation is contained in that set.
+5. bounded outcome sets equal those of the pinned formal Arm profile for the finite named litmus
+   suite; and
+6. every native observation is contained in the pinned allowed set.
+
+General reverse-inclusion adequacy is an optional `EnumeratorComplete` claim, not a prerequisite for
+program soundness. A tool making that stronger claim proves every bounded graph-consistent execution
+is represented; a soundness-only Arm execution engine proves operational execution implies pinned
+consistency and is validated by the finite named-suite equality above.
 
 ### 5.3 What Is Shared and What Is Not
 
@@ -512,6 +530,16 @@ Architecture-specific:
 - fence/barrier semantics and scope;
 - normal/device memory attributes;
 - bare-metal CPU/PE bring-up.
+
+The implementation packages those layers as composable certificates. A generic finite-transition
+DFS library supplies search mechanics without claiming an ISA; each ISA proves a reusable induction
+from one local operational step to its event projection; descriptor families prove parameterized
+projection and emitted-stream/relocation fidelity once; `CpuGraph.WellFormed` is consumed by the
+target consistency theorem; and observation projection derives the finite named-suite comparison.
+A whole program composes certificates for its reachable descriptor classes, emitted artifact, and
+selected target profile. It does not re-prove generic DFS correctness, per-instruction instances of
+a descriptor-family theorem, or an optional enumerator-completeness result. Exceptional encodings
+and semantics contribute only their refinement delta and any stronger property they advertise.
 
 ---
 
@@ -1908,7 +1936,7 @@ profile.
 
 | Stage | Deliverable | Depends on | Exit criterion |
 |---|---|---|---|
-| M0 | Thin well-formed event/graph envelope and target projection interfaces: generative identities, dynamic binding generations/aliasing, profile-indexed agent/reference/location/event/relation/consequence families, labelled path and trace-projection witnesses | current memory hooks | Existing x86/AArch64 accesses plus an opaque non-CPU sentinel instantiate the envelope; the sentinel has target-private agents/locations, a dynamic rebind, unrelated abstract relation labels, and independent zero/one/many abstract consequences, but no queue, submission, completion or reclamation vocabulary borrowed from a future API; round trips preserve identities, captured bindings, locations, labels, path witnesses and exact consequences, while malformed combinations, omissions, stale-rebind redirection, label forgery and consequence escalation fail without predefining real future-domain semantics |
+| M0 | Thin well-formed event/graph envelope and target projection interfaces: generative identities, a minimal kind-indexed agent/reference/location/event/relation interface, CPU graph well-formedness, and target projection witnesses | current memory hooks | Existing x86/AArch64 accesses instantiate `CpuGraph.WellFormed`; one minimal opaque extension kind demonstrates that the public types are not CPU-closed, without requiring rebinding, arbitrary consequence cardinalities, round trips, or guessed future-domain protocols. Dynamic binding, labelled paths, consequences, and negative controls become mandatory when the selected non-CPU profile actually admits them |
 | M1 | Provenanced regions, typed views, indexed authority/obligation transitions, abstract relational ABI/boundary entry-and-exit binding interface, and canonical state normal forms plus simplification support | M0 | Unauthorized, stale, or byte-reloaded pointers without a live typed-view binding cannot be dereferenced; hierarchical allocation composes through the canonical normal forms; the abstract seam represents entry-origin, precondition, target-admissibility and artifact-connection obligations without claiming a concrete target, and represents erased/fresh exit identities relationally (or restricts functional result projections to proved non-authorizing physical scalars); false/empty entry/world relations, vacuous admissibility, weak artifact relations and identity-minting projections confer no execution authority; automation discharges representative indexed binds and abstract boundary compositions within a pinned elaboration time/memory budget and regression threshold |
 | M2-X | x86 WB/TSO machine, atomics, fences, enumeration | M0 | x86 litmus theorems, one-thread theorem, decode/emission and relocation fidelity, and silicon validation |
 | M2-A | AArch64 Normal-memory model, acquire/release, barriers, exclusives | M0 | Arm litmus theorems, one-PE theorem, decode/emission and relocation fidelity, and native validation |
@@ -1960,8 +1988,12 @@ Execution discipline:
   and AArch64 in the same change, preventing silent TSO defaults;
 - an ISA or platform refinement may advance independently once its own dependencies are complete;
   no cross-target dependency is added merely for scheduling convenience;
-- each semantic increment lands with its connection lemma, model-level test, emitted/native test
-  where available, and a planted negative control appropriate to its trust boundary;
+- each independently breakable trust boundary—descriptor projection, encoding/relocation,
+  consistency, and harness behavior—has a connection theorem and generated positive/negative test
+  family. Generic descriptor-class theorems and mutation generators are reused across ordinary
+  instructions; bespoke per-instruction controls are required only for exceptional semantic forms
+  such as implicit-lock `XCHG`, barrier scopes, and failed `STXR`, or when a new instruction crosses
+  one of those trust boundaries in a genuinely new way;
 - a stage is complete only on its stated exit criterion, not because representative examples pass.
 
 ---
@@ -1982,13 +2014,12 @@ The following are deliberate stop-and-design gates:
    `TraceProjection` witnesses; and whether bounded enumeration uses one graph engine or per-target
    engines connected to the envelope. Real asynchronous, GPU, RDMA, network, or storage relation and
    consequence constructors are introduced only after that profile's reference intake. Existing CPU
-   projections and a deliberately meaningless non-CPU extension sentinel must nevertheless
-   instantiate the public seam before M0 exits. The sentinel tests type openness, dynamic rebinding,
-   labelled paths and consequence non-implication using opaque constructors; it must not encode a
-   producer/consumer ring, SQ/CQ correlation, GPU dependency or any other guessed future-domain
-   architecture. Thus M0 cannot silently equate every agent with a CPU thread, every location with a
-   numeric address, every binding with a timeless lookup, or every causal order with transitive CPU
-   happens-before.
+   projections and one deliberately meaningless extension kind instantiate the minimal public seam
+   before M0 exits, proving only that agents, locations, events, and relations are kind-indexed rather
+   than CPU-closed. Rebinding, labelled paths, consequence cardinalities, round trips, and their
+   negative controls are applicability-closed obligations of the first selected profile that uses
+   them; M0 does not speculate about a producer/consumer ring, SQ/CQ correlation, GPU dependency, or
+   another future-domain architecture merely to prove extensibility.
 3. **Indexed authoring and boundary entry/exit surface:** how `BlockM` prevents arbitrary permission/
    obligation replacement while retaining usable errors; how a placement-free logical boundary uses
    a relation from physical entry state to arguments, a binding and the live world rather than
