@@ -53,26 +53,8 @@ structure WindowsX86_64Artifact where
 /-- One PE import-table provider, identified by both its typed import and exact
     IAT index.  The index makes runtime support a statement about the actual
     call target rather than a string-level promise. -/
-inductive StreamingProviderDirection where
-  | compress
-  | decompress
-deriving DecidableEq, BEq
-
-inductive StreamingProviderPhase where
-  | start
-  | push
-  | finish
-  | complete
-deriving DecidableEq, BEq
-
-structure StreamingProviderProtocol where
-  direction : StreamingProviderDirection
-  phase : StreamingProviderPhase
-  version : Nat
-deriving DecidableEq, BEq
-
 structure WindowsX86_64Provider where
-  protocol : StreamingProviderProtocol
+  protocol : ProviderProtocolKey
   imported : Win32Function
   iatIndex : Nat
 
@@ -86,7 +68,7 @@ deriving DecidableEq, BEq
 
 /-- One statically resolved Linux provider call target. -/
 structure LinuxX86_64Provider where
-  protocol : StreamingProviderProtocol
+  protocol : ProviderProtocolKey
   requirement : LinuxLibraryRequirement
   instructionIndex : Nat
   callTarget : Address

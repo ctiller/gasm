@@ -30,6 +30,15 @@ namespace Gasm.Core.Platform
 
 universe u v
 
+/-- Versioned nominal identity for an external provider protocol.  Target
+    profiles decide how a key is linked and which runtime families support it;
+    the key itself carries no caller-authored semantic predicate. -/
+structure ProviderProtocolKey where
+  protocolNamespace : String
+  operation : String
+  version : Nat
+deriving DecidableEq, BEq
+
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- The complete external input domain of a verified whole program.  A caller
     cannot replace it with a smaller test-vector type. -/

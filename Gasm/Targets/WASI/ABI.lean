@@ -493,7 +493,7 @@ structure WasiArtifact where
     differently ordered imports. -/
 inductive WasiProviderProtocol where
   | preview1
-  | streamingZlib (compress : Bool) (phase : Nat) (version : Nat)
+  | library (key : ProviderProtocolKey)
 deriving DecidableEq, BEq
 
 structure WasiProvider where
@@ -570,18 +570,8 @@ instance : Platform WasiPlatform where
     | .preview1 => ∀ state,
         runtime provider.imports provider.importIndex state =
           wasiHostCall provider.imports provider.importIndex state
-    | .streamingZlib _ phase _ =>
-        match phase with
-        | 0 => ∀ state,
-            runtime provider.imports provider.importIndex state = (state, .next)
-        | 1 => ∀ state,
-            runtime provider.imports provider.importIndex state = (state, .next)
-        | 2 => ∀ state,
-            (runtime provider.imports provider.importIndex state).1.trapped = state.trapped
-        | 3 => ∀ state,
-            (runtime provider.imports provider.importIndex state).1.exitCode = some 0 ∧
-            (runtime provider.imports provider.importIndex state).2 = .ret
-        | _ => False
+    | .library _ => ∀ state,
+        (runtime provider.imports provider.importIndex state).1.trapped = state.trapped
   boundaryArtifact := id
   artifactConnected := fun artifact =>
     artifact.module.functions.head?.map (fun fn => fn.body) = some artifact.instructions ∧
