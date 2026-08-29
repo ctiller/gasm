@@ -273,6 +273,25 @@ def streamingNativeCall
         some (state, some (Inject.inject (ProcessEvent.exit 3)))
     | _ => none
 
+theorem streamingNativeCall_isSome_of_resolves_lt_four
+    (resolveCall : Address → X86_64MachineState → Option Nat)
+    (context : StreamingInvocationContext) (address : Address)
+    (state : X86_64MachineState) (index : Nat)
+    (hresolve : resolveCall address state = some index)
+    (hindex : index < 4) :
+    (streamingNativeCall resolveCall context address state).isSome := by
+  have hcases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 := by omega
+  rcases hcases with rfl | rfl | rfl | rfl
+  · simp [streamingNativeCall, hresolve]
+  · by_cases hphase : state.gprs .r15 = 1 <;>
+      simp [streamingNativeCall, hresolve, hphase]
+  · by_cases hphase : state.gprs .r15 = 2
+    · cases hcontinue : (streamResultEvent context).snd <;>
+        simp [streamingNativeCall, hresolve, hphase, hcontinue]
+    · simp [streamingNativeCall, hresolve, hphase]
+  · by_cases hphase : state.gprs .r15 = 3 <;>
+      simp [streamingNativeCall, hresolve, hphase]
+
 def streamingNativeInterceptorWith
     (resolveCall : Address → X86_64MachineState → Option Nat)
     (context : StreamingInvocationContext) :
@@ -288,13 +307,15 @@ def streamingNativeInterceptorWith
       streamingNativeCall resolveCall context address state := by
   rfl
 
-def windowsStreamingInterceptor (_artifact : WindowsX86_64Artifact)
+def windowsStreamingInterceptor (artifact : WindowsX86_64Artifact)
     (context : StreamingInvocationContext) :
     ExternalCallInterceptor X86_64 AnyEvent :=
-  streamingNativeInterceptorWith (fun address state =>
-    match Gasm.Targets.Windows.findIatIndex state address with
-    | some index => if index < 4 then some index else none
-    | none => none) context
+  let executable := artifact.executable
+  let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+  let iatBase := executable.imageBase + layout.idataRva.toUInt64
+  streamingNativeInterceptorWith (fun address _ =>
+    let index := ((address - iatBase) / 8).toNat
+    if index < 4 then some index else none) context
 
 @[simp] theorem windowsStreamingInterceptor_call
     (artifact : WindowsX86_64Artifact) (context : StreamingInvocationContext)
@@ -302,10 +323,12 @@ def windowsStreamingInterceptor (_artifact : WindowsX86_64Artifact)
     @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
       (windowsStreamingInterceptor artifact context) address state =
       @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
-        (streamingNativeInterceptorWith (fun callAddress callState =>
-          match Gasm.Targets.Windows.findIatIndex callState callAddress with
-          | some index => if index < 4 then some index else none
-          | none => none) context) address state := by
+        (streamingNativeInterceptorWith (fun callAddress _ =>
+          let executable := artifact.executable
+          let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+          let iatBase := executable.imageBase + layout.idataRva.toUInt64
+          let index := ((callAddress - iatBase) / 8).toNat
+          if index < 4 then some index else none) context) address state := by
   rfl
 
 def linuxStreamingInterceptor (context : StreamingInvocationContext) :
@@ -329,26 +352,25 @@ def windowsStreamingCapabilities (direction : CodecDirection) :
   realizeSupports := by
     intro context artifact provider hprovider hlinked
     change StreamingInvocationContext at context
+    have hproviderIndex : provider.iatIndex < 4 := by
+      have hmember := hprovider
+      cases direction <;>
+        simp [windowsStreamingCapability, windowsStreamProviders, streamWindowsImports,
+          streamImportNames, nativeProviderProtocol] at hmember
+      all_goals rcases hmember with rfl | rfl | rfl | rfl <;> decide
     change (match windowsProviderCallTarget artifact provider with
       | some address => ∀ state, _
       | none => False)
     rcases hlinked with ⟨himport, hphysical⟩
-    cases direction <;>
-      simp [windowsStreamingCapability, windowsStreamProviders, streamWindowsImports,
-        streamImportNames, nativeProviderProtocol] at hprovider
-    all_goals
-      rcases hprovider with rfl | rfl | rfl | rfl
-    all_goals
-      simp only [windowsProviderCallTarget]
-      split
-      · intro state hindex
-        unfold windowsStreamingInterceptor streamingNativeInterceptorWith streamingNativeCall
-        by_cases hphaseOne : state.gprs .r15 = 1 <;>
-          by_cases hphaseTwo : state.gprs .r15 = 2 <;>
-          by_cases hphaseThree : state.gprs .r15 = 3 <;>
-          by_cases hcontinue : (streamResultEvent context).snd <;>
-          simp [hindex, hphaseOne, hphaseTwo, hphaseThree, hcontinue]
-      · simp_all [windowsProviderCallTarget]
+    simp only [windowsProviderCallTarget]
+    split <;> rename_i hslot
+    · intro state _hloaded
+      simp only [hslot] at hphysical
+      unfold windowsStreamingInterceptor streamingNativeInterceptorWith
+      apply streamingNativeCall_isSome_of_resolves_lt_four (index := provider.iatIndex)
+      · simp [hphysical, hproviderIndex]
+      · exact hproviderIndex
+    · simp_all [windowsProviderCallTarget]
 
 def linuxStreamingCapability (direction : CodecDirection) :
     Capability (LinuxX86_64 AnyEvent) where
