@@ -53,12 +53,21 @@ class Platform (P : Type u) where
   Observation : Type
   RuntimeContext : Type
   Import : Type
+  /-- Target-owned identity for one concrete provider implementation.  Provider
+      identities cannot be minted by a library capability. -/
+  Provider : Type
   BoundaryWorld : Type
   BoundaryKey : Type
   BoundaryTarget : Type
   boundarySpec : BoundaryContextSpec BoundaryWorld BoundaryKey
   boundarySemantics : TargetBoundarySemantics BoundaryTarget
   imports : Artifact → List Import
+  /-- Which typed imports are implemented by a target-owned provider. -/
+  providerProvides : Provider → Import → Prop
+  /-- The final emitted artifact is linked to this provider. -/
+  providerLinked : Artifact → Provider → Prop
+  /-- The concrete runtime context executes calls to this provider. -/
+  runtimeSupports : RuntimeContext → Provider → Prop
   boundaryArtifact : Artifact → boundarySemantics.Artifact
   artifactConnected : Artifact → Prop
   load : Artifact → Environment → State
@@ -73,12 +82,10 @@ class Platform (P : Type u) where
     ownership fragments. -/
 structure Capability (P : Type) [Platform P] where
   Context : Type
-  provides : Platform.Import (P := P) → Prop
-  /-- Target-owned evidence that every import claimed by this capability is backed by an
-      implementation/artifact realization.  This is deliberately separate from entry context:
-      a caller can establish arguments and resources without thereby proving that a library
-      implementation exists. -/
-  implementationConnected : Platform.Artifact (P := P) → Prop
+  /-- Selected target-owned implementations.  Logical capabilities can select
+      provider identities, but cannot define what they provide, how they link,
+      or which runtime implements them. -/
+  providers : List (Platform.Provider (P := P))
   establishes : Platform.Artifact (P := P) → Environment →
     Platform.State (P := P) → Context → Prop
 
@@ -87,33 +94,30 @@ namespace Capability
 /-- Empty capability row. -/
 def empty (P : Type) [Platform P] : Capability P where
   Context := Unit
-  provides := fun _ => False
-  implementationConnected := fun _ => True
+  providers := []
   establishes := fun _ _ _ _ => True
 
 /-- Product composition of two capability rows.  Shared physical placement is
     deliberately absent here; target-owned ABI realization proves that later. -/
 def compose {P : Type} [Platform P] (left right : Capability P) : Capability P where
   Context := left.Context × right.Context
-  provides := fun imported => left.provides imported ∨ right.provides imported
-  implementationConnected := fun artifact =>
-    left.implementationConnected artifact ∧ right.implementationConnected artifact
+  providers := left.providers ++ right.providers
   establishes := fun artifact environment state context =>
     left.establishes artifact environment state context.1 ∧
       right.establishes artifact environment state context.2
 
-/-- Capability provision is associative. -/
-theorem compose_provides_assoc {P : Type} [Platform P]
-    (a b c : Capability P) (imported : Platform.Import (P := P)) :
-    (compose (compose a b) c).provides imported ↔
-      (compose a (compose b c)).provides imported := by
-  simp [compose, or_assoc]
+/-- Capability provider selection is associative. -/
+theorem compose_providers_assoc {P : Type} [Platform P]
+    (a b c : Capability P) :
+    (compose (compose a b) c).providers =
+      (compose a (compose b c)).providers := by
+  simp [compose, List.append_assoc]
 
-/-- Capability provision is commutative. -/
-theorem compose_provides_comm {P : Type} [Platform P]
-    (a b : Capability P) (imported : Platform.Import (P := P)) :
-    (compose a b).provides imported ↔ (compose b a).provides imported := by
-  simp [compose, Or.comm]
+/-- Capability provider selection is commutative up to permutation. -/
+theorem compose_providers_comm {P : Type} [Platform P]
+    (a b : Capability P) :
+    ((compose a b).providers.Perm (compose b a).providers) := by
+  simp [compose, List.perm_append_comm]
 
 /-- Establishment composition is associative up to the canonical reassociation
     of its dependent context product. -/
@@ -145,6 +149,10 @@ structure CapabilityComposition (P : Type) [Platform P] where
       runtime value passed to platform execution; capabilities therefore
       cannot be decorative import claims. -/
   realize : root.Context → Platform.RuntimeContext (P := P)
+  /-- Runtime support is proved for every selected provider; it is not a claim
+      supplied by the logical capability. -/
+  realizeSupports : ∀ context provider, provider ∈ root.providers →
+    Platform.runtimeSupports (realize context) provider
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- The sole whole-program verification authority.  It is parameterized by an
@@ -164,8 +172,10 @@ structure VerifiedProgram (P : Type) [Platform P] (capabilities : CapabilityComp
   artifactConnection : Platform.artifactConnected artifact
   spec : Environment → Platform.Observation (P := P)
   importsCovered : ∀ imported, imported ∈ Platform.imports artifact →
-    capabilities.root.provides imported
-  capabilitiesConnection : capabilities.root.implementationConnected artifact
+    ∃ provider, provider ∈ capabilities.root.providers ∧
+      Platform.providerProvides provider imported
+  providersLinked : ∀ provider, provider ∈ capabilities.root.providers →
+    Platform.providerLinked artifact provider
   entryContext : Environment → capabilities.root.Context
   entryEstablished : ∀ environment,
     capabilities.root.establishes artifact environment

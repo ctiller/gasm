@@ -488,6 +488,14 @@ structure WasiArtifact where
   imports : List String := ["fd_write", "proc_exit"]
   resources : WasiResourceBudget
 
+/-- One exact host-import slot.  Carrying the complete import vector prevents
+    an index proof for one module from being reused against another module's
+    differently ordered imports. -/
+structure WasiProvider where
+  imports : List String
+  importIndex : Nat
+  implementation : WasmMachineState → WasmMachineState × ControlSignal
+
 inductive WasiPlatform
 
 def wasiPublicEntries (artifact : WasiArtifact) : List Export :=
@@ -542,12 +550,18 @@ instance : Platform WasiPlatform where
   Observation := WasiObservable AnyEvent
   RuntimeContext := WasiHostRuntime
   Import := String
+  Provider := WasiProvider
   BoundaryWorld := Unit
   BoundaryKey := Unit
   BoundaryTarget := WasiPlatform
   boundarySpec := wasiBoundarySpec
   boundarySemantics := wasiBoundarySemantics
   imports := fun artifact => artifact.imports
+  providerProvides := fun provider imported =>
+    provider.imports[provider.importIndex]? = some imported
+  providerLinked := fun artifact provider => provider.imports = artifact.imports
+  runtimeSupports := fun runtime provider => ∀ state,
+    runtime provider.imports provider.importIndex state = provider.implementation state
   boundaryArtifact := id
   artifactConnected := fun artifact =>
     artifact.module.functions.head?.map (fun fn => fn.body) = some artifact.instructions ∧
@@ -563,13 +577,20 @@ instance : Platform WasiPlatform where
 /- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
 def wasiHostCapability : Capability WasiPlatform where
   Context := Unit
-  provides := fun _ => True
-  implementationConnected := fun artifact => Platform.artifactConnected artifact
+  providers :=
+    [{ imports := ["fd_write", "proc_exit"], importIndex := 0,
+       implementation := wasiHostCall ["fd_write", "proc_exit"] 0 },
+     { imports := ["fd_write", "proc_exit"], importIndex := 1,
+       implementation := wasiHostCall ["fd_write", "proc_exit"] 1 }]
   establishes := fun _ _ _ _ => True
 
 def wasiHostCapabilities : CapabilityComposition WasiPlatform where
   root := wasiHostCapability
   realize := fun _ => wasiHostCall
+  realizeSupports := by
+    intro context provider hprovider
+    simp only [wasiHostCapability, List.mem_cons, List.not_mem_nil, or_false] at hprovider
+    rcases hprovider with rfl | rfl <;> intro state <;> rfl
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- WAT rendering remains gated by the same sole proof authority as binary emission. -/

@@ -50,9 +50,31 @@ structure WindowsX86_64Artifact where
   executable : WindowsExecutable
   instructions : List X86_64Instr
 
+/-- One PE import-table provider, identified by both its typed import and exact
+    IAT index.  The index makes runtime support a statement about the actual
+    call target rather than a string-level promise. -/
+structure WindowsX86_64Provider where
+  imported : Win32Function
+  iatIndex : Nat
+
+/-- A nominal Linux library requirement.  It remains present even when target
+    lowering resolves the provider statically. -/
+structure LinuxLibraryRequirement where
+  library : String
+  symbol : String
+  protocolVersion : Nat
+deriving DecidableEq, BEq
+
+/-- One statically resolved Linux provider call target. -/
+structure LinuxX86_64Provider where
+  requirement : LinuxLibraryRequirement
+  instructionIndex : Nat
+  callTarget : Address
+
 structure LinuxX86_64Artifact where
   executable : LinuxExecutable
   instructions : List X86_64Instr
+  imports : List LinuxLibraryRequirement := []
 
 structure LinuxAArch64Artifact where
   executable : AArch64LinuxExecutable
@@ -61,6 +83,17 @@ structure LinuxAArch64Artifact where
 inductive WindowsX86_64 (Event : Type)
 inductive LinuxX86_64 (Event : Type)
 inductive LinuxAArch64 (Event : Type)
+
+def linuxProviderCallTarget (artifact : LinuxX86_64Artifact)
+    (index : Nat) : Option Address :=
+  let indexed := indexInstructions artifact.executable.load.rip artifact.instructions
+  match indexed[index]? with
+  | some (instructionRip, instruction) =>
+      let before : X86_64MachineState :=
+        { artifact.executable.load with rip := instructionRip }
+      some (Gasm.Targets.X86_64.Instructions.X86_64Instruction.step
+        instruction before).rip
+  | none => none
 
 def emptyBoundarySpec : BoundaryContextSpec Unit Unit where
   Args := Unit
@@ -99,12 +132,19 @@ instance {Event : Type} : Platform (WindowsX86_64 Event) where
   Observation := List Event
   RuntimeContext := Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
   Import := Win32Function
+  Provider := WindowsX86_64Provider
   BoundaryWorld := Unit
   BoundaryKey := Unit
   BoundaryTarget := WindowsX86_64 Event
   boundarySpec := emptyBoundarySpec
   boundarySemantics := emptyBoundarySemantics _ X86_64MachineState
   imports := fun artifact => artifact.executable.imports
+  providerProvides := fun provider imported => provider.imported = imported
+  providerLinked := fun artifact provider =>
+    artifact.executable.imports[provider.iatIndex]? = some provider.imported
+  runtimeSupports := fun runtime provider =>
+    ∀ state address, Gasm.Targets.Windows.findIatIndex state address = some provider.iatIndex →
+      (runtime.interceptCall address state).isSome
   boundaryArtifact := fun _ => ()
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
@@ -125,13 +165,20 @@ instance {Event : Type} : Platform (LinuxX86_64 Event) where
   State := X86_64MachineState
   Observation := List Event
   RuntimeContext := Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
-  Import := Unit
+  Import := LinuxLibraryRequirement
+  Provider := LinuxX86_64Provider
   BoundaryWorld := Unit
   BoundaryKey := Unit
   BoundaryTarget := LinuxX86_64 Event
   boundarySpec := emptyBoundarySpec
   boundarySemantics := emptyBoundarySemantics _ X86_64MachineState
-  imports := fun _ => []
+  imports := fun artifact => artifact.imports
+  providerProvides := fun provider imported => provider.requirement = imported
+  providerLinked := fun artifact provider =>
+    provider.requirement ∈ artifact.imports ∧
+      linuxProviderCallTarget artifact provider.instructionIndex = some provider.callTarget
+  runtimeSupports := fun runtime provider =>
+    ∀ state, (runtime.interceptCall provider.callTarget state).isSome
   boundaryArtifact := fun _ => ()
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
@@ -153,12 +200,16 @@ instance {Event : Type} : Platform (LinuxAArch64 Event) where
   Observation := List Event
   RuntimeContext := Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event
   Import := Unit
+  Provider := Empty
   BoundaryWorld := Unit
   BoundaryKey := Unit
   BoundaryTarget := LinuxAArch64 Event
   boundarySpec := emptyBoundarySpec
   boundarySemantics := emptyBoundarySemantics _ AArch64MachineState
   imports := fun _ => []
+  providerProvides := fun provider => nomatch provider
+  providerLinked := fun _ provider => nomatch provider
+  runtimeSupports := fun _ provider => nomatch provider
   boundaryArtifact := fun _ => ()
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
@@ -181,8 +232,7 @@ def windowsHostCapability (Event : Type)
     [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
     Capability (WindowsX86_64 Event) where
   Context := Unit
-  provides := fun _ => True
-  implementationConnected := fun artifact => Platform.artifactConnected artifact
+  providers := []
   establishes := fun _ _ _ _ => True
 
 def windowsHostCapabilities (Event : Type)
@@ -192,6 +242,7 @@ def windowsHostCapabilities (Event : Type)
   realize := fun _ => by
     change Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
     exact runtime
+  realizeSupports := by simp [windowsHostCapability]
 
 def linuxHostCapabilities (Event : Type)
     [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
@@ -200,6 +251,7 @@ def linuxHostCapabilities (Event : Type)
   realize := fun _ => by
     change Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
     exact runtime
+  realizeSupports := by simp [Capability.empty]
 
 def aarch64LinuxHostCapabilities (Event : Type)
     [runtime : Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event] :
@@ -208,6 +260,7 @@ def aarch64LinuxHostCapabilities (Event : Type)
   realize := fun _ => by
     change Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event
     exact runtime
+  realizeSupports := by simp [Capability.empty]
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- A verified library routine remains target-independent. -/
