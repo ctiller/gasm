@@ -175,7 +175,7 @@ searching other files' `after:` lists, or use `TC13`'s checker once it exists.
 - [ ] G8 GPU/PCIe cost models + calibration → `docs/tasks/G8-gpu-pcie-cost-models.md` — after: G7, F2
 - [ ] G9 Spike 7 design: windowed swapchain, multi-loop reactive contracts → `docs/tasks/G9-spike7-design.md` — after: G7, PA7
 
-- [ ] F1 RDTSC hardware harness (wsc-technique port; containment + rank criterion) → `docs/tasks/F1-rdtsc-harness.md` — after: TC4
+- [~] F1 RDTSC hardware harness (wsc-technique port; containment + rank criterion) → `docs/tasks/F1-rdtsc-harness.md` — after: TC4
 - [~] F2 Calibration-data governance (MODEL_DEBT E5 — the third reference class) → `docs/tasks/F2-calibration-data-governance.md` — after: —
 - [ ] F3 Staged model calibration vs silicon (uop/latency, dependency chains, branch model, hierarchy) → `docs/tasks/F3-staged-model-calibration.md` — after: F1, F2
 - [ ] F4 Parametric cost functions (loop annotations to closed-form polynomials on contracts) → `docs/tasks/F4-parametric-cost-functions.md` — after: F3, PA2
@@ -189,6 +189,12 @@ searching other files' `after:` lists, or use `TC13`'s checker once it exists.
 - [x] B7 Enforce WebAssembly trap semantics on out-of-bounds memory access and validate memory limits → `docs/tasks/B7-wasm-oob-trap-and-limits.md` — after: TC2
 
 - [ ] MD1 Model/spec debt intake queue → `docs/tasks/MD1-model-spec-debt-intake.md` — after: —
+
+- [x] MEM-COST X86_64Memory closure-chain cost curve — independent measurement and carrier-change assessment → `docs/tasks/MEM-closure-cost-curve-measurements.md` — after: —
+
+- [x] TRUST-F1 Obstruction census for the 18 never-measured grandfathered allowlist entries → `docs/tasks/TRUST-F1-obstruction-census.md` — after: —
+
+- [x] TRUST-FINDINGS Trust session findings index — measured obstructions, propagation limits, and the proxy-metric finding → `docs/tasks/TRUST-SESSION-FINDINGS.md` — after: —
 
 ## The four BARs
 
