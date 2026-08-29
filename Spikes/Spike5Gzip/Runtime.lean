@@ -143,7 +143,7 @@ def windowsStreamProviders (direction : CodecDirection) :
     List WindowsX86_64Provider :=
   (streamWindowsImports direction).zipIdx.map fun (imported, index) =>
     { protocol := nativeProviderProtocol direction index
-      imported, iatIndex := index }
+      imported, importIndex := index, iatIndex := index }
 
 def linuxCallDisplacements : List Int32 := [0x10000, 0x20000, 0x30000, 0x40000]
 

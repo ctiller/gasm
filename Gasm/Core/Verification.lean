@@ -50,12 +50,14 @@ structure WindowsX86_64Artifact where
   executable : WindowsExecutable
   instructions : List X86_64Instr
 
-/-- One PE import-table provider, identified by both its typed import and exact
-    IAT index.  The index makes runtime support a statement about the actual
-    call target rather than a string-level promise. -/
+/-- One PE import-table provider. `importIndex` identifies the typed entry in
+    the compact artifact manifest; `iatIndex` identifies its physical thunk
+    after per-DLL terminator slots are inserted. Keeping both prevents a
+    multi-DLL image from confusing logical import order with physical layout. -/
 structure WindowsX86_64Provider where
   protocol : ProviderProtocolKey
   imported : Win32Function
+  importIndex : Nat
   iatIndex : Nat
 
 /-- A nominal Linux library requirement.  It remains present even when target
@@ -143,7 +145,13 @@ instance {Event : Type} : Platform (WindowsX86_64 Event) where
   imports := fun artifact => artifact.executable.imports
   providerProvides := fun provider imported => provider.imported = imported
   providerLinked := fun artifact provider =>
-    artifact.executable.imports[provider.iatIndex]? = some provider.imported
+    artifact.executable.imports[provider.importIndex]? = some provider.imported ∧
+      let executable := artifact.executable
+      let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+      let iatBase := executable.imageBase + layout.idataRva.toUInt64
+      match (executable.iatFunctionSlots layout.idataRva)[provider.importIndex]? with
+      | some address => ((address - iatBase) / 8).toNat = provider.iatIndex
+      | none => False
   runtimeSupports := fun runtime provider =>
     ∀ state address, Gasm.Targets.Windows.findIatIndex state address = some provider.iatIndex →
       (runtime.interceptCall address state).isSome
@@ -229,12 +237,14 @@ instance {Event : Type} : Platform (LinuxAArch64 Event) where
   emit := fun artifact => .ok artifact.executable.emit
 
 /- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
-def windowsProvider (imported : Win32Function) (iatIndex : Nat) : WindowsX86_64Provider where
+def windowsProvider (imported : Win32Function) (importIndex iatIndex : Nat) :
+    WindowsX86_64Provider where
   protocol :=
     { protocolNamespace := imported.moduleName
       operation := imported.symbolName
       version := 0 }
   imported := imported
+  importIndex := importIndex
   iatIndex := iatIndex
 
 /-- Windows host services form an explicit typed capability row. Provider
