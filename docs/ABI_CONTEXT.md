@@ -57,8 +57,10 @@ fatal aborts suspend, transfer, discharge, or invalidate different resources.
 A published context has no register, argument number, TLS index, or Wasm table index. Strings may be
 diagnostic labels but never establish identity, compatibility, or authority.
 
-`BoundaryContextSpec World Key` makes the `(World, Key)` pair select one canonical contract with
-associated argument, binding, result, outcome, and obligation-fragment types. Rows contain nominal
+`BoundaryContextSpec World Key` is a dependent family: each value `key : Key` selects one canonical
+contract and its own argument, binding, result, outcome, and obligation-fragment types. This is what
+allows one artifact to publish heterogeneous symbols—for example a unit `_start` beside an
+`i64 → i64` library function—without widening either contract to a tagged universal payload. Rows contain nominal
 keys rather than freely constructed predicate-bearing records. The admitted row implementation must
 enforce instance coherence: two different contracts cannot silently inhabit the same nominal key.
 Protocol evolution creates a new key.
@@ -78,12 +80,12 @@ realizations. Allocation of either mechanism is fallible and belongs to the outc
 A context contract is dependent on arguments, concrete results, and semantic outcomes:
 
 ```text
-requires(args, binding, beforeWorld)
-transitions(args, binding, result, outcome, beforeWorld, afterWorld)
+requires(key, args, binding, beforeWorld)
+transitions(key, args, binding, result, outcome, beforeWorld, afterWorld)
 ```
 
-`requiredObligations(args, binding)` and
-`emittedObligations(args, binding, result, outcome)` expose caller-facing obligation fragments.
+`requiredObligations(key, args, binding)` and
+`emittedObligations(key, args, binding, result, outcome)` expose caller-facing obligation fragments.
 They are not persistent membership predicates and do not independently authorize use or
 duplication. The transition remains the authoritative account of obligations and authority that
 are preserved, discharged, transferred, created, restricted, poisoned, or retained in a

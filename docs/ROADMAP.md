@@ -218,7 +218,9 @@ end-to-end validation vehicle in `docs/SPIKES/SPIKE8_MULTITHREADING.md`.
 * **Trust-repair exit gate:** The build is green, allowlist debt is removed, every implemented spike
   has one universal `VerifiedProgram`, and those proofs are factored as reference examples of the
   general certificate-composition law. Reusable artifact, export/link, provider/runtime, entry,
-  admissibility, ABI-context, and behavior certificates live at their owning layers; spike modules
-  prove only applicability-derived local deltas. A monolithic or target-duplicated proof does not
-  satisfy this milestone even if it typechecks.
+  admissibility, ABI-context, typed-CFG, and behavior certificates live at their owning layers;
+  spike modules prove only applicability-derived local deltas. Every reachable direct or conditional
+  jump establishes its target block contract and ghost world; indirect jumps additionally carry a
+  closed-set resolution proof; one generic CFG theorem composes those edge proofs. A monolithic,
+  target-duplicated, or untyped-label proof does not satisfy this milestone even if it typechecks.
 * **Task Automation:** Future implementation of dependency tooling for work sequencing.
