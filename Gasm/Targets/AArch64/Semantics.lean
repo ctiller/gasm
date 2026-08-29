@@ -165,6 +165,42 @@ def runAArch64Trace {Event : Type} [ExternalCallInterceptor AArch64 Event]
     (instructions : List AnyAArch64Instruction) (s : AArch64MachineState) (fuel : Nat := 50000) : List Event :=
   runProgramTraceWithLoops s.pc instructions fuel s
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Fault- and fuel-honest AArch64 execution outcome used by platform admissibility. -/
+inductive AArch64RunOutcome (Event : Type) where
+  | completed (state : AArch64MachineState) (events : List Event)
+  | faulted (state : AArch64MachineState) (events : List Event)
+  | fuelExhausted (state : AArch64MachineState) (events : List Event)
+
+def runAArch64Outcome {Event : Type} [interceptor : ExternalCallInterceptor AArch64 Event]
+    (basePc : UInt64) (instructions : List AnyAArch64Instruction) (fuel : Nat)
+    (initial : AArch64MachineState) : AArch64RunOutcome Event :=
+  let indexed := indexInstructions basePc instructions
+  let rec loop (fuel : Nat) (state : AArch64MachineState) (eventsRev : List Event) :
+      AArch64RunOutcome Event :=
+    match fuel with
+    | 0 => .fuelExhausted state eventsRev.reverse
+    | fuel + 1 =>
+      match instructionAtPcIndexed indexed state.pc with
+      | none => .completed state eventsRev.reverse
+      | some instr =>
+        let stepped := AArch64Instruction.step instr state
+        match interceptor.interceptCall stepped.pc stepped with
+        | some (hooked, event) =>
+          let eventsRev' := match event with | some emitted => emitted :: eventsRev | none => eventsRev
+          if hooked.fault.isSome then .faulted hooked eventsRev'.reverse
+          else if hooked.terminated then .completed hooked eventsRev'.reverse
+          else loop fuel hooked eventsRev'
+        | none =>
+          if stepped.fault.isSome then .faulted stepped eventsRev.reverse
+          else if stepped.terminated then .completed stepped eventsRev.reverse
+          else loop fuel stepped eventsRev
+  loop fuel initial []
+
+def AArch64RunOutcome.isAdmissible : AArch64RunOutcome Event → Prop
+  | .completed _ _ => True
+  | .faulted _ _ | .fuelExhausted _ _ => False
+
 /- REF: docs/TARGETS/ARM64.md#machine-state -/
 /-- Invokes an AArch64 subroutine with arguments and returns the 64-bit return value in X0. -/
 def callSubroutine (instructions : List AnyAArch64Instruction) (args : List UInt64) (fuel : Nat := 1000) (entryPc : UInt64 := 0x400000) : UInt64 :=

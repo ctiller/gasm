@@ -117,9 +117,8 @@ instance {Event : Type} [Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Ev
     { state with incomingRequests := environment.incomingRequests }
   run := fun artifact state => runAArch64Trace artifact.instructions state
   admissible := fun artifact state =>
-    let final := Gasm.Targets.AArch64.runProgramWithLoops
-      state.pc artifact.instructions 50000 state
-    final.fault = none
+    (Gasm.Targets.AArch64.runAArch64Outcome (Event := Event)
+      state.pc artifact.instructions 50000 state).isAdmissible
   emit := fun artifact => .ok artifact.executable.emit
 
 /- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
