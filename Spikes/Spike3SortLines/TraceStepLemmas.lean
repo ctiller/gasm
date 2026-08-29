@@ -77,7 +77,7 @@ theorem runProgramTraceWithLoops_step_silent {Event : Type} [interceptor : Exter
       runProgramTraceWithLoops (Event := Event) base instrs fuel (X86_64Instruction.step instr s) := by
   have hfetch' : instructionAtRipIndexed (indexInstructions base instrs) s.rip = some instr := by
     rw [instructionAtRipIndexed_eq_instructionAtRip]; exact hfetch
-  simp only [runProgramTraceWithLoops, runProgramTraceWithLoops.loop, hfetch', hnone, hnf,
+  simp only [runProgramTraceWithLoops, runProgramTraceLoop, hfetch', hnone, hnf,
     Bool.false_eq_true, if_false]
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
@@ -97,7 +97,7 @@ theorem runProgramTraceWithLoops_step_hooked_silent {Event : Type}
       runProgramTraceWithLoops (Event := Event) base instrs fuel s_hooked := by
   have hfetch' : instructionAtRipIndexed (indexInstructions base instrs) s.rip = some instr := by
     rw [instructionAtRipIndexed_eq_instructionAtRip]; exact hfetch
-  simp only [runProgramTraceWithLoops, runProgramTraceWithLoops.loop, hfetch', hhook, hnf,
+  simp only [runProgramTraceWithLoops, runProgramTraceLoop, hfetch', hhook, hnf,
     Bool.false_eq_true, if_false]
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
@@ -115,7 +115,7 @@ theorem runProgramTraceWithLoops_step_event {Event : Type} [interceptor : Extern
       evt :: runProgramTraceWithLoops (Event := Event) base instrs fuel s_hooked := by
   have hfetch' : instructionAtRipIndexed (indexInstructions base instrs) s.rip = some instr := by
     rw [instructionAtRipIndexed_eq_instructionAtRip]; exact hfetch
-  simp only [runProgramTraceWithLoops, runProgramTraceWithLoops.loop, hfetch', hhook, hnf,
+  simp only [runProgramTraceWithLoops, runProgramTraceLoop, hfetch', hhook, hnf,
     Bool.false_eq_true, if_false]
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
@@ -132,6 +132,6 @@ theorem runProgramTraceWithLoops_stuck {Event : Type} [interceptor : ExternalCal
     rw [instructionAtRipIndexed_eq_instructionAtRip]; exact hstuck
   cases fuel with
   | zero => rfl
-  | succ f => simp only [runProgramTraceWithLoops, runProgramTraceWithLoops.loop, hstuck']
+  | succ f => simp only [runProgramTraceWithLoops, runProgramTraceLoop, hstuck']
 
 end Spikes.Spike3SortLines
