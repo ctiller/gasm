@@ -18,6 +18,7 @@ import Gasm.Effects.Console
 import Gasm.Effects.Inject
 import Gasm.Effects.Network
 import Gasm.Effects.Process
+import Gasm.Core.Verification
 import Gasm.Targets.Linux.Syscall
 import Gasm.Targets.X86_64.Instructions.Syscall
 import Gasm.Targets.Windows.Win32API
@@ -30,6 +31,8 @@ claiming this finite resource capability receives a fallible virtual-memory prov
 namespace Spikes.Spike3SortLines
 
 open Gasm.Core
+open Gasm.Core.Platform
+open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
@@ -116,6 +119,33 @@ def spike3LinuxRuntime (Event : Type) [Inject ConsoleEvent Event] [Inject Proces
 def spike3WindowsRuntime (Event : Type) [Inject ConsoleEvent Event] [Inject ProcessEvent Event]
     [Inject NetEvent Event] (grant : Spike3NativeArenaGrant) : ExternalCallInterceptor X86_64 Event where
   interceptCall := spike3WindowsCallIntercept grant
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- The local Linux resource capability.  It has no providers because its effect is to select the
+    grant-indexed syscall runtime, not to claim a fictitious import.  Consumers that do not select
+    this composition continue using the ordinary Linux runtime and carry no arena premise. -/
+def spike3LinuxArenaCapability (Event : Type) : Capability (LinuxX86_64 Event) where
+  Context := Spike3NativeArenaGrant
+  providers := []
+  establishes := fun _ _ _ _ => True
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Capability composition realizing a Linux Spike 3 finite grant as the operational runtime
+    above.  This ties the evidence carried at entry directly to the fallible `mmap` transition. -/
+def spike3LinuxArenaCapabilities (Event : Type) [Inject ConsoleEvent Event] [Inject ProcessEvent Event]
+    [Inject NetEvent Event] : CapabilityComposition (LinuxX86_64 Event) where
+  root := spike3LinuxArenaCapability Event
+  realize := fun _ grant => spike3LinuxRuntime Event grant
+  realizeSupports := by simp [spike3LinuxArenaCapability]
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- The local Win32 resource capability row.  It is deliberately separate from the target's
+    imported-service row: callers compose it with their selected Win32 providers, while this row
+    contributes only the finite arena context consumed by `spike3WindowsRuntime`. -/
+def spike3WindowsArenaCapability (Event : Type) : Capability (WindowsX86_64 Event) where
+  Context := Spike3NativeArenaGrant
+  providers := []
+  establishes := fun _ _ _ _ => True
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- A failed Linux reservation returns null and resumes at the syscall continuation. -/
