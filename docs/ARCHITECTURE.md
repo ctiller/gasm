@@ -84,6 +84,14 @@ closed target-set and resolution certificate. This typed CFG certificate is appl
 reachable code contains internal control flow and is one of the reusable leaves composed into
 whole-program verification.
 
+Macro assemblers and higher-level code generators are proof-producing frontends to this same
+surface, not additional proof authorities. Their reusable lowering theorem maps source constructs
+to typed calls, typed CFG edges, instruction semantics, and artifact-connection certificates; bulk
+generated code then pays only source-level contracts and exceptional lowering deltas. Code paths
+outside a frontend's proved fragment fall back to local certificates. `VerifiedProgram` checks the
+resulting target certificates exactly as it does for hand-authored assembly and never trusts the
+frontend merely because it produced bytes.
+
 ### 2.1 Platform-neutral whole-program boundary
 
 `Gasm.Core.Platform.VerifiedProgram` is the sole whole-program proof authority and the canonical

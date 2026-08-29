@@ -296,6 +296,10 @@ for realistically sized programs. It **is** tractable as a composition:
    routine preservation; loops reuse an invariant at the back-edge instead of expanding paths.
    Indirect control flow additionally proves that the resolved destination belongs to a closed set
    whose member contracts are all satisfied.
+   Proof-producing macro assemblers and compilers reuse this boundary: their lowering theorem emits
+   the same typed edge, call, instruction, and artifact certificates, so bulk code inherits one
+   generic frontend proof and supplies only source contracts plus exceptional-form deltas. They do
+   not become alternate whole-program authorities; `VerifiedProgram` remains the sole final gate.
 4. **Agents write the proof with the code.** The unit of generated work is the triple
    (contract, assembly, proof). Agents iterate against the checker until it accepts;
    humans review contracts, not implementations. This is what makes universal
