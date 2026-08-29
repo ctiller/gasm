@@ -258,7 +258,7 @@ def selectedNonInputLinuxCall (address : Address) (state : X86_64MachineState) :
 
 private theorem sysWriteHook_external_input_frame {Event : Type}
     [Inject ConsoleEvent Event] [Inject NetEvent Event]
-    (state : X86_64MachineState) (stdin : ByteArray) (requests : List String) :
+    (state : X86_64MachineState) (stdin : ByteArray) (requests : List ByteArray) :
     sysWriteHook (Event := Event) (state.withExternalInputs stdin requests) =
       let result := sysWriteHook (Event := Event) state
       (result.1.withExternalInputs stdin requests, result.2) := by
