@@ -115,8 +115,10 @@ def initWasmMemory (segments : List WasmDataSegment) : WasmMemory := Id.run do
   return WasmMem.ofBytes mem
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
-/-- Pure operational host call dispatcher for WASI syscalls. -/
-def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : WasmMachineState × ControlSignal := Id.run do
+/-- Raw operational host-call dispatcher.  The public dispatcher below applies the target-owned
+    external-input boundary around calls that do not consume either input channel. -/
+private def wasiHostCallRaw (imports : List String) (idx : Nat)
+    (s : WasmMachineState) : WasmMachineState × ControlSignal := Id.run do
   let fnName := imports[idx]?
   match fnName with
   | some "fd_read" =>
@@ -256,6 +258,48 @@ def wasiHostCall (imports : List String) (idx : Nat) (s : WasmMachineState) : Wa
 
   | _ =>
     return (s, .next)
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Whether an import is allowed to inspect or consume the two external byte channels. -/
+def wasiImportUsesExternalInputs : Option String → Bool
+  | some "fd_read" | some "sock_accept" | some "sock_recv" => true
+  | _ => false
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Pure operational host call dispatcher for WASI syscalls.  Calls which are not input providers
+    execute against an input-erased view and have the caller's channels restored afterward.  This
+    makes the architectural effect boundary explicit without imposing a whole-interpreter proof on
+    each final artifact. -/
+def wasiHostCall (imports : List String) (idx : Nat)
+    (s : WasmMachineState) : WasmMachineState × ControlSignal :=
+  if wasiImportUsesExternalInputs imports[idx]? then
+    wasiHostCallRaw imports idx s
+  else
+    let result := wasiHostCallRaw imports idx
+      (s.withExternalInputs ByteArray.empty [])
+    (result.1.withExternalInputs s.stdin s.incomingRequests, result.2)
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Every import not designated as an input provider satisfies the external-input frame law. -/
+theorem wasiHostCall_external_input_frame_of_not_uses
+    (imports : List String) (idx : Nat)
+    (huses : wasiImportUsesExternalInputs imports[idx]? = false) :
+    ∀ state stdin requests,
+      wasiHostCall imports idx (state.withExternalInputs stdin requests) =
+        let result := wasiHostCall imports idx state
+        (result.1.withExternalInputs stdin requests, result.2) := by
+  intro state stdin requests
+  simp [wasiHostCall, huses, WasmMachineState.withExternalInputs]
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- The stock output-only WASI runtime is independent of both external byte channels. -/
+theorem wasiHostCall_output_only_external_input_frame :
+    WasmHostPreservesExternalInputFrame (wasiHostCall ["fd_write", "proc_exit"]) := by
+  intro index state stdin requests
+  apply wasiHostCall_external_input_frame_of_not_uses
+  cases index with
+  | zero => rfl
+  | succ index => cases index <;> rfl
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Runs a full instruction sequence under the WASI system model and returns the FULL,
@@ -460,6 +504,70 @@ def WasiRunOutcome.observable : WasiRunOutcome → WasiObservable AnyEvent
   | .fuelExhausted _ => .fuelExhausted
   | .memoryExhausted _ requested available => .memoryExhausted requested available
 
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Replacing only external byte channels cannot change the classified WASI observation. -/
+theorem WasiRunOutcome.ofResult_observable_withExternalInputs
+    (result : WasmRunResult) (stdin : ByteArray) (requests : List ByteArray) :
+    (WasiRunOutcome.ofResult
+      (result.withExternalInputs stdin requests)).observable =
+        (WasiRunOutcome.ofResult result).observable := by
+  cases result with
+  | error state => rfl
+  | ok result =>
+      rcases result with ⟨state, signal⟩
+      cases hresource : state.resourceFailure with
+      | some failure =>
+          cases failure
+          simp [WasmRunResult.withExternalInputs, WasiRunOutcome.ofResult,
+            WasiRunOutcome.observable, WasmMachineState.withExternalInputs, hresource]
+      | none =>
+          cases htrapped : state.trapped with
+          | false =>
+              cases hexit : state.exitCode <;>
+                simp [WasmRunResult.withExternalInputs, WasiRunOutcome.ofResult,
+                  WasiRunOutcome.observable, WasmMachineState.withExternalInputs,
+                  hresource, htrapped, hexit]
+          | true =>
+              simp [WasmRunResult.withExternalInputs, WasiRunOutcome.ofResult,
+                WasiRunOutcome.observable, WasmMachineState.withExternalInputs,
+                hresource, htrapped]
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- A runtime which frames the selected imports produces the same observable result for every
+    external byte stream.  This is the artifact-independent transport theorem used by output-only
+    final programs; their sole closed certificate is proved at the empty environment. -/
+theorem runWasiOutcomeWithHost_observable_external_input_frame
+    (host : WasiHostRuntime) (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (imports : List String) (budget : WasiResourceBudget)
+    (hhost : WasmHostPreservesExternalInputFrame (host imports))
+    (stdin : ByteArray) (requests : List ByteArray) :
+    (runWasiOutcomeWithHost host instrs segments stdin imports requests budget).observable =
+      (runWasiOutcomeWithHost host instrs segments ByteArray.empty imports [] budget).observable := by
+  unfold runWasiOutcomeWithHost
+  dsimp only
+  split
+  · rfl
+  · let base : WasmMachineState := {
+      memory := initWasmMemory segments
+      memMax := some (Nat.min budget.memoryPages 65536).toUInt32
+    }
+    change (WasiRunOutcome.ofResult
+      (evalInstrs budget.fuel instrs
+        (base.withExternalInputs stdin requests) (host imports))).observable = _
+    rw [evalInstrs_external_input_frame (host imports) hhost]
+    exact WasiRunOutcome.ofResult_observable_withExternalInputs _ _ _
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- Stock output-only WASI execution has one observation for the entire `Environment` input
+    domain. -/
+theorem runWasiOutcome_output_only_observable_external_input_frame
+    (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (budget : WasiResourceBudget) (stdin : ByteArray) (requests : List ByteArray) :
+    (runWasiOutcome instrs segments stdin ["fd_write", "proc_exit"] requests budget).observable =
+      (runWasiOutcome instrs segments ByteArray.empty ["fd_write", "proc_exit"] [] budget).observable :=
+  runWasiOutcomeWithHost_observable_external_input_frame wasiHostCall instrs segments
+    ["fd_write", "proc_exit"] budget wasiHostCall_output_only_external_input_frame stdin requests
+
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Runs a full instruction sequence under the WASI system model and returns the observable event
     trace alone -- the historical return shape every existing `Spikes/*/Wasm/Equivalence.lean`
@@ -592,9 +700,12 @@ def wasiHostCapability : Capability WasiPlatform where
      { protocol := .preview1, imports := ["fd_write", "proc_exit"], importIndex := 1 }]
   establishes := fun _ _ _ _ => True
 
+private def realizeWasiHost (_artifact : WasiArtifact) (_context : Unit) : WasiHostRuntime :=
+  wasiHostCall
+
 def wasiHostCapabilities : CapabilityComposition WasiPlatform where
   root := wasiHostCapability
-  realize := fun _ _ => wasiHostCall
+  realize := realizeWasiHost
   realizeSupports := by
     intro context artifact provider hprovider hlinked
     simp only [wasiHostCapability, List.mem_cons, List.not_mem_nil, or_false] at hprovider
