@@ -287,6 +287,15 @@ if it demands a fact on a path where the corresponding feature is absent. Proof 
 permits omitting a necessary boundary fact; it determines where that fact is established and how it
 is reused.
 
+The whole-program API therefore consumes named certificates and has one composition law: derive the
+applicable certificate keys from the selected platform, imports/exports, capabilities, entry kind,
+reachable effects, and advertised guarantees; require one certificate for every key; check that all
+certificates name the same final artifact and compatible boundary indices; then construct
+`VerifiedProgram`. ABI-context realization is one certificate family in that set, not a reason for
+the root program proof to reopen target classification, provider linkage, or library transition
+proofs. A program with no callable context boundary has no such key; a published or reachable
+boundary cannot omit it.
+
 `VerifiedProgram` must carry universal connection proofs for every admitted initial state and
 environment behavior. No legacy constructor, compatibility API, allowlist, axiom, `sorry`, or
 narrowed input domain may bypass them.

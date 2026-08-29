@@ -128,6 +128,12 @@ durable decisions future implementations must preserve:
   set. Unselected profiles and stronger unclaimed properties impose no obligation; selected claims
   bring all transitive safety/platform duties. Generic proofs are reused once, while specialized
   implementations prove only their refinement delta and stronger advertised properties.
+- **Whole-program verification is certificate composition, not a monolithic replay**: the
+  applicability closure yields the required certificate keys; artifact/emission, export/link,
+  provider/runtime, entry, admissibility, ABI-context, and behavioral certificates are proved at
+  their owning reusable layers and indexed by the same final artifact/platform/capability selection.
+  One general composition rule constructs `VerifiedProgram` exactly when every applicable key is
+  present and coherent. Optional unselected features add no key; reachable features cannot evade one.
 - **Bare metal is a first-class two-architecture target**: x86 AP/LAPIC and AArch64
   PSCI-or-spin-table/GIC paths implement the same lifecycle/lock contracts through distinct startup
   and device-order rules. Startup notification alone is not RAM synchronization.

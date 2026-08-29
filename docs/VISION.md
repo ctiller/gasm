@@ -266,7 +266,11 @@ for realistically sized programs. It **is** tractable as a composition:
 3. **Composition rules.** Sequential composition, call, and loop rules assemble routine
    contracts into whole-program theorems. The whole-program equivalence statement
    (`VerifiedProgram`) becomes a *derived theorem*, not an obligation discharged by
-   evaluation.
+   evaluation. Concretely, an applicability closure produces a finite set of certificate keys;
+   reusable artifact/emission, link/export, provider/runtime, entry, admissibility, and behavioral
+   certificates are indexed by the same final artifact and composed by one general rule. A program
+   author proves only missing leaves and local refinement deltas. The root theorem contains no
+   bespoke replay of a certificate already established by an ISA, platform, linker, or library.
 4. **Agents write the proof with the code.** The unit of generated work is the triple
    (contract, assembly, proof). Agents iterate against the checker until it accepts;
    humans review contracts, not implementations. This is what makes universal

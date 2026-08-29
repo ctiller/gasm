@@ -369,10 +369,24 @@ semantic dependency. This proportionality audit never weakens adversarial review
 mechanism: all reachable error, interruption, cancellation, failure and stale-identity paths remain in
 scope, but an unselected mechanism or guarantee does not.
 
+For a `VerifiedProgram`, reviewers MUST reconstruct the certificate composition rather than treating
+the final record as one opaque proof. Check that the applicability closure has exactly the required
+keys; each certificate is owned at the highest reusable layer; all certificates refer to the same
+platform, final artifact, capability composition, and relevant entry/exit relations; and the generic
+composition rule—not handwritten per-program glue—produces emission authority. A monolithic theorem
+that re-proves link, ISA, provider, or library facts is an undue burden finding even when true. A
+certificate with no applicability key is speculative burden; a reachable key without a certificate
+is a soundness gap.
+
 Reviewers MUST include a **Proof Applicability Table**:
 
 | Requested proof / gate | Unsafe behavior, platform rule, or selected claim that triggers it | Reusable base vs. implementation delta | Status (`Required` / `Already discharged` / `Undue burden` / `Missing`) |
 | :--- | :--- | :--- | :--- |
+
+For whole-program changes, append a **VerifiedProgram Composition Table**:
+
+| Applicable certificate key | Owning/reused theorem | Artifact/platform/capability indices | Local delta | Composition status |
+| :--- | :--- | :--- | :--- | :--- |
 
 #### D. Citation Adequacy Audit
 

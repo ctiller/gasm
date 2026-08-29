@@ -83,6 +83,14 @@ establishment, proves target admissibility, and connects the semantic artifact t
 selected for emission. Target-specific `VerifiedWindowsProgram`, `VerifiedLinuxProgram`, and
 `VerifiedWasmProgram` alternatives do not exist.
 
+`VerifiedProgram` is assembled by one general certificate-composition rule. The applicability
+closure determines the required certificate keys; independently proved artifact/emission,
+export/link, provider/runtime, entry-context, target-admissibility, and behavioral-refinement
+certificates must agree on the same platform, final artifact, and capability composition. If every
+applicable key is present and those indices agree, their composition is the whole-program authority.
+Programs do not restate certificate internals, and an unselected optional feature contributes no
+key. Adding a reachable feature extends the required key set instead of weakening an existing proof.
+
 Non-total libraries use `Gasm.Core.VerifiedComponent`: the complete physical public manifest is
 checked, every callable entry has an assume/guarantee `ContextBoundaryRealization` tied to the same
 final artifact, lookup keys are unique, and the target proves the set jointly admissible. Callers
