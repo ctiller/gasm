@@ -247,6 +247,30 @@ An authoring form such as “back five instructions” must resolve immediately 
 instruction-boundary/control-point identity; a raw `Nat` must never authorize entry into a block
 interior. The linker later proves that each encoded displacement resolves to that symbolic target.
 
+### Typed direct-jump linking
+
+`Gasm.Targets.X86_64.CFGLinker` connects the first selected symbolic JMP form to a concrete linked
+text image. `ClosedCFGLayout` is indexed by the existing closed typed CFG and retains exact block
+definitions. It requires aligned, unique starts, non-overlapping half-open encoded ranges, global
+indexed lookup, and inclusion of every emitted instruction boundary; address injectivity alone is
+not a layout certificate. The complete text and every emitted block range must fit inside the same
+non-wrapping `[base, base + encoded span)` interval. A boundary-to-byte extraction law connects each
+modular instruction address to its exact serialized bytes, so below-base truncating subtraction or
+wrapped aliases cannot justify relocation.
+
+`checkedRel32` is explicitly fallible. It rejects zero or violated target-block alignment, next-instruction
+address wrap, and every mathematical displacement outside the signed 32-bit interval before
+conversion. These are link-time errors, not runtime faults or outcomes. A selected direct symbolic
+JMP alone adds `DirectJumpRelocation`: exact target-definition membership, the checked displacement,
+exact five emitted bytes, production decoding and source/target lookup, and the concrete destination.
+`DirectJumpRelocation.connect` carries the existing typed edge's destination contract and ghost-world
+transfer into a layout-indexed connection which retains the source-terminator placement,
+target-definition start, and exact `bytes = text.bytesAt sourceAddress 5` identities. It proves
+neither whole-program termination nor platform
+admissibility, and creates no artifact or emission authority. Straight-line and other unselected
+forms acquire no relocation premise. After differential relayout, the CFG and edge proofs remain
+valid; only layout and relocation evidence is regenerated.
+
 ## Differential certificate transport
 
 Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,
