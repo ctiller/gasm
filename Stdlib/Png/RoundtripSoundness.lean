@@ -1546,4 +1546,43 @@ theorem readPngStream_layout (img : ImageRGBA8) (ftOpt : Option FilterType)
       (y + 1) * (img.width * 4 + 1) from by rw [Nat.succ_mul]; omega]
     rfl
 
+
+/- REF: docs/STDLIB_PNG.md#32-color-types-bit-depth-matrix -/
+/-- The unpack fold re-assembles the pixel prefix row by row. -/
+theorem unpack_fold (img : ImageRGBA8) : ∀ n,
+    List.foldl (fun (out : ByteArray) (y : Nat) =>
+      out ++ img.pixels.extract (y * (img.width * 4)) ((y + 1) * (img.width * 4)))
+      ByteArray.empty (List.range' 0 n) = pixelsUpTo img n := by
+  intro n
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    rw [List.range'_1_concat, List.foldl_append, ih]
+    simp only [Nat.zero_add, List.foldl_cons, List.foldl_nil]
+    rfl
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#32-color-types-bit-depth-matrix -/
+/-- **Unpack identity**: RGBA8 scanlines unpack to themselves. -/
+theorem unpack_rgba (img : ImageRGBA8)
+    (hpix : img.pixels.size = img.width * img.height * 4) :
+    unpackScanlinesToRGBA8 (rgbaHeader img) img.pixels #[] none = .ok img.pixels := by
+  unfold unpackScanlinesToRGBA8
+  simp only [Bind.bind, Except.bind, pure, Except.pure]
+  rw [scanlineByteLength_rgba]
+  simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
+    Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one]
+  rw [show (rgbaHeader img).height = img.height from rfl]
+  rw [forIn_yield_eq_foldl_except _
+    (fun (out : ByteArray) (y : Nat) =>
+      out ++ img.pixels.extract (y * (img.width * 4)) ((y + 1) * (img.width * 4)))
+    ?hB]
+  · rw [unpack_fold img img.height, pixelsUpTo_full img hpix]
+  case hB =>
+    intro a s
+    rw [if_pos (show ((rgbaHeader img).bitDepth == 8) = true from rfl)]
+    dsimp only [rgbaHeader]
+    rw [byteArray_forIn_push_except]
+
+
 end Stdlib.Png
