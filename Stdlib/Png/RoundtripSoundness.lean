@@ -869,4 +869,220 @@ theorem encodeImageRGBA8_eq (img : ImageRGBA8) (ftOpt : Option FilterType) :
   rw [endPng_eq _ rfl]
   rfl
 
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- Bytes of the second segment in a four-segment layout. -/
+theorem layout_get!_A (sig A B C : ByteArray) (j : Nat) (hj : j < A.size) :
+    (((sig ++ A) ++ B) ++ C).get! (sig.size + j) = A.get! j := by
+  rw [ByteArray.get!_append_left ((sig ++ A) ++ B) C _
+      (by simp only [ByteArray.size_append]; omega),
+    ByteArray.get!_append_left (sig ++ A) B _
+      (by simp only [ByteArray.size_append]; omega),
+    ByteArray.get!_append_right sig A _ (by omega) (by omega),
+    Nat.add_sub_cancel_left]
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- Bytes of the third segment in a four-segment layout. -/
+theorem layout_get!_B (sig A B C : ByteArray) (j : Nat) (hj : j < B.size) :
+    (((sig ++ A) ++ B) ++ C).get! (sig.size + A.size + j) = B.get! j := by
+  rw [ByteArray.get!_append_left ((sig ++ A) ++ B) C _
+      (by simp only [ByteArray.size_append]; omega),
+    ByteArray.get!_append_right (sig ++ A) B _
+      (by simp only [ByteArray.size_append]; omega)
+      (by simp only [ByteArray.size_append]; omega),
+    ByteArray.size_append,
+    show sig.size + A.size + j - (sig.size + A.size) = j from by omega]
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- Bytes of the fourth segment in a four-segment layout. -/
+theorem layout_get!_C (sig A B C : ByteArray) (j : Nat) (hj : j < C.size) :
+    (((sig ++ A) ++ B) ++ C).get! (sig.size + A.size + B.size + j) = C.get! j := by
+  rw [ByteArray.get!_append_right ((sig ++ A) ++ B) C _
+      (by simp only [ByteArray.size_append]; omega)
+      (by simp only [ByteArray.size_append]; omega),
+    ByteArray.size_append, ByteArray.size_append,
+    show sig.size + A.size + B.size + j - (sig.size + A.size + B.size) = j from by omega]
+
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- The exact byte layout `endPng`/`encodeImageRGBA8` emit. -/
+def pngLayout (hdr : PngHeader) (zc : ByteArray) : ByteArray :=
+  ((pngSignature ++ mkChunk "IHDR" (ihdrPayload hdr)) ++ mkChunk "IDAT" zc) ++
+    mkChunk "IEND" ByteArray.empty
+
+/- REF: docs/STDLIB_PNG.md#21-pngscanlinesink-typeclass -/
+/-- **Chunk-scan inversion**: scanning the writer's three-chunk layout recovers the
+    header and the concatenated IDAT payload with no palette and no transparency. -/
+theorem parsePngChunks_layout (hdr : PngHeader) (zc : ByteArray)
+    (hbd : hdr.bitDepth = 8) (hct : hdr.colorType = .truecolorRgba)
+    (hcm : hdr.compressionMethod = 0) (hfm : hdr.filterMethod = 0)
+    (him : hdr.interlaceMethod = 0)
+    (hw : 0 < hdr.width) (hh : 0 < hdr.height)
+    (hw32 : hdr.width < 2 ^ 32) (hh32 : hdr.height < 2 ^ 32)
+    (hzc32 : zc.size < 2 ^ 32) :
+    parsePngChunks (pngLayout hdr zc) 8 none #[] none ByteArray.empty false =
+      .ok (some hdr, #[], none, zc) := by
+  have idb : ∀ {α β : Type} (x : Id α) (f : α → Id β), (x >>= f) = f x := fun _ _ => rfl
+  have hpsz : (ihdrPayload hdr).size = 13 := rfl
+  have hsig8 : pngSignature.size = 8 := rfl
+  have hA25 : (mkChunk "IHDR" (ihdrPayload hdr)).size = 25 := by
+    rw [(mkChunk_spec "IHDR" (ihdrPayload hdr) rfl).1, hpsz]
+  have hBsz : (mkChunk "IDAT" zc).size = zc.size + 12 :=
+    (mkChunk_spec "IDAT" zc rfl).1
+  have hC12 : (mkChunk "IEND" ByteArray.empty).size = 12 :=
+    (mkChunk_spec "IEND" ByteArray.empty rfl).1
+  have hSsz : (pngLayout hdr zc).size = zc.size + 57 := by
+    unfold pngLayout
+    simp only [ByteArray.size_append, hsig8, hA25, hBsz, hC12]
+    omega
+  -- pointwise byte facts for the three chunks
+  have hbytesA : ∀ j, j < (ihdrPayload hdr).size + 12 →
+      (pngLayout hdr zc).get! (8 + j) = (mkChunk "IHDR" (ihdrPayload hdr)).get! j := by
+    intro j hj
+    unfold pngLayout
+    have h := layout_get!_A pngSignature (mkChunk "IHDR" (ihdrPayload hdr))
+      (mkChunk "IDAT" zc) (mkChunk "IEND" ByteArray.empty) j
+      (by rw [hA25]; rw [hpsz] at hj; omega)
+    rw [hsig8] at h
+    exact h
+  have hbytesB : ∀ j, j < zc.size + 12 →
+      (pngLayout hdr zc).get! (33 + j) = (mkChunk "IDAT" zc).get! j := by
+    intro j hj
+    unfold pngLayout
+    have h := layout_get!_B pngSignature (mkChunk "IHDR" (ihdrPayload hdr))
+      (mkChunk "IDAT" zc) (mkChunk "IEND" ByteArray.empty) j (by rw [hBsz]; omega)
+    rw [hsig8, hA25] at h
+    rw [show (33 : Nat) + j = 8 + 25 + j from by omega]
+    exact h
+  have hbytesC : ∀ j, j < ByteArray.empty.size + 12 →
+      (pngLayout hdr zc).get! (45 + zc.size + j) =
+        (mkChunk "IEND" ByteArray.empty).get! j := by
+    intro j hj
+    unfold pngLayout
+    have h := layout_get!_C pngSignature (mkChunk "IHDR" (ihdrPayload hdr))
+      (mkChunk "IDAT" zc) (mkChunk "IEND" ByteArray.empty) j
+      (by rw [hC12]; simp only [ByteArray.size_empty] at hj; omega)
+    rw [hsig8, hA25, hBsz] at h
+    rw [show (45 : Nat) + zc.size + j = 8 + 25 + (zc.size + 12) + j from by omega]
+    exact h
+  -- the three parseChunk inversions
+  have hinvA := parseChunk_inv (pngLayout hdr zc) 8 "IHDR" (ihdrPayload hdr) rfl rfl
+    (by rw [hpsz]; omega) (by rw [hSsz, hpsz]; omega) hbytesA
+  rw [hpsz, show (8 : Nat) + (13 + 12) = 33 from by omega] at hinvA
+  have hinvB := parseChunk_inv (pngLayout hdr zc) 33 "IDAT" zc rfl rfl hzc32
+    (by rw [hSsz]; omega) hbytesB
+  rw [show (33 : Nat) + (zc.size + 12) = 45 + zc.size from by omega] at hinvB
+  have hinvC := parseChunk_inv (pngLayout hdr zc) (45 + zc.size) "IEND" ByteArray.empty
+    rfl rfl (by decide) (by rw [hSsz]; simp only [ByteArray.size_empty]; omega) hbytesC
+  rw [show ByteArray.empty.size = 0 from rfl,
+    show (45 : Nat) + zc.size + (0 + 12) = 57 + zc.size from by omega] at hinvC
+  have hIhdr := parseIhdr_ihdrPayload hdr hbd hct hcm hfm him hw hh hw32 hh32
+  -- step 1: IHDR chunk at position 8
+  rw [parsePngChunks.eq_def]
+  rw [if_pos (show (decide (8 < (pngLayout hdr zc).size) && !false) = true from by
+    rw [hSsz]; simp only [Bool.not_false, Bool.and_true, decide_eq_true_eq]; omega)]
+  split
+  case h_1 err heq => rw [hinvA] at heq; exact absurd heq (by simp)
+  case h_2 chunk nextPos heq =>
+  rw [hinvA] at heq
+  simp only [Except.ok.injEq, Prod.mk.injEq] at heq
+  obtain ⟨hchunk, hnext⟩ := heq
+  subst hchunk
+  subst hnext
+  rw [if_pos (show ((PngChunk.mk "IHDR" (ihdrPayload hdr)
+    (Stdlib.Zlib.crc32 (("IHDR" : String).toUTF8 ++ ihdrPayload hdr))).chunkType == "IHDR") =
+    true from rfl)]
+  rw [show (PngChunk.mk "IHDR" (ihdrPayload hdr)
+    (Stdlib.Zlib.crc32 (("IHDR" : String).toUTF8 ++ ihdrPayload hdr))).data =
+    ihdrPayload hdr from rfl]
+  rw [hIhdr]
+  show parsePngChunks (pngLayout hdr zc) 33 (some hdr) #[] none ByteArray.empty false = _
+  -- step 2: IDAT chunk at position 33
+  rw [parsePngChunks.eq_def]
+  rw [if_pos (show (decide (33 < (pngLayout hdr zc).size) && !false) = true from by
+    rw [hSsz]; simp only [Bool.not_false, Bool.and_true, decide_eq_true_eq]; omega)]
+  split
+  case h_1 err heq => rw [hinvB] at heq; exact absurd heq (by simp)
+  case h_2 chunk nextPos heq =>
+  rw [hinvB] at heq
+  simp only [Except.ok.injEq, Prod.mk.injEq] at heq
+  obtain ⟨hchunk, hnext⟩ := heq
+  subst hchunk
+  subst hnext
+  rw [if_neg (show ¬ ((PngChunk.mk "IDAT" zc
+      (Stdlib.Zlib.crc32 (("IDAT" : String).toUTF8 ++ zc))).chunkType == "IHDR") = true
+      from by
+        rw [show ((PngChunk.mk "IDAT" zc
+          (Stdlib.Zlib.crc32 (("IDAT" : String).toUTF8 ++ zc))).chunkType == "IHDR") = false
+          from rfl]
+        simp)]
+  rw [if_neg (show ¬ ((PngChunk.mk "IDAT" zc
+      (Stdlib.Zlib.crc32 (("IDAT" : String).toUTF8 ++ zc))).chunkType == "PLTE") = true
+      from by
+        rw [show ((PngChunk.mk "IDAT" zc
+          (Stdlib.Zlib.crc32 (("IDAT" : String).toUTF8 ++ zc))).chunkType == "PLTE") = false
+          from rfl]
+        simp)]
+  rw [if_neg (show ¬ ((PngChunk.mk "IDAT" zc
+      (Stdlib.Zlib.crc32 (("IDAT" : String).toUTF8 ++ zc))).chunkType == "tRNS") = true
+      from by
+        rw [show ((PngChunk.mk "IDAT" zc
+          (Stdlib.Zlib.crc32 (("IDAT" : String).toUTF8 ++ zc))).chunkType == "tRNS") = false
+          from rfl]
+        simp)]
+  rw [if_pos (show ((PngChunk.mk "IDAT" zc
+      (Stdlib.Zlib.crc32 (("IDAT" : String).toUTF8 ++ zc))).chunkType == "IDAT") = true
+    from rfl)]
+  simp only [Id.run, idb]
+  rw [byteArray_forIn_push_eq, ByteArray.empty_append]
+  show parsePngChunks (pngLayout hdr zc) (45 + zc.size) (some hdr) #[] none zc false = _
+  -- step 3: IEND chunk at position 45 + zc.size
+  rw [parsePngChunks.eq_def]
+  rw [if_pos (show (decide (45 + zc.size < (pngLayout hdr zc).size) && !false) = true from by
+    rw [hSsz]; simp only [Bool.not_false, Bool.and_true, decide_eq_true_eq]; omega)]
+  split
+  case h_1 err heq => rw [hinvC] at heq; exact absurd heq (by simp)
+  case h_2 chunk nextPos heq =>
+  rw [hinvC] at heq
+  simp only [Except.ok.injEq, Prod.mk.injEq] at heq
+  obtain ⟨hchunk, hnext⟩ := heq
+  subst hchunk
+  subst hnext
+  rw [if_neg (show ¬ ((PngChunk.mk "IEND" ByteArray.empty
+      (Stdlib.Zlib.crc32 (("IEND" : String).toUTF8 ++ ByteArray.empty))).chunkType == "IHDR") = true
+      from by
+        rw [show ((PngChunk.mk "IEND" ByteArray.empty
+          (Stdlib.Zlib.crc32 (("IEND" : String).toUTF8 ++ ByteArray.empty))).chunkType == "IHDR") = false
+          from rfl]
+        simp)]
+  rw [if_neg (show ¬ ((PngChunk.mk "IEND" ByteArray.empty
+      (Stdlib.Zlib.crc32 (("IEND" : String).toUTF8 ++ ByteArray.empty))).chunkType == "PLTE") = true
+      from by
+        rw [show ((PngChunk.mk "IEND" ByteArray.empty
+          (Stdlib.Zlib.crc32 (("IEND" : String).toUTF8 ++ ByteArray.empty))).chunkType == "PLTE") = false
+          from rfl]
+        simp)]
+  rw [if_neg (show ¬ ((PngChunk.mk "IEND" ByteArray.empty
+      (Stdlib.Zlib.crc32 (("IEND" : String).toUTF8 ++ ByteArray.empty))).chunkType == "tRNS") = true
+      from by
+        rw [show ((PngChunk.mk "IEND" ByteArray.empty
+          (Stdlib.Zlib.crc32 (("IEND" : String).toUTF8 ++ ByteArray.empty))).chunkType == "tRNS") = false
+          from rfl]
+        simp)]
+  rw [if_neg (show ¬ ((PngChunk.mk "IEND" ByteArray.empty
+      (Stdlib.Zlib.crc32 (("IEND" : String).toUTF8 ++ ByteArray.empty))).chunkType == "IDAT") = true
+      from by
+        rw [show ((PngChunk.mk "IEND" ByteArray.empty
+          (Stdlib.Zlib.crc32 (("IEND" : String).toUTF8 ++ ByteArray.empty))).chunkType == "IDAT") = false
+          from rfl]
+        simp)]
+  rw [if_pos (show ((PngChunk.mk "IEND" ByteArray.empty
+      (Stdlib.Zlib.crc32 (("IEND" : String).toUTF8 ++ ByteArray.empty))).chunkType == "IEND") =
+      true from rfl)]
+  -- step 4: past the IEND chunk, seenIend = true terminates the scan
+  rw [parsePngChunks.eq_def]
+  rw [if_neg (show ¬ (decide (57 + zc.size < (pngLayout hdr zc).size) && !true) = true from by
+    simp)]
+
 end Stdlib.Png
