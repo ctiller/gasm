@@ -75,12 +75,13 @@ graph LR
 `Gasm.Core.Platform.VerifiedProgram` is the only whole-program emission authority. Its platform
 parameter selects the ISA and host execution semantics; its `CapabilityComposition` argument
 selects library/runtime context independently. The contract quantifies over the one canonical
-`Environment`, carries the published export list, proves typed import coverage and root-context
+`Environment`, carries an exact target-checked `VerifiedExportSet`, proves typed import coverage and root-context
 establishment, proves target admissibility, and connects the semantic artifact to the exact bytes
 selected for emission. Target-specific `VerifiedWindowsProgram`, `VerifiedLinuxProgram`, and
 `VerifiedWasmProgram` alternatives do not exist.
 
-Non-total libraries use `Gasm.Core.VerifiedComponent`: every published entry point has an
-assume/guarantee `ContextBoundaryRealization` tied to the same artifact, while callers establish
-the required entry world. This supports shared objects and dynamically loaded Gasm components
-without fabricating a whole-process root theorem.
+Non-total libraries use `Gasm.Core.VerifiedComponent`: the complete physical public manifest is
+checked, every callable entry has an assume/guarantee `ContextBoundaryRealization` tied to the same
+final artifact, lookup keys are unique, and the target proves the set jointly admissible. Callers
+establish the required entry world. Composing components additionally requires a target-owned
+final-link certificate; pairwise name or ABI-list agreement is not a sound substitute.

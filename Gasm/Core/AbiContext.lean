@@ -73,10 +73,17 @@ class TargetBoundarySemantics (Target : Type) where
   ExitKind : Type
   PhysicalState : Type
   Execution : Type
+  PublicEntry : Type
+  LookupKey : Type
   artifactImplements : Artifact → Implementation → Prop
-  runs : Implementation → Signature → EntryKind →
+  publicEntries : Artifact → List PublicEntry
+  callableEntries : Artifact → List PublicEntry
+  lookupKey : PublicEntry → LookupKey
+  resolvesEntry : Artifact → PublicEntry → Implementation → Signature → EntryKind → Prop
+  jointlyAdmissible : Artifact → List (PublicEntry × Implementation × Signature × EntryKind) → Prop
+  runs : Artifact → Implementation → Signature → EntryKind →
     PhysicalState → Execution → ExitKind → PhysicalState → Prop
-  admissible : Implementation → Signature → EntryKind →
+  admissible : Artifact → Implementation → Signature → EntryKind →
     PhysicalState → Execution → ExitKind → PhysicalState → Prop
 
 /- REF: docs/ABI_CONTEXT.md#5-target-realization-interface -/
@@ -103,12 +110,12 @@ structure ContextBoundaryRealization
   entryRelatesWorld : ∀ {physicalState args binding world},
     relatesEntry physicalState args binding world → relatesWorld physicalState world
   physicalAdmissibility : ∀ {before execution exitKind after},
-    target.runs implementation signature entryKind before execution exitKind after →
-      target.admissible implementation signature entryKind before execution exitKind after
+    target.runs artifact implementation signature entryKind before execution exitKind after →
+      target.admissible artifact implementation signature entryKind before execution exitKind after
   refinesContract : ∀ {physicalBefore args binding logicalBefore execution exitKind physicalAfter},
     relatesEntry physicalBefore args binding logicalBefore →
     spec.requires args binding logicalBefore →
-    target.runs implementation signature entryKind
+    target.runs artifact implementation signature entryKind
       physicalBefore execution exitKind physicalAfter →
       ∃ logicalAfter,
         relatesWorld physicalAfter logicalAfter ∧
@@ -151,15 +158,43 @@ assume/guarantee boundary realization, and every realization is tied to the one
 artifact selected for component emission.  Callers must separately establish
 `relatesEntry` and `requires` at each invocation.
 -/
+structure PublishedBoundary
+    (World Key Target : Type)
+    (spec : BoundaryContextSpec World Key)
+    (target : TargetBoundarySemantics Target) where
+  physicalEntry : target.PublicEntry
+  realization : @ContextBoundaryRealization World Key Target spec target
+  resolves : target.resolvesEntry realization.artifact physicalEntry
+    realization.implementation realization.signature realization.entryKind
+
+/- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
+/-- Joint certificate for the complete public surface of one final artifact.
+    Individual boundary proofs do not compose unconditionally: target-owned
+    joint admissibility is mandatory after final layout and relocation. -/
+structure VerifiedExportSet
+    (World Key Target : Type)
+    (spec : BoundaryContextSpec World Key)
+    (target : TargetBoundarySemantics Target) where
+  artifact : target.Artifact
+  publicManifest : List target.PublicEntry
+  entries : List (PublishedBoundary World Key Target spec target)
+  uniqueLookup : (publicManifest.map target.lookupKey).Nodup
+  exactPublicTable : publicManifest = target.publicEntries artifact
+  exactCallableTable : entries.map (·.physicalEntry) = target.callableEntries artifact
+  sameArtifact : ∀ entry, entry ∈ entries → entry.realization.artifact = artifact
+  jointlyAdmissible : target.jointlyAdmissible artifact
+    (entries.map fun entry =>
+      (entry.physicalEntry, entry.realization.implementation,
+        entry.realization.signature, entry.realization.entryKind))
+
+/- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
+/-- A non-total library/component is exactly a nonempty jointly verified
+    callable export set, with no fabricated whole-process root theorem. -/
 structure VerifiedComponent
     (World Key Target : Type)
-    [BoundaryContextSpec World Key]
-    [target : TargetBoundarySemantics Target] where
-  Export : Type
-  artifact : target.Artifact
-  exports : List Export
-  exportsNonempty : exports ≠ []
-  realization : Export → ContextBoundaryRealization World Key Target
-  realizationUsesArtifact : ∀ exported, (realization exported).artifact = artifact
+    (spec : BoundaryContextSpec World Key)
+    (target : TargetBoundarySemantics Target) where
+  exportSet : VerifiedExportSet World Key Target spec target
+  callableNonempty : exportSet.entries ≠ []
 
 end Gasm.Core

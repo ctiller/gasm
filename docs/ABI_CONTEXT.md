@@ -282,17 +282,27 @@ external environment. It is not the right contract for a shared object, plugin, 
 with `dlopen`: such an artifact is intentionally non-total and runs only when another component
 calls one of its exports.
 
-`VerifiedComponent` represents that case. It publishes a nonempty export list, supplies a
-`ContextBoundaryRealization` for every listed export, and proves that every realization names the
-same emitted artifact. It does not invent a root environment or prove a callee precondition.
+`VerifiedComponent` represents that case. Its `VerifiedExportSet` records the target's complete
+public manifest (including non-callable resources), proves target-defined lookup keys unique, and
+supplies a `ContextBoundaryRealization` for every entry in the target's exact callable table. Every
+realization resolves to its physical entry in the same final emitted artifact, and the target must
+prove the entire set jointly admissible after layout and relocation. It does not invent a root
+environment or prove a callee precondition.
 Instead, each caller must establish the export's relational entry tuple and `requires` predicate;
 the realization then guarantees the result/outcome-dependent obligation transition. This permits a
 Gasm component to be a verified base library for arbitrary surrounding code without pretending the
 surrounding process is part of its theorem.
 
-Final shared-library serialization still requires target-specific artifact-format and export-table
-connection proofs. `VerifiedComponent` supplies the semantic boundary authority; it does not yet
-claim that a PE DLL, ELF shared object, or Wasm component emitter is wired to it.
+Individual export proofs are deliberately not pairwise-composable. Linking two verified components
+requires a final-artifact `JointLinkCertificate`: exact export/import resolution, layout,
+relocations, section permissions, implementation-to-final-code identity, closed direct and
+indirect calls (with simultaneous proofs for recursive SCCs), shared invariants, initialization and
+teardown, and call-transitive clobbers. Adapters are realized entry stubs and require directed
+protocol refinement; neither names nor ABI labels constitute such a proof.
+
+`VerifiedProgram` carries the same exact export-set certificate for auxiliary callable boundaries,
+while retaining its separate whole-process root theorem. A root such as WASI `_start` is not
+misrepresented as an ordinary library call merely because it is physically exported.
 
 ## 12. Current implementation boundary
 
@@ -308,8 +318,10 @@ Implemented in `Gasm.Core.AbiContext`:
 - assume/guarantee realization requiring physical admissibility and logical refinement for every
   execution entered from a related world satisfying the contract precondition; and
 - caller-side `EstablishedBoundaryEntry` evidence for every canonical external environment.
-- non-total `VerifiedComponent` contracts with a proof-bearing realization for every export and a
-  single shared artifact identity.
+- exact `VerifiedExportSet` manifests, unique target lookup keys, proof-bearing callable entries,
+  one final artifact identity, and target-owned joint admissibility;
+- non-total `VerifiedComponent` contracts over nonempty verified callable export sets; and
+- `VerifiedProgram` integration of the same export-set certificate alongside its root theorem.
 
 Not implemented:
 
@@ -317,9 +329,9 @@ Not implemented:
 - coherent heterogeneous rows and their normalization/composition proofs;
 - linear connection laws for required/emitted obligation fragments;
 - directed provider-substitution and caller-migration refinements with frame laws;
-- concrete target boundary semantics or physical-admissibility definitions;
+- substantive callable target boundary realizations and validated physical-admissibility profiles;
 - integration with `AbiDiscipline`, target `ABI.lean` files, or signature classification;
 - concrete TLS/FLS/register/argument/table realizations;
 - verified adapters or artifact protocol fingerprints; or
-- target-profile validation and integration with `Callable`, `VerifiedProgram`, linking, or
-  emission.
+- target-profile validation, final-artifact `JointLinkCertificate`, and integration with `Callable`
+  and native shared-library emission.

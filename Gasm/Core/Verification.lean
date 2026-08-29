@@ -28,6 +28,8 @@ import Gasm.Targets.AArch64.Linux.Linker
 
 namespace Gasm.Core.Verification
 
+universe u
+
 open Gasm.Core
 open Gasm.Core.Platform
 open Gasm.Effects
@@ -60,8 +62,36 @@ inductive WindowsX86_64 (Event : Type)
 inductive LinuxX86_64 (Event : Type)
 inductive LinuxAArch64 (Event : Type)
 
-/-- Standalone executables publish no callable library boundary. -/
-inductive NoExport
+def emptyBoundarySpec : BoundaryContextSpec Unit Unit where
+  Args := Unit
+  Binding := Unit
+  Result := Unit
+  Outcome := Unit
+  ObligationFragment := Unit
+  requiredObligations := fun _ _ => ()
+  emittedObligations := fun _ _ _ _ => ()
+  requires := fun _ _ _ => True
+  transitions := fun _ _ _ _ before after => before = after
+
+def emptyBoundarySemantics (Target State : Type) :
+    TargetBoundarySemantics Target where
+  Implementation := Unit
+  Artifact := Unit
+  Signature := Unit
+  EntryKind := Unit
+  ExitKind := Unit
+  PhysicalState := State
+  Execution := Unit
+  PublicEntry := Empty
+  LookupKey := Empty
+  artifactImplements := (· = ·)
+  publicEntries := fun _ => []
+  callableEntries := fun _ => []
+  lookupKey := fun entry => nomatch entry
+  resolvesEntry := fun _ entry => nomatch entry
+  jointlyAdmissible := fun _ entries => entries = []
+  runs := fun _ _ _ _ _ _ _ _ => False
+  admissible := fun _ _ _ _ _ _ _ _ => False
 
 instance {Event : Type} : Platform (WindowsX86_64 Event) where
   Artifact := WindowsX86_64Artifact
@@ -69,18 +99,13 @@ instance {Event : Type} : Platform (WindowsX86_64 Event) where
   Observation := List Event
   RuntimeContext := Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
   Import := Win32Function
-  ExportName := String
-  ABIRequirement := String
-  ConcreteImplementation := Address
-  Export := NoExport
+  BoundaryWorld := Unit
+  BoundaryKey := Unit
+  BoundaryTarget := WindowsX86_64 Event
+  boundarySpec := emptyBoundarySpec
+  boundarySemantics := emptyBoundarySemantics _ X86_64MachineState
   imports := fun artifact => artifact.executable.imports
-  artifactExports := fun _ => []
-  exportName := fun exported => nomatch exported
-  exportContract := fun exported => nomatch exported
-  exportImplementation := fun exported => nomatch exported
-  exportABI := fun exported => nomatch exported
-  exportRuntime := fun exported => nomatch exported
-  realizesExport := fun _ exported => nomatch exported
+  boundaryArtifact := fun _ => ()
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
       Gasm.Targets.X86_64.Assembler.serializeInstructions artifact.instructions
@@ -101,18 +126,13 @@ instance {Event : Type} : Platform (LinuxX86_64 Event) where
   Observation := List Event
   RuntimeContext := Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
   Import := Unit
-  ExportName := String
-  ABIRequirement := String
-  ConcreteImplementation := Address
-  Export := NoExport
+  BoundaryWorld := Unit
+  BoundaryKey := Unit
+  BoundaryTarget := LinuxX86_64 Event
+  boundarySpec := emptyBoundarySpec
+  boundarySemantics := emptyBoundarySemantics _ X86_64MachineState
   imports := fun _ => []
-  artifactExports := fun _ => []
-  exportName := fun exported => nomatch exported
-  exportContract := fun exported => nomatch exported
-  exportImplementation := fun exported => nomatch exported
-  exportABI := fun exported => nomatch exported
-  exportRuntime := fun exported => nomatch exported
-  realizesExport := fun _ exported => nomatch exported
+  boundaryArtifact := fun _ => ()
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
       Gasm.Targets.X86_64.Assembler.serializeInstructions artifact.instructions
@@ -133,18 +153,13 @@ instance {Event : Type} : Platform (LinuxAArch64 Event) where
   Observation := List Event
   RuntimeContext := Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event
   Import := Unit
-  ExportName := String
-  ABIRequirement := String
-  ConcreteImplementation := Address
-  Export := NoExport
+  BoundaryWorld := Unit
+  BoundaryKey := Unit
+  BoundaryTarget := LinuxAArch64 Event
+  boundarySpec := emptyBoundarySpec
+  boundarySemantics := emptyBoundarySemantics _ AArch64MachineState
   imports := fun _ => []
-  artifactExports := fun _ => []
-  exportName := fun exported => nomatch exported
-  exportContract := fun exported => nomatch exported
-  exportImplementation := fun exported => nomatch exported
-  exportABI := fun exported => nomatch exported
-  exportRuntime := fun exported => nomatch exported
-  realizesExport := fun _ exported => nomatch exported
+  boundaryArtifact := fun _ => ()
   artifactConnected := fun artifact =>
     artifact.executable.textBytes =
       Gasm.Targets.AArch64.Linux.serializeInstructions artifact.instructions
@@ -171,22 +186,28 @@ def windowsHostCapability (Event : Type)
   establishes := fun _ _ _ _ => True
 
 def windowsHostCapabilities (Event : Type)
-    [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
+    [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
     CapabilityComposition (WindowsX86_64 Event) where
   root := windowsHostCapability Event
-  realize := fun _ => inferInstance
+  realize := fun _ => by
+    change Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
+    exact runtime
 
 def linuxHostCapabilities (Event : Type)
-    [Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
+    [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
     CapabilityComposition (LinuxX86_64 Event) where
   root := Capability.empty _
-  realize := fun _ => inferInstance
+  realize := fun _ => by
+    change Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
+    exact runtime
 
 def aarch64LinuxHostCapabilities (Event : Type)
-    [Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event] :
+    [runtime : Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event] :
     CapabilityComposition (LinuxAArch64 Event) where
   root := Capability.empty _
-  realize := fun _ => inferInstance
+  realize := fun _ => by
+    change Gasm.Targets.AArch64.ExternalCallInterceptor AArch64 Event
+    exact runtime
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- A verified library routine remains target-independent. -/

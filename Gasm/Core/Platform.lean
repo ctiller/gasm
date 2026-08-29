@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Core.Types
+import Gasm.Core.AbiContext
 
 /-!
 Target-neutral whole-program verification substrate.
@@ -52,18 +53,13 @@ class Platform (P : Type u) where
   Observation : Type
   RuntimeContext : Type
   Import : Type
-  ExportName : Type
-  ABIRequirement : Type
-  ConcreteImplementation : Type
-  Export : Type
+  BoundaryWorld : Type
+  BoundaryKey : Type
+  BoundaryTarget : Type
+  boundarySpec : BoundaryContextSpec BoundaryWorld BoundaryKey
+  boundarySemantics : TargetBoundarySemantics BoundaryTarget
   imports : Artifact → List Import
-  artifactExports : Artifact → List ExportName
-  exportName : Export → ExportName
-  exportContract : Export → Environment → Observation
-  exportImplementation : Export → ConcreteImplementation
-  exportABI : Export → List ABIRequirement
-  exportRuntime : Export → RuntimeContext
-  realizesExport : Artifact → Export → Prop
+  boundaryArtifact : Artifact → boundarySemantics.Artifact
   artifactConnected : Artifact → Prop
   load : Artifact → Environment → State
   run : RuntimeContext → Artifact → State → Observation
@@ -158,9 +154,13 @@ structure CapabilityComposition (P : Type) [Platform P] where
 structure VerifiedProgram (P : Type) [Platform P] (capabilities : CapabilityComposition P) where
   name : String
   artifact : Platform.Artifact (P := P)
-  exports : List (Platform.Export (P := P))
-  exportsMatch : exports.map Platform.exportName = Platform.artifactExports artifact
-  exportsRealized : ∀ exported, exported ∈ exports → Platform.realizesExport artifact exported
+  exports : @VerifiedExportSet
+    (Platform.BoundaryWorld (P := P))
+    (Platform.BoundaryKey (P := P))
+    (Platform.BoundaryTarget (P := P))
+    (Platform.boundarySpec (P := P))
+    (Platform.boundarySemantics (P := P))
+  exportsArtifact : exports.artifact = Platform.boundaryArtifact artifact
   artifactConnection : Platform.artifactConnected artifact
   spec : Environment → Platform.Observation (P := P)
   importsCovered : ∀ imported, imported ∈ Platform.imports artifact →
@@ -170,8 +170,6 @@ structure VerifiedProgram (P : Type) [Platform P] (capabilities : CapabilityComp
   entryEstablished : ∀ environment,
     capabilities.root.establishes artifact environment
       (Platform.load artifact environment) (entryContext environment)
-  exportsUseCapabilities : ∀ exported, exported ∈ exports → ∀ environment,
-    Platform.exportRuntime exported = capabilities.realize (entryContext environment)
   platformAdmissible : ∀ environment,
     Platform.admissible (capabilities.realize (entryContext environment))
       artifact (Platform.load artifact environment)

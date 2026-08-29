@@ -490,24 +490,51 @@ structure WasiArtifact where
 
 inductive WasiPlatform
 
-/- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
-/-- A callable Wasm export carries its independent logical contract, concrete
-    module-function identity, and complete function ABI. -/
-structure WasiExportedFunction where
-  name : String
-  contract : Environment → WasiObservable AnyEvent
-  implementation : Nat
-  abi : List FuncType
-  runtime : WasiHostRuntime
+def wasiPublicEntries (artifact : WasiArtifact) : List Export :=
+  let importedFunctions := artifact.module.imports.filter (fun imported =>
+    match imported.desc with | .func _ => true | _ => false) |>.length
+  let generated := artifact.module.functions.zipIdx.filterMap (fun (fn, index) =>
+    fn.exportName.map fun name => { name, desc := .func (importedFunctions + index) })
+  generated ++ artifact.module.exports
 
-/-- Names of all callable exports physically published by a module. Memory
-    exports are intentionally excluded because they are not call boundaries. -/
-def callableWasmExports (module : WasmModule) : List String :=
-  module.functions.filterMap (fun fn => fn.exportName) ++
-    module.exports.filterMap (fun exported =>
-      match exported.desc with
-      | .func _ => some exported.name
-      | .mem _ => none)
+def wasiCallableEntries (artifact : WasiArtifact) : List Export :=
+  (wasiPublicEntries artifact).filter fun entry =>
+    entry.name != "_start" && match entry.desc with | .func _ => true | .mem _ => false
+
+def wasiBoundarySpec : BoundaryContextSpec Unit Unit :=
+  { Args := Unit
+    Binding := Unit
+    Result := Unit
+    Outcome := Unit
+    ObligationFragment := Unit
+    requiredObligations := fun _ _ => ()
+    emittedObligations := fun _ _ _ _ => ()
+    requires := fun _ _ _ => True
+    transitions := fun _ _ _ _ before after => before = after }
+
+def wasiBoundarySemantics : TargetBoundarySemantics WasiPlatform where
+  Implementation := Nat
+  Artifact := WasiArtifact
+  Signature := FuncType
+  EntryKind := Unit
+  ExitKind := ControlSignal
+  PhysicalState := WasmMachineState
+  Execution := List WasmInstr
+  PublicEntry := Export
+  LookupKey := String
+  artifactImplements := fun artifact implementation =>
+    implementation < artifact.module.functions.length
+  publicEntries := wasiPublicEntries
+  callableEntries := wasiCallableEntries
+  lookupKey := fun entry => entry.name
+  resolvesEntry := fun artifact entry implementation signature _ =>
+    ∃ fn,
+      artifact.module.functions[implementation]? = some fn ∧
+      entry.name = fn.exportName.getD "" ∧
+      signature = { params := fn.params, results := fn.results }
+  jointlyAdmissible := fun _ entries => entries = []
+  runs := fun _ _ _ _ _ _ _ _ => False
+  admissible := fun _ _ _ _ _ _ _ _ => False
 
 instance : Platform WasiPlatform where
   Artifact := WasiArtifact
@@ -515,26 +542,13 @@ instance : Platform WasiPlatform where
   Observation := WasiObservable AnyEvent
   RuntimeContext := WasiHostRuntime
   Import := String
-  ExportName := String
-  ABIRequirement := FuncType
-  ConcreteImplementation := Nat
-  Export := WasiExportedFunction
+  BoundaryWorld := Unit
+  BoundaryKey := Unit
+  BoundaryTarget := WasiPlatform
+  boundarySpec := wasiBoundarySpec
+  boundarySemantics := wasiBoundarySemantics
   imports := fun artifact => artifact.imports
-  artifactExports := fun artifact => callableWasmExports artifact.module
-  exportName := fun exported => exported.name
-  exportContract := fun exported => exported.contract
-  exportImplementation := fun exported => exported.implementation
-  exportABI := fun exported => exported.abi
-  exportRuntime := fun exported => exported.runtime
-  realizesExport := fun artifact exported =>
-    ∃ fn,
-      artifact.module.functions[exported.implementation]? = some fn ∧
-      fn.exportName = some exported.name ∧
-      exported.abi = [{ params := fn.params, results := fn.results }] ∧
-      exported.implementation = 0 ∧
-      exported.contract = fun environment =>
-        (runWasiOutcomeWithHost exported.runtime artifact.instructions artifact.dataSegments environment.stdin
-          artifact.imports environment.incomingRequests artifact.resources).observable
+  boundaryArtifact := id
   artifactConnected := fun artifact =>
     artifact.module.functions.head?.map (fun fn => fn.body) = some artifact.instructions ∧
     artifact.module.dataSegments = artifact.dataSegments ∧
