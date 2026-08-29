@@ -95,8 +95,7 @@ structure ContextBoundaryRealization
   implementation : target.Implementation
   artifact : target.Artifact
   artifactConnection : target.artifactImplements artifact implementation
-  logicalArgs : target.PhysicalState → spec.Args
-  logicalBinding : target.PhysicalState → spec.Binding
+  relatesEntry : target.PhysicalState → spec.Args → spec.Binding → World → Prop
   logicalResult : target.PhysicalState → target.Execution → target.PhysicalState → spec.Result
   logicalOutcome : target.PhysicalState → target.Execution →
     target.ExitKind → target.PhysicalState → spec.Outcome
@@ -104,16 +103,16 @@ structure ContextBoundaryRealization
   physicalAdmissibility : ∀ {before execution exitKind after},
     target.runs implementation signature entryKind before execution exitKind after →
       target.admissible implementation signature entryKind before execution exitKind after
-  refinesContract : ∀ {physicalBefore logicalBefore execution exitKind physicalAfter},
-    relatesWorld physicalBefore logicalBefore →
-    spec.requires (logicalArgs physicalBefore) (logicalBinding physicalBefore) logicalBefore →
+  refinesContract : ∀ {physicalBefore args binding logicalBefore execution exitKind physicalAfter},
+    relatesEntry physicalBefore args binding logicalBefore →
+    spec.requires args binding logicalBefore →
     target.runs implementation signature entryKind
       physicalBefore execution exitKind physicalAfter →
       ∃ logicalAfter,
         relatesWorld physicalAfter logicalAfter ∧
         spec.transitions
-          (logicalArgs physicalBefore)
-          (logicalBinding physicalBefore)
+          args
+          binding
           (logicalResult physicalBefore execution physicalAfter)
           (logicalOutcome physicalBefore execution exitKind physicalAfter)
           logicalBefore logicalAfter

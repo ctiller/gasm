@@ -129,9 +129,11 @@ becomes a public elaboration bottleneck.
 - complete physical-admissibility predicate.
 
 `ContextBoundaryRealization World Key Target` selects one implementation and one artifact with proof
-that the artifact implements that identity. Entry arguments and bindings are decoded only from the
-entry state; they cannot inspect the execution or its result. Results and outcomes may inspect the
-entry state, execution, exit class, and exit state.
+that the artifact implements that identity. Its `relatesEntry` relation connects an entry physical
+state to arguments, a binding, and a logical world without inspecting the execution or its result.
+This permits physically identical states to carry distinct erased arguments, provenance, region or
+allocation generations, and protocol instances. Results may inspect the entry state, execution, and
+exit state; outcomes may additionally inspect the exit class.
 
 The logical world is related to physical state by
 `relatesWorld : PhysicalState -> World -> Prop`, not reconstructed by a function. Thus physically
@@ -148,6 +150,12 @@ The precondition is an assumption of the refinement theorem, not something every
 execution must establish. Invalid calls remain executions in `runs`; they simply receive no
 contract guarantee. This prevents both narrowing machine semantics to verified calls and inventing
 caller authority inside the realization proof.
+
+The staging record alone does not exclude `relatesEntry := False`, `relatesWorld := False`, a weak
+artifact relation, or `admissible := True`. Such a record is harmless but useless: before it may
+authorize a call, the whole-program link gate must establish the exact entry relation and
+precondition from the caller's live world, validate the closed target profile, and connect the
+artifact identity to the bytes selected for emission. No such gate exists today.
 
 The interface is intentionally relational. It does not assume deterministic execution, one ISA,
 one OS, one ABI, one result path, or unlimited resources.
@@ -245,6 +253,8 @@ Before ABI contexts may participate in `VerifiedProgram`, the implementation mus
 
 - coherent nominal-key registration and heterogeneous row well-formedness;
 - normalization, framing, identity, associativity, commutativity, and controlled-sharing laws;
+- caller-side establishment of the exact entry relation and logical precondition at every direct or
+  indirect call site;
 - exact argument/result/outcome-dependent obligation conservation for every call;
 - implementation/artifact identity and exact connection to emitted code;
 - full-signature target classification and physical realization correctness;
@@ -269,7 +279,7 @@ Implemented in `Gasm.Core.AbiContext`:
 - proof-bearing evidence for one boundary transition;
 - target/environment-indexed implementation, artifact, entry, exit, signature, state, and execution
   types;
-- non-prophetic entry decoding and relational physical/logical worlds; and
+- non-prophetic relational entry tuples and relational physical/logical worlds; and
 - assume/guarantee realization requiring physical admissibility and logical refinement for every
   execution entered from a related world satisfying the contract precondition.
 
