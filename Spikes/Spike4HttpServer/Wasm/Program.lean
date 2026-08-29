@@ -319,16 +319,16 @@ def spike4WasmInstructions : List WasmInstr := [
 /-- Regression oracle for the bounded WASI parser.  These are execution checks over the same
     arbitrary request strings the model parses; they pin the byte-count boundary and each grammar
     clause without introducing a narrower verified-program domain. -/
-def wasmMatchesRawRequestModel (req : String) : Bool :=
-  runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [req]
-    == serverModelTraceFor req
+def wasmMatchesRawRequestModel (request : ByteArray) : Bool :=
+  runWasiTrace spike4WasmInstructions spike4DataSegments ByteArray.empty spike4WasmImports [request]
+    == serverModelTraceFor request
 
-#guard wasmMatchesRawRequestModel "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard wasmMatchesRawRequestModel "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n"
-#guard wasmMatchesRawRequestModel "GET / HTTP/1.0\r\n"
-#guard wasmMatchesRawRequestModel "GET http://example.com/ HTTP/1.1\r\n"
-#guard wasmMatchesRawRequestModel "GET  / HTTP/1.1\r\n"
-#guard wasmMatchesRawRequestModel "GET / HTTP/1.1 extra\r\n"
+#guard wasmMatchesRawRequestModel (req "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard wasmMatchesRawRequestModel (req "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n")
+#guard wasmMatchesRawRequestModel (req "GET / HTTP/1.0\r\n")
+#guard wasmMatchesRawRequestModel (req "GET http://example.com/ HTTP/1.1\r\n")
+#guard wasmMatchesRawRequestModel (req "GET  / HTTP/1.1\r\n")
+#guard wasmMatchesRawRequestModel (req "GET / HTTP/1.1 extra\r\n")
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
 def spike4WasmFunction : WasmFunction := {
