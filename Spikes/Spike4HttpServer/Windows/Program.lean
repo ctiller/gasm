@@ -101,7 +101,7 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   -- make the resource scope and its recovery boundary visible while keeping parsing/routing in
   -- the separately verified component rather than duplicating it in each ISA lowering.
   instr (sub_rsp32 32),
-  instr (xor_r32 .r9d .r9d), call_import gasmHttpParserSymbol,
+  instr (mov_r32 .r9d 0), call_import gasmHttpParserSymbol,
   instr (mov_r32 .r9d 1), call_import gasmHttpParserSymbol,
   instr (mov_r32 .r9d 2), call_import gasmHttpParserSymbol,
   instr (mov_r32 .r9d 3), call_import gasmHttpParserSymbol,
@@ -129,5 +129,13 @@ def spike4Executable : WindowsExecutable :=
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
 def spike4Instructions : List X86_64Instr :=
   spike4LinkedProgram.instructions
+
+def lifecyclePhaseInstructions (phase : Nat) (displacement : Int32) : List X86_64Instr :=
+  [mov_r32 .r9d phase.toUInt32, call_rip displacement]
+
+theorem spike4Instructions_phases : spike4Instructions =
+    [sub_rsp32 32] ++ lifecyclePhaseInstructions 0 8173 ++
+      lifecyclePhaseInstructions 1 8161 ++ lifecyclePhaseInstructions 2 8149 ++
+      lifecyclePhaseInstructions 3 8137 ++ lifecyclePhaseInstructions 4 8125 := rfl
 
 end Spikes.Spike4HttpServer.Windows

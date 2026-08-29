@@ -48,9 +48,10 @@ universal proof or as authority to emit a verified artifact.
 
 /-- Windows execution under the runtime selected by the Spike 4 capability composition. -/
 def windowsRuntimeTraceFor (environment : Environment) : List AnyEvent :=
-  Platform.run
-    (spike4WindowsCapabilities.realize spike4WindowsArtifact ())
-    spike4WindowsArtifact (Platform.load spike4WindowsArtifact environment)
+  let initial := Platform.load (P := WindowsX86_64 AnyEvent) spike4WindowsArtifact environment
+  letI := spike4WindowsRuntime
+  (runProgramOutcomeWithLoops (Event := AnyEvent) 5368713216 Windows.spike4Instructions
+    50000 initial).events
 
 /-- Linux execution under the runtime selected by the Spike 4 capability composition. -/
 def linuxRuntimeTraceFor (environment : Environment) : List AnyEvent :=
@@ -403,6 +404,7 @@ def spike4_linux_lifecycle_certificate (environment : Environment) :
   have hs5 : s5 = linuxPhaseComplete 4 s4 := rfl
   have initialRip : initial.rip = linuxPhaseEntry 0 := rfl
   have initialFault : initial.fault = none := rfl
+  have initialRequests : initial.incomingRequests = environment.incomingRequests := rfl
   have s1Rip : s1.rip = linuxPhaseEntry 1 :=
     linuxPhaseComplete_rip 0 (by omega) initial initialRip
   have s2Rip : s2.rip = linuxPhaseEntry 2 :=
@@ -417,7 +419,6 @@ def spike4_linux_lifecycle_certificate (environment : Environment) :
   have s2Fault : s2.fault = none := linuxPhaseComplete_fault 1 s1 s1Fault
   have s3Fault : s3.fault = none := linuxPhaseComplete_fault 2 s2 s2Fault
   have s4Fault : s4.fault = none := linuxPhaseComplete_fault 3 s3 s3Fault
-  have initialRequests : initial.incomingRequests = environment.incomingRequests := rfl
   have s1Requests : s1.incomingRequests = initial.incomingRequests :=
     linuxPhaseComplete_requests 0 initial (by omega)
   have s2Requests : s2.incomingRequests = initial.incomingRequests := by
@@ -517,6 +518,582 @@ theorem spike4_linux_runtime_admissible (environment : Environment) :
     (@runProgramOutcomeWithLoops AnyEvent spike4LinuxRuntime 4198400
       Linux.spike4Instructions 50000 initial).isAdmissible true := by
   let certificate := spike4_linux_lifecycle_certificate environment
+  dsimp only
+  rw [certificate.outcome]
+  trivial
+
+def windowsTextBase : UInt64 := 5368713216
+def windowsParserIat : UInt64 := 5368721408
+def windowsRequestRsp : UInt64 := 140737488289768
+
+def windowsPhaseEntry (phase : Nat) : UInt64 := windowsTextBase + 7 + phase.toUInt64 * 12
+
+def windowsPhaseDisplacement : Nat → Int32
+  | 0 => 8173 | 1 => 8161 | 2 => 8149 | 3 => 8137 | 4 => 8125
+  | _ => 0
+
+def windowsPrologueState (state : X86_64MachineState) : X86_64MachineState :=
+  let rsp := state.gprs .rsp
+  let withRsp := state.setGpr64 .rsp (rsp - 32)
+  let withFlags := withRsp.setFlagsSub64 rsp 32
+  { withFlags with rip := state.rip + 7 }
+
+theorem windows_prologue_outcome_edge (fuel : Nat) (state : X86_64MachineState)
+    (eventsRev : List AnyEvent) (entryRip : state.rip = windowsTextBase)
+    (notFaulted : state.fault = none) :
+    @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+      (indexInstructions windowsTextBase Windows.spike4Instructions) (fuel + 1) state eventsRev =
+    @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+      (indexInstructions windowsTextBase Windows.spike4Instructions) fuel
+      (windowsPrologueState state) eventsRev := by
+  letI := spike4WindowsRuntime
+  have lookup : instructionAtRipIndexed
+      (indexInstructions windowsTextBase Windows.spike4Instructions) state.rip =
+      some (Instructions.sub_rsp32 32) := by
+    rw [entryRip]
+    rfl
+  have noIntercept : (@ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      spike4WindowsRuntime (windowsPrologueState state).rip (windowsPrologueState state)) = none := by
+    change (if findIatIndex (windowsPrologueState state) (windowsPrologueState state).rip = some 0
+      then some (windowsParserHook (windowsPrologueState state))
+      else win32Intercept (windowsPrologueState state).rip (windowsPrologueState state)) = none
+    have nextRip : (windowsPrologueState state).rip = windowsTextBase + 7 := by
+      simp [windowsPrologueState, entryRip]
+    rw [nextRip]
+    simp [findIatIndex, win32Intercept, windowsTextBase]
+  have noFault : (windowsPrologueState state).fault = none := by
+    change state.fault = none
+    exact notFaulted
+  exact native_outcome_step_none _ fuel state (windowsPrologueState state) eventsRev _
+    lookup rfl noIntercept noFault
+
+theorem windowsPrologue_rip (state : X86_64MachineState)
+    (entryRip : state.rip = windowsTextBase) :
+    (windowsPrologueState state).rip = windowsPhaseEntry 0 := by
+  simp [windowsPrologueState, windowsPhaseEntry, entryRip]
+
+theorem windowsPrologue_rsp (state : X86_64MachineState)
+    (rsp : state.rsp = 140737488289800) :
+    (windowsPrologueState state).rsp = windowsRequestRsp := by
+  change state.gprs .rsp = 140737488289800 at rsp
+  simp [windowsPrologueState, X86_64MachineState.rsp, X86_64MachineState.setGpr64,
+    X86_64MachineState.setFlagsSub64, X86_64MachineState.setFlagsCmp64,
+    windowsRequestRsp, rsp]
+
+theorem windows_push_preserves_parser_iat (state : X86_64MachineState)
+    (rsp : state.rsp = windowsRequestRsp)
+    (iat : state.read64 windowsParserIat = windowsParserIat) (value : UInt64) :
+    (state.push64 value).read64 windowsParserIat = windowsParserIat := by
+  change state.gprs .rsp = windowsRequestRsp at rsp
+  change X86_64Mem.read .w64 windowsParserIat
+      (X86_64Mem.write .w64 (state.gprs .rsp - 8) value state.memory) = windowsParserIat
+  rw [rsp]
+  change X86_64Mem.read .w64 windowsParserIat
+      (X86_64Mem.write .w64 (windowsRequestRsp - 8) value state.memory) = windowsParserIat
+  simp [X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte,
+    windowsRequestRsp, windowsParserIat]
+  exact iat
+
+def windowsPhaseStepped (phase : Nat) (state : X86_64MachineState) : X86_64MachineState :=
+  let moved := { (state.setGpr32 .r9d phase.toUInt32) with rip := state.rip + 6 }
+  { (moved.push64 (moved.rip + 6)) with rip := windowsParserIat }
+
+def windowsPhaseComplete (phase : Nat) (state : X86_64MachineState) : X86_64MachineState :=
+  windowsAfterPhase phase.toUInt64 (windowsPhaseStepped phase state)
+
+def windowsPhaseEvent (phase : Nat) (state : X86_64MachineState) : Option AnyEvent :=
+  requestRuntimeEvent phase.toUInt64 (!state.incomingRequests.isEmpty)
+    (parserInput state.incomingRequests)
+
+theorem windows_phase_lookup0 (phase : Nat) (phaseBound : phase < 5) :
+    instructionAtRipIndexed (indexInstructions windowsTextBase Windows.spike4Instructions)
+      (windowsPhaseEntry phase) = some (Instructions.mov_r32 .r9d phase.toUInt32) := by
+  have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
+  rcases cases with h | h | h | h | h <;> subst phase <;> rfl
+
+theorem windows_phase_lookup1 (phase : Nat) (phaseBound : phase < 5) :
+    instructionAtRipIndexed (indexInstructions windowsTextBase Windows.spike4Instructions)
+      (windowsPhaseEntry phase + 6) =
+      some (Instructions.call_rip (windowsPhaseDisplacement phase)) := by
+  have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
+  rcases cases with h | h | h | h | h <;> subst phase <;> rfl
+
+theorem windows_phase_outcome_edge (phase : Nat) (phaseBound : phase < 5)
+    (fuel : Nat) (state : X86_64MachineState) (eventsRev : List AnyEvent)
+    (entryRip : state.rip = windowsPhaseEntry phase) (notFaulted : state.fault = none)
+    (rsp : state.rsp = windowsRequestRsp)
+    (iat : state.read64 windowsParserIat = windowsParserIat) :
+    @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+      (indexInstructions windowsTextBase Windows.spike4Instructions) (fuel + 2) state eventsRev =
+    @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+      (indexInstructions windowsTextBase Windows.spike4Instructions) fuel
+      (windowsPhaseComplete phase state)
+      ((windowsPhaseEvent phase state).elim eventsRev fun event => event :: eventsRev) := by
+  letI := spike4WindowsRuntime
+  let indexed := indexInstructions windowsTextBase Windows.spike4Instructions
+  let moved := { (state.setGpr32 .r9d phase.toUInt32) with rip := state.rip + 6 }
+  let called := { (moved.push64 (moved.rip + 6)) with rip := windowsParserIat }
+  have moveStep : Instructions.X86_64Instruction.step
+      (Instructions.mov_r32 .r9d phase.toUInt32) state = moved := rfl
+  have movedRip : moved.rip = windowsPhaseEntry phase + 6 := by simp [moved, entryRip]
+  have movedRsp : moved.rsp = windowsRequestRsp := by
+    change state.rsp = windowsRequestRsp
+    exact rsp
+  have movedIat : moved.read64 windowsParserIat = windowsParserIat := by
+    change state.read64 windowsParserIat = windowsParserIat
+    exact iat
+  have calledIat : called.read64 windowsParserIat = windowsParserIat := by
+    change (moved.push64 (moved.rip + 6)).read64 windowsParserIat = windowsParserIat
+    exact windows_push_preserves_parser_iat moved movedRsp movedIat _
+  have callStep : Instructions.X86_64Instruction.step
+      (Instructions.call_rip (windowsPhaseDisplacement phase)) moved = called := by
+    have target : moved.rip + 6 +
+        Instructions.signExtend32To64 (windowsPhaseDisplacement phase) = windowsParserIat := by
+      rw [movedRip]
+      have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
+      rcases cases with h | h | h | h | h <;> subst phase <;> native_decide
+    change { (moved.push64 (moved.rip + 6)) with
+      rip := moved.read64 (moved.rip + 6 +
+        Instructions.signExtend32To64 (windowsPhaseDisplacement phase)) } = called
+    rw [target, movedIat]
+  have noMoveIntercept : (@ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      spike4WindowsRuntime moved.rip moved) = none := by
+    change (if findIatIndex moved moved.rip = some 0 then some (windowsParserHook moved)
+      else win32Intercept moved.rip moved) = none
+    rw [movedRip]
+    have unaligned : (windowsPhaseEntry phase + 6) % 8 ≠ 0 := by
+      have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
+      rcases cases with h | h | h | h | h <;> subst phase <;> native_decide
+    simp [findIatIndex, win32Intercept, unaligned]
+  have movedFault : moved.fault = none := by
+    change state.fault = none
+    exact notFaulted
+  rw [show fuel + 2 = (fuel + 1) + 1 by omega,
+    native_outcome_step_none indexed (fuel + 1) state moved eventsRev _
+      (by simpa [indexed, entryRip] using windows_phase_lookup0 phase phaseBound)
+      moveStep noMoveIntercept movedFault]
+  have findProvider : findIatIndex called windowsParserIat = some 0 := by
+    unfold findIatIndex
+    rw [calledIat]
+    native_decide
+  have calledPhase : called.gprs .r9 = phase.toUInt64 := by
+    have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
+    rcases cases with h | h | h | h | h <;> subst phase <;>
+      simp [called, moved, X86_64MachineState.push64, X86_64MachineState.setGpr32,
+        X86_64MachineState.setGpr64, reg32To64]
+  have calledRequests : called.incomingRequests = state.incomingRequests := rfl
+  have callIntercept : (@ExternalCallInterceptor.interceptCall X86_64 AnyEvent
+      spike4WindowsRuntime called.rip called) =
+      some (windowsAfterPhase phase.toUInt64 called, windowsPhaseEvent phase state) := by
+    change (if findIatIndex called called.rip = some 0 then some (windowsParserHook called)
+      else win32Intercept called.rip called) = _
+    rw [if_pos (by simpa [called] using findProvider)]
+    simp [windowsParserHook, windowsPhaseEvent, calledPhase, calledRequests]
+  have completeFault : (windowsAfterPhase phase.toUInt64 called).fault = none := by
+    change called.fault = none
+    change state.fault = none
+    exact notFaulted
+  rw [native_outcome_step_boundary indexed fuel moved called
+    (windowsAfterPhase phase.toUInt64 called) eventsRev _ _
+    (by simpa [indexed, movedRip] using windows_phase_lookup1 phase phaseBound)
+    callStep callIntercept completeFault]
+  rfl
+
+theorem windows_phase_outcome_edge_named (phase : Nat) (phaseBound : phase < 5)
+    (fuel : Nat) (state after : X86_64MachineState)
+    (eventsRev nextEventsRev : List AnyEvent)
+    (entryRip : state.rip = windowsPhaseEntry phase) (notFaulted : state.fault = none)
+    (rsp : state.rsp = windowsRequestRsp)
+    (iat : state.read64 windowsParserIat = windowsParserIat)
+    (afterEq : after = windowsPhaseComplete phase state)
+    (eventsEq : nextEventsRev =
+      (windowsPhaseEvent phase state).elim eventsRev (fun event => event :: eventsRev)) :
+    @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+      (indexInstructions windowsTextBase Windows.spike4Instructions) (fuel + 2) state eventsRev =
+    @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+      (indexInstructions windowsTextBase Windows.spike4Instructions) fuel after nextEventsRev := by
+  rw [afterEq, eventsEq]
+  exact windows_phase_outcome_edge phase phaseBound fuel state eventsRev
+    entryRip notFaulted rsp iat
+
+theorem windows_prologue_outcome_edge_named (fuel : Nat)
+    (state after : X86_64MachineState) (eventsRev : List AnyEvent)
+    (entryRip : state.rip = windowsTextBase) (notFaulted : state.fault = none)
+    (afterEq : after = windowsPrologueState state) :
+    @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+      (indexInstructions windowsTextBase Windows.spike4Instructions) (fuel + 1) state eventsRev =
+    @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+      (indexInstructions windowsTextBase Windows.spike4Instructions) fuel after eventsRev := by
+  rw [afterEq]
+  exact windows_prologue_outcome_edge fuel state eventsRev entryRip notFaulted
+
+theorem windowsPhaseComplete_rip (phase : Nat) (phaseBound : phase < 5)
+    (state : X86_64MachineState) (entryRip : state.rip = windowsPhaseEntry phase) :
+    (windowsPhaseComplete phase state).rip = windowsPhaseEntry (phase + 1) := by
+  let moved := { (state.setGpr32 .r9d phase.toUInt32) with rip := state.rip + 6 }
+  let called := { (moved.push64 (moved.rip + 6)) with rip := windowsParserIat }
+  have poppedRip : (popReturnAddress called).rip = moved.rip + 6 := by
+    simp [popReturnAddress, called, X86_64MachineState.push64, X86_64MachineState.pop64,
+      X86_64MachineState.rsp, X86_64MachineState.read64, X86_64MachineState.write64,
+      X86_64Mem.read64_write64_same, X86_64MachineState.setGpr64]
+  have completeRip : (windowsPhaseComplete phase state).rip = moved.rip + 6 := by
+    change (windowsAfterPhase phase.toUInt64 called).rip = moved.rip + 6
+    change (popReturnAddress called).rip = moved.rip + 6
+    exact poppedRip
+  rw [completeRip]
+  have movedRip : moved.rip = windowsPhaseEntry phase + 6 := by simp [moved, entryRip]
+  rw [movedRip]
+  have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
+  rcases cases with h | h | h | h | h <;> subst phase <;> native_decide
+
+theorem windowsPhaseComplete_rsp (phase : Nat) (state : X86_64MachineState)
+    (rsp : state.rsp = windowsRequestRsp) :
+    (windowsPhaseComplete phase state).rsp = windowsRequestRsp := by
+  let moved := { (state.setGpr32 .r9d phase.toUInt32) with rip := state.rip + 6 }
+  let called := { (moved.push64 (moved.rip + 6)) with rip := windowsParserIat }
+  have movedRsp : moved.rsp = windowsRequestRsp := by
+    change state.rsp = windowsRequestRsp
+    exact rsp
+  have poppedRsp : (popReturnAddress called).rsp = moved.rsp := by
+    simp [popReturnAddress, called, X86_64MachineState.push64, X86_64MachineState.pop64,
+      X86_64MachineState.rsp, X86_64MachineState.setGpr64]
+  change (windowsAfterPhase phase.toUInt64 called).rsp = windowsRequestRsp
+  change (popReturnAddress called).rsp = windowsRequestRsp
+  rw [poppedRsp, movedRsp]
+
+theorem windowsPhaseComplete_iat (phase : Nat) (state : X86_64MachineState)
+    (rsp : state.rsp = windowsRequestRsp)
+    (iat : state.read64 windowsParserIat = windowsParserIat) :
+    (windowsPhaseComplete phase state).read64 windowsParserIat = windowsParserIat := by
+  let moved := { (state.setGpr32 .r9d phase.toUInt32) with rip := state.rip + 6 }
+  have movedRsp : moved.rsp = windowsRequestRsp := by
+    change state.rsp = windowsRequestRsp
+    exact rsp
+  have movedIat : moved.read64 windowsParserIat = windowsParserIat := by
+    change state.read64 windowsParserIat = windowsParserIat
+    exact iat
+  have pushed := windows_push_preserves_parser_iat moved movedRsp movedIat (moved.rip + 6)
+  change (moved.push64 (moved.rip + 6)).read64 windowsParserIat = windowsParserIat
+  exact pushed
+
+theorem windowsPhaseComplete_fault (phase : Nat) (state : X86_64MachineState)
+    (notFaulted : state.fault = none) : (windowsPhaseComplete phase state).fault = none := by
+  change state.fault = none
+  exact notFaulted
+
+theorem windowsPhaseComplete_requests (phase : Nat) (state : X86_64MachineState)
+    (phaseBound : phase < 4) :
+    (windowsPhaseComplete phase state).incomingRequests = state.incomingRequests := by
+  have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 := by omega
+  rcases cases with h | h | h | h <;> subst phase <;>
+    simp [windowsPhaseComplete, windowsPhaseStepped, windowsAfterPhase, popReturnAddress,
+      X86_64MachineState.push64, X86_64MachineState.pop64,
+      X86_64MachineState.setGpr32, X86_64MachineState.setGpr64]
+
+def windowsLifecycleInitial (environment : Environment) : X86_64MachineState :=
+  Platform.load (P := WindowsX86_64 AnyEvent) spike4WindowsArtifact environment
+
+def windowsLifecyclePrologue (environment : Environment) : X86_64MachineState :=
+  windowsPrologueState (windowsLifecycleInitial environment)
+
+def windowsLifecycleState1 (environment : Environment) : X86_64MachineState :=
+  windowsPhaseComplete 0 (windowsLifecyclePrologue environment)
+
+def windowsLifecycleState2 (environment : Environment) : X86_64MachineState :=
+  windowsPhaseComplete 1 (windowsLifecycleState1 environment)
+
+def windowsLifecycleState3 (environment : Environment) : X86_64MachineState :=
+  windowsPhaseComplete 2 (windowsLifecycleState2 environment)
+
+def windowsLifecycleState4 (environment : Environment) : X86_64MachineState :=
+  windowsPhaseComplete 3 (windowsLifecycleState3 environment)
+
+def windowsLifecycleState5 (environment : Environment) : X86_64MachineState :=
+  windowsPhaseComplete 4 (windowsLifecycleState4 environment)
+
+def windowsLifecycleEvents1 (environment : Environment) : List AnyEvent :=
+  appendRuntimeEventRev [] (windowsPhaseEvent 0 (windowsLifecyclePrologue environment))
+
+def windowsLifecycleEvents2 (environment : Environment) : List AnyEvent :=
+  appendRuntimeEventRev (windowsLifecycleEvents1 environment)
+    (windowsPhaseEvent 1 (windowsLifecycleState1 environment))
+
+def windowsLifecycleEvents3 (environment : Environment) : List AnyEvent :=
+  appendRuntimeEventRev (windowsLifecycleEvents2 environment)
+    (windowsPhaseEvent 2 (windowsLifecycleState2 environment))
+
+def windowsLifecycleEvents4 (environment : Environment) : List AnyEvent :=
+  appendRuntimeEventRev (windowsLifecycleEvents3 environment)
+    (windowsPhaseEvent 3 (windowsLifecycleState3 environment))
+
+def windowsLifecycleEvents5 (environment : Environment) : List AnyEvent :=
+  appendRuntimeEventRev (windowsLifecycleEvents4 environment)
+    (windowsPhaseEvent 4 (windowsLifecycleState4 environment))
+
+structure Spike4WindowsLifecycleCertificate (environment : Environment) where
+  finalState : X86_64MachineState
+  events : List AnyEvent
+  outcome :
+    let initial := Platform.load (P := WindowsX86_64 AnyEvent) spike4WindowsArtifact environment
+    @runProgramOutcomeWithLoops AnyEvent spike4WindowsRuntime windowsTextBase
+      Windows.spike4Instructions 50000 initial = .returned finalState events
+  eventsSpec : events = serverEnvironmentSpec environment
+
+set_option maxHeartbeats 400000 in
+theorem windows_lifecycle_outcome (environment : Environment) :
+    @runProgramOutcomeWithLoops AnyEvent spike4WindowsRuntime windowsTextBase
+      Windows.spike4Instructions 50000 (windowsLifecycleInitial environment) =
+        .returned (windowsLifecycleState5 environment) (windowsLifecycleEvents5 environment).reverse := by
+  letI := spike4WindowsRuntime
+  let initial := windowsLifecycleInitial environment
+  let prologue := windowsLifecyclePrologue environment
+  let s1 := windowsLifecycleState1 environment
+  let s2 := windowsLifecycleState2 environment
+  let s3 := windowsLifecycleState3 environment
+  let s4 := windowsLifecycleState4 environment
+  let s5 := windowsLifecycleState5 environment
+  have hprologue : prologue = windowsPrologueState initial := rfl
+  have hs1 : s1 = windowsPhaseComplete 0 prologue := rfl
+  have hs2 : s2 = windowsPhaseComplete 1 s1 := rfl
+  have hs3 : s3 = windowsPhaseComplete 2 s2 := rfl
+  have hs4 : s4 = windowsPhaseComplete 3 s3 := rfl
+  have hs5 : s5 = windowsPhaseComplete 4 s4 := rfl
+  have initialRip : initial.rip = windowsTextBase := rfl
+  have initialFault : initial.fault = none := rfl
+  have initialRsp : initial.rsp = 140737488289800 := rfl
+  have initialIat : initial.read64 windowsParserIat = windowsParserIat := by
+    change Windows.spike4Executable.load.read64 windowsParserIat = windowsParserIat
+    native_decide
+  have initialRequests : initial.incomingRequests = environment.incomingRequests := rfl
+  have prologueRip : prologue.rip = windowsPhaseEntry 0 :=
+    windowsPrologue_rip initial initialRip
+  have prologueFault : prologue.fault = none := by
+    change initial.fault = none
+    exact initialFault
+  have prologueRsp : prologue.rsp = windowsRequestRsp :=
+    windowsPrologue_rsp initial initialRsp
+  have prologueIat : prologue.read64 windowsParserIat = windowsParserIat := by
+    change initial.read64 windowsParserIat = windowsParserIat
+    exact initialIat
+  have s1Rip : s1.rip = windowsPhaseEntry 1 :=
+    windowsPhaseComplete_rip 0 (by omega) prologue prologueRip
+  have s2Rip : s2.rip = windowsPhaseEntry 2 :=
+    windowsPhaseComplete_rip 1 (by omega) s1 s1Rip
+  have s3Rip : s3.rip = windowsPhaseEntry 3 :=
+    windowsPhaseComplete_rip 2 (by omega) s2 s2Rip
+  have s4Rip : s4.rip = windowsPhaseEntry 4 :=
+    windowsPhaseComplete_rip 3 (by omega) s3 s3Rip
+  have s5Rip : s5.rip = windowsPhaseEntry 5 :=
+    windowsPhaseComplete_rip 4 (by omega) s4 s4Rip
+  have s1Fault := windowsPhaseComplete_fault 0 prologue prologueFault
+  have s2Fault := windowsPhaseComplete_fault 1 s1 s1Fault
+  have s3Fault := windowsPhaseComplete_fault 2 s2 s2Fault
+  have s4Fault := windowsPhaseComplete_fault 3 s3 s3Fault
+  have s1Rsp := windowsPhaseComplete_rsp 0 prologue prologueRsp
+  have s2Rsp := windowsPhaseComplete_rsp 1 s1 s1Rsp
+  have s3Rsp := windowsPhaseComplete_rsp 2 s2 s2Rsp
+  have s4Rsp := windowsPhaseComplete_rsp 3 s3 s3Rsp
+  have s1Iat := windowsPhaseComplete_iat 0 prologue prologueRsp prologueIat
+  have s2Iat := windowsPhaseComplete_iat 1 s1 s1Rsp s1Iat
+  have s3Iat := windowsPhaseComplete_iat 2 s2 s2Rsp s2Iat
+  have s4Iat := windowsPhaseComplete_iat 3 s3 s3Rsp s3Iat
+  let r1 := windowsLifecycleEvents1 environment
+  let r2 := windowsLifecycleEvents2 environment
+  let r3 := windowsLifecycleEvents3 environment
+  let r4 := windowsLifecycleEvents4 environment
+  let r5 := windowsLifecycleEvents5 environment
+  have hr1 : r1 = (windowsPhaseEvent 0 prologue).elim [] (fun event => [event]) := by
+    exact appendRuntimeEventRev_eq [] (windowsPhaseEvent 0 prologue)
+  have hr2 : r2 = (windowsPhaseEvent 1 s1).elim r1 (fun event => event :: r1) := by
+    exact appendRuntimeEventRev_eq r1 (windowsPhaseEvent 1 s1)
+  have hr3 : r3 = (windowsPhaseEvent 2 s2).elim r2 (fun event => event :: r2) := by
+    exact appendRuntimeEventRev_eq r2 (windowsPhaseEvent 2 s2)
+  have hr4 : r4 = (windowsPhaseEvent 3 s3).elim r3 (fun event => event :: r3) := by
+    exact appendRuntimeEventRev_eq r3 (windowsPhaseEvent 3 s3)
+  have hr5 : r5 = (windowsPhaseEvent 4 s4).elim r4 (fun event => event :: r4) := by
+    exact appendRuntimeEventRev_eq r4 (windowsPhaseEvent 4 s4)
+  have done : instructionAtRipIndexed (indexInstructions windowsTextBase Windows.spike4Instructions)
+      s5.rip = none := by rw [s5Rip]; rfl
+  have outcome : @runProgramOutcomeWithLoops AnyEvent spike4WindowsRuntime windowsTextBase
+      Windows.spike4Instructions 50000 initial = .returned s5 r5.reverse := by
+    unfold runProgramOutcomeWithLoops
+    calc
+      @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+          (indexInstructions windowsTextBase Windows.spike4Instructions) 50000 initial [] =
+        @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+          (indexInstructions windowsTextBase Windows.spike4Instructions) 49999 prologue [] := by
+            have edge := windows_prologue_outcome_edge_named 49999 initial prologue []
+              initialRip initialFault hprologue
+            rw [show 49999 + 1 = 50000 by omega] at edge
+            exact edge
+      _ = @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+          (indexInstructions windowsTextBase Windows.spike4Instructions) 49997 s1 r1 := by
+            have edge := windows_phase_outcome_edge_named 0 (by omega) 49997 prologue s1 [] r1
+              prologueRip prologueFault prologueRsp prologueIat hs1 hr1
+            rw [show 49997 + 2 = 49999 by omega] at edge
+            exact edge
+      _ = @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+          (indexInstructions windowsTextBase Windows.spike4Instructions) 49995 s2 r2 := by
+            have edge := windows_phase_outcome_edge_named 1 (by omega) 49995 s1 s2 r1 r2
+              s1Rip s1Fault s1Rsp s1Iat hs2 hr2
+            rw [show 49995 + 2 = 49997 by omega] at edge
+            exact edge
+      _ = @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+          (indexInstructions windowsTextBase Windows.spike4Instructions) 49993 s3 r3 := by
+            have edge := windows_phase_outcome_edge_named 2 (by omega) 49993 s2 s3 r2 r3
+              s2Rip s2Fault s2Rsp s2Iat hs3 hr3
+            rw [show 49993 + 2 = 49995 by omega] at edge
+            exact edge
+      _ = @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+          (indexInstructions windowsTextBase Windows.spike4Instructions) 49991 s4 r4 := by
+            have edge := windows_phase_outcome_edge_named 3 (by omega) 49991 s3 s4 r3 r4
+              s3Rip s3Fault s3Rsp s3Iat hs4 hr4
+            rw [show 49991 + 2 = 49993 by omega] at edge
+            exact edge
+      _ = @runProgramOutcomeLoop AnyEvent spike4WindowsRuntime
+          (indexInstructions windowsTextBase Windows.spike4Instructions) 49989 s5 r5 := by
+            have edge := windows_phase_outcome_edge_named 4 (by omega) 49989 s4 s5 r4 r5
+              s4Rip s4Fault s4Rsp s4Iat hs5 hr5
+            rw [show 49989 + 2 = 49991 by omega] at edge
+            exact edge
+      _ = .returned s5 r5.reverse := by
+        rw [show 49989 = 49988 + 1 by omega]
+        rw [runProgramOutcomeLoop, done]
+  exact outcome
+
+theorem windowsLifecycleInitial_requests (environment : Environment) :
+    (windowsLifecycleInitial environment).incomingRequests = environment.incomingRequests := rfl
+
+theorem windowsLifecyclePrologue_requests (environment : Environment) :
+    (windowsLifecyclePrologue environment).incomingRequests =
+      (windowsLifecycleInitial environment).incomingRequests := rfl
+
+theorem windowsLifecycleState1_requests (environment : Environment) :
+    (windowsLifecycleState1 environment).incomingRequests =
+      (windowsLifecycleInitial environment).incomingRequests := by
+  rw [show windowsLifecycleState1 environment =
+    windowsPhaseComplete 0 (windowsLifecyclePrologue environment) by rfl]
+  rw [windowsPhaseComplete_requests 0 (windowsLifecyclePrologue environment) (by omega)]
+  exact windowsLifecyclePrologue_requests environment
+
+theorem windowsLifecycleState2_requests (environment : Environment) :
+    (windowsLifecycleState2 environment).incomingRequests =
+      (windowsLifecycleInitial environment).incomingRequests := by
+  rw [show windowsLifecycleState2 environment =
+    windowsPhaseComplete 1 (windowsLifecycleState1 environment) by rfl]
+  rw [windowsPhaseComplete_requests 1 (windowsLifecycleState1 environment) (by omega)]
+  exact windowsLifecycleState1_requests environment
+
+theorem windowsLifecycleState3_requests (environment : Environment) :
+    (windowsLifecycleState3 environment).incomingRequests =
+      (windowsLifecycleInitial environment).incomingRequests := by
+  rw [show windowsLifecycleState3 environment =
+    windowsPhaseComplete 2 (windowsLifecycleState2 environment) by rfl]
+  rw [windowsPhaseComplete_requests 2 (windowsLifecycleState2 environment) (by omega)]
+  exact windowsLifecycleState2_requests environment
+
+theorem windowsLifecycleState4_requests (environment : Environment) :
+    (windowsLifecycleState4 environment).incomingRequests =
+      (windowsLifecycleInitial environment).incomingRequests := by
+  rw [show windowsLifecycleState4 environment =
+    windowsPhaseComplete 3 (windowsLifecycleState3 environment) by rfl]
+  rw [windowsPhaseComplete_requests 3 (windowsLifecycleState3 environment) (by omega)]
+  exact windowsLifecycleState3_requests environment
+
+theorem windowsLifecycleEvent1_eq (environment : Environment) :
+    windowsPhaseEvent 1 (windowsLifecycleState1 environment) =
+      windowsPhaseEvent 1 (windowsLifecyclePrologue environment) := by
+  simp only [windowsPhaseEvent]
+  rw [windowsLifecycleState1_requests, windowsLifecyclePrologue_requests]
+
+theorem windowsLifecycleEvent2_eq (environment : Environment) :
+    windowsPhaseEvent 2 (windowsLifecycleState2 environment) =
+      windowsPhaseEvent 2 (windowsLifecyclePrologue environment) := by
+  simp only [windowsPhaseEvent]
+  rw [windowsLifecycleState2_requests, windowsLifecyclePrologue_requests]
+
+theorem windowsLifecycleEvent3_eq (environment : Environment) :
+    windowsPhaseEvent 3 (windowsLifecycleState3 environment) =
+      windowsPhaseEvent 3 (windowsLifecyclePrologue environment) := by
+  simp only [windowsPhaseEvent]
+  rw [windowsLifecycleState3_requests, windowsLifecyclePrologue_requests]
+
+theorem windowsLifecycleEvent4_eq (environment : Environment) :
+    windowsPhaseEvent 4 (windowsLifecycleState4 environment) =
+      windowsPhaseEvent 4 (windowsLifecyclePrologue environment) := by
+  simp only [windowsPhaseEvent]
+  rw [windowsLifecycleState4_requests, windowsLifecyclePrologue_requests]
+
+theorem windowsLifecycleEvents1_fold (environment : Environment) :
+    windowsLifecycleEvents1 environment =
+      [windowsPhaseEvent 0 (windowsLifecyclePrologue environment)].foldl
+        appendRuntimeEventRev [] := rfl
+
+theorem windowsLifecycleEvents2_fold (environment : Environment) :
+    windowsLifecycleEvents2 environment =
+      [windowsPhaseEvent 0 (windowsLifecyclePrologue environment),
+       windowsPhaseEvent 1 (windowsLifecycleState1 environment)].foldl
+        appendRuntimeEventRev [] := rfl
+
+theorem windowsLifecycleEvents3_fold (environment : Environment) :
+    windowsLifecycleEvents3 environment =
+      [windowsPhaseEvent 0 (windowsLifecyclePrologue environment),
+       windowsPhaseEvent 1 (windowsLifecycleState1 environment),
+       windowsPhaseEvent 2 (windowsLifecycleState2 environment)].foldl
+        appendRuntimeEventRev [] := rfl
+
+theorem windowsLifecycleEvents4_fold (environment : Environment) :
+    windowsLifecycleEvents4 environment =
+      [windowsPhaseEvent 0 (windowsLifecyclePrologue environment),
+       windowsPhaseEvent 1 (windowsLifecycleState1 environment),
+       windowsPhaseEvent 2 (windowsLifecycleState2 environment),
+       windowsPhaseEvent 3 (windowsLifecycleState3 environment)].foldl
+        appendRuntimeEventRev [] := rfl
+
+theorem windowsLifecycleEvents5_fold (environment : Environment) :
+    windowsLifecycleEvents5 environment =
+      [windowsPhaseEvent 0 (windowsLifecyclePrologue environment),
+       windowsPhaseEvent 1 (windowsLifecycleState1 environment),
+       windowsPhaseEvent 2 (windowsLifecycleState2 environment),
+       windowsPhaseEvent 3 (windowsLifecycleState3 environment),
+       windowsPhaseEvent 4 (windowsLifecycleState4 environment)].foldl
+        appendRuntimeEventRev [] := rfl
+
+theorem windows_lifecycle_events_spec (environment : Environment) :
+    (windowsLifecycleEvents5 environment).reverse = serverEnvironmentSpec environment := by
+  rw [windowsLifecycleEvents5_fold, reverse_five_optional_events]
+  rw [windowsLifecycleEvent1_eq, windowsLifecycleEvent2_eq,
+    windowsLifecycleEvent3_eq, windowsLifecycleEvent4_eq]
+  rw [← requestRuntimeSchedule_eq environment]
+  simp only [requestRuntimeSchedule, windowsPhaseEvent, windowsLifecyclePrologue_requests,
+    windowsLifecycleInitial_requests]
+  simp [Nat.toUInt64]
+
+def spike4_windows_lifecycle_certificate (environment : Environment) :
+    Spike4WindowsLifecycleCertificate environment :=
+  { finalState := windowsLifecycleState5 environment
+    events := (windowsLifecycleEvents5 environment).reverse
+    outcome := by
+      change @runProgramOutcomeWithLoops AnyEvent spike4WindowsRuntime windowsTextBase
+        Windows.spike4Instructions 50000 (windowsLifecycleInitial environment) = _
+      exact windows_lifecycle_outcome environment
+    eventsSpec := windows_lifecycle_events_spec environment }
+
+theorem spike4_windows_runtime_trace_equivalence (environment : Environment) :
+    windowsRuntimeTraceFor environment = serverEnvironmentSpec environment := by
+  let certificate := spike4_windows_lifecycle_certificate environment
+  unfold windowsRuntimeTraceFor
+  dsimp only
+  have outcome := certificate.outcome
+  simp only [windowsTextBase] at outcome
+  rw [outcome]
+  exact certificate.eventsSpec
+
+theorem spike4_windows_runtime_admissible (environment : Environment) :
+    let initial := Platform.load (P := WindowsX86_64 AnyEvent) spike4WindowsArtifact environment
+    (@runProgramOutcomeWithLoops AnyEvent spike4WindowsRuntime windowsTextBase
+      Windows.spike4Instructions 50000 initial).isAdmissible false := by
+  let certificate := spike4_windows_lifecycle_certificate environment
   dsimp only
   rw [certificate.outcome]
   trivial
