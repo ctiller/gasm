@@ -18,6 +18,7 @@ import Lean
 import Gasm.Core.Types
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Instructions.Base
+import Gasm.Targets.X86_64.MemCostModel
 
 namespace Gasm.Targets.X86_64.Instructions
 
@@ -29,6 +30,13 @@ open Gasm.Targets.X86_64
 structure RetOp where
   deriving DecidableEq, Repr, Inhabited
 
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- `RetOp`'s declared memory access, hoisted to a top-level `def` and shared by both
+    `memAccesses` and `toUops` below (via `memUops`) -- see `Mov.lean`'s
+    `movRspDispByteAccesses` doc comment for why. -/
+@[simp] def retOpAccesses (_ : RetOp) : List MemAccessSpec :=
+  [⟨.load, .w64, ⟨some .rsp, none, 0⟩⟩]
+
 /- REF: intel-sdm#vol=2;instr=RET;part=operation -/
 instance : X86_64Instruction RetOp where
   encode _ := ByteArray.mk #[0xC3]
@@ -37,8 +45,11 @@ instance : X86_64Instruction RetOp where
     let (retAddr, s') := s.pop64
     { s' with rip := retAddr }
 
-  toUops _ := [
-    { mnemonic := "RET.popTarget", uopClass := .load, eligiblePorts := [.p2, .p3], latencyCycles := 4, reciprocalThroughput := 0.5 },
+  -- The derived memory (`.load`, popping the return address) uop precedes the hand-written
+  -- `.branch` uop, matching the pre-migration literal's order (`docs/MEMORY_HOOK.md` §5.1: the
+  -- hook derives memory-class uops; non-memory uops like `.branch` are not part of `memAccesses`
+  -- and stay hand-written here, same as `CallRipRel`/`CallRel32` below).
+  toUops i := derivedMemUops (retOpAccesses i) defaultMemCostModel ++ [
     { mnemonic := "RET.branch", uopClass := .branch, eligiblePorts := [.p0, .p6], latencyCycles := 1, reciprocalThroughput := 0.5 }
   ]
   toNASM _ := "ret"
@@ -48,7 +59,7 @@ instance : X86_64Instruction RetOp where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and are uncalibrated inline literals; no calibration artifact exists yet (F1 RDTSC harness, docs/tasks/F1-rdtsc-harness.md, status ready/unbuilt) and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   roundtripCases := [RetOp.mk]
-  memAccesses _ := [⟨.load, .w64, ⟨some .rsp, none, 0⟩⟩]
+  memAccesses := retOpAccesses
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- RET helper. -/
