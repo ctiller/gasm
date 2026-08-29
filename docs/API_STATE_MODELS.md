@@ -174,8 +174,9 @@ structure BasicBlock (Arch : Type) [TargetArch Arch] where
     Σ ExitState, Σ exit : ComposedState Arch ExitState, CpuTerminator Arch exit
 ```
 
-The direct and conditional edge constructors are implemented. Closed-set resolution for indirect
-jumps and the generic finite-CFG composition theorem remain required work; until those land, this
+Direct, conditional, and duplicate-free closed-set indirect edge constructors are implemented.
+The final artifact still has to connect an indirect edge's target decoder to the emitted branch
+operand. The generic finite-CFG reachability theorem remains required work; until that lands, this
 module is not yet the complete routine-verification surface.
 
 ---

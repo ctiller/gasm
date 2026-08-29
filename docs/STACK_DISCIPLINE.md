@@ -92,9 +92,9 @@ class AbiDiscipline (Arch : Type) (ABI : Type) where
 
 ## 3. BasicBlock Structure & Typed Terminators
 
-The basic-block authoring surface checks direct and conditional CFG transitions against typed entry
-contracts and `expectedDepth`. Closed-set indirect resolution and the generic whole-CFG theorem are
-the remaining parts of this substrate:
+The basic-block authoring surface checks direct, conditional, and closed-set indirect CFG
+transitions against typed entry contracts and `expectedDepth`. Connecting indirect decoding to the
+final emitted artifact and the generic whole-CFG theorem are the remaining parts of this substrate:
 
 A jump is a local call-like proof boundary. Its source proves the destination entry relation over
 the complete logical state, not merely representation compatibility or stack depth. That relation is

@@ -115,6 +115,20 @@ structure ConditionalBlockEdge {Arch : Type} [TargetArch Arch] {Source : Type}
   depthEstablished : target.expectedDepth = targetState.stackDepth
   entryEstablished : enabled → target.accepts targetState
 
+/- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
+/-- An indirect jump is an ordinary typed edge plus target-owned resolution
+    into a finite, duplicate-free candidate set.  The final artifact connection
+    must prove that `decodeTarget` is the semantics of the emitted indirect
+    branch operand; this record proves the local closed-world dispatch fact. -/
+structure IndirectBlockEdge {Arch : Type} [TargetArch Arch] {Source TargetId : Type}
+    (source : ComposedState Arch Source) where
+  decodeTarget : TargetArch.MachineState Arch → TargetId
+  candidates : List (TargetId × BlockEntry Arch)
+  uniqueTargetIds : (candidates.map Prod.fst).Nodup
+  edge : BlockEdge source
+  resolved : ∃ candidate ∈ candidates,
+    candidate.1 = decodeTarget source.machine ∧ candidate.2 = edge.target
+
 namespace BlockEdge
 
 /- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
@@ -154,6 +168,8 @@ end ConditionalBlockEdge
 /-- Architecture-defined control-flow terminator family indexed over the terminal state. -/
 inductive CpuTerminator (Arch : Type) [TargetArch Arch] {S : Type} (s_exit : ComposedState Arch S) where
   | jmp   (edge : BlockEdge s_exit) : CpuTerminator Arch s_exit
+  | jmpIndirect {TargetId : Type} (edge : IndirectBlockEdge (TargetId := TargetId) s_exit) :
+      CpuTerminator Arch s_exit
   | jcc   (cond : ConditionCode Arch)
           (targetTrue : ConditionalBlockEdge s_exit (cond.holds s_exit.machine))
           (targetFalse : ConditionalBlockEdge s_exit (¬ cond.holds s_exit.machine)) :
