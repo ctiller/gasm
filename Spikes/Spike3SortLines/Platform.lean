@@ -25,6 +25,7 @@ there is no sample-domain loader between `Environment.stdin` and `fd_read`.
 
 namespace Spikes.Spike3SortLines
 
+open Gasm.Core.Platform
 open Gasm.Targets.WASI
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
@@ -38,6 +39,24 @@ abbrev Spike3WasiArtifact := WasiArtifact
 /-- The composition preserves every canonical environment field at load time.  This is the
     capability premise a future `VerifiedProgram` proof must use; it cannot narrow stdin to a
     Bool or a finite test enumeration. -/
-abbrev spike3WasiCapabilities := wasiHostCapabilities
+def spike3WasiProvider (index : Nat) : WasiProvider :=
+  { imports := ["fd_read", "fd_write", "proc_exit"]
+    importIndex := index
+    implementation := wasiHostCall ["fd_read", "fd_write", "proc_exit"] index }
+
+def spike3WasiReadWriteExitCapability : Capability Spike3WasiPreview1Platform where
+  Context := Unit
+  providers := [0, 1, 2].map spike3WasiProvider
+  establishes := fun _ _ _ _ => True
+
+def spike3WasiCapabilities : CapabilityComposition Spike3WasiPreview1Platform where
+  root := spike3WasiReadWriteExitCapability
+  realize := fun _ => wasiHostCall
+  realizeSupports := by
+    intro context provider hprovider
+    simp only [spike3WasiReadWriteExitCapability, List.mem_map] at hprovider
+    rcases hprovider with ⟨index, hindex, rfl⟩
+    intro state
+    rfl
 
 end Spikes.Spike3SortLines

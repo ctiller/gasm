@@ -166,16 +166,26 @@ def spike3VerifiedWasmProgram
   importsCovered := by
     intro imported himported
     change imported ∈ ["fd_read", "fd_write", "proc_exit"] at himported
-    trivial
-  capabilitiesConnection := by
-    change
-      spike3WasmModule.functions.head?.map (fun fn => fn.body) = some spike3WasmInstructions ∧
-      spike3WasmModule.dataSegments = spike3DataSegments ∧
-      spike3WasmModule.imports.map (fun imported => imported.name) =
-        ["fd_read", "fd_write", "proc_exit"]
-    constructor
-    · rfl
-    constructor <;> rfl
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at himported
+    rcases himported with rfl | rfl | rfl
+    · refine ⟨spike3WasiProvider 0, ?_, ?_⟩
+      · simp [spike3WasiCapabilities, spike3WasiReadWriteExitCapability]
+      · change (["fd_read", "fd_write", "proc_exit"] : List String)[0]? = some "fd_read"
+        rfl
+    · refine ⟨spike3WasiProvider 1, ?_, ?_⟩
+      · simp [spike3WasiCapabilities, spike3WasiReadWriteExitCapability]
+      · change (["fd_read", "fd_write", "proc_exit"] : List String)[1]? = some "fd_write"
+        rfl
+    · refine ⟨spike3WasiProvider 2, ?_, ?_⟩
+      · simp [spike3WasiCapabilities, spike3WasiReadWriteExitCapability]
+      · change (["fd_read", "fd_write", "proc_exit"] : List String)[2]? = some "proc_exit"
+        rfl
+  providersLinked := by
+    intro provider hprovider
+    simp only [spike3WasiCapabilities, spike3WasiReadWriteExitCapability,
+      List.mem_map] at hprovider
+    rcases hprovider with ⟨index, hindex, rfl⟩
+    rfl
   entryContext := fun _ => ()
   entryEstablished := by intros; trivial
   platformAdmissible := by
