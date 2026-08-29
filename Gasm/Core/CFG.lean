@@ -49,6 +49,25 @@ structure BlockEntry (Arch : Type) [TargetArch Arch] where
   expectedDepth : Nat
   accepts : ComposedState Arch State → Prop
 
+namespace BlockEntry
+
+/-- Transport a target state across equality of complete dependent entry
+    contracts. -/
+def transportState {Arch : Type} [TargetArch Arch] {left right : BlockEntry Arch}
+    (same : left = right) (state : ComposedState Arch right.State) :
+    ComposedState Arch left.State := by
+  cases same
+  exact state
+
+theorem transport_accepts {Arch : Type} [TargetArch Arch]
+    {left right : BlockEntry Arch} (same : left = right)
+    {state : ComposedState Arch right.State} (accepted : right.accepts state) :
+    left.accepts (transportState same state) := by
+  cases same
+  exact accepted
+
+end BlockEntry
+
 /- REF: docs/STACK_DISCIPLINE.md#3-basicblock-structure-typed-terminators -/
 /-- A jump changes control location but cannot manufacture authority.  The
     target may refine the erased API typestate, while the concrete state and
@@ -217,9 +236,9 @@ structure TypedControlFlowGraph (Arch : Type) [TargetArch Arch] where
 /-- A control point packages exactly the evidence a block call consumes.  It is
     the common assume/guarantee boundary for function entries and jump targets. -/
 structure BlockControlPoint (Arch : Type) [TargetArch Arch] where
-  entry : BlockEntry Arch
-  state : ComposedState Arch entry.State
-  accepted : entry.accepts state
+  block : BasicBlock Arch
+  state : ComposedState Arch block.entry.State
+  accepted : block.entry.accepts state
 
 namespace TypedControlFlowGraph
 
@@ -227,18 +246,51 @@ namespace TypedControlFlowGraph
     entry contract, not merely equality of a textual label. -/
 def Contains {Arch : Type} [TargetArch Arch]
     (graph : TypedControlFlowGraph Arch) (point : BlockControlPoint Arch) : Prop :=
-  ∃ block ∈ graph.blocks, block.entry = point.entry
+  point.block ∈ graph.blocks
+
+/-- Selection of exactly one successor from a terminator.  Conditional proof
+    burden follows the branch that is actually enabled; the unselected target
+    contributes no path-local obligation. -/
+inductive SelectedEdge {Arch : Type} [TargetArch Arch] {S : Type}
+    {exit : ComposedState Arch S} : CpuTerminator Arch exit → BlockEdge exit → Prop where
+  | direct (edge : BlockEdge exit) : SelectedEdge (.jmp edge) edge
+  | indirect {TargetId : Type} (edge : IndirectBlockEdge (TargetId := TargetId) exit) :
+      SelectedEdge (.jmpIndirect edge) edge.edge
+  | branchTrue (cond : ConditionCode Arch)
+      (targetTrue : ConditionalBlockEdge exit (cond.holds exit.machine))
+      (targetFalse : ConditionalBlockEdge exit (¬ cond.holds exit.machine))
+      (selected : cond.holds exit.machine) :
+      SelectedEdge (.jcc cond targetTrue targetFalse) (targetTrue.activate selected)
+  | branchFalse (cond : ConditionCode Arch)
+      (targetTrue : ConditionalBlockEdge exit (cond.holds exit.machine))
+      (targetFalse : ConditionalBlockEdge exit (¬ cond.holds exit.machine))
+      (selected : ¬ cond.holds exit.machine) :
+      SelectedEdge (.jcc cond targetTrue targetFalse) (targetFalse.activate selected)
+
+/-- Reindex a proved edge target by the exact block entry published in the
+    graph.  Equality is over the complete dependent contract, never its label. -/
+def targetPoint {Arch : Type} [TargetArch Arch] {Source : Type}
+    {source : ComposedState Arch Source} (edge : BlockEdge source)
+    (targetBlock : BasicBlock Arch) (sameEntry : targetBlock.entry = edge.target) :
+    BlockControlPoint Arch :=
+  ⟨targetBlock,
+    BlockEntry.transportState sameEntry edge.targetState,
+    BlockEntry.transport_accepts sameEntry edge.entryEstablished⟩
 
 /-- One selected jump.  The successor already carries the destination's entry
     proof; the relation cannot represent an unchecked transfer. -/
 inductive Step {Arch : Type} [TargetArch Arch]
     (graph : TypedControlFlowGraph Arch) :
     BlockControlPoint Arch → BlockControlPoint Arch → Prop where
-  | jump {source : BlockControlPoint Arch}
+  | jump {source : BlockControlPoint Arch} {ExitState : Type}
+      {exit : ComposedState Arch ExitState} {terminator : CpuTerminator Arch exit}
       (sourceInGraph : graph.Contains source)
-      (edge : BlockEdge source.state)
-      (targetInGraph : ∃ block ∈ graph.blocks, block.entry = edge.target) :
-      Step graph source ⟨edge.target, edge.targetState, edge.entryEstablished⟩
+      (bodyResult : source.block.body source.state source.accepted =
+        ⟨ExitState, exit, terminator⟩)
+      (edge : BlockEdge exit) (selected : SelectedEdge terminator edge)
+      (targetBlock : BasicBlock Arch) (targetInGraph : targetBlock ∈ graph.blocks)
+      (sameEntry : targetBlock.entry = edge.target) :
+      Step graph source (targetPoint edge targetBlock sameEntry)
 
 /-- Reflexive-transitive typed reachability.  Induction over this relation is
     the reusable whole-CFG proof rule: each block proves its contract once and
@@ -255,7 +307,7 @@ theorem step_preserves_membership {Arch : Type} [TargetArch Arch]
     {graph : TypedControlFlowGraph Arch} {source target : BlockControlPoint Arch}
     (step : Step graph source target) : graph.Contains target := by
   cases step with
-  | jump _ _ targetInGraph => exact targetInGraph
+  | jump _ _ _ _ _ targetInGraph _ => exact targetInGraph
 
 theorem reachable_preserves_membership {Arch : Type} [TargetArch Arch]
     {graph : TypedControlFlowGraph Arch} {start finish : BlockControlPoint Arch}
