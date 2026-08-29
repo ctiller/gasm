@@ -124,13 +124,16 @@ stateDiagram-v2
 > **Ratified direction** (not designed in this document): retain Vulkan's program order,
 > storage-class-parameterized inter-thread happens-before, system-synchronizes-with, execution and
 > memory dependencies, scopes, memory domains, and availability/visibility as first-class profile
-> semantics. Vulkan happens-before is non-transitive and does not alone imply visibility; it must
+> semantics. The SPIR-V/Vulkan shader memory-model happens-before relation is non-transitive and
+> does not alone imply visibility; it is distinct from Vulkan API execution dependencies and must
 > not be mapped directly to the repository's transitive `VectorClock` relation. Clocks may cache
 > only a proved causal projection while the labelled Vulkan relations remain authoritative.
 > Submission order alone is not a dependency, and queue submission, fence signal/host observation,
 > semaphore signal/wait, events, and barriers each require their exact profile-defined scopes and
 > consequences, with **RAW included** alongside WAR/WAW. The full DSL — total race-freedom,
 > relation-soundness, visibility, and host/queue/shader refinement theorems over the command-stream
-> language, per `docs/DECISIONS.md` §2 — remains prerequisite work in `docs/ROADMAP.md` §1. See
+> language, per `docs/DECISIONS.md` §2 — also separates logical resource/view identity from
+> generational sparse binding and resolved backing overlap, so rebind invalidation, aliasing and
+> destruction are not conflated. It remains prerequisite work in `docs/ROADMAP.md` §1. See
 > `docs/GRAPHICS_ARCHITECTURE.md` §3.3 for the same requirement stated
 > alongside the contract/audit trace split it depends on.

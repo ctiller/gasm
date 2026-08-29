@@ -203,8 +203,9 @@ part of that contract's equivalence obligation.
 > first-class relations and state — program order, storage-class-parameterized inter-thread
 > happens-before, system-synchronizes-with, execution and memory dependencies, scopes, memory
 > domains, and per-write availability/visibility — grounded in the exact profile intake required
-> above. Vulkan happens-before is not transitive and is not by itself sufficient to make a write
-> visible, so it must **not** be identified with this repository's transitive `VectorClock`
+> above. The SPIR-V/Vulkan shader memory-model happens-before relation is non-transitive and is not
+> by itself sufficient to make a write visible; it is also distinct from Vulkan's API execution-
+> dependency order. Neither may be identified with this repository's transitive `VectorClock`
 > reachability. A vector clock may cache only a separately proved transitive causal projection,
 > while the source Vulkan relations and labels remain authoritative. Submission order alone creates
 > no execution or memory dependency; queue submission, fence signal plus successful host wait,
@@ -214,7 +215,19 @@ part of that contract's equivalence obligation.
 > theorems over the command-stream language, per `docs/DECISIONS.md` §2's DSL-as-proof-leverage
 > principle — remains a prerequisite in `docs/ROADMAP.md` §1. This document does not sketch that
 > design; it only retracts the prior layout-FSM and direct-vector-clock claims and records the
-> required replacement boundary.
+> required replacement boundary. That design must also retain convergent/dynamically uniform
+> participation for collective barriers and explicit target/device progress premises. It may not
+> instantiate the CPU blocking-mutex contract for shader invocations merely because shader atomics
+> exist; any specialized shader lock must prove the participation, scheduling, residency, and
+> progress properties its algorithm needs, without assuming per-invocation independent progress
+> unless the selected target profile guarantees it.
+>
+> Sparse and aliased resources also require time-indexed bind/unbind/rebind generations. Logical
+> resource/view/descriptor identity remains distinct from the resolved physical backing footprint:
+> rebinding invalidates stale backing-resolution witnesses, while resource destruction and invalid
+> use of freed backing follow their own lifetime rules. Hazard and visibility checks must retain both
+> the logical reference scopes and the resolved backing overlap; neither raw handle equality nor raw
+> address equality is an alias proof.
 
 ### 3.4 Floating-Point Kernel Determinism — SUPERSEDED, replacement pending
 
@@ -246,7 +259,11 @@ part of that contract's equivalence obligation.
 During lowering from the pure monadic specification to concrete target assembly, `gasm` enforces **Linear Obligation Tracking**:
 1. **GPU Handle Invariant**: Every allocated GPU object (`Device`, `Buffer`, `Pipeline`, `CommandPool`) must have an active obligation token that is strictly freed before process exit (or released via device destruction).
 2. **Resource Barrier Invariant**: Buffers must have all in-scope memory-barrier proof obligations discharged (e.g. a shader store made visible to a subsequent transfer read before readback) prior to issuing dependent commands, subject to §3.3's superseded-and-pending synchronization model. Image-layout transitions are out of scope for the compute-only committed target (§2.1) — `GpuAuditEvent` (§3.2) accordingly carries no `transitionLayout` constructor; that concept returns only alongside a future rasterization-capable target (§2.2).
-3. **Descriptor Set Allocation Invariant**: Descriptor sets must remain valid and bound while command buffers referencing them are in flight.
+3. **Descriptor Set Allocation Invariant**: Descriptor-set and slot generations obey the exact
+   selected descriptor profile. Ordinary descriptors retain an unchanged-use lease for the required
+   in-flight interval; update-after-bind slots record the profile-permitted nondeterministic
+   consumption point; partially bound entries need validity only when dynamically used. Descriptor
+   identity and contents remain distinct from a sparse resource's current backing binding.
 
 The GPU memory-capability model (device-local provenance, descriptor handoff as
 capability transfer, fence-guarded temporal release) is a separate, not-yet-designed

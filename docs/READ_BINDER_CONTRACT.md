@@ -1,4 +1,4 @@
-# READ_BINDER_CONTRACT: the PA6 read-binder contract shape
+# READ_BINDER_CONTRACT: the universal read-binder contract shape
 
 - REF: docs/REVIEW.md#law-9-universal-quantification-input-completeness-mandate-the-anti-pointwise-law
 - REF: docs/REVIEW.md#law-11-memory-access-capability-mandate-fail-to-assemble
@@ -90,39 +90,44 @@ concretely: a general theorem about *all* valid chunkings of a fixed logical inp
 to the empty-first-read, short-read, and single-maximal-read cases as three ordinary
 instantiations of the same lemma, with no case-specific proof step anywhere.
 
-## 4. Integration with PA5's causal trace (interface contract)
+## 4. Integration with the M0/M8 causal trace (interface contract)
 
 `docs/SYSTEM_EFFECTS.md` §6.4 requires that input events are first-class, causally-stamped
 trace events and coalescing barriers — a contract that quantifies over a read's *result* but
 forgets *that a read occurred, and where in the causal order* would silently reintroduce the
 "ack for a read is not ack before a read" confusion §6.4 exists to close.
-`Gasm/Effects/CanonicalizeTrace.lean` now implements the representation; this section states the
-interface it must continue to preserve rather than inventing a parallel representation.
+`Gasm/Effects/CanonicalizeTrace.lean` implements the current single-thread representation; this
+section states the interface it must preserve as M0/M8 replace that degeneration rather than
+inventing a parallel representation.
 
-`Gasm/Core/Types.lean:48` carries the relevant primitive:
-`VectorClock` (`clock : ThreadId → Nat`, with `happensBefore`/`join`/`tick`) provides one causal
-position primitive. The interface this document specifies:
+`Gasm/Core/Types.lean:48` currently carries `VectorClock` (`clock : ThreadId → Nat`, with
+`happensBefore`/`join`/`tick`), but that is only a possible cache for a proved transitive relation.
+It cannot preserve profile-native relation labels or source-path witnesses by itself. The interface
+this document specifies is therefore:
 
-- A read event's trace representation must be a pair `(event : Event, stamp : VectorClock)` (or
-  whatever concrete wrapper PA5 settles on with equivalent information content) — **not** a bare
-  `Event` in a `List Event`. `ReadBinderObligation`'s bound variable `bytes` is exactly the
-  *payload* half of this pair; PA5 supplies the *position* half.
+- A read event's trace representation exposes the M0/M8 stable event identity, observable quotient
+  position, and profile-selected `ProjectedCausalEdge`/labelled source-path witnesses incident on
+  that position — **not** a bare `Event` in a `List Event`, and not merely an `(Event, VectorClock)`
+  pair. `ReadBinderObligation`'s bound variable `bytes` is exactly the *payload* associated with this
+  causal slot; the canonical causal-position interface supplies the position and path witnesses. A
+  relation-specific vector clock may accompany it only as a proved cache.
 - The coalescing-barrier property (§6.4: outputs on either side of an input event never merge or
-  commute across it) must be stated as a property of the canonical form PA5 produces, not
+  commute across it) must be stated as a property of the canonical form M8 produces, not
   re-derived per read site. This contract shape does not re-litigate barrier placement; it only
-  requires that whatever canonical form PA5 produces preserves read events as distinguishable
+  requires that the canonical form preserves read events as distinguishable
   positions so that the `bytes` values `ReadBinderObligation` quantifies over remain attached to
-  a specific causal slot, not merged away by the very congruence PA6 depends on to state
-  chunk-robustness (§7) correctly. Concretely: `canonicalizeTrace` must not fold two consecutive
+  a specific causal slot, not merged away by the very congruence this read-binder contract uses to
+  state chunk-robustness (§7) correctly. Concretely: `canonicalizeTrace` must not fold two consecutive
   reads' payloads together the way it is licensed to fold two consecutive same-stream writes —
   `docs/SYSTEM_EFFECTS.md` §6.1's own coalescing table already states this for `NetEvent.recv`/
   reads/`accept` ("never coalesced"), so no change to that table is needed; this section simply
   records that the read-binder contract's soundness is one more thing resting on that row.
-- Once PA5 lands, a routine's read-continuation contract is a dependent pair: the `VectorClock`
-  (or successor) position of the read event, plus a `ReadBinderObligation requested Post` proof
-  keyed to that position's payload slot. This document does not attempt PA5's representation
-  work; it names the exact two properties (distinguishable position, non-coalescing) any PA5
-  implementation must have for this contract shape to compose with it soundly.
+- Once M8 lands, a routine's read-continuation contract is a dependent pair: the canonical causal
+  position/path-witness interface for the read event, plus a
+  `ReadBinderObligation requested Post` proof keyed to that position's payload slot. This document
+  does not attempt M0/M8's representation work; it names the exact two properties (distinguishable
+  position, non-coalescing) that implementation must have for this contract shape to compose with it
+  soundly.
 
 ## 5. Integration with Law 11's capability mandate
 
@@ -153,8 +158,8 @@ make provable:
   destination-buffer or general memory faults, so a proof of a Zlib routine
   cannot distinguish 'correct' from 'scribbles outside its buffer'"), so a memory-safety
   violation from an over-length write is not an event this model can even produce, let alone
-  quantify over. That gap is N2's (short reads) and Law 11 migration's (PA4's) to close, not
-  this document's.
+  quantify over. That gap belongs to the bounded-read target work and M1's Law 11 migration, not
+  this document.
 - **The shape of the composed obligation**, once both land, is: a routine that reads into a
   fixed-capacity buffer must discharge `ReadBinderObligation requested Post` where `Post bytes`
   is itself `∀ (perm : MemoryPerm bufferBase bufferCapacity .Exclusive), bytes.length ≤
@@ -267,12 +272,12 @@ witnesses into an obligation already discharged, never a new source of proof wor
   *complete* chunkings (finite lists that already reconstruct the whole input) rather than
   defining an executable, fuel-bounded drain loop and proving it terminates — that is an
   **outer** obligation in `docs/EQUIVALENCE_PROOFS.md` §1's inner/outer reactive-program split
-  (PA7's `VerifiedReactiveProgram`), independent of the **inner** per-read contract shape this
+  (the ratified `VerifiedReactiveProgram` design in `docs/EQUIVALENCE_PROOFS.md`), independent of the **inner** per-read contract shape this
   document defines. Conflating the two would smuggle a liveness proof into what is supposed to
   be a statement about one read's result domain.
 - No attempt to close any of the nine grandfathered Spike 3/4 allowlist entries or any other
   `scripts/gate_allowlist.txt` entry — this is deliberately separate work
-  so it does not balloon into "PA6 plus nine proofs."
+  so it does not balloon into "read-binder work plus nine proofs."
 - No replacement or expansion of the landed `canonicalizeTrace` and bounded-read implementations.
   §4 states the preservation contract those foundations must satisfy as they are integrated into
   live program contracts.
@@ -286,7 +291,7 @@ witnesses into an obligation already discharged, never a new source of proof wor
    receive paths and `splitBytes_isValidReadChunk` proves the connection. File/pipe/console and
    error-channel fidelity remain target-owned model work (`docs/TECHNICAL_NOTES.md` §2).
 3. **A `VerifiedProgram` successor** must expose
-   a field of type `ReadBinderObligation requested Post` (or its PA5-integrated successor from
+   a field of type `ReadBinderObligation requested Post` (or its M0/M8-integrated successor from
    §4) as a mandatory struct field, the way `VerifiedProgram.traceEquivalence` is mandatory
    today (`Gasm/Core/Verification.lean`) — this document supplies the shape that field's type
    must have.

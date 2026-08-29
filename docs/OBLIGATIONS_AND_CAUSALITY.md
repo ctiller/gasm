@@ -57,14 +57,17 @@ arbitrary resources.
 Checked assembly needs typed, generational resources in an indexed authoring context, including:
 
 - `MustRelease lockInstance acquisitionGeneration owner protectedRegion`;
+- profile-specific mutex recovery and contributed queue-node withdrawal obligations;
 - `MustReturnLoan loan issuer holder region`;
 - `MustJoin child joinRight` or an explicit detach transition;
 - `MustCloseHandle handle` and other OS-resource obligations;
 - allocation and typed-view destruction obligations.
 
-The matching capability, guard, and obligation are separate resources. An operation such as
-successful acquire updates them atomically; failed acquire changes none of them. Release requires
-and consumes the generation-matched guard, protected authority, and must-release obligation.
+The matching capability, guard, and obligation are separate resources. An ordinary healthy acquire
+updates them atomically. A not-acquired outcome transfers no guard/authority and returns every
+acquisition-scoped loan; a selected robust/abandoned profile can instead grant exceptional ownership
+plus its exact recovery/repair obligation. Release requires and consumes the owner- and generation-
+matched guard, protected authority, must-release obligation, and any result-specific prerequisite.
 
 Ordinary return exports exactly the postcondition promised by its callable contract. Thread exit
 seals a terminal bundle accounting for every authority, loan, grant, guard, and obligation; an
@@ -74,6 +77,8 @@ all thread contexts and terminal bundles, and may discard only resources explici
 process-scoped. Scheduler-owned wait registrations
 are not author-visible obligations: the scheduler removes them on wake, timeout, supported
 interruption/cancellation, or exit.
+Forced process termination with live threads is an abort/world-invalidation result, not proof that
+their guards and obligations were normally discharged.
 
 The checked surface must close over safe constructors. A public operation that can arbitrarily
 replace `ComposedState.perms` or `.obligations` is outside that surface. See
@@ -83,24 +88,27 @@ replace `ComposedState.perms` or `.obligations` is outside that surface. See
 
 ## 3. Monotonic Causality & Vector Clocks
 
-### 3.1 Four different ordering relations
+### 3.1 Source relations and observable projection
 
 Keeping these relations distinct prevents circular or architecture-unsound proofs:
 
-1. **ISA execution consistency** says which memory executions are permitted. x86-64 WB/TSO and
+1. **Target execution consistency** says which executions are permitted. x86-64 WB/TSO and
    AArch64 weak memory use different predicates over program order, reads-from, coherence,
-   dependencies, atomics, and barriers.
+   dependencies, atomics, and barriers; non-CPU profiles retain their native relations.
 2. **Program happens-before** is created by same-thread order and proved synchronization such as
    spawn, successful join, or a release/acquire pair connected to the relevant write.
 3. **Scheduler control causality** records events such as a wake causing a blocked thread to become
    runnable. It does not imply that ordinary memory is visible.
-4. **Observable causal order** projects the labelled program and scheduler relations onto external
-   effect events.
+4. **Target/platform/domain causality** retains API, GPU, result-publication, device/interrupt,
+   transport, acknowledgement, and persistence relations with their own scopes and path laws.
+5. **Observable causal order** is a profile-selected projection of admitted labelled source paths
+   onto external effect events. Each trace order retains its source-path witness.
 
 The labelled edge graph is authoritative. Vector clocks are only relation-aware reachability caches
 after source edges have been proved; one clock over the union cannot recover or invent whether an
-edge came from program synchronization, scheduler control, or both. They do not define the x86 or
-AArch64 memory model and cannot turn a plain read into synchronization.
+edge came from program synchronization, scheduler control, device delivery, transport,
+persistence, or a combination. They do not define a target memory model and cannot turn a plain read
+into synchronization.
 
 In particular:
 
@@ -119,14 +127,17 @@ In particular:
 Concurrent canonical traces compare labelled partial orders, not arbitrary interleaving lists or
 raw vector-clock values. A total, non-inventing quotient maps every raw observable to exactly one
 canonical node and coalesces only under named per-effect rules. Between distinct quotient nodes,
-projection must be faithful in both directions:
+projection must be faithful in both directions to the profile-selected induced reachability:
 
 ```text
-trace edge exists  iff  the corresponding labelled program/scheduler causal edge exists
+A < B in the trace  iff  an admitted labelled source path between their fibers is selected
 ```
 
-Equality is modulo schedule-independent event-key renaming and partial-order isomorphism. Edge
-labels preserve the distinction between memory/lifecycle happens-before and scheduler causality.
+Each projected order retains its source relation/path witness, including target/API/device,
+delivery, or persistence causality where the selected profile exposes it. Equality is modulo
+schedule-independent event-key renaming and partial-order isomorphism and is independent of a
+particular transitive reduction. Labels preserve the distinction between memory/lifecycle
+happens-before, scheduler causality, and other profile-native relations.
 This is the M8 exit criterion in `docs/MEMORY_MODEL.md` §14.
 
 ---
@@ -140,5 +151,5 @@ This note can be promoted from design boundary to implemented contract only when
 - x86 and AArch64 synchronization edges are derived from their respective memory models;
 - futex/parking transitions preserve their non-fence semantics;
 - trace projection satisfies the bidirectional fidelity theorem; and
-- negative controls demonstrate that failed acquire, missing release, wake-only publication, and
-  dropped causal edges are rejected.
+- negative controls demonstrate that failed acquire, missing release, scheduler/address-wake-only
+  publication, and dropped causal edges are rejected.

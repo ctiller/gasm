@@ -232,18 +232,24 @@ whose effect algebra has a canonicalizer.
 
 The normal form carries **happens-after tracking** from day one, even while all programs are single-threaded:
 
-- The concurrent representation is a labelled partial order with stable event identities. Vector
-  clocks project already-established program happens-before onto observables; they are not an ISA
-  memory-consistency model (`docs/MEMORY_MODEL.md` §11). In one thread the order is total.
+- The concurrent representation is a labelled partial order with stable event identities. A
+  target/profile `TraceProjection` selects admitted labelled source-path reachability and every
+  `ProjectedCausalEdge` retains that path witness. A vector clock may cache only a separately proved
+  transitive relation/projection; it is neither an ISA consistency model nor an information-
+  equivalent replacement for native relation labels (`docs/MEMORY_MODEL.md` §11). In the initial
+  one-thread CPU profile the selected order is total.
 - **Coalescing respects causality**: adjacent same-stream writes fold together only when causally consecutive — no observable event ordered between them. This is what makes the congruence correct once multiple loops/threads interleave: two writes with an intervening causally-ordered observable on another stream must not merge.
-- **Equivalence under concurrency** is equality of labelled canonical causal orders — equivalently,
-  agreement up to linearizations consistent with program happens-before. A release/acquire edge is
-  included only when the architecture model establishes the relevant read-from relationship; plain
-  reads-from and futex wake are not automatically synchronizes-with.
+- **Equivalence under concurrency** is equality of labelled canonical causal partial orders modulo
+  event-key renaming/poset isomorphism, using the selected profile projection rather than one
+  scheduler linearization. In a CPU profile, a release/acquire source path is admitted only when the
+  architecture model establishes its relevant read-from relationship; plain reads-from and futex
+  wake are not automatically synchronizes-with. GPU/API, device, transport, acknowledgement, and
+  persistence profiles contribute their own native labelled paths and composition laws.
 - The concurrent normal form uses an explicit total, non-inventing quotient from raw observables to
   canonical nodes. Coalescing is allowed only by the per-effect rules above and must preserve the
-  stream, label, specified payload fold, and causal barriers; labelled edges are then faithful in
-  both directions between quotient nodes.
+  stream, label, specified payload fold, and causal barriers. Between quotient nodes, trace order is
+  faithful in both directions to profile-selected labelled source-path reachability, independent of
+  whether the source graph stores one direct edge or a multi-edge path/transitive reduction.
 - The multi-thread representation and trace-order soundness theorem are stage M8 of
   `docs/MEMORY_MODEL.md` §14. Current list-based single-thread normalization is its degeneration,
   not the final concurrent representation.
