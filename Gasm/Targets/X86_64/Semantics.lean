@@ -52,6 +52,93 @@ def instructionAtRip (baseRip : UInt64) (instructions : List X86_64Instr) (targe
   loop baseRip instructions
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- The real, byte-accurate length of an instruction -- exactly the function `instructionAtRip`
+    (above) and `Assembler.buildSymbolTable` themselves fold over an instruction list to lay out
+    addresses. Reusable machinery for any spike/pathfinder that needs to state a fetch fact's
+    address structurally (as a fold over the real instruction list) instead of a hand-summed
+    byte-offset literal -- see `instructionAtRip_of_drop` below. -/
+def instrSize (i : X86_64Instr) : Nat := (X86_64Instruction.encode i).size
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Cumulative real encoded length of an instruction prefix -- `instrSize` folded over
+    `List.take`/`List.map`/`List.sum`, never a hand-summed numeral. `instructionAtRip_of_drop`
+    below is stated in terms of this so that "the address of the instruction at list position `k`"
+    is always a fold over the actual instruction list, not arithmetic a human performed and typed
+    in. -/
+def cumLen (instrs : List X86_64Instr) : Nat := (instrs.map instrSize).sum
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- **The one structural fetch lemma.** If `instrs.drop k = instr :: rest` (`instr` sits at list
+    position `k` -- the only literal this lemma ever needs, and it is directly checkable against
+    the source instruction list by inspection or `decide`, unlike a byte offset), and the address
+    reached after `base` plus the real cumulative encoded length of the first `k` instructions
+    never overflows `UInt64` (`hbound`), with every one of those first `k` instructions having
+    positive encoded length (`hpos` -- both trivially `decide`d for any concrete, closed
+    instruction list), then `instr` is exactly what `instructionAtRip` finds at that address. The
+    address is computed by folding the REAL per-instruction length function (`instrSize`) over the
+    REAL instruction list via `cumLen` -- never a hand-summed numeral or a hand-counted
+    "N instructions back" offset. Proved once, here, for any target/spike doing this style of
+    loop-invariant induction to reuse verbatim; each fetch fact elsewhere is then a single
+    `apply instructionAtRip_of_drop` against a concrete list position. -/
+theorem instructionAtRip_of_drop (base : Address) (instrs : List X86_64Instr) (k : Nat)
+    (instr : X86_64Instr) (rest : List X86_64Instr)
+    (hdrop : instrs.drop k = instr :: rest)
+    (hbound : base.toNat + cumLen (instrs.take k) < 2 ^ 64)
+    (hpos : ∀ i ∈ instrs.take k, 0 < instrSize i) :
+    instructionAtRip base instrs (base + (cumLen (instrs.take k) : Nat).toUInt64) = some instr := by
+  induction instrs generalizing base k with
+  | nil => simp at hdrop
+  | cons i0 instrs' ih =>
+    cases k with
+    | zero =>
+      simp only [List.drop_zero] at hdrop
+      injection hdrop with h1 h2
+      subst h1; subst h2
+      show instructionAtRip base (i0 :: instrs') (base + (cumLen ((i0 :: instrs').take 0) : Nat).toUInt64) = some i0
+      simp only [List.take_zero, cumLen, List.map_nil, List.sum_nil, show (0 : Nat).toUInt64 = 0 from rfl,
+        UInt64.add_zero]
+      simp only [instructionAtRip, instructionAtRip.loop, BEq.rfl, if_true]
+    | succ k =>
+      simp only [List.drop_succ_cons] at hdrop
+      have htake : (i0 :: instrs').take (k + 1) = i0 :: instrs'.take k := by simp
+      have hcumcons : cumLen (i0 :: instrs'.take k) = instrSize i0 + cumLen (instrs'.take k) := by
+        simp [cumLen, instrSize]
+      rw [htake] at hbound hpos
+      rw [hcumcons] at hbound
+      have hbound' : (base + (instrSize i0 : Nat).toUInt64).toNat + cumLen (instrs'.take k) < 2 ^ 64 := by
+        have hb1 : base.toNat + instrSize i0 < 2 ^ 64 := by omega
+        have : (base + (instrSize i0 : Nat).toUInt64).toNat = base.toNat + instrSize i0 := by
+          simp [UInt64.toNat_add, Nat.toUInt64_eq, UInt64.toNat_ofNat',
+            Nat.mod_eq_of_lt (show instrSize i0 < 2 ^ 64 by omega), Nat.mod_eq_of_lt hb1]
+        omega
+      have hpos' : ∀ i ∈ instrs'.take k, 0 < instrSize i := fun i hi => hpos i (List.mem_cons_of_mem _ hi)
+      have hi0pos : 0 < instrSize i0 := hpos i0 (by simp)
+      have key := ih (base + (instrSize i0 : Nat).toUInt64) k hdrop hbound' hpos'
+      have htarget : base + (cumLen ((i0 :: instrs').take (k + 1)) : Nat).toUInt64
+          = (base + (instrSize i0 : Nat).toUInt64) + (cumLen (instrs'.take k) : Nat).toUInt64 := by
+        rw [htake, hcumcons, Nat.toUInt64_eq, Nat.toUInt64_eq, Nat.toUInt64_eq, UInt64.ofNat_add,
+          UInt64.add_assoc]
+      have hne : base ≠ base + (cumLen ((i0 :: instrs').take (k + 1)) : Nat).toUInt64 := by
+        rw [htake, hcumcons]
+        intro heq
+        have hc : 0 < instrSize i0 + cumLen (instrs'.take k) := by omega
+        have heqn : (base + (instrSize i0 + cumLen (instrs'.take k) : Nat).toUInt64).toNat
+            = base.toNat + (instrSize i0 + cumLen (instrs'.take k)) := by
+          simp [UInt64.toNat_add, Nat.toUInt64_eq, UInt64.toNat_ofNat',
+            Nat.mod_eq_of_lt (show instrSize i0 + cumLen (instrs'.take k) < 2 ^ 64 by omega),
+            Nat.mod_eq_of_lt hbound]
+        rw [← heq] at heqn
+        omega
+      show instructionAtRip base (i0 :: instrs')
+          (base + (cumLen ((i0 :: instrs').take (k + 1)) : Nat).toUInt64) = some instr
+      rw [htarget]
+      have hboolfalse : (base == (base + (instrSize i0 : Nat).toUInt64) + (cumLen (instrs'.take k) : Nat).toUInt64)
+          = false := by
+        rw [← htarget]; simpa using hne
+      simp only [instructionAtRip, instructionAtRip.loop, hboolfalse, Bool.false_eq_true, if_false]
+      exact key
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Computes byte offsets for each instruction in a sequence, eliminating O(M*N) re-encoding in the simulator. -/
 def indexInstructions (baseRip : UInt64) (instructions : List X86_64Instr) : List (UInt64 × X86_64Instr) :=
   let rec loop (curRip : UInt64) : List X86_64Instr → List (UInt64 × X86_64Instr)
