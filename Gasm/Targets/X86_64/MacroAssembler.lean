@@ -16,7 +16,12 @@ limitations under the License.
 
 import Gasm.Targets.X86_64.Instructions.Add
 import Gasm.Targets.X86_64.Instructions.And
+import Gasm.Targets.X86_64.Instructions.Cmp
+import Gasm.Targets.X86_64.Instructions.Div
+import Gasm.Targets.X86_64.Instructions.Lea
 import Gasm.Targets.X86_64.Instructions.Mov
+import Gasm.Targets.X86_64.Instructions.Pop
+import Gasm.Targets.X86_64.Instructions.Push
 import Gasm.Targets.X86_64.Instructions.Sub
 import Gasm.Targets.X86_64.Instructions.Xor
 
@@ -68,6 +73,40 @@ inductive ControlFlowFree : X86_64Instr → Prop where
   | add (dst src : Reg64) : ControlFlowFree (add_r64 dst src)
   | sub (dst src : Reg64) : ControlFlowFree (sub_r64 dst src)
   | bitAnd (dst src : Reg64) : ControlFlowFree (and_r64 dst src)
+
+/- REF: docs/MACRO_ASSEMBLER.md#execution-and-contracts -/
+/-- Constructor-closed target classification of instruction families that never encode control
+    transfer. State-conditionally faulting families remain admitted here; their safety is a
+    separate block-invariant obligation. -/
+inductive NonControlFlowEncoding : X86_64Instr → Prop where
+  | mov (dst src : Reg64) : NonControlFlowEncoding (mov_r64 dst src)
+  | loadImm (dst : Reg64) (value : UInt64) : NonControlFlowEncoding (mov_r64_imm64 dst value)
+  | mov32 (dst : Reg32) (value : UInt32) : NonControlFlowEncoding (mov_r32 dst value)
+  | movRspByte (disp value : UInt8) : NonControlFlowEncoding (mov_rsp_byte disp value)
+  | movRsp64 (disp : UInt8) (value : UInt32) : NonControlFlowEncoding (mov_rsp64 disp value)
+  | movMem8 (dst src : Reg64) : NonControlFlowEncoding (mov_mem8 dst src)
+  | add (dst src : Reg64) : NonControlFlowEncoding (add_r64 dst src)
+  | addImm8 (dst : Reg64) (value : UInt8) : NonControlFlowEncoding (add_r64_imm8 dst value)
+  | sub (dst src : Reg64) : NonControlFlowEncoding (sub_r64 dst src)
+  | subImm8 (dst : Reg64) (value : UInt8) : NonControlFlowEncoding (sub_r64_imm8 dst value)
+  | subRsp32 (value : UInt32) : NonControlFlowEncoding (sub_rsp32 value)
+  | bitAnd (dst src : Reg64) : NonControlFlowEncoding (and_r64 dst src)
+  | xor32 (dst src : Reg32) : NonControlFlowEncoding (xor_r32 dst src)
+  | compareImm8 (dst : Reg64) (value : UInt8) : NonControlFlowEncoding (cmp_r64_imm8 dst value)
+  | leaRsp (dst : Reg64) (disp : UInt8) : NonControlFlowEncoding (lea_rsp dst disp)
+  | push (src : Reg64) : NonControlFlowEncoding (push_r64 src)
+  | pop (dst : Reg64) : NonControlFlowEncoding (pop_r64 dst)
+  | div (divisor : Reg64) : NonControlFlowEncoding (div_r64 divisor)
+
+/- REF: docs/MACRO_ASSEMBLER.md#execution-and-contracts -/
+/-- Exact target-semantic evidence that a constructor-classified non-control instruction has
+    ordinary fallthrough whenever its concrete step is safe. -/
+structure SequentialInstruction (instruction : X86_64Instr) : Prop where
+  encoding : NonControlFlowEncoding instruction
+  safeFallthrough : ∀ state : X86_64MachineState,
+    (X86_64Instruction.step instruction state).fault = none →
+      (X86_64Instruction.step instruction state).rip =
+        state.rip + (X86_64Instruction.encode instruction).size.toUInt64
 
 /- REF: docs/MACRO_ASSEMBLER.md#execution-and-contracts -/
 /-- A reusable instruction fragment whose contract is proved against the concrete x86 semantics. -/

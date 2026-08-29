@@ -40,6 +40,43 @@ theorem ControlFlowFree.step_rip_eq {instruction : X86_64Instr}
   cases ordinary <;> rfl
 
 /- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
+/-- A target-classified sequential instruction advances to fallthrough whenever its concrete step
+    is safe. The safety premise is relevant for `DIV`; always-safe ordinary forms discharge it
+    without exposing an extra program proof obligation. -/
+theorem SequentialInstruction.step_rip_eq_of_safe {instruction : X86_64Instr}
+    (sequential : SequentialInstruction instruction) (state : X86_64MachineState)
+    (safe : (X86_64Instruction.step instruction state).fault = none) :
+    (X86_64Instruction.step instruction state).rip =
+      state.rip + (X86_64Instruction.encode instruction).size.toUInt64 := by
+  exact sequential.safeFallthrough state safe
+
+/- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
+/-- Existing always-safe macro instructions canonically satisfy the broader sequential law. -/
+theorem ControlFlowFree.sequential {instruction : X86_64Instr}
+    (ordinary : ControlFlowFree instruction) : SequentialInstruction instruction where
+  encoding := by cases ordinary <;> constructor
+  safeFallthrough := fun state _ => ordinary.step_rip_eq state
+
+/- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
+/-- Every concrete instruction step reached inside a sequential segment is safe. Fault-capable
+    instructions pay this obligation at the block that establishes their operand invariant. -/
+def SafeSequentialOn (code : List X86_64Instr) (initial : X86_64MachineState) : Prop :=
+  ∀ beforeCode instruction suffix, code = beforeCode ++ instruction :: suffix →
+    (X86_64Instruction.step instruction (runLocalSteps beforeCode initial)).fault = none
+
+theorem SafeSequentialOn.prefixSafe {code : List X86_64Instr} {initial : X86_64MachineState}
+    (safe : SafeSequentialOn code initial) (initialSafe : initial.fault = none)
+    (beforeCode remaining : List X86_64Instr) (split : code = beforeCode ++ remaining) :
+    (runLocalSteps beforeCode initial).fault = none := by
+  rcases beforeCode.eq_nil_or_concat with hnil | ⟨xs, last, hconcat⟩
+  · subst beforeCode
+    exact initialSafe
+  · subst beforeCode
+    have hlast := safe xs last remaining (by
+      simpa [List.append_assoc] using split)
+    simpa [List.concat_eq_append, runLocalSteps_append, runLocalSteps] using hlast
+
+/- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
 theorem runLocalSteps_fault_eq (code : List X86_64Instr)
     (ordinary : ∀ instruction ∈ code, ControlFlowFree instruction)
     (state : X86_64MachineState) :
@@ -94,6 +131,33 @@ theorem runLocalSteps_rip_eq (code : List X86_64Instr)
       simp only [runLocalSteps, instructionSpan]
       rw [ih (fun instruction hi => ordinary instruction (by simp [hi])),
         ControlFlowFree.step_rip_eq (ordinary first (by simp))]
+      simp [UInt64.add_assoc]
+
+/- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
+/-- Safe sequential segments have the same exact encoded-span placement law as always-safe macro
+    segments. Safety is proved once at each reachable prefix, so a `DIV` precondition is not
+    replayed by every whole-program consumer. -/
+theorem runLocalSteps_rip_eq_sequential (code : List X86_64Instr)
+    (sequential : ∀ instruction ∈ code, SequentialInstruction instruction)
+    (initial : X86_64MachineState) (safe : SafeSequentialOn code initial) :
+    (runLocalSteps code initial).rip = initial.rip + instructionSpan code := by
+  induction code generalizing initial with
+  | nil => simp [runLocalSteps, instructionSpan]
+  | cons first rest ih =>
+      have firstSequential := sequential first (by simp)
+      have firstSafe := safe [] first rest (by simp)
+      have restSequential : ∀ instruction ∈ rest, SequentialInstruction instruction := by
+        intro instruction member
+        exact sequential instruction (by simp [member])
+      have restSafe : SafeSequentialOn rest (X86_64Instruction.step first initial) := by
+        intro beforeCode instruction suffix split
+        have wholeSplit : first :: rest = (first :: beforeCode) ++ instruction :: suffix := by
+          simp only [List.cons_append, List.cons.injEq, true_and]
+          exact split
+        simpa [runLocalSteps] using safe (first :: beforeCode) instruction suffix wholeSplit
+      simp only [runLocalSteps, instructionSpan]
+      rw [ih restSequential _ restSafe,
+        firstSequential.step_rip_eq_of_safe initial firstSafe]
       simp [UInt64.add_assoc]
 
 /- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
@@ -161,6 +225,37 @@ theorem ContextualStraightLinePlacement.ofSubsequence
       apply ordinary selected
       rw [split]
       exact List.mem_append_left _ hi
+
+/- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
+/-- Placement constructor for sequential blocks containing state-conditionally safe operations.
+    Final-artifact inclusion remains global; the block contributes only its local safety law. -/
+theorem ContextualStraightLinePlacement.ofSafeSubsequence
+    (indexed : List (UInt64 × X86_64Instr)) (bodyBase : UInt64)
+    (code : List X86_64Instr) (initial : X86_64MachineState)
+    (sequential : ∀ instruction ∈ code, SequentialInstruction instruction)
+    (safe : SafeSequentialOn code initial)
+    (entryRip : initial.rip = bodyBase)
+    (layout : IndexedLayoutCertificate indexed)
+    (subsequence : ContiguousInstructionSubsequence indexed bodyBase code) :
+    ContextualStraightLinePlacement indexed bodyBase code initial where
+  entryRip := entryRip
+  lookup := by
+    intro beforeCode instruction suffix split
+    have memberBody := indexInstructions_prefix_mem bodyBase code beforeCode instruction suffix split
+    have memberArtifact := subsequence.included _ memberBody
+    have resolves := layout.resolves _ memberArtifact
+    have prefixSequential : ∀ selected ∈ beforeCode, SequentialInstruction selected := by
+      intro selected member
+      apply sequential selected
+      rw [split]
+      exact List.mem_append_left _ member
+    have prefixSafe : SafeSequentialOn beforeCode initial := by
+      intro earlier selected later prefixSplit
+      apply safe earlier selected (later ++ instruction :: suffix)
+      rw [split, prefixSplit]
+      simp [List.append_assoc]
+    rw [runLocalSteps_rip_eq_sequential beforeCode prefixSequential initial prefixSafe]
+    simpa [entryRip] using resolves
 
 /- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
 /-- The selected runtime does not reinterpret an admitted ordinary step as an external call.
@@ -240,5 +335,65 @@ theorem runProgramOutcomeLoop_prefix {Event : Type}
   simpa [runLocalSteps] using
     runProgramOutcomeLoop_refinesLocal (Event := Event) code ordinary indexed bodyBase initial
       placement silent initialSafe continuationFuel eventsRev [] code (by simp)
+
+private theorem runProgramOutcomeLoop_refinesSafeSequential {Event : Type}
+    [ExternalCallInterceptor X86_64 Event]
+    (code : List X86_64Instr)
+    (sequential : ∀ instruction ∈ code, SequentialInstruction instruction)
+    (indexed : List (UInt64 × X86_64Instr))
+    (bodyBase : UInt64) (initial : X86_64MachineState)
+    (safe : SafeSequentialOn code initial)
+    (placement : ContextualStraightLinePlacement indexed bodyBase code initial)
+    (silent : RuntimeSilentOn (Event := Event) code initial)
+    (initialSafe : initial.fault = none)
+    (continuationFuel : Nat) (eventsRev : List Event)
+    (beforeCode remaining : List X86_64Instr)
+    (split : code = beforeCode ++ remaining) :
+    runProgramOutcomeLoop (Event := Event) indexed
+        (remaining.length + continuationFuel) (runLocalSteps beforeCode initial) eventsRev =
+      runProgramOutcomeLoop (Event := Event) indexed continuationFuel
+        (runLocalSteps code initial) eventsRev := by
+  induction remaining generalizing beforeCode with
+  | nil =>
+      rw [show code = beforeCode by simpa using split]
+      simp
+  | cons instruction rest ih =>
+      have hlookup := placement.lookup beforeCode instruction rest split
+      have prefixSafe := safe.prefixSafe initialSafe beforeCode (instruction :: rest) split
+      have stepSafe := safe beforeCode instruction rest split
+      have hsilent := silent beforeCode instruction rest split
+      have nextSplit : code = (beforeCode ++ [instruction]) ++ rest := by
+        simpa [List.append_assoc] using split
+      simp only [List.length_cons]
+      rw [show Nat.succ rest.length + continuationFuel =
+        (rest.length + continuationFuel) + 1 by omega]
+      rw [runProgramOutcomeLoop_step_none indexed (rest.length + continuationFuel)
+        (runLocalSteps beforeCode initial) eventsRev instruction hlookup hsilent]
+      · simpa [runLocalSteps_append, runLocalSteps] using
+          ih (beforeCode ++ [instruction]) nextSplit
+      · exact stepSafe
+
+/- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
+/-- Production refinement for a sequential block with explicit reachable-step safety. This is the
+    scalable bridge used by formatting and arithmetic blocks: safe division is proved by the
+    block invariant, while fetch placement and host silence remain reusable artifact/runtime facts. -/
+theorem runProgramOutcomeLoop_prefix_safe {Event : Type}
+    [ExternalCallInterceptor X86_64 Event]
+    (code : List X86_64Instr)
+    (sequential : ∀ instruction ∈ code, SequentialInstruction instruction)
+    (indexed : List (UInt64 × X86_64Instr))
+    (bodyBase : UInt64) (initial : X86_64MachineState)
+    (safe : SafeSequentialOn code initial)
+    (placement : ContextualStraightLinePlacement indexed bodyBase code initial)
+    (silent : RuntimeSilentOn (Event := Event) code initial)
+    (initialSafe : initial.fault = none)
+    (continuationFuel : Nat) (eventsRev : List Event) :
+    runProgramOutcomeLoop (Event := Event) indexed
+        (code.length + continuationFuel) initial eventsRev =
+      runProgramOutcomeLoop (Event := Event) indexed continuationFuel
+        (runLocalSteps code initial) eventsRev := by
+  simpa [runLocalSteps] using
+    runProgramOutcomeLoop_refinesSafeSequential (Event := Event) code sequential indexed
+      bodyBase initial safe placement silent initialSafe continuationFuel eventsRev [] code (by simp)
 
 end Gasm.Targets.X86_64.MacroAssembler

@@ -192,7 +192,7 @@ structure EmittedBasicBlock {Artifact BlockId : Type}
   bodyBase : UInt64
   bodyCode : List X86_64Instr
   terminatorInstruction : X86_64Instr
-  bodyOrdinary : ∀ instruction ∈ bodyCode, ControlFlowFree instruction
+  bodySequential : ∀ instruction ∈ bodyCode, SequentialInstruction instruction
   emittedSlice : ContiguousInstructionSubsequence (indexOf artifact) bodyBase
     (bodyCode ++ [terminatorInstruction])
 
@@ -206,7 +206,8 @@ theorem terminatorLookup {Artifact BlockId : Type}
     {artifact : Artifact} {block : BasicBlock X86_64 BlockId}
     (emitted : EmittedBasicBlock indexOf artifact block)
     (layout : IndexedLayoutCertificate (indexOf artifact))
-    (initial : X86_64MachineState) (entryRip : initial.rip = emitted.bodyBase) :
+    (initial : X86_64MachineState) (entryRip : initial.rip = emitted.bodyBase)
+    (safe : SafeSequentialOn emitted.bodyCode initial) :
     instructionAtRipIndexed (indexOf artifact)
       (runLocalSteps emitted.bodyCode initial).rip = some emitted.terminatorInstruction := by
   have memberBody := indexInstructions_prefix_mem emitted.bodyBase
@@ -214,7 +215,7 @@ theorem terminatorLookup {Artifact BlockId : Type}
     emitted.terminatorInstruction [] (by simp)
   have memberArtifact := emitted.emittedSlice.included _ memberBody
   have resolves := layout.resolves _ memberArtifact
-  rw [runLocalSteps_rip_eq emitted.bodyCode emitted.bodyOrdinary]
+  rw [runLocalSteps_rip_eq_sequential emitted.bodyCode emitted.bodySequential initial safe]
   simpa [entryRip] using resolves
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
@@ -229,6 +230,7 @@ structure RealizesAt {Event Artifact BlockId : Type}
     (accepted : block.entry.accepts state) : Prop where
   entryRip : state.machine.rip = emitted.bodyBase
   initialSafe : state.machine.fault = none
+  bodySafe : SafeSequentialOn emitted.bodyCode state.machine
   runtimeSilent : RuntimeSilentOn (Event := Event) emitted.bodyCode state.machine
   ghostFrame :
     let result := block.body state accepted
@@ -258,18 +260,18 @@ theorem runProgramOutcomeLoop_block {Event Artifact BlockId : Type}
         state.machine eventsRev =
       resumeAfterTerminator (indexOf artifact) fuel result.2.1 next.2 result.2.2 := by
   dsimp only
-  have placement := ContextualStraightLinePlacement.ofSubsequence
-    (indexOf artifact) emitted.bodyBase emitted.bodyCode state.machine emitted.bodyOrdinary
-    realized.entryRip layout
+  have placement := ContextualStraightLinePlacement.ofSafeSubsequence
+    (indexOf artifact) emitted.bodyBase emitted.bodyCode state.machine emitted.bodySequential
+    realized.bodySafe realized.entryRip layout
     { included := by
         intro entry member
         apply emitted.emittedSlice.included entry
         rw [indexInstructions, indexInstructions_loop_append]
         exact List.mem_append_left _ member }
-  rw [runProgramOutcomeLoop_prefix emitted.bodyCode emitted.bodyOrdinary
-    (indexOf artifact) emitted.bodyBase state.machine placement realized.runtimeSilent
+  rw [runProgramOutcomeLoop_prefix_safe emitted.bodyCode emitted.bodySequential
+    (indexOf artifact) emitted.bodyBase state.machine realized.bodySafe placement realized.runtimeSilent
     realized.initialSafe (fuel + 1) eventsRev]
-  have lookup := emitted.terminatorLookup layout state.machine realized.entryRip
+  have lookup := emitted.terminatorLookup layout state.machine realized.entryRip realized.bodySafe
   have terminal := realized.terminatorRealization eventsRev
   exact TerminatorRealization.runProgramOutcomeLoop_step _ _ _ _ _ _ _ lookup terminal
 
