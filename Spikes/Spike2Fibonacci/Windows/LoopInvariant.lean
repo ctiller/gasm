@@ -48,12 +48,19 @@ executing the assembly interpreter and comparing against 91 samples.
    site -- confirmed by `docs/tasks/PA1-crc32-pathfinder.md`'s identical finding, reused directly
    here for the two instruction shapes PA1 did not already need: `MovR64Imm64`, `SubR64Imm8`, and
    the `rel8`-displacement branch/jump forms `JeRel8`/`JmpRel8`).
-2. `instructionAtRip`-fetch facts at each concrete address the loop body visits, discharged by
-   `decide` (the whole program is a closed term once `assembleProgram` is applied to concrete
-   arguments, so *every* fetch at *every* reachable address is a finite, kernel-decidable fact, not
-   an oracle claim) -- computed via `buildSymbolTable`/`lookupSymbol` rather than hand-derived
-   numeral arithmetic, so a wrong offset fails to typecheck instead of silently asserting the wrong
-   address.
+2. `instructionAtRip`-fetch facts at each address the loop body visits, discharged by `rfl`/`decide`
+   (the whole program is a closed term once `assembleProgram` is applied to concrete arguments, so
+   *every* fetch at *every* reachable address is a finite, kernel-decidable fact, not an oracle
+   claim) -- stated *relative* to one symbol-table-resolved base address (`loopStartAddr`/
+   `doneAddr`: `instructionAtRip 0x1000 fibIterInstructions (loopStartAddr + 4) = some (...)`) with
+   the `+k` offsets being the loop body's own fixed instruction-length deltas, rather than each
+   fetch fact asserting its own independent hand-derived absolute numeral. Only the base address's
+   own resolution (`loopStartAddr_eq`/`doneAddr_eq`, each a single `decide` against the symbol
+   table) ever needs re-deriving if code upstream of the loop changes; every fetch fact re-verifies
+   itself automatically against the new base via the same one-line proof, and a wrong offset still
+   fails to typecheck rather than silently asserting the wrong address. See Part 2 below for the
+   full rationale and the concrete-numeral corollaries (`_num`) the induction of Part 4 threads
+   through.
 3. A single generic "one `runProgramWithLoops` step" unfolding lemma (`runProgramWithLoops_step`),
    applied eight times (once per loop-body instruction) to obtain a "one loop iteration" big-step
    fact, entirely mechanical given (1) and (2).
@@ -226,7 +233,36 @@ theorem setFlagsCmp64_zero_zf (s : X86_64MachineState) (a : UInt64) :
 computation `assembleProgram` itself performs to resolve `je_label`/`jmp_label`), not hand-copied
 numerals -- a wrong guess would fail to `decide` below rather than silently asserting the wrong
 address.
--/
+
+### Relative-offset fetch facts, not independent absolute numerals
+
+Every fetch fact below is stated relative to `loopStartAddr`/`doneAddr` (e.g.
+`instructionAtRip 0x1000 fibIterInstructions (loopStartAddr + 4) = some (...)`), never as its own
+independent absolute numeral. The `+k` offsets are the loop body's own instruction-length deltas
+-- fixed as long as the loop body itself is unchanged -- so `loopStartAddr_eq`/`doneAddr_eq` are
+the *only* two places anywhere in this file that resolve the symbol table into an actual number:
+if a prologue instruction is added/removed (or the `done` label's position otherwise moves), only
+those two `decide`s need re-deriving, and every fetch fact below re-verifies itself automatically
+against the new value via the exact same one-line `rw [loopStartAddr_eq]; rfl` proof it already
+has -- no fetch fact's *statement* ever needs a human to retype a numeral, unlike the previous
+version of this file (each of `loopStartAddr_eq`/`doneAddr_eq`/`fetch_*`/`je_taken_target`/
+`jmp_target` used to assert its own hand-derived absolute address with no structural link to any
+other, so *any* upstream layout change silently required re-deriving and re-typing all nine by
+hand). This is still O(1) per fact: `rw [loopStartAddr_eq]` performs a substitution through an
+*already-proved* equation, not a re-derivation of `buildSymbolTable`, so the one expensive
+symbol-table walk happens exactly once (inside `loopStartAddr_eq`/`doneAddr_eq` themselves) --
+confirmed empirically, stating and checking all nine loop-body fetch facts this way needs no
+`maxRecDepth`/`maxHeartbeats` override at all (contrast the whole-file overrides above, needed
+only because the induction proof of Part 4 chains eight per-instruction facts through one goal at
+once, an unrelated cost).
+
+Each fact below also has a concrete-numeral corollary (suffixed `_num`), stated in exactly the
+numeral shape the induction proof of Part 4 already threads its own local `sN.rip = <numeral>`
+bookkeeping through (that internal bookkeeping is proof-local, not a reusable fact, and is out of
+scope for this pass). The corollary's proof is a one-line derivation from the relative-offset fact
+above it via `loopStartAddr_eq`/`doneAddr_eq` -- never an independent `rfl`/`decide` -- so the two
+forms cannot silently disagree: if either the offset or the numeral is wrong, one of the two fails
+to typecheck. -/
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Concrete address of the `loop_start` label (the `cmp rcx, 0` at the top of the loop) in the
@@ -242,87 +278,132 @@ def doneAddr : Address :=
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- `loopStartAddr`'s numeral value (`0x1000` + the 2-byte `xor` + the 10-byte `mov r64, imm64`
-    prologue). Stated as its own fact -- rather than leaving every downstream address computation
-    to unfold `loopStartAddr`'s `buildSymbolTable` definition afresh -- because the induction proof
-    below needs the *same* concrete address dozens of times (every `rip`, every fetch, both jump
-    targets); re-deriving it from the symbol-table computation at each of those call sites is what
-    made an earlier version of this file time out (`maximum recursion depth`) and then stack
-    overflow outright once the depth limit was raised to compensate. Kept as a proof rather than an
+    prologue). This is the ONE place in the file the symbol table is actually resolved to a
+    number -- every fetch fact below is stated relative to `loopStartAddr` itself, so this is the
+    only fact that needs re-deriving if the prologue changes. Kept as a proof rather than an
     inline numeral so a mismatch with `loopStartAddr`'s own definition still fails to typecheck. -/
 theorem loopStartAddr_eq : loopStartAddr = 4108 := by decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- `doneAddr`'s numeral value (`loopStartAddr` plus the loop body's 24 bytes). Same rationale as
-    `loopStartAddr_eq`. -/
+/-- `doneAddr`'s numeral value (`loopStartAddr` plus the loop body's 24 bytes). The other, and
+    only other, symbol-table resolution point in the file. -/
 theorem doneAddr_eq : doneAddr = 4132 := by decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Fetch fact 1/8: `cmp rcx, 0` sits at `loopStartAddr` (`4108`). Stated with the literal address
-    (not the symbolic `loopStartAddr`) for the same performance reason as `loopStartAddr_eq`. -/
+/-- Fetch fact 1/8: `cmp rcx, 0` sits at `loopStartAddr` itself. -/
 theorem fetch_cmp :
+    instructionAtRip 0x1000 fibIterInstructions loopStartAddr = some (cmp_r64_imm8 .rcx 0) := by
+  rw [loopStartAddr_eq]; rfl
+
+theorem fetch_cmp_num :
     instructionAtRip 0x1000 fibIterInstructions 4108 = some (cmp_r64_imm8 .rcx 0) := by
-  rfl
+  rw [← loopStartAddr_eq]; exact fetch_cmp
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Fetch fact 2/8: `je done` immediately follows the `cmp`. -/
+/-- Fetch fact 2/8: `je done` immediately follows the `cmp` (4 bytes into the loop). -/
 theorem fetch_je :
+    instructionAtRip 0x1000 fibIterInstructions (loopStartAddr + 4) =
+      some (je_rel8 (Assembler.toDisp8 doneAddr (loopStartAddr + 6))) := by
+  rw [loopStartAddr_eq, doneAddr_eq]; rfl
+
+theorem fetch_je_num :
     instructionAtRip 0x1000 fibIterInstructions 4112 =
       some (je_rel8 (Assembler.toDisp8 4132 4114)) := by
-  rfl
+  rw [show (4112 : Address) = loopStartAddr + 4 from by rw [loopStartAddr_eq]; rfl,
+    show (4132 : Address) = doneAddr from doneAddr_eq.symm,
+    show (4114 : Address) = loopStartAddr + 6 from by rw [loopStartAddr_eq]; rfl]
+  exact fetch_je
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Fetch fact 3/8: `mov r8, rax` (the not-taken fallthrough of the `je`). -/
+/-- Fetch fact 3/8: `mov r8, rax` (the not-taken fallthrough of the `je`), 6 bytes in. -/
 theorem fetch_mov1 :
+    instructionAtRip 0x1000 fibIterInstructions (loopStartAddr + 6) = some (mov_r64 .r8 .rax) := by
+  rw [loopStartAddr_eq]; rfl
+
+theorem fetch_mov1_num :
     instructionAtRip 0x1000 fibIterInstructions 4114 = some (mov_r64 .r8 .rax) := by
-  rfl
+  rw [show (4114 : Address) = loopStartAddr + 6 from by rw [loopStartAddr_eq]; rfl]; exact fetch_mov1
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Fetch fact 4/8: `add r8, rdx`. -/
+/-- Fetch fact 4/8: `add r8, rdx`, 9 bytes in. -/
 theorem fetch_add :
+    instructionAtRip 0x1000 fibIterInstructions (loopStartAddr + 9) = some (add_r64 .r8 .rdx) := by
+  rw [loopStartAddr_eq]; rfl
+
+theorem fetch_add_num :
     instructionAtRip 0x1000 fibIterInstructions 4117 = some (add_r64 .r8 .rdx) := by
-  rfl
+  rw [show (4117 : Address) = loopStartAddr + 9 from by rw [loopStartAddr_eq]; rfl]; exact fetch_add
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Fetch fact 5/8: `mov rax, rdx`. -/
+/-- Fetch fact 5/8: `mov rax, rdx`, 12 bytes in. -/
 theorem fetch_mov2 :
+    instructionAtRip 0x1000 fibIterInstructions (loopStartAddr + 12) = some (mov_r64 .rax .rdx) := by
+  rw [loopStartAddr_eq]; rfl
+
+theorem fetch_mov2_num :
     instructionAtRip 0x1000 fibIterInstructions 4120 = some (mov_r64 .rax .rdx) := by
-  rfl
+  rw [show (4120 : Address) = loopStartAddr + 12 from by rw [loopStartAddr_eq]; rfl]; exact fetch_mov2
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Fetch fact 6/8: `mov rdx, r8`. -/
+/-- Fetch fact 6/8: `mov rdx, r8`, 15 bytes in. -/
 theorem fetch_mov3 :
+    instructionAtRip 0x1000 fibIterInstructions (loopStartAddr + 15) = some (mov_r64 .rdx .r8) := by
+  rw [loopStartAddr_eq]; rfl
+
+theorem fetch_mov3_num :
     instructionAtRip 0x1000 fibIterInstructions 4123 = some (mov_r64 .rdx .r8) := by
-  rfl
+  rw [show (4123 : Address) = loopStartAddr + 15 from by rw [loopStartAddr_eq]; rfl]; exact fetch_mov3
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Fetch fact 7/8: `sub rcx, 1`. -/
+/-- Fetch fact 7/8: `sub rcx, 1`, 18 bytes in. -/
 theorem fetch_sub :
+    instructionAtRip 0x1000 fibIterInstructions (loopStartAddr + 18) = some (sub_r64_imm8 .rcx 1) := by
+  rw [loopStartAddr_eq]; rfl
+
+theorem fetch_sub_num :
     instructionAtRip 0x1000 fibIterInstructions 4126 = some (sub_r64_imm8 .rcx 1) := by
-  rfl
+  rw [show (4126 : Address) = loopStartAddr + 18 from by rw [loopStartAddr_eq]; rfl]; exact fetch_sub
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Fetch fact 8/8: `jmp loop_start`, closing the loop body. -/
+/-- Fetch fact 8/8: `jmp loop_start`, closing the loop body, 22 bytes in. -/
 theorem fetch_jmp :
+    instructionAtRip 0x1000 fibIterInstructions (loopStartAddr + 22) =
+      some (jmp_rel8 (Assembler.toDisp8 loopStartAddr doneAddr)) := by
+  rw [loopStartAddr_eq, doneAddr_eq]; rfl
+
+theorem fetch_jmp_num :
     instructionAtRip 0x1000 fibIterInstructions 4130 =
       some (jmp_rel8 (Assembler.toDisp8 4108 4132)) := by
-  rfl
+  rw [show (4130 : Address) = loopStartAddr + 22 from by rw [loopStartAddr_eq]; rfl,
+    show (4108 : Address) = loopStartAddr from loopStartAddr_eq.symm,
+    show (4132 : Address) = doneAddr from doneAddr_eq.symm]
+  exact fetch_jmp
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Fetch fact for the `done`/exit path: `ret` sits at `doneAddr` (`4132`). -/
+/-- Fetch fact for the `done`/exit path: `ret` sits at `doneAddr` itself. -/
 theorem fetch_ret :
+    instructionAtRip 0x1000 fibIterInstructions doneAddr = some ret_op := by
+  rw [doneAddr_eq]; rfl
+
+theorem fetch_ret_num :
     instructionAtRip 0x1000 fibIterInstructions 4132 = some ret_op := by
-  rfl
+  rw [← doneAddr_eq]; exact fetch_ret
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- No instruction of `fibIterInstructions` sits at address `0`: the routine's own address range
     starts at `0x1000`, so a `ret` to address `0` (the value `read64` yields against the all-zero
     initial memory `initMachineState` builds) is a genuine, permanent dead end for the fetch loop --
-    the fact the "extra fuel past completion is a no-op" argument below relies on. -/
+    the fact the "extra fuel past completion is a no-op" argument below relies on. Not a
+    layout-dependent address (it is a fixed sentinel outside the routine's range regardless of any
+    prologue/loop change), so it is not restated relative to `loopStartAddr`. -/
 theorem fetch_zero_none : instructionAtRip 0x1000 fibIterInstructions 0 = none := by
   rfl
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Prologue fetch fact 1/2: `xor eax, eax` sits at the entry point `0x1000`. -/
+/-- Prologue fetch fact 1/2: `xor eax, eax` sits at the entry point `0x1000`. `0x1000` is the
+    routine's own base address (the literal argument to `assembleProgram`/`instructionAtRip`
+    everywhere in this file), not a symbol-table-derived offset, so there is nothing to state this
+    relative to. -/
 theorem fetch_xor : instructionAtRip 0x1000 fibIterInstructions 4096 = some (xor_r32 .eax .eax) := by
   rfl
 
@@ -333,14 +414,29 @@ theorem fetch_movimm64 :
   rfl
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- The `je`'s taken branch (`ZF = 1`) lands exactly on `doneAddr` (`4132`). -/
-theorem je_taken_target : (4114 : Address) + signExtend8To64 (Assembler.toDisp8 4132 4114) = 4132 := by
-  rfl
+/-- The `je`'s taken branch (`ZF = 1`) lands exactly on `doneAddr`. -/
+theorem je_taken_target :
+    (loopStartAddr + 6) + signExtend8To64 (Assembler.toDisp8 doneAddr (loopStartAddr + 6)) =
+      doneAddr := by
+  rw [loopStartAddr_eq, doneAddr_eq]; rfl
+
+theorem je_taken_target_num :
+    (4114 : Address) + signExtend8To64 (Assembler.toDisp8 4132 4114) = 4132 := by
+  rw [show (4114 : Address) = loopStartAddr + 6 from by rw [loopStartAddr_eq]; rfl,
+    show (4132 : Address) = doneAddr from doneAddr_eq.symm]
+  exact je_taken_target
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- The `jmp`'s target lands exactly back on `loopStartAddr` (`4108`). -/
-theorem jmp_target : (4132 : Address) + signExtend8To64 (Assembler.toDisp8 4108 4132) = 4108 := by
-  rfl
+/-- The `jmp`'s target lands exactly back on `loopStartAddr`. -/
+theorem jmp_target :
+    doneAddr + signExtend8To64 (Assembler.toDisp8 loopStartAddr doneAddr) = loopStartAddr := by
+  rw [loopStartAddr_eq, doneAddr_eq]; rfl
+
+theorem jmp_target_num :
+    (4132 : Address) + signExtend8To64 (Assembler.toDisp8 4108 4132) = 4108 := by
+  rw [show (4132 : Address) = doneAddr from doneAddr_eq.symm,
+    show (4108 : Address) = loopStartAddr from loopStartAddr_eq.symm]
+  exact jmp_target
 
 /-
 ## Part 3: generic `runProgramWithLoops` unfolding primitives
@@ -432,7 +528,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   have hne : s.gprs .rcx ≠ 0 := hrcx ▸ succ_toUInt64_ne_zero m hbound
   -- step 1: cmp rcx, 0
   have hfetch1 : instructionAtRip 0x1000 fibIterInstructions s.rip = some (cmp_r64_imm8 .rcx 0) := by
-    rw [hrip]; exact fetch_cmp
+    rw [hrip]; exact fetch_cmp_num
   rw [show fuel + 8 = fuel + 7 + 1 from rfl, runProgramWithLoops_step hfetch1 hfaulted]
   generalize hs1 : X86_64Instruction.step (cmp_r64_imm8 .rcx 0) s = s1
   have hrip1 : s1.rip = 4112 := by rw [← hs1, step_cmp_r64_imm8, hrip]; rfl
@@ -448,7 +544,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   -- step 2: je done (not taken)
   have hfetch2 : instructionAtRip 0x1000 fibIterInstructions s1.rip =
       some (je_rel8 (Assembler.toDisp8 4132 4114)) := by
-    rw [hrip1]; exact fetch_je
+    rw [hrip1]; exact fetch_je_num
   rw [show fuel + 7 = fuel + 6 + 1 from rfl, runProgramWithLoops_step hfetch2 hfaulted1]
   generalize hs2 : X86_64Instruction.step (je_rel8 (Assembler.toDisp8 4132 4114)) s1 = s2
   have hrip2 : s2.rip = 4114 := by rw [← hs2, step_je_rel8, hzf1]; simp [hrip1]
@@ -459,7 +555,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   have hrcx2 : s2.gprs .rcx = (m + 1).toUInt64 := by rw [← hs2]; exact hrcx1
   -- step 3: mov r8, rax
   have hfetch3 : instructionAtRip 0x1000 fibIterInstructions s2.rip = some (mov_r64 .r8 .rax) := by
-    rw [hrip2]; exact fetch_mov1
+    rw [hrip2]; exact fetch_mov1_num
   rw [show fuel + 6 = fuel + 5 + 1 from rfl, runProgramWithLoops_step hfetch3 hfaulted2]
   generalize hs3 : X86_64Instruction.step (mov_r64 .r8 .rax) s2 = s3
   have hrip3 : s3.rip = 4117 := by rw [← hs3, step_mov_r64, hrip2]; rfl
@@ -470,7 +566,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   have hrcx3 : s3.gprs .rcx = (m + 1).toUInt64 := by rw [← hs3, step_mov_r64]; exact hrcx2
   -- step 4: add r8, rdx
   have hfetch4 : instructionAtRip 0x1000 fibIterInstructions s3.rip = some (add_r64 .r8 .rdx) := by
-    rw [hrip3]; exact fetch_add
+    rw [hrip3]; exact fetch_add_num
   rw [show fuel + 5 = fuel + 4 + 1 from rfl, runProgramWithLoops_step hfetch4 hfaulted3]
   generalize hs4 : X86_64Instruction.step (add_r64 .r8 .rdx) s3 = s4
   have hrip4 : s4.rip = 4120 := by rw [← hs4, step_add_r64, hrip3]; rfl
@@ -487,7 +583,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   have hrcx4 : s4.gprs .rcx = (m + 1).toUInt64 := by rw [← hs4, step_add_r64]; exact hrcx3
   -- step 5: mov rax, rdx
   have hfetch5 : instructionAtRip 0x1000 fibIterInstructions s4.rip = some (mov_r64 .rax .rdx) := by
-    rw [hrip4]; exact fetch_mov2
+    rw [hrip4]; exact fetch_mov2_num
   rw [show fuel + 4 = fuel + 3 + 1 from rfl, runProgramWithLoops_step hfetch5 hfaulted4]
   generalize hs5 : X86_64Instruction.step (mov_r64 .rax .rdx) s4 = s5
   have hrip5 : s5.rip = 4123 := by rw [← hs5, step_mov_r64, hrip4]; rfl
@@ -499,7 +595,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   have hrcx5 : s5.gprs .rcx = (m + 1).toUInt64 := by rw [← hs5, step_mov_r64]; exact hrcx4
   -- step 6: mov rdx, r8
   have hfetch6 : instructionAtRip 0x1000 fibIterInstructions s5.rip = some (mov_r64 .rdx .r8) := by
-    rw [hrip5]; exact fetch_mov3
+    rw [hrip5]; exact fetch_mov3_num
   rw [show fuel + 3 = fuel + 2 + 1 from rfl, runProgramWithLoops_step hfetch6 hfaulted5]
   generalize hs6 : X86_64Instruction.step (mov_r64 .rdx .r8) s5 = s6
   have hrip6 : s6.rip = 4126 := by rw [← hs6, step_mov_r64, hrip5]; rfl
@@ -511,7 +607,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   have hrcx6 : s6.gprs .rcx = (m + 1).toUInt64 := by rw [← hs6, step_mov_r64]; exact hrcx5
   -- step 7: sub rcx, 1
   have hfetch7 : instructionAtRip 0x1000 fibIterInstructions s6.rip = some (sub_r64_imm8 .rcx 1) := by
-    rw [hrip6]; exact fetch_sub
+    rw [hrip6]; exact fetch_sub_num
   rw [show fuel + 2 = fuel + 1 + 1 from rfl, runProgramWithLoops_step hfetch7 hfaulted6]
   generalize hs7 : X86_64Instruction.step (sub_r64_imm8 .rcx 1) s6 = s7
   have hrip7 : s7.rip = 4130 := by rw [← hs7, step_sub_r64_imm8, hrip6]; rfl
@@ -539,7 +635,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   -- forward/small and never hit this path).
   have hfetch8 : instructionAtRip 0x1000 fibIterInstructions s7.rip =
       some (jmp_rel8 (Assembler.toDisp8 4108 4132)) := by
-    rw [hrip7]; exact fetch_jmp
+    rw [hrip7]; exact fetch_jmp_num
   -- `faulted` is now `s.fault.isSome` (MH1, docs/MEMORY_HOOK.md §6): unlike `.fault` (a raw
   -- field, exactly as cheap to project through a record update as the old `faulted : Bool`
   -- field was), checking `.faulted = false` here needs an extra `isSome` unfold that, combined
@@ -563,7 +659,7 @@ theorem fibLoop_iteration (k m fuel : Nat) (s : X86_64MachineState)
   generalize hs8 : X86_64Instruction.step (jmp_rel8 (Assembler.toDisp8 4108 4132)) s7 = s8
   have hrip8' : s8.rip = 4108 := by
     rw [← hs8, step_jmp_rel8, hrip7]
-    exact jmp_target
+    exact jmp_target_num
   have hrip8 : s8.rip = loopStartAddr := hrip8'.trans loopStartAddr_eq.symm
   have hfault8 : s8.fault = none := by
     rw [← hs8, step_jmp_rel8]; exact hfault7
@@ -588,7 +684,7 @@ theorem fibLoop_done (k fuel : Nat) (s : X86_64MachineState) (hinv : fibLoopInva
   obtain ⟨hrip0, hfaulted, hmem, hrcx, hrax, _⟩ := hinv
   have hrip : s.rip = 4108 := hrip0.trans loopStartAddr_eq
   have hfetch1 : instructionAtRip 0x1000 fibIterInstructions s.rip = some (cmp_r64_imm8 .rcx 0) := by
-    rw [hrip]; exact fetch_cmp
+    rw [hrip]; exact fetch_cmp_num
   rw [show fuel + 3 = fuel + 2 + 1 from rfl, runProgramWithLoops_step hfetch1 hfaulted]
   generalize hs1 : X86_64Instruction.step (cmp_r64_imm8 .rcx 0) s = s1
   have hrip1 : s1.rip = 4112 := by rw [← hs1, step_cmp_r64_imm8, hrip]; rfl
@@ -601,16 +697,16 @@ theorem fibLoop_done (k fuel : Nat) (s : X86_64MachineState) (hinv : fibLoopInva
     rfl
   have hfetch2 : instructionAtRip 0x1000 fibIterInstructions s1.rip =
       some (je_rel8 (Assembler.toDisp8 4132 4114)) := by
-    rw [hrip1]; exact fetch_je
+    rw [hrip1]; exact fetch_je_num
   rw [show fuel + 2 = fuel + 1 + 1 from rfl, runProgramWithLoops_step hfetch2 hfaulted1]
   generalize hs2 : X86_64Instruction.step (je_rel8 (Assembler.toDisp8 4132 4114)) s1 = s2
   have hrip2 : s2.rip = 4132 := by
-    rw [← hs2, step_je_rel8, hzf1]; simp [hrip1]; exact je_taken_target
+    rw [← hs2, step_je_rel8, hzf1]; simp [hrip1]; exact je_taken_target_num
   have hfaulted2 : s2.faulted = false := by rw [← hs2]; exact hfaulted1
   have hmem2 : s2.memory = X86_64Mem.zero := by rw [← hs2]; exact hmem1
   have hrax2 : s2.gprs .rax = (fibNat k).toUInt64 := by rw [← hs2]; exact hrax1
   have hfetch3 : instructionAtRip 0x1000 fibIterInstructions s2.rip = some ret_op := by
-    rw [hrip2]; exact fetch_ret
+    rw [hrip2]; exact fetch_ret_num
   rw [show fuel + 1 = fuel + 0 + 1 from rfl, runProgramWithLoops_step hfetch3 hfaulted2]
   generalize hs3 : X86_64Instruction.step ret_op s2 = s3
   have hrax3 : s3.gprs .rax = (fibNat k).toUInt64 := by rw [← hs3, step_ret_op]; exact hrax2
