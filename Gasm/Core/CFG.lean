@@ -265,6 +265,24 @@ theorem reachable_preserves_membership {Arch : Type} [TargetArch Arch]
   | refl => exact startInGraph
   | tail _ step _ => exact step_preserves_membership step
 
+/-- A property factored at typed control-flow boundaries.  The preservation
+    proof is demanded once per selected edge shape, never once per complete
+    path through the routine. -/
+structure Invariant {Arch : Type} [TargetArch Arch]
+    (graph : TypedControlFlowGraph Arch) where
+  holds : BlockControlPoint Arch → Prop
+  preserved : ∀ {source target}, Step graph source target →
+    holds source → holds target
+
+theorem Invariant.alongReachable {Arch : Type} [TargetArch Arch]
+    {graph : TypedControlFlowGraph Arch} (invariant : Invariant graph)
+    {start finish : BlockControlPoint Arch}
+    (initial : invariant.holds start) (path : Reachable graph start finish) :
+    invariant.holds finish := by
+  induction path with
+  | refl => exact initial
+  | tail _ step ih => exact invariant.preserved step ih
+
 theorem reachable_trans {Arch : Type} [TargetArch Arch]
     {graph : TypedControlFlowGraph Arch} {a b c : BlockControlPoint Arch}
     (ab : Reachable graph a b) (bc : Reachable graph b c) : Reachable graph a c := by
