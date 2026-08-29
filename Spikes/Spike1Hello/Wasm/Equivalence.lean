@@ -85,17 +85,93 @@ theorem spike1_wasm_canonical_effect_trace_equivalence :
 #guard !Gasm.Targets.Wasm.WasmRunResult.isError
   (Gasm.Targets.WASI.runWasiTraceState spike1WasmInstructions spike1DataSegments)
 
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- The exact emitted module, operational program, import layout, and finite runtime resources. -/
+def spike1WasiArtifact : WasiArtifact where
+  module := spike1WasmModule
+  typeSignatures := spike1TypeSignatures
+  instructions := spike1WasmInstructions
+  dataSegments := spike1DataSegments
+  imports := ["fd_write", "proc_exit"]
+  resources := { fuel := defaultWasmFuel, memoryPages := 65536 }
+
+def spike1WasiExports : VerifiedExportSet Unit Unit WasiPlatform
+    wasiBoundarySpec wasiBoundarySemantics :=
+  VerifiedExportSet.withoutCallableEntries Unit Unit WasiPlatform
+    wasiBoundarySpec wasiBoundarySemantics spike1WasiArtifact
+    (by
+      change (["_start", "memory"] : List String).Nodup
+      decide)
+    (by
+      change ([] : List Export) = []
+      rfl)
+    (by rfl)
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- One explicit clean-exit certificate for the canonical input-erased execution. -/
+theorem spike1_wasi_reference_outcome :
+    (runWasiOutcome spike1WasmInstructions spike1DataSegments ByteArray.empty
+      ["fd_write", "proc_exit"] []
+      { fuel := defaultWasmFuel, memoryPages := 65536 }).observable =
+        .exited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)) := by
+  native_decide
+
+private def spike1WasiEmittedBytes : ByteArray :=
+  match spike1WasmBinary with
+  | .ok bytes => bytes
+  | .error _ => ByteArray.empty
+
+private theorem spike1_wasi_emits :
+    emitWasmBinary spike1WasmModule spike1TypeSignatures =
+      .ok spike1WasiEmittedBytes := by
+  set_option maxRecDepth 100000 in
+    rfl
+
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- First-class VerifiedWasmProgram contract instantiation for Spike 1 (Hello World Wasm). -/
-def spike1VerifiedWasmProgram : VerifiedWasmProgram Unit AnyEvent := {
-  name             := "Spike 1: Hello World (WebAssembly / WASI Preview 1)"
-  module           := spike1WasmModule
-  typeSignatures   := spike1TypeSignatures
-  instructions     := spike1WasmInstructions
-  dataSegments     := spike1DataSegments
-  spec             := fun _ => runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)
-  traceEquivalence := fun _ => spike1_wasm_canonical_effect_trace_equivalence
-}
+/-- Sole universal whole-program contract for Spike 1 (Hello World WASI). -/
+def spike1VerifiedWasmProgram : VerifiedProgram WasiPlatform wasiHostCapabilities where
+  name := "Spike 1: Hello World (WebAssembly / WASI Preview 1)"
+  artifact := spike1WasiArtifact
+  exports := spike1WasiExports
+  exportsArtifact := rfl
+  artifactConnection := by
+    constructor
+    · rfl
+    constructor <;> rfl
+  spec := fun _ => .exited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
+  importsCovered := by
+    intro imported himported
+    change imported ∈ ["fd_write", "proc_exit"] at himported
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at himported
+    rcases himported with rfl | rfl
+    · let provider : WasiProvider :=
+        { protocol := .preview1, imports := ["fd_write", "proc_exit"], importIndex := 0 }
+      refine ⟨provider, ?_, ?_⟩
+      · simp [provider, wasiHostCapabilities, wasiHostCapability]
+      · rfl
+    · let provider : WasiProvider :=
+        { protocol := .preview1, imports := ["fd_write", "proc_exit"], importIndex := 1 }
+      refine ⟨provider, ?_, ?_⟩
+      · simp [provider, wasiHostCapabilities, wasiHostCapability]
+      · rfl
+  providersLinked := by
+    intro provider hprovider
+    simp only [wasiHostCapabilities, wasiHostCapability, List.mem_cons,
+      List.not_mem_nil, or_false] at hprovider
+    rcases hprovider with rfl | rfl <;> rfl
+  entryContext := fun _ => ()
+  entryEstablished := by intro; trivial
+  platformAdmissible := by
+    intro
+    refine ⟨spike1WasiEmittedBytes, ?_⟩
+    exact spike1_wasi_emits
+  traceEquivalence := by
+    intro environment
+    change (runWasiOutcome spike1WasmInstructions spike1DataSegments environment.stdin
+      ["fd_write", "proc_exit"] environment.incomingRequests
+      { fuel := defaultWasmFuel, memoryPages := 65536 }).observable = _
+    rw [runWasiOutcome_output_only_observable_external_input_frame]
+    exact spike1_wasi_reference_outcome
 
 end Spikes.Spike1Hello.Wasm
