@@ -209,6 +209,15 @@ host-aware transition to the dependent body result and excludes divide/memory fa
 block once. Logical `Step.fromBody` remains useful for local contract composition, but cannot by
 itself establish production reachability; final behavior proofs consume the operational realization.
 
+For the initial pure-block slice, `ConservativeGhostFrame` preserves typestate, stack depth,
+permissions, obligations, causal time, and event history exactly. Authority-changing blocks must
+instead receive an ABI/obligation-owned transition certificate in a later extension.
+`TerminatorRealization` is closed over actual x86 instruction families: direct and conditional
+branches bind destinations and flag predicates, RET binds its zero-pop logical form and concrete RSP
+effect, Linux syscall and Windows call exits bind the ABI exit-code register, and HLT is distinct from
+syscall exit. Every constructor carries the exact host-aware production transition and event result;
+divide/memory faults cannot realize typed control flow.
+
 Symbolic control flow will use scoped nominal `BlockRef` values tied to entries in the existing
 `TypedControlFlowGraph`, never text labels or raw instruction offsets. A graph builder will intern a
 supplied `BasicBlock` definition into a finite closed block table and return a reference carrying the

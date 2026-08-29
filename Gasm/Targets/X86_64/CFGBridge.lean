@@ -16,6 +16,11 @@ limitations under the License.
 
 import Gasm.Core.CFG
 import Gasm.Targets.X86_64.MacroAssembler.PlatformBridge
+import Gasm.Targets.X86_64.Instructions.Jcc
+import Gasm.Targets.X86_64.Instructions.Call
+import Gasm.Targets.X86_64.Instructions.Ret
+import Gasm.Targets.X86_64.Instructions.Syscall
+import Gasm.Targets.X86_64.Instructions.Hlt
 
 namespace Gasm.Targets.X86_64
 
@@ -24,13 +29,119 @@ open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.MacroAssembler
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
-/-- The fault state demanded after the emitted terminator. Jump-like transfers and returns resume
-    production execution; explicit process exits and halts must reach the platform's halt outcome.
-    Divide and memory faults never realize a typed terminator. -/
-def ProductionTerminatorFault {S : Type} (exit : ComposedState X86_64 S) :
-    CpuTerminator X86_64 exit → Prop
-  | .jmp _ | .jmpIndirect _ | .jcc .. | .ret .. => exit.machine.fault = none
-  | .sysExit .. | .halt .. => exit.machine.fault = some .halted
+/-- The x86 conditions admitted by the operational CFG bridge. This target-owned datatype keeps a
+    logical `ConditionCode` from being attached to an unrelated emitted conditional instruction. -/
+inductive X86BranchCondition where
+  | equal | notEqual | less | lessEqual | greater | greaterEqual
+
+def X86BranchCondition.holds : X86BranchCondition → X86_64MachineState → Prop
+  | .equal => (·.zf = true)
+  | .notEqual => (·.zf = false)
+  | .less => (fun state => state.sf != state.of_)
+  | .lessEqual => (fun state => state.zf = true ∨ state.sf != state.of_)
+  | .greater => (fun state => state.zf = false ∧ state.sf = state.of_)
+  | .greaterEqual => (fun state => state.sf = state.of_)
+
+/- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
+/-- Closed target-owned evidence that the exact existential instruction is a direct JMP. -/
+inductive DirectJumpEncoding : X86_64Instr → Prop where
+  | rel8 (disp : UInt8) : DirectJumpEncoding (jmp_rel8 disp)
+  | rel32 (disp : Int32) : DirectJumpEncoding (jmp_rel32 disp)
+
+/- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
+/-- Closed target-owned evidence connecting an exact conditional encoding to its flag predicate. -/
+inductive ConditionalJumpEncoding : X86_64Instr → X86BranchCondition → Prop where
+  | je8 (disp : UInt8) : ConditionalJumpEncoding (je_rel8 disp) .equal
+  | je32 (disp : Int32) : ConditionalJumpEncoding (je_rel32 disp) .equal
+  | jne8 (disp : UInt8) : ConditionalJumpEncoding (jne_rel8 disp) .notEqual
+  | jne32 (disp : Int32) : ConditionalJumpEncoding (jne_rel32 disp) .notEqual
+  | jl8 (disp : UInt8) : ConditionalJumpEncoding (jl_rel8 disp) .less
+  | jle8 (disp : UInt8) : ConditionalJumpEncoding (jle_rel8 disp) .lessEqual
+  | jle32 (disp : Int32) : ConditionalJumpEncoding (jle_rel32 disp) .lessEqual
+  | jg8 (disp : UInt8) : ConditionalJumpEncoding (jg_rel8 disp) .greater
+  | jge8 (disp : UInt8) : ConditionalJumpEncoding (jge_rel8 disp) .greaterEqual
+  | jge32 (disp : Int32) : ConditionalJumpEncoding (jge_rel32 disp) .greaterEqual
+
+/- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
+/-- Conservative pure-block ghost law. Typestate and every ghost/authority component are preserved
+    exactly. Effectful blocks require a future ABI/obligation-owned transition certificate instead
+    of weakening this record. -/
+structure ConservativeGhostFrame {Before After : Type}
+    (before : ComposedState X86_64 Before) (after : ComposedState X86_64 After) : Prop where
+  sameState : After = Before
+  stackDepth : after.stackDepth = before.stackDepth
+  api : _root_.cast sameState after.api = before.api
+  permissions : after.perms = before.perms
+  obligations : after.obligations = before.obligations
+  causalClock : after.causalClock = before.causalClock
+  eventHistory : after.eventHistory = before.eventHistory
+
+/- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
+/-- Exact target-owned realization of a logical terminator by one emitted production transition.
+    The constructors bind instruction family, host outcome/events, destination selection, RET stack
+    behavior, and the platform ABI register carrying an exit code. There is intentionally no
+    indirect-jump constructor until an emitted indirect-target decoder is connected. -/
+inductive TerminatorRealization {Event : Type}
+    [ExternalCallInterceptor X86_64 Event]
+    (instruction : X86_64Instr) (before : X86_64MachineState) (eventsRev : List Event) :
+    {S : Type} → (exit : ComposedState X86_64 S) → CpuTerminator X86_64 exit → Prop where
+  | direct {S} {exit : ComposedState X86_64 S} (edge : BlockEdge exit)
+      (encoding : DirectJumpEncoding instruction) (eventsAfter : List Event)
+      (transition : nativeOutcomeTransition instruction before eventsRev =
+        (exit.machine, eventsAfter))
+      (safe : exit.machine.fault = none)
+      (destination : exit.machine.rip = edge.targetState.machine.rip) :
+      TerminatorRealization instruction before eventsRev exit (.jmp edge)
+  | conditional {S} {exit : ComposedState X86_64 S} (condition : ConditionCode X86_64)
+      (targetTrue : ConditionalBlockEdge exit (condition.holds exit.machine))
+      (targetFalse : ConditionalBlockEdge exit (¬ condition.holds exit.machine))
+      (kind : X86BranchCondition) (encoding : ConditionalJumpEncoding instruction kind)
+      (conditionMatches : condition.holds exit.machine ↔ kind.holds before)
+      (eventsAfter : List Event)
+      (transition : nativeOutcomeTransition instruction before eventsRev =
+        (exit.machine, eventsAfter))
+      (safe : exit.machine.fault = none)
+      (trueDestination : kind.holds before →
+        exit.machine.rip = targetTrue.targetState.machine.rip)
+      (falseDestination : ¬ kind.holds before →
+        exit.machine.rip = targetFalse.targetState.machine.rip) :
+      TerminatorRealization instruction before eventsRev exit
+        (.jcc condition targetTrue targetFalse)
+  | ret {S} {exit : ComposedState X86_64 S} (exportedObligations : List ObligationToken)
+      (hzero : exit.stackDepth = 0) (hmatch : exit.obligations = exportedObligations)
+      (hcallee : CalleeDiscipline X86_64 exit)
+      (instructionIsRet : instruction = ret_op) (eventsAfter : List Event)
+      (transition : nativeOutcomeTransition instruction before eventsRev =
+        (exit.machine, eventsAfter))
+      (safe : exit.machine.fault = none)
+      (stackEffect : exit.machine.rsp = before.rsp + 8) :
+      TerminatorRealization instruction before eventsRev exit
+        (.ret exportedObligations 0 hzero hmatch hcallee)
+  | linuxSysExit {S} {exit : ComposedState X86_64 S} (exitCode : UInt8)
+      (hdroppable : ∀ o ∈ exit.obligations, o.isDroppableOnExit)
+      (instructionIsSyscall : instruction = syscall_op)
+      (exitCodeArgument : before.gprs .rdi = exitCode.toUInt64)
+      (eventsAfter : List Event)
+      (transition : nativeOutcomeTransition instruction before eventsRev =
+        (exit.machine, eventsAfter))
+      (halted : exit.machine.fault = some .halted) :
+      TerminatorRealization instruction before eventsRev exit (.sysExit exitCode hdroppable)
+  | windowsCallExit {S} {exit : ComposedState X86_64 S} (exitCode : UInt8)
+      (hdroppable : ∀ o ∈ exit.obligations, o.isDroppableOnExit)
+      (disp : Int32) (instructionIsCall : instruction = call_rip disp)
+      (exitCodeArgument : before.gprs .rcx = exitCode.toUInt64)
+      (eventsAfter : List Event)
+      (transition : nativeOutcomeTransition instruction before eventsRev =
+        (exit.machine, eventsAfter))
+      (halted : exit.machine.fault = some .halted) :
+      TerminatorRealization instruction before eventsRev exit (.sysExit exitCode hdroppable)
+  | halt {S} {exit : ComposedState X86_64 S}
+      (hdroppable : ∀ o ∈ exit.obligations, o.isDroppableOnExit)
+      (instructionIsHlt : instruction = hlt_op) (eventsAfter : List Event)
+      (transition : nativeOutcomeTransition instruction before eventsRev =
+        (exit.machine, eventsAfter))
+      (halted : exit.machine.fault = some .halted) :
+      TerminatorRealization instruction before eventsRev exit (.halt hdroppable)
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- Production continuation selected by the logical terminator after its concrete instruction has
@@ -44,6 +155,26 @@ def resumeAfterTerminator {Event S : Type}
   | .jmp _ | .jmpIndirect _ | .jcc .. | .ret .. =>
       runProgramOutcomeLoop indexed fuel exit.machine eventsRev
   | .sysExit .. | .halt .. => .halted exit.machine eventsRev.reverse
+
+namespace TerminatorRealization
+
+/- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
+/-- A realized terminator is exactly one production evaluator step followed by the logical
+    continuation (or the explicit halt outcome). -/
+theorem runProgramOutcomeLoop_step {Event S : Type}
+    [ExternalCallInterceptor X86_64 Event]
+    (indexed : List (UInt64 × X86_64Instr)) (fuel : Nat)
+    (instruction : X86_64Instr) (before : X86_64MachineState) (eventsRev : List Event)
+    (exit : ComposedState X86_64 S) (terminator : CpuTerminator X86_64 exit)
+    (lookup : instructionAtRipIndexed indexed before.rip = some instruction)
+    (realized : TerminatorRealization instruction before eventsRev exit terminator) :
+    runProgramOutcomeLoop indexed (fuel + 1) before eventsRev =
+      resumeAfterTerminator indexed fuel exit
+        (nativeOutcomeTransition instruction before eventsRev).2 terminator := by
+  simp only [runProgramOutcomeLoop, lookup]
+  cases realized <;> simp_all [resumeAfterTerminator]
+
+end TerminatorRealization
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- One basic block as an exact contiguous slice of one final artifact. `bodyCode` is the ordinary
@@ -91,14 +222,13 @@ structure RealizesAt {Event Artifact : Type}
   entryRip : state.machine.rip = emitted.bodyBase
   initialSafe : state.machine.fault = none
   runtimeSilent : RuntimeSilentOn (Event := Event) emitted.bodyCode state.machine
-  exitMachine :
+  ghostFrame :
     let result := block.body state accepted
-    result.2.1.machine =
-      (nativeOutcomeTransition (Event := Event) emitted.terminatorInstruction
-        (runLocalSteps emitted.bodyCode state.machine) []).1
-  terminatorFault :
+    ConservativeGhostFrame state result.2.1
+  terminatorRealization : ∀ eventsRev,
     let result := block.body state accepted
-    ProductionTerminatorFault result.2.1 result.2.2
+    TerminatorRealization (Event := Event) emitted.terminatorInstruction
+      (runLocalSteps emitted.bodyCode state.machine) eventsRev result.2.1 result.2.2
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- Exact production execution theorem for a realized block. Unlike `Step.fromBody`, this theorem
@@ -132,25 +262,8 @@ theorem runProgramOutcomeLoop_block {Event Artifact : Type}
     (indexOf artifact) emitted.bodyBase state.machine placement realized.runtimeSilent
     realized.initialSafe (fuel + 1) eventsRev]
   have lookup := emitted.terminatorLookup layout state.machine realized.entryRip
-  simp only [runProgramOutcomeLoop, lookup]
-  let next := nativeOutcomeTransition emitted.terminatorInstruction
-    (runLocalSteps emitted.bodyCode state.machine) eventsRev
-  have sameMachine : next.1 = (block.body state accepted).2.1.machine := by
-    calc
-      next.1 = (nativeOutcomeTransition emitted.terminatorInstruction
-          (runLocalSteps emitted.bodyCode state.machine) []).1 :=
-        nativeOutcomeTransition_fst_independent_events _ _ _ _
-      _ = (block.body state accepted).2.1.machine := realized.exitMachine.symm
-  change (match next.1.fault with
-    | none => runProgramOutcomeLoop (indexOf artifact) fuel next.1 next.2
-    | some .halted => .halted next.1 next.2.reverse
-    | some .divideError => .faulted next.1 next.2.reverse
-    | some (.memFault _ _ _) => .faulted next.1 next.2.reverse) = _
-  rw [sameMachine]
-  have fault := realized.terminatorFault
-  cases hterm : (block.body state accepted).2.2 <;>
-    simp [ProductionTerminatorFault, hterm] at fault <;>
-    simp [resumeAfterTerminator, hterm, fault, next]
+  have terminal := realized.terminatorRealization eventsRev
+  exact TerminatorRealization.runProgramOutcomeLoop_step _ _ _ _ _ _ _ lookup terminal
 
 end EmittedBasicBlock
 
