@@ -634,16 +634,16 @@ theorem wasi_stream_artifact_emits (direction : CodecDirection) :
       (wasiStreamArtifact direction).typeSignatures = .ok bytes := by
   exact ⟨wasiStreamEmittedBytes direction, wasi_stream_emit_eq direction⟩
 
-def wasiStreamingVerifiedProgram (direction : CodecDirection) :
-    VerifiedProgram WasiPlatform (wasiStreamingCapabilities direction) where
-  name := match direction with
-    | .compress => "spike5_gzip_wasi"
-    | .decompress => "spike5_gunzip_wasi"
+def wasiStreamingArtifactCertificate (direction : CodecDirection) :
+    ProgramArtifactCertificate WasiPlatform where
   artifact := wasiStreamArtifact direction
   exports := wasiStreamExports direction
   exportsArtifact := rfl
   artifactConnection := wasi_stream_artifact_connected direction
-  spec := wasiStreamingSpec direction
+
+def wasiStreamingProviderCertificate (direction : CodecDirection) :
+    ProgramProviderCertificate WasiPlatform (wasiStreamingCapabilities direction)
+      (wasiStreamArtifact direction) where
   importsCovered := by
     intro imported himport
     change imported ∈ streamImportNames direction at himport
@@ -661,11 +661,36 @@ def wasiStreamingVerifiedProgram (direction : CodecDirection) :
         nativeProviderProtocol] at hprovider
     all_goals
       rcases hprovider with rfl | rfl | rfl | rfl <;> rfl
+
+def wasiStreamingEntryCertificate (direction : CodecDirection) :
+    ProgramEntryCertificate WasiPlatform (wasiStreamingCapabilities direction)
+      (wasiStreamArtifact direction) where
   entryContext := wasiStreamingEntryContext direction
   entryEstablished := by intro environment; exact ⟨rfl, rfl⟩
+
+def wasiStreamingAdmissibilityCertificate (direction : CodecDirection) :
+    ProgramAdmissibilityCertificate WasiPlatform (wasiStreamingCapabilities direction)
+      (wasiStreamArtifact direction) (wasiStreamingEntryCertificate direction) where
   platformAdmissible := by
     intro environment
     exact wasi_stream_artifact_emits direction
+
+def wasiStreamingBehaviorCertificate (direction : CodecDirection) :
+    ProgramBehaviorCertificate WasiPlatform (wasiStreamingCapabilities direction)
+      (wasiStreamArtifact direction) (wasiStreamingEntryCertificate direction) where
+  spec := wasiStreamingSpec direction
   traceEquivalence := wasi_streaming_trace_equivalence direction
+
+def wasiStreamingVerifiedProgram (direction : CodecDirection) :
+    VerifiedProgram WasiPlatform (wasiStreamingCapabilities direction) :=
+  VerifiedProgram.compose
+    (match direction with
+      | .compress => "spike5_gzip_wasi"
+      | .decompress => "spike5_gunzip_wasi")
+    (wasiStreamingArtifactCertificate direction)
+    (wasiStreamingProviderCertificate direction)
+    (wasiStreamingEntryCertificate direction)
+    (wasiStreamingAdmissibilityCertificate direction)
+    (wasiStreamingBehaviorCertificate direction)
 
 end Spikes.Spike5Gzip
