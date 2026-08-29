@@ -100,6 +100,8 @@ structure ContextBoundaryRealization
   logicalOutcome : target.PhysicalState → target.Execution →
     target.ExitKind → target.PhysicalState → spec.Outcome
   relatesWorld : target.PhysicalState → World → Prop
+  entryRelatesWorld : ∀ {physicalState args binding world},
+    relatesEntry physicalState args binding world → relatesWorld physicalState world
   physicalAdmissibility : ∀ {before execution exitKind after},
     target.runs implementation signature entryKind before execution exitKind after →
       target.admissible implementation signature entryKind before execution exitKind after
@@ -116,5 +118,29 @@ structure ContextBoundaryRealization
           (logicalResult physicalBefore execution physicalAfter)
           (logicalOutcome physicalBefore execution exitKind physicalAfter)
           logicalBefore logicalAfter
+
+/- REF: docs/ABI_CONTEXT.md#10-whole-program-connection-obligations -/
+/--
+Caller-side evidence that a concrete entry state supplies the exact arguments, binding, world, and
+precondition consumed by a boundary realization. Requiring this certificate at the emission gate
+prevents an empty `relatesEntry` relation from authorizing a program vacuously.
+-/
+structure EstablishedBoundaryEntry
+    (World Key Target Environment : Type)
+    [spec : BoundaryContextSpec World Key]
+    [target : TargetBoundarySemantics Target]
+    (realization : ContextBoundaryRealization World Key Target)
+    (load : target.Artifact → Environment → target.PhysicalState) where
+  args : Environment → spec.Args
+  binding : Environment → spec.Binding
+  world : Environment → World
+  related : ∀ environment,
+    realization.relatesEntry
+      (load realization.artifact environment)
+      (args environment)
+      (binding environment)
+      (world environment)
+  requirementsHeld : ∀ environment,
+    spec.requires (args environment) (binding environment) (world environment)
 
 end Gasm.Core

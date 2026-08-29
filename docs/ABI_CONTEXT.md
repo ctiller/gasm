@@ -135,6 +135,10 @@ This permits physically identical states to carry distinct erased arguments, pro
 allocation generations, and protocol instances. Results may inspect the entry state, execution, and
 exit state; outcomes may additionally inspect the exit class.
 
+Every related entry tuple must also satisfy `relatesWorld` for that physical state. This coherence
+law makes a preceding boundary's exit-world witness usable when establishing the next boundary,
+without collapsing generative arguments or bindings back into physical-state functions.
+
 The logical world is related to physical state by
 `relatesWorld : PhysicalState -> World -> Prop`, not reconstructed by a function. Thus physically
 identical executions may carry different erased ghost authority, while a realization cannot obtain
@@ -155,7 +159,9 @@ The staging record alone does not exclude `relatesEntry := False`, `relatesWorld
 artifact relation, or `admissible := True`. Such a record is harmless but useless: before it may
 authorize a call, the whole-program link gate must establish the exact entry relation and
 precondition from the caller's live world, validate the closed target profile, and connect the
-artifact identity to the bytes selected for emission. No such gate exists today.
+artifact identity to the bytes selected for emission. `EstablishedBoundaryEntry` now implements the
+caller-side entry relation and precondition certificate; the target-profile validation and final
+`VerifiedProgram` emission connection remain open.
 
 The interface is intentionally relational. It does not assume deterministic execution, one ISA,
 one OS, one ABI, one result path, or unlimited resources.
@@ -281,7 +287,8 @@ Implemented in `Gasm.Core.AbiContext`:
   types;
 - non-prophetic relational entry tuples and relational physical/logical worlds; and
 - assume/guarantee realization requiring physical admissibility and logical refinement for every
-  execution entered from a related world satisfying the contract precondition.
+  execution entered from a related world satisfying the contract precondition; and
+- caller-side `EstablishedBoundaryEntry` evidence for every canonical external environment.
 
 Not implemented:
 
@@ -293,4 +300,5 @@ Not implemented:
 - integration with `AbiDiscipline`, target `ABI.lean` files, or signature classification;
 - concrete TLS/FLS/register/argument/table realizations;
 - verified adapters or artifact protocol fingerprints; or
-- integration with `Callable`, `VerifiedProgram`, linking, or emission.
+- target-profile validation and integration with `Callable`, `VerifiedProgram`, linking, or
+  emission.
