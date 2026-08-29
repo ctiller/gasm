@@ -18,197 +18,163 @@ import Lean
 
 namespace Gasm.Core
 
-/- REF: docs/ABI_CONTEXT.md#4-concrete-placements -/
-/-- Concrete placements available to a boundary-local context requirement. -/
-inductive AbiContextPlacement where
+/-!
+This module contains staging vocabulary for the ABI-context design.  It deliberately does not
+define a Boolean link gate or a whole-program callability theorem.  In particular, constructing
+one of these descriptive values is not authority to emit a `VerifiedProgram`.  The missing target
+realization and whole-program connection proofs are tracked in `docs/ABI_CONTEXT.md`.
+-/
+
+/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
+/-- Whether a logical context is erased or must have a runtime realization. -/
+inductive ContextMateriality where
   | erasedGhost
-  | explicitArgument (index : Nat)
-  | tlsSlot (index : Nat)
-  | dedicatedRegister (name : String)
-  | capabilityTableSlot (index : Nat)
+  | runtime
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
-/-- Lifetime of a context binding. -/
-inductive AbiContextLifecycle where
-  | perCall
-  | requestScoped
+/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
+/-- The authority a callee requests over a logical resource. -/
+inductive ContextAccess where
+  | observe
+  | mutate
+  | consume
+  | provide
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
-/-- A typed boundary-local resource demand.  `resourceKey` is the link-time identity used to
-    compare independently compiled requirements; the Lean parameter keeps the binding itself
-    statically typed. -/
-structure AbiContextRequirement (Resource : Type) where
-  resourceKey : String
-  placement : AbiContextPlacement
-  lifecycle : AbiContextLifecycle
-  deriving Repr
-
-/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
-/-- Origin evidence for a concrete context binding. -/
-structure AbiContextProvenance where
-  establishedBy : String
-  boundaryName : String
-  resourceKey : String
+/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
+/-- Logical extent is independent of where a runtime binding is stored. -/
+inductive ContextExtent where
+  | call
+  | lexical
+  | request
+  | task
+  | thread
+  | process
+  | object
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
-/-- A typed binding.  Ghost bindings are erased protocol witnesses; every other constructor is a
-    concrete runtime binding at the declared placement. -/
-inductive AbiContextBinding (Resource : Type) where
-  | ghost (value : Resource) : AbiContextBinding Resource
-  | explicitArgument (index : Nat) (value : Resource) (provenance : AbiContextProvenance) : AbiContextBinding Resource
-  | tlsSlot (index : Nat) (value : Resource) (provenance : AbiContextProvenance) : AbiContextBinding Resource
-  | dedicatedRegister (name : String) (value : Resource) (provenance : AbiContextProvenance) : AbiContextBinding Resource
-  | capabilityTableSlot (index : Nat) (value : Resource) (provenance : AbiContextProvenance) : AbiContextBinding Resource
-
-/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
-/-- A binding satisfies a requirement exactly when its placement and lifecycle-visible provenance
-    are established at the call boundary.  Ghost requirements have no runtime setup path. -/
-def AbiContextBinding.Satisfies (requirement : AbiContextRequirement Resource) :
-    AbiContextBinding Resource → Prop
-  | .ghost _ => requirement.placement = .erasedGhost
-  | .explicitArgument index _ provenance =>
-      requirement.placement = .explicitArgument index ∧ provenance.resourceKey = requirement.resourceKey
-  | .tlsSlot index _ provenance =>
-      requirement.placement = .tlsSlot index ∧ provenance.resourceKey = requirement.resourceKey
-  | .dedicatedRegister name _ provenance =>
-      requirement.placement = .dedicatedRegister name ∧ provenance.resourceKey = requirement.resourceKey
-  | .capabilityTableSlot index _ provenance =>
-      requirement.placement = .capabilityTableSlot index ∧ provenance.resourceKey = requirement.resourceKey
-
-/- REF: docs/ABI_CONTEXT.md#2-requirements-bindings-and-satisfaction -/
-/-- Callability evidence for a boundary using a typed context capability. -/
-structure AbiContextCallable (requirement : AbiContextRequirement Resource)
-    (binding : AbiContextBinding Resource) : Prop where
-  satisfied : binding.Satisfies requirement
-
-/- REF: docs/ABI_CONTEXT.md#3-ghost-and-concrete-context -/
-/-- Erased ghost requirements impose no concrete calling convention setup. -/
-theorem AbiContextCallable.ghost_erases (requirement : AbiContextRequirement Resource) (value : Resource)
-    (h : requirement.placement = .erasedGhost) :
-    AbiContextCallable requirement (.ghost value) := ⟨h⟩
-
-/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
-/-- Untyped link-time descriptor used only to detect physical-placement conflicts across different
-    resource types. -/
-structure AbiContextDescriptor where
-  resourceKey : String
-  placement : AbiContextPlacement
-  lifecycle : AbiContextLifecycle
+/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
+/-- How a binding may cross a child or nested execution boundary. -/
+inductive ContextPropagation where
+  | borrow
+  | copy
+  | move
+  | inherit
+  | doNotPropagate
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
-def AbiContextRequirement.descriptor (requirement : AbiContextRequirement Resource) : AbiContextDescriptor :=
-  { resourceKey := requirement.resourceKey, placement := requirement.placement, lifecycle := requirement.lifecycle }
-
-/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
-/-- Whether two requirements use the same concrete physical placement.  Ghost requirements never
-    conflict because they carry no runtime representation. -/
-def AbiContextDescriptor.overlaps (left right : AbiContextDescriptor) : Bool :=
-  match left.placement, right.placement with
-  | .erasedGhost, _ => false
-  | _, .erasedGhost => false
-  | .explicitArgument a, .explicitArgument b => a == b
-  | .tlsSlot a, .tlsSlot b => a == b
-  | .dedicatedRegister a, .dedicatedRegister b => a == b
-  | .capabilityTableSlot a, .capabilityTableSlot b => a == b
-  | _, _ => false
-
-/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
-/-- A concrete overlap is compatible only when resource identity and lifecycle agree. -/
-def AbiContextDescriptor.compatible (left right : AbiContextDescriptor) : Bool :=
-  !left.overlaps right || (left.resourceKey == right.resourceKey && left.lifecycle == right.lifecycle)
-
-/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
-structure AbiContextConflict where
-  left : AbiContextDescriptor
-  right : AbiContextDescriptor
+/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
+/-- Whether the binding may follow work between execution agents. -/
+inductive ContextScheduling where
+  | pinned
+  | migratable
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#5-composition-law -/
-/-- Detects a composition conflict.  An adapter must resolve any returned conflict; composition
-    cannot silently choose one resource for a shared slot/register. -/
-def AbiContextDescriptor.firstConflict (left : List AbiContextDescriptor)
-    (right : List AbiContextDescriptor) : Option AbiContextConflict :=
-  left.findSome? fun l => right.findSome? fun r =>
-    if l.compatible r then none else some { left := l, right := r }
-
-/- REF: docs/ABI_CONTEXT.md#6-dynamic-scopes-and-tls -/
-/-- Typed TLS state for one resource family.  Different resource families are composed through
-    their descriptors at the ABI boundary, not stored in an untyped global map. -/
-abbrev AbiTls (Resource : Type) := Nat → Option Resource
-
-/- REF: docs/ABI_CONTEXT.md#6-dynamic-scopes-and-tls -/
-structure AbiTlsScope (Resource : Type) where
-  slot : Nat
-  prior : Option Resource
-  active : AbiTls Resource
-
-/- REF: docs/ABI_CONTEXT.md#6-dynamic-scopes-and-tls -/
-/-- Enters a TLS-bound context, saving the immediately prior binding for nesting. -/
-def AbiTlsScope.enter (tls : AbiTls Resource) (slot : Nat) (value : Resource) : AbiTlsScope Resource :=
-  { slot := slot, prior := tls slot, active := fun index => if index = slot then some value else tls index }
-
-/- REF: docs/ABI_CONTEXT.md#6-dynamic-scopes-and-tls -/
-/-- Restores the saved TLS binding.  The same operation is used for success, failure, and
-    cancellation exits. -/
-def AbiTlsScope.restore (scope : AbiTlsScope Resource) (tls : AbiTls Resource) : AbiTls Resource :=
-  fun index => if index = scope.slot then scope.prior else tls index
-
-/- REF: docs/ABI_CONTEXT.md#6-dynamic-scopes-and-tls -/
-theorem AbiTlsScope.restore_slot (scope : AbiTlsScope Resource) (tls : AbiTls Resource) :
-    scope.restore tls scope.slot = scope.prior := by simp [AbiTlsScope.restore]
-
-/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
-/-- Caller-owned monotonic cancellation state. -/
-inductive CancellationToken where
-  | active
-  | cancelled
+/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
+/-- Exit classes for which a context contract must define cleanup. -/
+inductive ContextTeardown where
+  | normalReturn
+  | failure
+  | cancellation
+  | executorDestruction
+  | callback
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
-def CancellationToken.cancel : CancellationToken → CancellationToken
-  | .active => .cancelled
-  | .cancelled => .cancelled
+/- REF: docs/ABI_CONTEXT.md#3-placement-free-logical-contracts -/
+/-- A placement-free logical requirement. `Key` and `Protocol` are type-level identities, not
+    forgeable string names. `valid` and `establishes` connect a runtime value to boundary state;
+    they are the proof source for a binding. -/
+structure LogicalContextRequirement (Key Resource Protocol State : Type) where
+  materiality : ContextMateriality
+  access : ContextAccess
+  extent : ContextExtent
+  propagation : ContextPropagation
+  scheduling : ContextScheduling
+  teardown : List ContextTeardown
+  valid : Protocol → State → Resource → Prop
+  establishes : Protocol → State → Resource → State → Prop
 
-/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
-theorem CancellationToken.cannotClearParent (token : CancellationToken) :
-    token.cancel = .cancelled := by cases token <;> rfl
+/- REF: docs/ABI_CONTEXT.md#4-establishment-and-satisfaction -/
+/-- Evidence for one exact requirement.  Lifecycle, representation, and protocol cannot be dropped
+    by a string comparison because the complete requirement and its types index the evidence. -/
+structure EstablishedContextBinding
+    (requirement : LogicalContextRequirement Key Resource Protocol State)
+    (protocol : Protocol) (before after : State) where
+  value : Resource
+  established : requirement.establishes protocol before value after
+  validAfter : requirement.valid protocol after value
 
-/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
-/-- Explicit cooperative-call result.  A callee can return cancellation only at its declared
-    safe point; non-cancellable functions simply do not carry this context requirement. -/
-inductive CooperativeOutcome (Result : Type) where
-  | completed (value : Result)
-  | cancelled
+/- REF: docs/ABI_CONTEXT.md#4-establishment-and-satisfaction -/
+/-- A protocol upgrade is explicit proof-producing data.  Keeping a diagnostic name while changing
+    a protocol does not create this value. -/
+structure ContextProtocolRefinement
+    (OldResource OldProtocol NewResource NewProtocol : Type)
+    (oldValid : OldProtocol → OldResource → Prop)
+    (newValid : NewProtocol → NewResource → Prop) where
+  adaptResource : OldResource → NewResource
+  adaptProtocol : OldProtocol → NewProtocol
+  preserves : ∀ protocol resource,
+    oldValid protocol resource → newValid (adaptProtocol protocol) (adaptResource resource)
+
+/- REF: docs/ABI_CONTEXT.md#5-target-realization -/
+/-- Calls, callbacks, signals, and interrupts may select different conventions on the same target. -/
+inductive BoundaryEntryKind where
+  | ordinaryCall
+  | callback
+  | signal
+  | interrupt
   deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
-/-- Checks a declared cancellation safe point without changing the caller-owned token. -/
-def cancellationSafePoint (token : CancellationToken) (value : Result) : CooperativeOutcome Result :=
-  match token with
-  | .active => .completed value
-  | .cancelled => .cancelled
+/- REF: docs/ABI_CONTEXT.md#5-target-realization -/
+/-- A target supplies canonical physical locations and a hardware-aware alias relation.  Locations
+    therefore cannot be raw register names or unqualified TLS/table indices. -/
+class PhysicalLocationModel (Target : Type) where
+  Location : Type
+  overlaps : Location → Location → Prop
+  overlaps_refl : ∀ location, overlaps location location
+  overlaps_symm : ∀ {left right}, overlaps left right → overlaps right left
 
-/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
-theorem cancellationSafePoint_preserves_token (token : CancellationToken) (value : Result) :
-    (match cancellationSafePoint token value with
-      | .completed _ => token
-      | .cancelled => token) = token := by cases token <;> rfl
+abbrev PhysicalLocation (Target : Type) [model : PhysicalLocationModel Target] := model.Location
 
-/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
-/-- Leaves a TLS-scoped cooperative boundary.  Cleanup is unconditional: cancellation changes the
-    returned request outcome, never the restoration obligation. -/
-def finishCooperativeScope (scope : AbiTlsScope Resource) (tls : AbiTls Resource)
-    (token : CancellationToken) (value : Result) : CooperativeOutcome Result × AbiTls Resource :=
-  (cancellationSafePoint token value, scope.restore tls)
+/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
+inductive PhysicalAccessMode where
+  | read
+  | write
+  | clobber
+  deriving Repr, DecidableEq, BEq
 
-/- REF: docs/ABI_CONTEXT.md#8-cooperative-cancellation -/
-theorem finishCooperativeScope_restores_tls (scope : AbiTlsScope Resource) (tls : AbiTls Resource)
-    (token : CancellationToken) (value : Result) :
-    (finishCooperativeScope scope tls token value).2 scope.slot = scope.prior := by
-  simp [finishCooperativeScope, AbiTlsScope.restore]
+/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
+structure PhysicalAccess (Target : Type) [PhysicalLocationModel Target] where
+  location : PhysicalLocation Target
+  mode : PhysicalAccessMode
+
+/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
+def PhysicalAccess.Conflicts [model : PhysicalLocationModel Target]
+    (left right : PhysicalAccess Target) : Prop :=
+  model.overlaps left.location right.location ∧
+    ¬(left.mode = .read ∧ right.mode = .read)
+
+/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
+/-- The resolved footprint includes setup, access, body preservation, and teardown work. -/
+structure PhysicalFootprint (Target : Type) [PhysicalLocationModel Target] where
+  accesses : List (PhysicalAccess Target)
+
+/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
+def PhysicalFootprint.Compatible [PhysicalLocationModel Target]
+    (left right : PhysicalFootprint Target) : Prop :=
+  ∀ l ∈ left.accesses, ∀ r ∈ right.accesses, ¬l.Conflicts r
+
+/- REF: docs/ABI_CONTEXT.md#6-resolved-footprints-and-conflicts -/
+/-- A realized boundary checks context footprints against the convention's complete classified
+    signature footprint and against one another.  There is intentionally no untyped Boolean
+    `firstConflict`: a target proof supplies physical non-interference. -/
+structure RealizedBoundary (Target Signature : Type) [PhysicalLocationModel Target] where
+  signature : Signature
+  entryKind : BoundaryEntryKind
+  conventionFootprint : PhysicalFootprint Target
+  contextFootprints : List (PhysicalFootprint Target)
+  conventionCompatible :
+    ∀ context ∈ contextFootprints, conventionFootprint.Compatible context
+  contextsPairwiseCompatible : contextFootprints.Pairwise PhysicalFootprint.Compatible
 
 end Gasm.Core

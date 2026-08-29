@@ -23,9 +23,10 @@ The Microsoft x64 calling convention is strictly defined and differs significant
 - **Caller-Saved Scratch**: `RAX`, `RCX`, `RDX`, `R8`–`R11`, `XMM0`–`XMM5`.
 
 The Microsoft x64 convention below specifies machine call layout. Allocator, request, cancellation,
-Winsock, Vulkan, and other library context requirements use
-[Composable Boundary ABI Contexts](../ABI_CONTEXT.md); a Windows realization must separately prove
-their explicit-argument, reserved-register, or TLS placement.
+Winsock, Vulkan, and other library requirements belong to the placement-free contracts in
+[Composable Boundary ABI Contexts](../ABI_CONTEXT.md). The still-unimplemented Windows realization
+must classify the full signature and prove alias-aware argument, register, TLS/FLS, helper-clobber,
+and teardown footprints.
 
 ### 1.2 Mandatory 32-Byte Shadow Space & 16-Byte Stack Alignment
 

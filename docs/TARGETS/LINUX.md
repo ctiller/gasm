@@ -14,8 +14,9 @@ This document defines the calling conventions, system call ABIs, kernel interfac
 ## 1. ABIs & Calling Conventions
 
 This section specifies machine and kernel calling conventions. Allocator, request, cancellation,
-and library contexts use [Composable Boundary ABI Contexts](../ABI_CONTEXT.md); a Linux realization
-must separately prove their explicit-argument, reserved-register, or TLS placement.
+and library requirements belong to [Composable Boundary ABI Contexts](../ABI_CONTEXT.md). The
+still-unimplemented Linux realization must classify the full signature and prove alias-aware
+argument, register, TLS-model/helper-clobber, and teardown footprints.
 
 ### 1.1 System V AMD64 Function Calling Convention
 For standard subroutine execution, `gasm` models the System V AMD64 ABI discipline (`AbiDiscipline X86_64 SystemVAMD64`):

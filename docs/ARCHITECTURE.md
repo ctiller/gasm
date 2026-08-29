@@ -26,7 +26,7 @@ gasm/
 │   ├── X86_64/                  # Self-contained x86-64 vertical slice
 │   │   ├── Machine.lean         # Machine state & step semantics
 │   │   ├── DSL.lean             # Proof-carrying assembly builder
-│   │   ├── ABI.lean             # Calling convention and context-placement realization
+│   │   ├── ABI.lean             # Planned calling-convention/context realization seam
 │   │   └── Emit.lean            # Bytecode, ELF, PE serializers
 │   │
 │   ├── X86_32/                  # Self-contained x86-32 vertical slice
@@ -65,6 +65,7 @@ graph LR
    today, while universal memory-permission and obligation witnesses remain planned.
 3. **Split Proofs for Independent Consumers**:
    - **Equivalence Theorem**: Proves functional correctness against the spec.
-   - **Callability Theorem**: Proves machine-ABI preservation and satisfaction of the callee's
-     composable boundary-context requirements. See [Composable Boundary ABI Contexts](ABI_CONTEXT.md).
+   - **Callability Theorem (required shape, not yet implemented for context rows)**: will combine
+     machine-ABI preservation with satisfaction and physical realization of the callee's
+     placement-free boundary-context contract. See [Composable Boundary ABI Contexts](ABI_CONTEXT.md).
 4. **Binary Emission**: Pure deterministic serialization from verified AST to machine bytes with zero runtime overhead.

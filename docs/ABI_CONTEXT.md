@@ -1,224 +1,265 @@
 # Composable Boundary ABI Contexts
 
-**Status:** design for review. The typed requirement, placement, conflict detection, scoped TLS,
-and cancellation foundations exist in `Gasm.Core.AbiContext`. Finite WASI allocation and
-request-accounting models exist for the current Spike 3 and Spike 5 work. The row-level call rule,
-verified adapters, and target-specific lowering remain integration work.
+**Status (2026-08-29): reviewed design; enforcement incomplete.** `Gasm.Core.AbiContext` contains
+placement-free requirement vocabulary, proof-indexed single-binding establishment, target-indexed
+physical footprints, and a proposition-level resolved-boundary compatibility shape. It does **not**
+yet implement heterogeneous rows, target argument classification, TLS/table/register lowering,
+scope obligations, cancellation, adapters, or the whole-program connection theorem. None of its
+current declarations is sufficient to construct or emit a `VerifiedProgram`.
 
-This document is the canonical definition of context carried across a call boundary. Target
-documents define machine calling conventions and the concrete realization of placements; library
-documents define the resources they require. Neither may invent a second context-composition rule.
+This document owns context requirements at call boundaries. [The memory and concurrency model](MEMORY_MODEL.md)
+owns authority, borrowing, atomic visibility, task/thread lifecycle, cancellation state, and
+cross-worker transfer. Target documents own machine calling conventions and physical realization.
+Library documents own their logical resource protocols.
 
-## 1. Three concepts called "ABI"
+## 1. Decision
 
-They are related, but must remain distinct:
+Keep three concepts separate:
 
-1. A **machine calling convention** assigns arguments, results, saved registers, stack layout, and
-   unwind behavior. System V AMD64, Microsoft x64, and an interior library convention are examples.
-2. A **context requirement** says which capabilities or ambient values a callee needs. An
-   allocator, request budget, cancellation token, Vulkan dispatch table, and Winsock state are
-   examples.
-3. A **placement** says how one concrete context binding crosses one boundary: explicit argument,
-   TLS slot, dedicated register, or capability-table slot. A proof-only binding has erased
-   placement.
+1. A **machine calling convention** classifies the complete function signature and assigns domain
+   arguments, hidden arguments, results, saved state, stack layout, unwind behavior, and entry rules.
+2. A **logical context contract** describes the resources a boundary requires, observes, mutates,
+   consumes, or provides. It is independent of OS, ISA, and physical placement.
+3. A **target realization** maps one fully classified boundary—including its logical context—to
+   physical locations and proves that the complete physical footprints do not interfere.
 
-The operating system does not own the logical context ABI. A library may select its own interior
-calling convention and context requirements. A complete platform supplies the instruction-set and
-host semantics needed to realize them.
+The earlier design embedded placement in published requirements and compared abstract placements.
+That composition rule is rejected. An abstract argument index, register name, TLS slot, or table
+index is not a physical location and cannot establish non-interference.
 
-## 2. Requirements, bindings, and satisfaction
+## 2. Machine conventions remain per boundary
 
-A context requirement contains:
+System V AMD64, Microsoft x64, AAPCS64, Wasm function types, syscalls, callbacks, signals, and
+interrupts are different conventions or entry environments. The same ISA and OS may use several.
+Interior library ABIs remain selectable independently of the process OS.
 
-- a stable resource identity and Lean resource type;
-- whether the binding is erased or concrete;
-- its placement;
-- its lifetime, initially `perCall` or `requestScoped`;
-- the protocol governing its use, ownership, propagation, and cleanup.
+Signature classification happens before context placement. It includes by-value aggregate
+classification, hidden result pointers, variadic register duplication/state, shadow space, stack
+probing, red-zone availability, homogeneous aggregates, and unwind requirements. A context cannot
+reserve `explicitArgument 5` and later assume that it means a stable register or stack slot.
 
-A binding contains a value and, for concrete values, provenance identifying the boundary that
-established it. A call is well-formed only when every callee requirement has a satisfying binding.
-Matching a register number or TLS index is insufficient: resource identity, representation,
-lifetime, provenance, and protocol must also agree.
+Async entry is explicit. An ordinary call, callback, signal, and interrupt may have different saved
+state, stack guarantees, permissible runtime services, and root contexts. A signal-safe subset is a
+separate contract, not an ordinary-call row reused implicitly.
 
-This is the intended call rule:
+## 3. Placement-free logical contracts
 
-```text
-caller context C satisfies callee requirements R
-machine state satisfies the selected calling convention
-callee preserves its framed capabilities and discharges its exit obligations
---------------------------------------------------------------------------
-the call is admissible and returns one of the callee's declared outcomes
-```
+A published logical requirement contains no register, argument number, TLS index, or Wasm table
+index. Its identity includes Lean types for the resource and protocol; strings may be emitted as
+diagnostic names but never confer compatibility or authority.
 
-`VerifiedProgram` is not allowed to assume this premise. Its construction and emission path must
-contain the universal proofs that every reachable boundary satisfies it for every admitted initial
-condition.
+Each requirement declares these independent dimensions:
 
-## 3. Ghost and concrete context
+| Dimension | Initial vocabulary |
+| --- | --- |
+| Materiality | erased ghost, runtime |
+| Access | observe, mutate, consume, provide |
+| Extent | call, lexical, request, task, thread, process, object |
+| Propagation | borrow, copy, move, inherit, do not propagate |
+| Scheduling | pinned, migratable |
+| Teardown | normal return, failure, cancellation, executor destruction, callback |
 
-An **erased ghost binding** may carry propositions, ownership witnesses, budgets used only in
-proofs, or relations tying concrete state to a specification. It cannot affect emitted behavior and
-requires no runtime setup.
+Extent is not storage. A task-scoped binding may currently be stored in thread-local storage only
+when the task is pinned; a migratable task requires task/fiber-local storage or an explicit handle.
+Windows TLS and FLS are therefore distinct realizations. Allocation of either storage mechanism is
+fallible and belongs to the boundary outcome model.
 
-A **concrete binding** is used when execution must discover a value: for example an allocator,
-request ledger, host dispatch table, or cancellation flag. Every concrete binding is paired with a
-ghost invariant relating its representation to its logical capability. Code reasons through that
-invariant rather than treating TLS, a register, or a table entry as intrinsically trustworthy.
+Logical composition combines requirements by exact typed identity and protocol. It must eventually
+produce a normalized heterogeneous row with an internal well-formedness proof. Composition with an
+empty row may not make an internally conflicting row valid. Associativity and commutativity are
+goals for this placement-free normalization and require Lean theorems; they are not claims about
+adapter selection or physical code layout.
 
-Erasure has two obligations:
+## 4. Establishment and satisfaction
 
-- changing only ghost bindings cannot change emitted bytes or execution observations;
-- a routine requiring no concrete context receives no context setup, lookup, accounting, or
-  cancellation-polling instructions.
+A binding is usable only with proof that a modeled boundary transition established that exact
+requirement and that its invariant holds in the resulting state. Public string records are not
+provenance. Matching names, representations, or addresses never manufactures authority.
 
-The second obligation is the zero-overhead rule. It is a property to prove of lowering, not merely
-an optimization intention.
-
-## 4. Concrete placements
-
-The core placements are:
-
-| Placement | Appropriate use | Boundary obligation |
-| --- | --- | --- |
-| Erased ghost | proof witnesses and logical budgets | prove erasure/non-interference |
-| Explicit argument | ordinary values and uncommon capabilities | reserve argument location and prove representation |
-| TLS slot | dynamically scoped request/thread context | establish, save, restore, and prove thread ownership |
-| Dedicated register | hot interior ABI with a reserved context register | prove reservation and preservation across every call |
-| Capability-table slot | Wasm imports/tables and host dispatch | prove index identity, table provenance, and entry type |
-
-Placement is selected per boundary. The same logical capability may use TLS in a native server,
-an explicit argument in a test harness, and a capability-table slot in Wasm. This requires a
-verified adapter; it is not definitional equality.
-
-## 5. Composition law
-
-Requirements compose as a typed row. Composition is associative and commutative up to row
-normalization, with the empty row as identity. Disjoint physical placements compose directly.
-Overlapping concrete placements compose only when resource identity, representation, lifetime,
-and protocol agree.
-
-A mismatch is a link-time proof obligation, never a last-writer-wins choice. It may be resolved by
-a verified adapter that:
-
-1. requires the source binding;
-2. establishes the destination binding and its provenance;
-3. preserves all unrelated bindings;
-4. translates success and every declared failure outcome;
-5. restores scoped state on every exit.
-
-Libraries publish their requirement row alongside their function convention. A program requiring
-Vulkan and Winsock therefore carries the composition of those library rows; neither feature is a
-global boolean embedded in `VerifiedProgram`.
-
-## 6. Dynamic scopes and TLS
-
-A scoped binding is installed with `enter`, which saves the immediately prior value. Every exit
-uses `leave`, including normal return, allocation failure, cancellation, trap translation, and
-language-level error propagation. `leave` restores the saved value, so nested request or subsystem
-scopes restore their parent rather than clearing the slot.
-
-The proof rule is bracket-shaped:
+The proof shape is indexed by the complete requirement:
 
 ```text
-prior --enter(value)--> active --body/outcome--> active' --leave--> prior
+requirement.establishes protocol before value after
+requirement.valid protocol after value
+----------------------------------------------------
+EstablishedContextBinding requirement protocol before after
 ```
 
-The body may mutate the resource according to its protocol, but it cannot acquire ownership of the
-caller's saved binding. Unwinding code is part of the verified boundary implementation. A platform
-whose native unwinder participates must prove that its unwind path implements the same `leave`.
+Because the requirement itself is an index, its resource representation, protocol, access mode,
+extent, propagation, scheduling, and cleanup policy cannot be discarded by a later equality test.
+The predicates must ultimately connect to the authority and obligation transitions in
+`MEMORY_MODEL.md`; a trivially weak requirement proves only its own weak contract and cannot satisfy
+a stronger typed requirement.
+
+The eventual call rule consumes a normalized logical row of these bindings. No such row-level rule
+is implemented today. The old `AbiContextCallable` string-equality witness has been deleted.
+
+## 5. Target realization
+
+A target realization receives all of the following together:
+
+- the target architecture and execution environment;
+- the selected convention and entry kind;
+- the complete domain/result signature after target classification;
+- the normalized logical context row;
+- the address-space, TLS/FLS namespace, table/module instance, and allocation generations;
+- setup, access, preservation, teardown, and unwind implementations.
+
+It resolves these into target-owned physical locations. A physical location is typed by the target
+and has a proved alias/overlap relation. It is not a string. Examples that must overlap include
+x86-64 `rax`/`eax` and AArch64 `x19`/`w19`; examples that must remain distinct include slot zero in
+different Wasm table instances or different TLS allocation generations.
+
+The convention realization includes ordinary and hidden arguments. Thus Microsoft x64 argument
+zero versus `rcx`, SysV argument five versus `r9`, variadic FP duplication, and signature-dependent
+aggregate shifts are checked in one physical allocation problem.
+
+## 6. Resolved footprints and conflicts
+
+Every realized component publishes a physical footprint of reads, writes, and clobbers. The
+convention footprint covers domain arguments, hidden parameters, results, saved/clobbered state,
+stack/unwind machinery, and entry-environment effects. Each context footprint covers its setup,
+lookup/access sequence, body preservation rule, teardown, and unwind path.
+
+This captures interactions that constructor equality misses:
+
+- a general-dynamic TLS lookup may call `__tls_get_addr` and clobber caller-saved registers;
+- a library's private scratch register or TLS cell may collide with another component;
+- a syscall adapter may clobber registers not clobbered by an ordinary function call;
+- stack probing and unwind helpers have footprints even when the logical resource is disjoint.
+
+Two physical accesses conflict when their target locations overlap and they are not both reads.
+A resolved boundary carries proofs that:
+
+1. every context footprint is compatible with the complete convention footprint;
+2. context footprints are pairwise compatible;
+3. the lowering really performs only accesses within the published footprints;
+4. setup and teardown establish and restore the logical bindings they claim.
+
+`Gasm.Core.AbiContext.RealizedBoundary` currently represents only the first two proposition-level
+shapes. No target constructs one yet, and it is not wired to callability or emission. There is no
+Boolean `firstConflict`; the rejected pairwise abstract-placement gate has been deleted.
 
 ## 7. Finite allocation and request accounting
 
-Allocation and memory growth are finite capabilities. Their interfaces return an explicit failure;
-no proof may assume that every finite request succeeds. A caller must specify what allocation
-failure means at its boundary.
+Allocation, TLS/FLS allocation, table growth, and linear-memory growth are finite capabilities.
+Their interfaces return explicit failure. No proof may assume that every finite request succeeds.
+A caller specifies the meaning of exhaustion at its boundary.
 
-A request-scoped allocation capability combines:
+A request allocation contract combines:
 
-- an allocator or memory-growth provider;
-- a finite limit;
-- a ledger of current live bytes, peak live bytes, and cumulative allocated bytes;
-- provenance tying allocations and releases to the active scope;
-- a cleanup policy for all exits.
+- a runtime allocator or growth handle whose authority comes from the memory model;
+- finite peak-live and/or cumulative allocation limits;
+- a ledger of live, peak-live, and cumulative bytes;
+- typed provenance associating allocations and releases with the active scope;
+- cleanup transitions for every declared exit.
 
-Each successful allocation is charged before its result becomes usable. Release reduces live bytes
-but not cumulative bytes. Growth fails if the provider cannot satisfy it or the chosen request
-metric would cross its limit. The ledger must prove that no allocation path bypasses charging and
-that arithmetic cannot wrap.
+Each successful allocation is charged before its result becomes usable. Release decreases live
+bytes but not cumulative bytes. Charging arithmetic is non-wrapping, and no scoped allocation path
+may bypass the ledger. Exhaustion is an explicit request outcome, so a server may clean up and fail
+one request without terminating the process.
 
-The limit policy is boundary-selected. Peak-live protects resident resource use; cumulative bytes
-also limits churn. A server may enforce either or both. Exhaustion is an explicit request outcome,
-so a request handler can clean up and reject that request while keeping the process alive. Process
-termination is permitted only when the caller's declared policy chooses it.
+The logical allocator requirement is placement-free. A native realization may pass an explicit
+handle, use a proved TLS/FLS lookup, or reserve an interior-ABI register. Wasm may use an explicit
+parameter or instance-qualified capability table. These are different physical realizations of the
+same logical resource.
 
-Paths outside request handling do not install a request ledger. They may bind directly to a
-process allocator and therefore pay neither request-entry nor per-allocation accounting overhead.
-A library that allocates requires an allocation capability; it does not discover one through an
-unmodeled global.
+A non-request path may require only the process allocator and omit the request ledger. The eventual
+erasure/lowering theorem must prove that omitting accounting produces no request-entry or per-
+allocation accounting instructions. This theorem is not implemented yet.
 
-## 8. Cooperative cancellation
+## 8. Scoped cleanup and cancellation
 
-Cancellation is a caller-owned, monotonic capability. The caller may change `active` to
-`cancelled`; a callee may observe but cannot clear it. A cancellable function declares the token in
-its requirement row and declares safe points at which it may return `cancelled`.
+Scope entry and exit belong to the indexed authority/obligation transition system. Entry creates a
+fresh scope generation and a `MustRestore`/`MustLeave`-shaped obligation. Exit requires the current
+top generation and consumes it exactly once. Copying a scope witness, restoring it twice, restoring
+an outer scope before an inner scope, or applying it to unrelated state must be unrepresentable.
 
-Cancellation is not an asynchronous jump into arbitrary instructions. At a safe point the callee:
+The earlier copyable `AbiTlsScope` function model did not establish these properties and has been
+deleted. Normal return, failure, cancellation, and unwind adapters must consume the same typed
+cleanup obligation.
 
-1. observes the token;
-2. restores invariants needed by its public boundary;
-3. releases or transfers outstanding linear resources according to its contract;
-4. leaves every installed context scope;
-5. returns an explicit cancellation outcome.
+Cancellation state is owned by [the memory and concurrency model](MEMORY_MODEL.md), not this ABI
+document. The required resource has a generative identity, caller-held signal authority, callee-held
+read authority, monotonic state, atomic visibility, scheduler/blocking-operation integration, and
+typed cleanup transitions. ABI context composition only passes or realizes an observation handle.
+An immutable `active | cancelled` snapshot cannot model a later concurrent request and has been
+deleted.
 
-A contract must state cancellation latency or progress: for example, a safe point per input chunk
-or per bounded loop iteration. It must also state which prefix of external effects may already be
-observable. Operations needing all-or-nothing behavior require a separate transaction protocol.
+A cancellable logical contract declares safe points, permitted effect prefixes, cleanup behavior,
+and a latency/progress condition such as one poll per bounded iteration or input chunk. Cancellation
+is not an asynchronous jump into arbitrary instructions. A function omitting the cancellation
+requirement contains no polling work; a caller cannot claim prompt cancellation while it executes.
 
-Functions without a cancellation requirement contain no cancellation lookup or poll. A
-non-cooperating function remains callable, but its caller cannot claim prompt cancellation across
-that call.
+## 9. Adapters and composition
 
-## 9. Proof obligations
+Logical row normalization is separate from target realization. A verified adapter is an explicit
+morphism between typed protocols or physical realizations. It declares its own footprint and proves:
 
-The eventual row-level implementation must establish:
+1. source binding and protocol requirements;
+2. destination establishment and validity;
+3. preservation of unrelated logical resources;
+4. translation of every success, failure, exhaustion, and cancellation outcome;
+5. discharge of all scope and cleanup obligations;
+6. physical-footprint compatibility after insertion.
 
-- **Satisfaction:** each reachable call has every required binding with valid provenance.
-- **Preservation:** a callee preserves bindings and capabilities outside its declared frame.
-- **Composition:** normalized compatible rows compose; conflicts cannot construct callability.
-- **Adapter soundness:** placement changes preserve the logical resource protocol and outcomes.
-- **Scope restoration:** every exit restores the prior scoped binding.
-- **Finite-resource totality:** allocation/growth success and failure are both modeled.
-- **Accounting completeness:** every successful scoped allocation is charged exactly once and every
-  release follows the ledger protocol.
-- **Cancellation safety:** cancellation is observed only at declared safe points and all exit
-  obligations are discharged.
-- **Erasure:** ghost-only and omitted requirements add no emitted runtime work.
-- **Indirect-call safety:** function values carry or imply the same convention and requirement row
-  checked for direct calls.
+Adapter search or selection may be order-dependent. Therefore no associativity/commutativity claim
+is made for synthesized adapter plans. Coherence, if desired, requires a theorem that competing
+plans are observationally equivalent.
 
-These obligations extend the callability theorem; they do not replace functional equivalence or
-memory-safety theorems.
+## 10. Protocol evolution and linking
 
-## 10. Target realization
+Changing a protocol creates a new Lean protocol identity. It cannot silently reuse a string key.
+Old and new code compose only through an explicit refinement or adapter that proves validity and
+outcome preservation. `ContextProtocolRefinement` records the minimum pure preservation shape;
+stateful boundary refinement remains to be implemented.
 
-Target documents own only the mapping from abstract placement to executable mechanism:
+External artifacts eventually need checked type/protocol fingerprints. Such a fingerprint is an
+index for linker diagnostics, not proof by itself. The linker must connect it to a compiled,
+kernel-checked theorem for the exact representation and protocol. Unknown versions, fingerprint
+collisions, or missing refinement evidence fail closed.
 
-- native targets may use explicit arguments, reserved registers, and a platform TLS mechanism;
-- Wasm/WASI may use parameters, mutable globals where isolation permits, or typed
-  capability/import-table entries;
-- a future multiprocessing runtime establishes a distinct root context for each worker and proves
-  which bindings may be shared, copied, or transferred.
+## 11. Whole-program obligations
 
-OS APIs, instruction sets, calling conventions, and libraries remain independent axes. A concrete
-artifact selects compatible members of each axis and proves their composition.
+Before ABI contexts may participate in `VerifiedProgram`, the implementation must prove:
 
-## 11. Review questions
+- typed row well-formedness, normalization, identity, associativity, and commutativity;
+- exact establishment and satisfaction for every reachable direct and indirect call;
+- full-signature target classification and physical placement correctness;
+- alias-aware footprint compatibility, including setup/teardown/helper clobbers;
+- footprint fidelity of emitted code;
+- preservation of every logical and physical resource outside the declared frame;
+- linear scoped cleanup on all outcomes and unwind paths;
+- finite-resource success/failure totality and allocation-accounting completeness;
+- cancellation authority, visibility, safe-point, effect-prefix, and cleanup properties through the
+  memory/concurrency model;
+- explicit protocol-refinement and adapter soundness;
+- ghost erasure and zero runtime work for omitted runtime requirements;
+- correct root-context establishment for ordinary, callback, signal, and interrupt entry kinds.
 
-The following choices remain deliberately open for review:
+`VerifiedProgram` must carry these universal connection proofs for every admitted initial state and
+environment behavior. No legacy constructor, compatibility escape hatch, allowlist, axiom, `sorry`,
+or narrowed input domain may bypass them.
 
-1. whether lifetime needs a third task/fiber-local constructor before multiprocessing;
-2. whether allocation limits standardize peak-live, cumulative, or a product policy in core;
-3. how cancellation latency is represented so it composes through library calls;
-4. whether provenance identity is structural, nominal, or linker-issued in emitted artifacts;
-5. which native TLS and Wasm table realizations become the first fully proved adapters.
+## 12. Current implementation boundary
+
+Implemented in `Gasm.Core.AbiContext`:
+
+- placement-free lifecycle/access vocabulary;
+- requirements indexed by resource, protocol, key, and state types;
+- proof-bearing establishment for one exact requirement;
+- a pure protocol-refinement preservation shape;
+- target-indexed physical locations and alias relation;
+- physical read/write/clobber footprints and proposition-level compatibility;
+- a resolved-boundary record requiring convention/context and pairwise context compatibility.
+
+Not implemented:
+
+- heterogeneous logical rows and their algebra;
+- integration with `AbiDiscipline`, full signature classification, or any target `ABI.lean`;
+- concrete TLS/FLS/register/argument/table realizations;
+- footprint-fidelity proofs;
+- indexed scope obligations;
+- concurrency-model cancellation resources;
+- verified adapters;
+- integration with `Callable`, `VerifiedProgram`, linking, or emission.

@@ -45,8 +45,9 @@ Different operating systems and architectures mandate distinct calling conventio
 
 This document uses *ABI* narrowly for the machine calling convention: registers, stack layout,
 preservation, and return. Logical allocator, request, cancellation, or library capabilities are
-defined by [Composable Boundary ABI Contexts](ABI_CONTEXT.md). A call must satisfy both layers;
-neither an OS nor this stack discipline implicitly supplies the contextual layer.
+specified by [Composable Boundary ABI Contexts](ABI_CONTEXT.md). The row-level connection remains
+unimplemented. Its eventual call rule must satisfy both layers; neither an OS nor this stack
+discipline implicitly supplies the contextual layer.
 
 ```lean
 class AbiDiscipline (Arch : Type) (ABI : Type) where

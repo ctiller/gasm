@@ -138,11 +138,11 @@ theorem memcpy_functional_equivalence :
 
 ### 4.2 Theorem 2: Callability & ABI Preservation (Caller Consumer)
 
-Callability has two independent premises: preservation of the selected machine calling convention,
-and satisfaction of the callee's typed context row. The latter covers erased witnesses and concrete
-allocator, request, cancellation, or library bindings, including placement and provenance. See
-[Composable Boundary ABI Contexts](ABI_CONTEXT.md). Proving only stack and callee-saved-register
-restoration is therefore necessary but not sufficient for a callable routine.
+The required future callability theorem has two independent premises: preservation of the selected
+machine calling convention, and satisfaction plus target realization of the callee's typed logical
+context row. The row-level theorem and target realizations are not implemented. See
+[Composable Boundary ABI Contexts](ABI_CONTEXT.md). Once that connection exists, proving only stack
+and callee-saved-register restoration will remain necessary but not sufficient.
 
 ```lean
 /-- Proves that the routine obeys the specified ABI discipline and restores stack and callee-saved registers -/

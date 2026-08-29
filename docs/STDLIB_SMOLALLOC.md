@@ -44,10 +44,11 @@ SmolAlloc is decoupled from specific operating system system calls via the `Page
 must propagate that failure; clients must not prove total success by assuming that every finite
 request can be backed.
 
-The allocator used by a routine is a composable boundary capability, not an unmodeled process
-global. A request path may bind SmolAlloc together with a finite accounting ledger, while a
+The boundary-context design requires the allocator used by a routine to be an explicit logical
+capability, not an unmodeled process global; this connection is not yet wired into callability. A
+request path will be able to bind SmolAlloc together with a finite accounting ledger, while a
 non-request path may bind it directly without accounting overhead. Allocation failure, scoped
-cleanup, and the live/peak/cumulative ledger rules are defined in
+cleanup, and the live/peak/cumulative ledger rules are specified in
 [Composable Boundary ABI Contexts](ABI_CONTEXT.md#7-finite-allocation-and-request-accounting).
 
 ### 2.1 Typeclass Definition
