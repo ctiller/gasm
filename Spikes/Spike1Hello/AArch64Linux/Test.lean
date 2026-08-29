@@ -45,7 +45,8 @@ def main : IO UInt32 := do
   IO.println "[*] 2. QEMU Linux User-Mode Verification..."
   let elfPath := "spike1_hello_aarch64_linux"
   if !(← (System.FilePath.mk elfPath).pathExists) then
-    IO.FS.writeBinFile elfPath (emitVerifiedAArch64LinuxExecutable spike1AArch64LinuxVerifiedProgram)
+    IO.FS.writeBinFile elfPath (← IO.ofExcept
+      (Gasm.Core.Platform.emitVerifiedProgram spike1AArch64LinuxVerifiedProgram))
 
   match ← Gasm.Execution.QEMUAArch64.runLinux elfPath ByteArray.empty "Hello, World!\n" 0 with
   | .passed =>
