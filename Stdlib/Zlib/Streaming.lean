@@ -171,15 +171,38 @@ def scopedBoundedGzip (scope : AllocationScope) (input : ByteArray) :
     | .exhausted failedOutput => .resourceExhausted (failedOutput.release input.size)
 
 /- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
+/-- Reference decompression accounting.  Malformed input is a normal library
+    result and releases the retained input.  Successful output remains charged
+    to the caller's scope; an output-growth failure releases the input before
+    returning the recoverable resource outcome. -/
+def scopedBoundedGunzip (scope : AllocationScope) (input : ByteArray) :
+    ScopedStreamingResult (Except String ByteArray) :=
+  match scope.charge input.size with
+  | .exhausted failed => .resourceExhausted failed
+  | .granted withInput =>
+    match gzipDecompress input with
+    | .error err => .success (.error err) (withInput.release input.size)
+    | .ok output =>
+      match withInput.charge output.size with
+      | .granted withOutput => .success (.ok output) (withOutput.release input.size)
+      | .exhausted failedOutput => .resourceExhausted (failedOutput.release input.size)
+
+/- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
 structure ScopedStreamingZlibCapability where
   compress : AllocationScope → List ByteArray → ScopedStreamingResult ByteArray
+  decompress : AllocationScope → List ByteArray →
+    ScopedStreamingResult (Except String ByteArray)
   compress_sound : ∀ scope chunks,
     compress scope chunks = scopedBoundedGzip scope (joinChunks chunks)
+  decompress_sound : ∀ scope chunks,
+    decompress scope chunks = scopedBoundedGunzip scope (joinChunks chunks)
 
 /- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
 def scopedBoundedZlibCapability : ScopedStreamingZlibCapability where
   compress scope chunks := scopedBoundedGzip scope (joinChunks chunks)
+  decompress scope chunks := scopedBoundedGunzip scope (joinChunks chunks)
   compress_sound _ _ := rfl
+  decompress_sound _ _ := rfl
 
 /- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
 def composeScopedStreamingGzip (transport : StreamingByteTransport)
@@ -199,5 +222,28 @@ theorem compose_scoped_streaming_gzip (transport : StreamingByteTransport)
   cases scopedBoundedGzip scope input with
   | success output updated => simp [transport.write_sound]
   | resourceExhausted updated => rfl
+
+/- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
+def composeScopedStreamingGunzip (transport : StreamingByteTransport)
+    (zlib : ScopedStreamingZlibCapability) (scope : AllocationScope) (input : ByteArray) :
+    ScopedStreamingResult (Except String ByteArray) :=
+  match zlib.decompress scope (transport.readAll input) with
+  | .success (.ok output) updated =>
+    .success (.ok (joinChunks (transport.writeAll output))) updated
+  | .success (.error err) updated => .success (.error err) updated
+  | .resourceExhausted updated => .resourceExhausted updated
+
+/- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
+theorem compose_scoped_streaming_gunzip (transport : StreamingByteTransport)
+    (zlib : ScopedStreamingZlibCapability) (scope : AllocationScope) (input : ByteArray) :
+    composeScopedStreamingGunzip transport zlib scope input = scopedBoundedGunzip scope input := by
+  unfold composeScopedStreamingGunzip
+  rw [zlib.decompress_sound, transport.read_sound]
+  cases scopedBoundedGunzip scope input with
+  | resourceExhausted updated => rfl
+  | success result updated =>
+    cases result with
+    | error err => rfl
+    | ok output => simp [transport.write_sound]
 
 end Stdlib.Zlib
