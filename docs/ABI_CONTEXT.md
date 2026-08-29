@@ -132,12 +132,15 @@ becomes a public elaboration bottleneck.
 that the artifact implements that identity. Its `relatesEntry` relation connects an entry physical
 state to arguments, a binding, and a logical world without inspecting the execution or its result.
 This permits physically identical states to carry distinct erased arguments, provenance, region or
-allocation generations, and protocol instances. Results may inspect the entry state, execution, and
-exit state; outcomes may additionally inspect the exit class.
+allocation generations, and protocol instances. Its `relatesExit` relation jointly binds result,
+outcome, post-world, entry state, execution, exit class, and exit state. A physically decoded scalar
+can be represented by the graph of a function inside that relation, but fresh identities,
+provenance, and transferred authority cannot be minted by a privileged projection.
 
-Every related entry tuple must also satisfy `relatesWorld` for that physical state. This coherence
-law makes a preceding boundary's exit-world witness usable when establishing the next boundary,
-without collapsing generative arguments or bindings back into physical-state functions.
+Every related entry tuple and exit tuple must also satisfy `relatesWorld` for its physical state.
+These coherence laws make a preceding boundary's exit-world witness usable when establishing the
+next boundary, without collapsing generative arguments, bindings, results, or outcomes back into
+physical-state functions.
 
 The logical world is related to physical state by
 `relatesWorld : PhysicalState -> World -> Prop`, not reconstructed by a function. Thus physically
@@ -148,20 +151,21 @@ The realization then proves two things:
 
 1. the execution satisfies the target profile's physical-admissibility predicate; and
 2. whenever an entry physical state is related to a logical world satisfying the caller's
-   precondition, every execution has some related post-world satisfying the nominal transition.
+   precondition, every execution has some related result, outcome, and post-world satisfying the
+   nominal transition.
 
 The precondition is an assumption of the refinement theorem, not something every raw machine
 execution must establish. Invalid calls remain executions in `runs`; they simply receive no
 contract guarantee. This prevents both narrowing machine semantics to verified calls and inventing
 caller authority inside the realization proof.
 
-The staging record alone does not exclude `relatesEntry := False`, `relatesWorld := False`, a weak
-artifact relation, or `admissible := True`. Such a record is harmless but useless: before it may
+The staging record alone does not exclude `relatesEntry := False`, `relatesExit := False`,
+`relatesWorld := False`, a weak artifact relation, or `admissible := True`. Such a record is harmless but useless: before it may
 authorize a call, the whole-program link gate must establish the exact entry relation and
 precondition from the caller's live world, validate the closed target profile, and connect the
 artifact identity to the bytes selected for emission. `EstablishedBoundaryEntry` now implements the
-caller-side entry relation and precondition certificate; the target-profile validation and final
-`VerifiedProgram` emission connection remain open.
+caller-side entry relation and precondition certificate. `VerifiedProgram` now carries root artifact
+and emission connections; the closed per-call link gate and target-profile validation remain open.
 
 The interface is intentionally relational. It does not assume deterministic execution, one ISA,
 one OS, one ABI, one result path, or unlimited resources.
@@ -325,10 +329,11 @@ Implemented in `Gasm.Core.AbiContext`:
 - proof-bearing evidence for one boundary transition;
 - target/environment-indexed implementation, artifact, entry, exit, signature, state, and execution
   types;
-- non-prophetic relational entry tuples and relational physical/logical worlds; and
+- non-prophetic relational entry tuples, relational result/outcome/post-world exit tuples, and
+  relational physical/logical worlds;
 - assume/guarantee realization requiring physical admissibility and logical refinement for every
   execution entered from a related world satisfying the contract precondition; and
-- caller-side `EstablishedBoundaryEntry` evidence for every canonical external environment.
+- caller-side `EstablishedBoundaryEntry` evidence for every canonical external environment;
 - exact `VerifiedExportSet` manifests, unique target lookup keys, proof-bearing callable entries,
   one final artifact identity, and target-owned joint admissibility;
 - the target-optional `TargetLinkSemantics`, final-artifact `JointLinkCertificate`, and generic

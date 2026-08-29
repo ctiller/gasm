@@ -103,12 +103,14 @@ structure ContextBoundaryRealization
   artifact : target.Artifact
   artifactConnection : target.artifactImplements artifact implementation
   relatesEntry : target.PhysicalState → spec.Args → spec.Binding → World → Prop
-  logicalResult : target.PhysicalState → target.Execution → target.PhysicalState → spec.Result
-  logicalOutcome : target.PhysicalState → target.Execution →
-    target.ExitKind → target.PhysicalState → spec.Outcome
   relatesWorld : target.PhysicalState → World → Prop
+  relatesExit : target.PhysicalState → target.Execution → target.ExitKind →
+    target.PhysicalState → spec.Result → spec.Outcome → World → Prop
   entryRelatesWorld : ∀ {physicalState args binding world},
     relatesEntry physicalState args binding world → relatesWorld physicalState world
+  exitRelatesWorld : ∀ {physicalBefore execution exitKind physicalAfter result outcome world},
+    relatesExit physicalBefore execution exitKind physicalAfter result outcome world →
+      relatesWorld physicalAfter world
   physicalAdmissibility : ∀ {before execution exitKind after},
     target.runs artifact implementation signature entryKind before execution exitKind after →
       target.admissible artifact implementation signature entryKind before execution exitKind after
@@ -117,13 +119,13 @@ structure ContextBoundaryRealization
     spec.requires args binding logicalBefore →
     target.runs artifact implementation signature entryKind
       physicalBefore execution exitKind physicalAfter →
-      ∃ logicalAfter,
-        relatesWorld physicalAfter logicalAfter ∧
+      ∃ result outcome logicalAfter,
+        relatesExit physicalBefore execution exitKind physicalAfter result outcome logicalAfter ∧
         spec.transitions
           args
           binding
-          (logicalResult physicalBefore execution physicalAfter)
-          (logicalOutcome physicalBefore execution exitKind physicalAfter)
+          result
+          outcome
           logicalBefore logicalAfter
 
 /- REF: docs/ABI_CONTEXT.md#10-whole-program-connection-obligations -/
