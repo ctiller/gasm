@@ -77,6 +77,13 @@ theorem completed_streaming_request_line_agrees (line : List UInt8) :
       Stdlib.Http11.parseRequestLine line := rfl
 
 /- REF: docs/STDLIB_HTTP11.md#21-request-line -/
+/-- CRLF framing composes across short reads: a CR retained at the end of one read and LF at the
+    start of the next completes exactly the accumulated request line. -/
+theorem split_crlf_completes_request_line (budget : Nat) (line : List UInt8) :
+    streamRequestLineChunk budget { line := line, pendingCR := true } [10] =
+      .complete (Stdlib.Http11.parseRequestLine line) := rfl
+
+/- REF: docs/STDLIB_HTTP11.md#21-request-line -/
 /-- A byte that would exceed a request's finite line budget is reported without mutating the
     retained parser state.  The caller can therefore close the request scope and continue serving
     the next connection. -/
