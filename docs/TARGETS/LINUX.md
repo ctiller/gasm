@@ -70,9 +70,13 @@ The first concurrency profile must add the architecture-specific raw thread-crea
 thread exit versus `exit_group`, and a true join based on child-TID clear-and-wake semantics. A
 user-written done flag is not enough to prove actual termination or stack reclamation.
 
-Parking supports aligned, mapped, stable-lifetime 32-bit words; atomic compare-and-block,
+Futex parking supports aligned, mapped, stable-lifetime 32-bit wait words; atomic compare-and-block,
 value-changed/error results, permitted return/recheck loops, nondeterministic bounded wake, and
-waiter cleanup. Futex wake changes scheduler state but is not a memory fence; publication remains an
+waiter cleanup. That UAPI width constrains a direct futex wait key, not the representation-independent
+mutex contract. The standard `ParkedMutex32` library waits on its complete word. A packed 32-bit
+implementation must pass an exact full-word snapshot; a wider implementation needs a separate
+stable 32-bit parking word or another supported adapter, with a proof of its retry and lost-wakeup
+refinement. Futex wake changes scheduler state but is not a memory fence; publication remains an
 x86- or AArch64-proved atomic release/acquire protocol.
 
 ---

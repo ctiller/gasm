@@ -46,11 +46,15 @@ durable decisions future implementations must preserve:
   exact-token read loans, instance-scoped atomic grants, causal donation, and result-indexed join
   returns are tracked by closed indexed transitions rather than duplicable token values. In v1,
   pointer bytes recover a registered typed view, not provenance or authority by themselves.
-- **Locks separate three concerns**: contenders share atomic authority for a disjoint 32-bit lock
-  word; one fresh lock instance owns the protected region; and each successful generation carries
-  a matched guard and must-release obligation. Synchronization is justified by an explicit
-  release/acquire witness tied to concrete event keys, not by relabelling generic loads or stores.
-  Failed acquire transfers nothing, and destruction is the checked inverse of initialization.
+- **Locks separate contract from representation**: contenders share atomic authority for an
+  implementation-defined synchronization representation; one fresh lock instance owns the
+  disjoint protected region; and each successful generation carries a matched guard and must-release
+  obligation. The planned verified `ParkedMutex32` library is the preferred cross-platform default,
+  not the definition of a mutex. Specialized libraries may use another protocol or pack additional
+  state into the atomic object only by proving their encoding, atomic transitions, parking behavior,
+  and refinement to the same contract. Synchronization is justified by an explicit release/acquire
+  witness tied to concrete event keys, not by relabelling generic loads or stores. Failed acquire
+  transfers nothing, and destruction is the checked inverse of initialization.
 - **Parking is not publication**: Linux futex and Windows `WaitOnAddress`/`WakeByAddress*`
   operations refine park-if-equal/wake and create scheduler causality only. Release publication
   precedes notification; memory visibility comes from the target-proved atomic release/acquire

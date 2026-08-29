@@ -46,7 +46,12 @@ separate target predicates connected to a common event graph; this is planned, n
   permitting the store-buffer store-load relaxation; locked operations and fences add constraints.
 - **AArch64 weak memory**: plain accesses are weakly ordered but remain constrained by coherence,
   dependencies, acquire/release operations, barriers, and the selected formal Arm profile.
-- **SPIR-V Vulkan Memory Model**: Memory operations across invocations within a subgroup or workgroup require explicit `OpMemoryBarrier` and `OpControlBarrier` with `Acquire`/`Release` storage semantics.
+- **SPIR-V/Vulkan memory model (future profile)**: Cross-invocation correctness depends on the
+  selected memory and execution scopes, ordering semantics, storage-class semantics,
+  availability/visibility operations, atomic operations, control-barrier participation, and any
+  Vulkan API dependency that connects shader executions. No universal rule reduces this to always
+  emitting `OpMemoryBarrier`/`OpControlBarrier`; the eventual profile must prove the chosen plan's
+  exact consequences.
 
 ---
 
