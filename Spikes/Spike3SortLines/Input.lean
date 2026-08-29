@@ -89,6 +89,36 @@ theorem ByteLineStream.feed_append (state : ByteLineStream) (first second : List
     simp only [List.cons_append, ByteLineStream.feed]
     exact ih (state.step byte)
 
+/- REF: docs/READ_BINDER_CONTRACT.md#3-read-continuations-and-fragmentation -/
+/-- Feeds a finite sequence of host reads.  The sequence is deliberately a list of byte lists,
+    rather than a sample selector: each member can be any finite read result, including an empty
+    short read. -/
+def ByteLineStream.feedChunks (state : ByteLineStream) : List (List UInt8) → ByteLineStream
+  | [] => state
+  | chunk :: chunks => (state.feed chunk).feedChunks chunks
+
+/- REF: docs/READ_BINDER_CONTRACT.md#3-read-continuations-and-fragmentation -/
+/-- Exact finite-read composition.  A decoder fed by any finite sequence of successful reads has
+    exactly the same state as one fed the concatenated stdin stream.  This is the reusable
+    boundary lemma for 512-byte native/WASI reads; it neither assumes a fixed chunking nor loses
+    a final unterminated record. -/
+theorem ByteLineStream.feedChunks_flatten (state : ByteLineStream)
+    (chunks : List (List UInt8)) :
+    state.feedChunks chunks = state.feed chunks.flatten := by
+  induction chunks generalizing state with
+  | nil => rfl
+  | cons chunk chunks ih =>
+    simp only [ByteLineStream.feedChunks, List.flatten_cons]
+    rw [ih, ← ByteLineStream.feed_append]
+
+/- REF: docs/READ_BINDER_CONTRACT.md#3-read-continuations-and-fragmentation -/
+/-- The observable line sequence is invariant under arbitrary finite read fragmentation. -/
+theorem ByteLineStream.completedLines_feedChunks_flatten (state : ByteLineStream)
+    (chunks : List (List UInt8)) :
+    ((state.feedChunks chunks).completedLines) =
+      ((state.feed chunks.flatten).completedLines) := by
+  rw [ByteLineStream.feedChunks_flatten]
+
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- The canonical environment's byte oracle is the only Spike 3 input source. -/
 def environmentInputLines (environment : Environment) : List (List UInt8) :=
