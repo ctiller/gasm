@@ -38,7 +38,7 @@ The read-binder contract shape is: **the returned result is a universally-quanti
 in the calling routine's contract, constrained only by the bound the syscall signature itself
 promises (`result.size ≤ requested`), never fixed to one instantiation.**
 
-```text
+```lean
 /-- The read-binder proof obligation. A program whose next step is "read up to `requested`
 bytes, then run `Post` on whatever came back" satisfies Law 9 only if it can discharge
 `Post` for every element of the bounded byte-array domain -- not one chosen witness. -/
@@ -53,7 +53,7 @@ wherever it contains a read: the precondition/postcondition pair covering "what 
 this read" must be exactly a proof term of this `Prop`, for the routine's declared `requested`
 bound, not a proof term about one instantiated `bytes` value. A contract of the form
 
-```lean
+```text
 -- PROHIBITED shape: pins the read to a concrete vector.
 theorem foo_correct : Post (concreteBytes) := ...
 ```
