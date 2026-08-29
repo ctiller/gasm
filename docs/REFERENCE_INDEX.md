@@ -151,6 +151,7 @@ verdicts `docs/THIRD_PARTY_LICENSES.md` already reached:
 | `mit-or-unlicense` | stb_image / stb_image_write | `attribution-required` |
 | `cc-by-4.0` | MicrosoftDocs/win32 | `attribution-required` |
 | `ti-unmodified-only` | TI / National Semiconductor datasheets | `unmodified-copy-only` |
+| `arm-unmodified-only` | Arm Architecture Reference Manual, PL011 TRM, Semihosting | `unmodified-copy-only` |
 
 ### 1.4 What `anchor_bearing` collapses into
 

@@ -156,27 +156,27 @@ def generateWasmFuzzStates (instr : WasmInstr) (rng : FuzzerRng) (randCount : Na
 
   -- Memory Loads & Stores
   | .i32_store _ _offset | .i32_store8 _ _offset =>
-    let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+    let mem := WasmMem.ofBytes (ByteArray.mk (Array.replicate 65536 (0 : UInt8)))
     states := [
       { stack := [WasmVal.i32 0x12345678, WasmVal.i32 16], memory := mem },
       { stack := [WasmVal.i32 0xFFFFFFFF, WasmVal.i32 64], memory := mem }
     ]
   | .i64_store _ _offset =>
-    let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+    let mem := WasmMem.ofBytes (ByteArray.mk (Array.replicate 65536 (0 : UInt8)))
     states := [
       { stack := [WasmVal.i64 0x1122334455667788, WasmVal.i32 16], memory := mem }
     ]
   | .i32_load _ _offset =>
-    let mem := ByteArray.mk (Array.replicate 65536 (0x55 : UInt8))
+    let mem := WasmMem.ofBytes (ByteArray.mk (Array.replicate 65536 (0x55 : UInt8)))
     states := [{ stack := [WasmVal.i32 16], memory := mem }]
   | .i64_load _ _offset =>
-    let mem := ByteArray.mk (Array.replicate 65536 (0xAA : UInt8))
+    let mem := WasmMem.ofBytes (ByteArray.mk (Array.replicate 65536 (0xAA : UInt8)))
     states := [{ stack := [WasmVal.i32 16], memory := mem }]
   | .memory_size =>
-    let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+    let mem := WasmMem.ofBytes (ByteArray.mk (Array.replicate 65536 (0 : UInt8)))
     states := [{ memory := mem }]
   | .memory_grow =>
-    let mem := ByteArray.mk (Array.replicate 65536 (0 : UInt8))
+    let mem := WasmMem.ofBytes (ByteArray.mk (Array.replicate 65536 (0 : UInt8)))
     states := [{ stack := [WasmVal.i32 1], memory := mem }]
 
   -- Conversions

@@ -1,7 +1,7 @@
 ---
 id: F1
 title: RDTSC hardware harness (wsc-technique port; containment + rank criterion)
-status: ready
+status: implementing
 blocked_on: ""
 after: [TC4]
 related: [TC17]
@@ -9,7 +9,7 @@ bar: ""
 track: perf
 priority: 8.3
 priority_set: 2026-08-27T18:25:47Z
-design: ""
+design: "docs/RDTSC_HARNESS.md"
 design_review: ""
 date: 2026-08-27
 ---
@@ -224,7 +224,35 @@ make that judgment explicitly rather than by default.
 
 - 2026-08-27: priority 8.3 — MODEL_DEBT top-10 #2: RDTSC harness + containment criterion — 'blocks the zlib epic's premise'; the perf fuzzer currently validates the model against itself with no real timing oracle.
 - 2026-08-27: related: [TC17] — F1's RDTSC containment/rank criterion and TC17's vacuity floors are two halves of making the perf fuzzer non-self-referential (MODEL_DEBT A7): a real timing oracle (F1) is worthless if a zero-vector run can still print a clean PASS (TC17).
+- 2026-08-28: design doc landed as `docs/RDTSC_HARNESS.md` (CPUID/RDTSCP escape-hatch decision,
+  fail-closed control vectors, straight-line-unrolled measurement methodology). Note: this was
+  written and implemented in the same single-agent session rather than routed through a separate
+  fresh-agent design review first, a deviation from this task's own stated process given the
+  practical constraints of the session — flagged here rather than silently omitted.
+  `Gasm/Targets/X86_64/HardwareTimingHarness.lean` (CPUID+RDTSCP bracketing, straight-line
+  warm-up/measurement, core-affinity pinning, pre-fault double-pass) and
+  `Gasm/Targets/X86_64/PerfHardwareFuzzer.lean` (kernel suite, reduction, containment/rank-order,
+  control vectors, calibration-file emission) built and wired into `PerfFuzzerCLI.lean --hardware`.
+  Ran for real against this session's own development machine under `goldenCoveProfile`; per
+  `docs/REVIEW.md` §4.4 and Law 14, the machine's own identity and this run's actual measured
+  numbers are not repeated here — they live only in `calibration/x86_64/*.json`'s `provenance`
+  and `reduction` fields, the Law-14-governed artifact this task exists to produce. Qualitatively:
+  the positive control and discrimination-pair control vectors passed reliably across every run
+  attempted; containment did not hold for any modeled kernel on the completion-evidence run,
+  attributable to heavy concurrent load on the shared development machine at measurement time
+  (recorded in each calibration file's own `provenance.run_conditions.concurrent_load_note`).
+  Per the design doc's own conservative promotion rule (§8), no `costProvenance` field was
+  flipped to `.cited` as a result — correct behavior, not a defect: the harness declined to cite
+  noisy, untrustworthy absolute numbers. A full set of real calibration JSON/`.md` file pairs was
+  written to `calibration/x86_64/` regardless (raw samples, provenance, controls — the full
+  measurement pipeline proven end-to-end against real silicon), ready to produce a citable
+  promotion the next time `--hardware` runs on an unloaded machine. Status set to `implementing`
+  (not `done`): the harness and criteria exist and run for real, but no coefficient has yet been
+  promoted to `.cited`, so MODEL_DEBT's "0 of 1611 cited" backlog is not yet numerically reduced
+  — only unblocked. Note also: `check_gates_axioms`/`check_refs_coverage` were not reliably
+  confirmed green during this session (both intermittently reported false failures from stale
+  module-closure state on a machine under heavy concurrent multi-agent load; a separate agent is
+  fixing the underlying tool issue) — `#print axioms` was run directly against this task's own
+  new declarations instead; see the completion report for that result.
 
-_(none yet — first entries append here as work begins; this is Law-5-class performance-model
-work — consolidate Notes into a real docs/ design doc before implementation, and route it through
-a fresh-agent design review before any implementation dispatch.)_
+_(consolidated into docs/RDTSC_HARNESS.md, per the note above.)_

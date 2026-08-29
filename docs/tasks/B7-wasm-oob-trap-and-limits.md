@@ -112,3 +112,15 @@ The Wasm differential fuzzer (`Fuzzable.lean:136-158`) generates memory operatio
   (grep-confirmed: no caller besides its own definition) — flagged as a pre-existing, separate gap
   for whenever WASI gets its own execution harness, not a regression this fix introduces or an
   in-scope fix for B7/B8.
+- 2026-08-28: **the flagged `wasiHostCall` gap above is closed.** Following the owner's memory-hook
+  generalization question (`docs/MEMORY_HOOK.md` §12), `Gasm/Targets/Wasm/MemoryCell.lean` seals
+  `WasmMachineState.memory` behind a `private`-constructor `WasmMemory` cell, mirroring
+  `Gasm/Targets/X86_64/MemoryCell.lean`'s `X86_64Memory` seal: the raw `ByteArray` is no longer a
+  directly-typed field, and every read/write anywhere in the tree (`evalLeafInstr`'s six memory
+  cases in `Semantics.lean`, and `wasiHostCall`'s `fd_read`/`fd_write`/`sock_recv`/`sock_send` in
+  `ABI.lean`) now goes through this module's checked, `Option`-returning accessors, which trap
+  (`trapped := true`, pre-call state otherwise unmutated) rather than silently clipping or raw
+  `ByteArray.set!`-ing past the end of memory. The bypass this note flagged is now structurally
+  unrepresentable, not merely absent because nothing calls it yet. See `docs/MEMORY_HOOK.md` §12.3
+  for the full mechanism and its verification (build + `wasm_fuzzer`/`validate_spike_wasm`/
+  `test_spike1_wasm` before/after).

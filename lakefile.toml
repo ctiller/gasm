@@ -30,6 +30,8 @@ defaultTargets = [
   "spike1_hello_linux", "test_spike1_linux",
   "spike1_hello_wasm", "test_spike1_wasm",
   "spike1_hello_baremetal", "test_spike1_baremetal",
+  "spike1_hello_aarch64_baremetal", "test_spike1_aarch64_baremetal",
+  "spike1_hello_aarch64_linux", "test_spike1_aarch64_linux",
   "spike2_fibonacci_windows", "test_spike2_windows",
   "spike2_fibonacci_linux", "test_spike2_linux",
   "spike2_fibonacci_wasm", "test_spike2_wasm",
@@ -37,7 +39,7 @@ defaultTargets = [
   "spike3_sort_lines_linux", "test_spike3_linux",
   "spike3_sort_lines_wasm", "test_spike3_wasm",
   "test_smolalloc", "test_zlib", "test_png", "test_http11", "test_fmt", "gzip_fuzzer", "perf_fuzzer", "encoding_fuzzer", "test_roundtrip",
-  "check_x86_obligations",
+  "check_x86_obligations", "check_aarch64_obligations",
   "spike4_http_windows", "spike4_http_linux", "spike4_http_wasm", "test_spike4",
   "spike5_gzip_windows", "spike5_gunzip_windows",
   "spike5_gzip_linux", "spike5_gunzip_linux",
@@ -48,7 +50,28 @@ defaultTargets = [
 
 [[lean_lib]]
 name = "Gasm"
-roots = ["Gasm"]
+roots = [
+  "Gasm",
+  "Gasm.Targets.AArch64",
+  "Gasm.Targets.AArch64.Instructions.Base",
+  "Gasm.Targets.AArch64.Instructions.Add",
+  "Gasm.Targets.AArch64.Instructions.Sub",
+  "Gasm.Targets.AArch64.Instructions.Logical",
+  "Gasm.Targets.AArch64.Instructions.Mov",
+  "Gasm.Targets.AArch64.Instructions.LoadStore",
+  "Gasm.Targets.AArch64.Instructions.Branch",
+  "Gasm.Targets.AArch64.Instructions.System",
+  "Gasm.Targets.AArch64.BareMetal.Device",
+  "Gasm.Targets.AArch64.BareMetal.Emitter",
+  "Gasm.Targets.AArch64.BareMetal.Executable",
+  "Gasm.Targets.AArch64.BareMetal.Linker",
+  "Gasm.Targets.AArch64.Linux.ELFFormat",
+  "Gasm.Targets.AArch64.Linux.Emitter",
+  "Gasm.Targets.AArch64.Linux.Linker",
+  "Gasm.Targets.AArch64.Linux.Syscall",
+  "Gasm.Targets.AArch64.QEMU",
+  "Gasm.Execution.QEMUAArch64"
+]
 
 [[lean_lib]]
 name = "Spikes"
@@ -93,6 +116,12 @@ root = "Tools.CheckRefsCoverage"
 name = "check_x86_obligations"
 root = "Tools.CheckX86Obligations"
 
+# Unified AArch64 instruction obligation gate: validates codec roundtrip, operational semantics,
+# micro-op decomposition, oracle validation, and cost provenance across all registered instructions.
+[[lean_exe]]
+name = "check_aarch64_obligations"
+root = "Tools.CheckAArch64Obligations"
+
 [[lean_exe]]
 name = "spike1_hello_windows"
 root = "Spikes.Spike1Hello.Windows.Emit"
@@ -124,6 +153,22 @@ root = "Spikes.Spike1Hello.BareMetal.Emit"
 [[lean_exe]]
 name = "test_spike1_baremetal"
 root = "Spikes.Spike1Hello.BareMetal.Test"
+
+[[lean_exe]]
+name = "spike1_hello_aarch64_baremetal"
+root = "Spikes.Spike1Hello.AArch64BareMetal.Emit"
+
+[[lean_exe]]
+name = "test_spike1_aarch64_baremetal"
+root = "Spikes.Spike1Hello.AArch64BareMetal.Test"
+
+[[lean_exe]]
+name = "spike1_hello_aarch64_linux"
+root = "Spikes.Spike1Hello.AArch64Linux.Emit"
+
+[[lean_exe]]
+name = "test_spike1_aarch64_linux"
+root = "Spikes.Spike1Hello.AArch64Linux.Test"
 
 [[lean_exe]]
 name = "spike2_fibonacci_windows"

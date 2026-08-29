@@ -80,3 +80,7 @@ desktop.ini
 # it is part of the published project, and accidentally committing a nested
 # worktree would publish a duplicate copy of this tree.
 .claude/
+.agents/
+BRIEFING.md
+ORIGINAL_REQUEST.md
+spike*

@@ -386,6 +386,26 @@ def loadWithRequests (exe : WindowsExecutable) (incomingRequests : List String) 
   let s := exe.load
   { s with incomingRequests := incomingRequests }
 
+/- REF: windows-pe-format#import-directory-table -/
+/-- Addresses of the IAT thunk slots that hold real imported functions, in `imports` order.
+
+    This walks the SAME grouped, per-DLL null-terminated layout that `loadMemory` installs,
+    that `buildMultiDllIDataSection` emits, and that `multiDllWin32Imports` resolves
+    `call_import` targets against: DLL `k`'s functions occupy consecutive 8-byte slots and
+    each DLL's run is followed by one null terminator slot before the next DLL begins.
+
+    It is deliberately NOT the flat indexing `idataRva + i * 8` over `exe.imports`. Flat
+    indexing coincides with the real layout only for single-DLL images; on a two-DLL image it
+    slips one slot per preceding DLL and lands on a null terminator. -/
+def iatFunctionSlots (exe : WindowsExecutable) (idataRva : UInt32) : List Address :=
+  let rec loop (curBase : Address) (dlls : List (String × List String)) (acc : List Address) : List Address :=
+    match dlls with
+    | [] => acc
+    | (_, fns) :: rest =>
+      let slots := (List.range fns.length).map (fun i => curBase + (i * 8).toUInt64)
+      loop (curBase + ((fns.length + 1) * 8).toUInt64) rest (acc ++ slots)
+  loop (exe.imageBase + idataRva.toUInt64) (groupImportsByDll exe.imports) []
+
 /- REF: docs/TARGETS/WINDOWS.md#12-mandatory-32-byte-shadow-space-16-byte-stack-alignment -/
 /-- Formal MS x64 Entry Precondition: Stack aligned to 8 mod 16, RIP at entry, .rdata loaded, IAT non-null. -/
 def isValidEntryState (exe : WindowsExecutable) (s : X86_64MachineState) : Bool :=
@@ -393,8 +413,34 @@ def isValidEntryState (exe : WindowsExecutable) (s : X86_64MachineState) : Bool 
   s.rip == exe.imageBase + exe.entryRva.toUInt64 &&
   s.rsp % 16 == 8 &&
   (List.range exe.rdataBytes.size).all (fun i => s.read8 (exe.imageBase + layout.rdataRva.toUInt64 + i.toUInt64) == (exe.rdataBytes.get! i).toUInt64) &&
-  (List.range exe.imports.length).all (fun idx => s.read64 (exe.imageBase + layout.idataRva.toUInt64 + (idx * 8).toUInt64) != 0)
+  (exe.iatFunctionSlots layout.idataRva).all (fun a => s.read64 a != 0)
 
 end WindowsExecutable
+
+/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
+/-- A machine state that is a valid MS x64 process entry state for `exe`, BY CONSTRUCTION.
+
+    The `valid` field carries the proof, so a `ValidEntryState exe` cannot be obtained -- via
+    the anonymous constructor, `mk`, or any other introduction rule -- without discharging
+    `isValidEntryState`. This is the `memAccesses` precedent (ADR-0040): a mandatory field
+    cannot be forgotten, whereas an `isValidEntryState exe s = true ->` hypothesis on a
+    theorem can simply be left off the statement.
+
+    Unlike `MemoryCell`'s seal, NO privacy is needed here. That seal existed to stop callers
+    projecting `raw` out, and `private mk ::` failed because `casesOn` is not privatized. Here
+    projecting `state` back out is exactly what consumers should do; only CONSTRUCTION must
+    carry the obligation, and a proof-carrying field forces that on every introduction rule.
+    `casesOn` is an eliminator -- it consumes an inhabitant and cannot manufacture one -- so
+    the leak that defeated the `MemoryCell` seal has no analogue here.
+
+    `valid` is deliberately DEFAULTLESS rather than `:= by decide`. `decide` does discharge
+    this for concrete executables, but it must kernel-reduce `serializeInstructions` to reach
+    `textBytes.size`; measured cost ran from 32s (Spike 1, 59 text bytes) to over six minutes
+    without finishing (Spike 5 gunzip, 4506 text bytes), and it needs `maxRecDepth` far above
+    the default. An auto-param that silently costs minutes is the same trap as a convention
+    that can be forgotten, so the cost is made visible at each call site instead. -/
+structure ValidEntryState (exe : WindowsExecutable) where
+  state : X86_64MachineState
+  valid : exe.isValidEntryState state = true
 
 end Gasm.Targets.Windows
