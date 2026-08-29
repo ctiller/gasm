@@ -24,6 +24,7 @@ import Gasm.Targets.Wasm.AST
 import Gasm.Targets.WASI.ABI
 import Spikes.Spike3SortLines.Spec
 import Spikes.Spike3SortLines.Wasm.Program
+import Spikes.Spike3SortLines.Wasm.Outcome
 
 namespace Spikes.Spike3SortLines.Wasm
 
@@ -41,6 +42,13 @@ set_option maxHeartbeats 4000000
 /-- Default sample test input string for standard verified execution. -/
 def defaultSampleInput : ByteArray :=
   "cherry\r\napple\r\nbanana\r\n".toUTF8
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
+/-- Explicit resource-aware result for the canonical executable trace.  New universal proofs use
+    `runSpike3WasiWithStrategy`; this named outcome keeps the sample theorem from treating fuel
+    exhaustion as an ordinary empty or partial trace. -/
+def spike3WasmCanonicalOutcome : WasiRunOutcome :=
+  runSpike3WasiOutcome defaultSampleInput defaultWasmFuel
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Observable Wasm trace on canonical 3-line input. -/

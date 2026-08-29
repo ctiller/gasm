@@ -278,6 +278,105 @@ def runWasiTraceState (instrs : List WasmInstr) (segments : List WasmDataSegment
   evalInstrs fuel instrs s (wasiHostCall imports)
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- The externally visible result of a bounded WASI execution.
+
+    Fuel is an implementation resource, not a semantic event.  In particular, callers cannot
+    project an event trace from `.resourceExhausted`: a proof that a chosen dynamic budget is
+    sufficient is required before a run may be used as a completed program execution.  A clean
+    fall-through, a `proc_exit`, and a Wasm trap remain distinct outcomes. -/
+inductive WasiRunOutcome where
+  | completed (state : WasmMachineState) (signal : ControlSignal) : WasiRunOutcome
+  | exited (state : WasmMachineState) (code : UInt32) : WasiRunOutcome
+  | trapped (state : WasmMachineState) : WasiRunOutcome
+  | resourceExhausted (partialState : WasmMachineState) : WasiRunOutcome
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Classifies the interpreter result without collapsing fuel exhaustion into a trace. -/
+def WasiRunOutcome.ofResult : WasmRunResult → WasiRunOutcome
+  | .error partialState => .resourceExhausted partialState
+  | .ok (state, signal) =>
+    if state.trapped then .trapped state
+    else match state.exitCode with
+      | some code => .exited state code
+      | none => .completed state signal
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Runs a WASI module with an explicit, caller-provided resource budget. -/
+def runWasiOutcome (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"])
+    (incomingRequests : List String := []) (fuel : Nat := defaultWasmFuel) : WasiRunOutcome :=
+  WasiRunOutcome.ofResult (runWasiTraceState instrs segments stdin imports incomingRequests fuel)
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- The non-resource outcomes from which a whole-program trace may soundly be observed. -/
+inductive WasiCompletedRun where
+  | completed (state : WasmMachineState) (signal : ControlSignal) : WasiCompletedRun
+  | exited (state : WasmMachineState) (code : UInt32) : WasiCompletedRun
+  | trapped (state : WasmMachineState) : WasiCompletedRun
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- A dynamically justified fuel choice for one concrete WASI invocation.
+
+    `fuel` may depend on every finite input byte.  The proof rules out only resource exhaustion;
+    it deliberately does not conflate ordinary program outcomes such as a trap or `proc_exit`.
+    A universal verified program supplies this certificate for every `Environment`. -/
+structure WasiFuelCertificate (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (stdin : ByteArray) (imports : List String) (incomingRequests : List String) where
+  fuel : Nat
+  sufficient : match runWasiOutcome instrs segments stdin imports incomingRequests fuel with
+    | .resourceExhausted _ => False
+    | _ => True
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- A proof-carrying dynamic-fuel policy for every finite byte stream and request queue accepted
+    by a WASI artifact.  This is the unbounded-input interface: it does not postulate an infinite
+    evaluator; instead it gives each finite invocation the finite amount of fuel its terminating
+    execution requires, together with the proof that the amount is sufficient. -/
+structure WasiFuelStrategy (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (imports : List String) where
+  fuelFor : ByteArray → List String → Nat
+  sufficient : ∀ stdin incomingRequests,
+    match runWasiOutcome instrs segments stdin imports incomingRequests (fuelFor stdin incomingRequests) with
+    | .resourceExhausted _ => False
+    | _ => True
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Instantiates an all-finite-input fuel policy at one invocation. -/
+def WasiFuelStrategy.certificate (strategy : WasiFuelStrategy instrs segments imports)
+    (stdin : ByteArray) (incomingRequests : List String) :
+    WasiFuelCertificate instrs segments stdin imports incomingRequests :=
+  { fuel := strategy.fuelFor stdin incomingRequests
+    sufficient := strategy.sufficient stdin incomingRequests }
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Eliminates the resource-exhausted branch using a supplied dynamic fuel certificate. -/
+def runWasiCompleted (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (stdin : ByteArray) (imports : List String) (incomingRequests : List String)
+    (budget : WasiFuelCertificate instrs segments stdin imports incomingRequests) : WasiCompletedRun :=
+  match h : runWasiOutcome instrs segments stdin imports incomingRequests budget.fuel with
+  | .completed state signal => .completed state signal
+  | .exited state code => .exited state code
+  | .trapped state => .trapped state
+  | .resourceExhausted state => False.elim (by simpa [h] using budget.sufficient)
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- The observable events of a completed WASI run.  There is intentionally no corresponding
+    projection from `WasiRunOutcome`, because doing so would make fuel exhaustion observationally
+    indistinguishable from successful termination again. -/
+def WasiCompletedRun.events : WasiCompletedRun → List AnyEvent
+  | .completed state _ => state.events
+  | .exited state _ => state.events
+  | .trapped state => state.events
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- A certified invocation cannot be classified as resource exhaustion. -/
+theorem WasiFuelCertificate.not_resource (budget : WasiFuelCertificate instrs segments stdin imports incomingRequests)
+    (partialState : WasmMachineState) :
+    runWasiOutcome instrs segments stdin imports incomingRequests budget.fuel ≠ .resourceExhausted partialState := by
+  intro h
+  simpa [h] using budget.sufficient
+
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Runs a full instruction sequence under the WASI system model and returns the observable event
     trace alone -- the historical return shape every existing `Spikes/*/Wasm/Equivalence.lean`
     trace-equality theorem is written against, preserved unchanged (same signature, same
