@@ -171,6 +171,13 @@ To translate a high-level effectful program into verified `gasm` assembly:
 
 The design requires the seam's effect capabilities to compose as the placement-free typed row in
 [Composable Boundary ABI Contexts](ABI_CONTEXT.md); that row-level connection is not implemented.
+The whole-program substrate does already require a `CapabilityComposition` of platform-owned,
+nominal providers. Every final-artifact import is covered by a selected provider, the target proves
+that provider is linked to the exact artifact location, and the composition proves its realized
+runtime supports that provider. Those provider/link/runtime certificates are established once by
+the owning target or library composition and reused by programs; an individual effect call must not
+re-prove global import-table or runtime-dispatch facts. This implemented provider selection is not
+yet the richer logical obligation-row or per-call ABI realization described in `ABI_CONTEXT.md`.
 The diagrams below show semantic operations and machine calling conventions, not a global allocator,
 cancellation token, or OS-owned context. A future realization must establish each runtime binding
 and prove its complete target footprint.
