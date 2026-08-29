@@ -389,8 +389,13 @@ def WasiRunOutcome.ofResult : WasmRunResult → WasiRunOutcome
         | some code => .exited state code
         | none => .completed state signal
 
-/-- Runs a WASI artifact under an explicit finite platform resource capability. -/
-def runWasiOutcome (instrs : List WasmInstr) (segments : List WasmDataSegment)
+abbrev WasiHostRuntime :=
+  List String → Nat → WasmMachineState → WasmMachineState × ControlSignal
+
+/-- Runs a WASI artifact under an explicit finite platform resource capability
+    and the exact composed host/library runtime selected by its capabilities. -/
+def runWasiOutcomeWithHost (host : WasiHostRuntime)
+    (instrs : List WasmInstr) (segments : List WasmDataSegment)
     (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"])
     (incomingRequests : List ByteArray := []) (budget : WasiResourceBudget :=
       { fuel := defaultWasmFuel, memoryPages := 65536 }) : WasiRunOutcome :=
@@ -406,7 +411,14 @@ def runWasiOutcome (instrs : List WasmInstr) (segments : List WasmDataSegment)
   if initialPages > availablePages then
     .memoryExhausted state initialPages availablePages
   else
-    WasiRunOutcome.ofResult (evalInstrs budget.fuel instrs state (wasiHostCall imports))
+    WasiRunOutcome.ofResult (evalInstrs budget.fuel instrs state (host imports))
+
+/-- Stock WASI execution is the base host-runtime realization. -/
+def runWasiOutcome (instrs : List WasmInstr) (segments : List WasmDataSegment)
+    (stdin : ByteArray := ByteArray.empty) (imports : List String := ["fd_write", "proc_exit"])
+    (incomingRequests : List ByteArray := []) (budget : WasiResourceBudget :=
+      { fuel := defaultWasmFuel, memoryPages := 65536 }) : WasiRunOutcome :=
+  runWasiOutcomeWithHost wasiHostCall instrs segments stdin imports incomingRequests budget
 
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- The observable events of a non-resource WASI outcome.  Resource exhaustion deliberately has
@@ -486,6 +498,7 @@ structure WasiExportedFunction where
   contract : Environment → WasiObservable AnyEvent
   implementation : Nat
   abi : List FuncType
+  runtime : WasiHostRuntime
 
 /-- Names of all callable exports physically published by a module. Memory
     exports are intentionally excluded because they are not call boundaries. -/
@@ -500,6 +513,7 @@ instance : Platform WasiPlatform where
   Artifact := WasiArtifact
   State := Environment
   Observation := WasiObservable AnyEvent
+  RuntimeContext := WasiHostRuntime
   Import := String
   ExportName := String
   ABIRequirement := FuncType
@@ -511,6 +525,7 @@ instance : Platform WasiPlatform where
   exportContract := fun exported => exported.contract
   exportImplementation := fun exported => exported.implementation
   exportABI := fun exported => exported.abi
+  exportRuntime := fun exported => exported.runtime
   realizesExport := fun artifact exported =>
     ∃ fn,
       artifact.module.functions[exported.implementation]? = some fn ∧
@@ -518,17 +533,17 @@ instance : Platform WasiPlatform where
       exported.abi = [{ params := fn.params, results := fn.results }] ∧
       exported.implementation = 0 ∧
       exported.contract = fun environment =>
-        (runWasiOutcome artifact.instructions artifact.dataSegments environment.stdin
+        (runWasiOutcomeWithHost exported.runtime artifact.instructions artifact.dataSegments environment.stdin
           artifact.imports environment.incomingRequests artifact.resources).observable
   artifactConnected := fun artifact =>
     artifact.module.functions.head?.map (fun fn => fn.body) = some artifact.instructions ∧
     artifact.module.dataSegments = artifact.dataSegments ∧
     artifact.module.imports.map (fun imported => imported.name) = artifact.imports
   load := fun _ environment => environment
-  run := fun artifact environment =>
-    (runWasiOutcome artifact.instructions artifact.dataSegments environment.stdin
+  run := fun runtime artifact environment =>
+    (runWasiOutcomeWithHost runtime artifact.instructions artifact.dataSegments environment.stdin
       artifact.imports environment.incomingRequests artifact.resources).observable
-  admissible := fun artifact _ => ∃ bytes, emitWasmBinary artifact.module artifact.typeSignatures = .ok bytes
+  admissible := fun _ artifact _ => ∃ bytes, emitWasmBinary artifact.module artifact.typeSignatures = .ok bytes
   emit := fun artifact => emitWasmBinary artifact.module artifact.typeSignatures
 
 /- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
@@ -540,6 +555,7 @@ def wasiHostCapability : Capability WasiPlatform where
 
 def wasiHostCapabilities : CapabilityComposition WasiPlatform where
   root := wasiHostCapability
+  realize := fun _ => wasiHostCall
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- WAT rendering remains gated by the same sole proof authority as binary emission. -/

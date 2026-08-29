@@ -50,6 +50,7 @@ class Platform (P : Type u) where
   Artifact : Type v
   State : Type
   Observation : Type
+  RuntimeContext : Type
   Import : Type
   ExportName : Type
   ABIRequirement : Type
@@ -61,11 +62,12 @@ class Platform (P : Type u) where
   exportContract : Export → Environment → Observation
   exportImplementation : Export → ConcreteImplementation
   exportABI : Export → List ABIRequirement
+  exportRuntime : Export → RuntimeContext
   realizesExport : Artifact → Export → Prop
   artifactConnected : Artifact → Prop
   load : Artifact → Environment → State
-  run : Artifact → State → Observation
-  admissible : Artifact → State → Prop
+  run : RuntimeContext → Artifact → State → Observation
+  admissible : RuntimeContext → Artifact → State → Prop
   emit : Artifact → Except String ByteArray
 
 /- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
@@ -143,6 +145,10 @@ end Capability
     program.  The root is a real dependent context row, not an allowlist. -/
 structure CapabilityComposition (P : Type) [Platform P] where
   root : Capability P
+  /-- Target lowering of the composed logical context. This is the only
+      runtime value passed to platform execution; capabilities therefore
+      cannot be decorative import claims. -/
+  realize : root.Context → Platform.RuntimeContext (P := P)
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- The sole whole-program verification authority.  It is parameterized by an
@@ -160,13 +166,18 @@ structure VerifiedProgram (P : Type) [Platform P] (capabilities : CapabilityComp
   importsCovered : ∀ imported, imported ∈ Platform.imports artifact →
     capabilities.root.provides imported
   capabilitiesConnection : capabilities.root.implementationConnected artifact
+  entryContext : Environment → capabilities.root.Context
   entryEstablished : ∀ environment,
-    ∃ context, capabilities.root.establishes artifact environment
-      (Platform.load artifact environment) context
+    capabilities.root.establishes artifact environment
+      (Platform.load artifact environment) (entryContext environment)
+  exportsUseCapabilities : ∀ exported, exported ∈ exports → ∀ environment,
+    Platform.exportRuntime exported = capabilities.realize (entryContext environment)
   platformAdmissible : ∀ environment,
-    Platform.admissible artifact (Platform.load artifact environment)
+    Platform.admissible (capabilities.realize (entryContext environment))
+      artifact (Platform.load artifact environment)
   traceEquivalence : ∀ environment,
-    Platform.run artifact (Platform.load artifact environment) = spec environment
+    Platform.run (capabilities.realize (entryContext environment))
+      artifact (Platform.load artifact environment) = spec environment
 
 /- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
 /-- Serialization is available only from the sole universal proof authority. -/
