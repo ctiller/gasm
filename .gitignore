@@ -83,4 +83,4 @@ desktop.ini
 .agents/
 BRIEFING.md
 ORIGINAL_REQUEST.md
-spike*
+/spike[0-9]*
