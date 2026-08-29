@@ -2,7 +2,7 @@
 
 **Status (2026-08-29): reviewed staging design; enforcement incomplete.**
 `Gasm.Core.AbiContext` contains nominal, placement-free, argument/result/outcome-dependent context
-contracts; explicit required and emitted obligation projections; stateful contract refinement; and a
+contracts; explicit required and emitted obligation projections; and an implementation-indexed
 target/environment realization interface. It does **not** implement heterogeneous rows, target
 argument classification, concrete physical execution profiles, adapters, or the whole-program
 connection theorem. None of its declarations is sufficient to construct or emit a
@@ -63,18 +63,11 @@ keys rather than freely constructed predicate-bearing records. The admitted row 
 enforce instance coherence: two different contracts cannot silently inhabit the same nominal key.
 Protocol evolution creates a new key.
 
-The remaining descriptive policy is deliberately small:
-
-| Dimension | Initial vocabulary |
-| --- | --- |
-| Materiality | erased ghost, runtime |
-| Extent | call, lexical, request, task, thread, process, object |
-| Propagation | borrow, copy, move, inherit, do not propagate |
-| Scheduling | pinned, migratable |
-
-There is no standalone `observe | mutate | consume | provide` field. Those are projections of the
-pre/post transition and may differ by result. Likewise, there is no `ContextTeardown` list. Cleanup
-is transfer or discharge of an ordinary typed obligation in the common world.
+There are no standalone access, materiality, extent, propagation, scheduling, or teardown fields.
+Those labels were unconstrained metadata: a specification could claim `copy`, `migratable`, or
+`erasedGhost` while its transition and realization did the opposite. Access and cleanup are already
+projections of the pre/post transition and may differ by result. The remaining policies will return
+only with laws connecting them to lifecycle transitions, target execution, and erasure.
 
 Extent is not storage. A task-scoped binding may use TLS only while the task is pinned; a migratable
 task requires task/fiber-local storage or an explicit handle. Windows TLS and FLS are distinct
@@ -91,9 +84,11 @@ transitions(args, binding, result, outcome, beforeWorld, afterWorld)
 
 `requiredObligations(args, binding)` and
 `emittedObligations(args, binding, result, outcome)` expose caller-facing obligation fragments.
-Their presence in the pre- and post-world is proved by the contract. The transition remains the
-authoritative account of obligations and authority that are preserved, discharged, transferred,
-created, restricted, poisoned, or retained in a continuation or returned handle.
+They are not persistent membership predicates and do not independently authorize use or
+duplication. The transition remains the authoritative account of obligations and authority that
+are preserved, discharged, transferred, created, restricted, poisoned, or retained in a
+continuation or returned handle. M1 must connect both projections to its indexed linear resource
+algebra and prove exact conservation; until then they are contract summaries, not spendable tokens.
 
 This permits contracts such as:
 
@@ -126,18 +121,33 @@ becomes a public elaboration bottleneck.
 
 `TargetBoundarySemantics Target` makes the selected target/environment profile provide its own:
 
+- generative implementation and artifact identity types plus their connection relation;
 - classified signature type;
 - entry and exit kinds;
 - physical state and execution types;
 - execution relation; and
 - complete physical-admissibility predicate.
 
-`ContextBoundaryRealization World Key Target` then proves two things for **every** physical execution
-of the selected boundary:
+`ContextBoundaryRealization World Key Target` selects one implementation and one artifact with proof
+that the artifact implements that identity. Entry arguments and bindings are decoded only from the
+entry state; they cannot inspect the execution or its result. Results and outcomes may inspect the
+entry state, execution, exit class, and exit state.
+
+The logical world is related to physical state by
+`relatesWorld : PhysicalState -> World -> Prop`, not reconstructed by a function. Thus physically
+identical executions may carry different erased ghost authority, while a realization cannot obtain
+authority merely by choosing an obligation-rich projection.
+
+The realization then proves two things:
 
 1. the execution satisfies the target profile's physical-admissibility predicate; and
-2. its projected arguments, binding, result, outcome, and pre/post worlds satisfy the nominal
-   context transition.
+2. whenever an entry physical state is related to a logical world satisfying the caller's
+   precondition, every execution has some related post-world satisfying the nominal transition.
+
+The precondition is an assumption of the refinement theorem, not something every raw machine
+execution must establish. Invalid calls remain executions in `runs`; they simply receive no
+contract guarantee. This prevents both narrowing machine semantics to verified calls and inventing
+caller authority inside the realization proof.
 
 The interface is intentionally relational. It does not assume deterministic execution, one ISA,
 one OS, one ABI, one result path, or unlimited resources.
@@ -202,10 +212,22 @@ explicit abort outcome, never evidence that outstanding obligations were normall
 
 ## 9. Protocol evolution and linking
 
-Changing a protocol creates a new nominal key. `ContextContractRefinement` relates old and new
-worlds and explicitly maps arguments, bindings, results, outcomes, and obligation fragments. It
-must preserve required obligations, emitted obligations, preconditions, and every stateful
-result-dependent transition.
+Changing a protocol creates a new nominal key. The former direction-neutral
+`ContextContractRefinement` has been deleted: it simulated old provider transitions with new ones,
+which is not sufficient to substitute a new provider for an old caller, and it had no sound frame
+law.
+
+After M1 fixes the resource algebra, two explicitly named forms are required:
+
+- **callee/provider substitution:** old-facing inputs adapt to the new provider, every result and
+  outcome the new provider can actually produce maps back to the old contract, and every new
+  transition simulates an old transition while preserving an arbitrary old caller frame;
+- **caller migration:** new-facing callers and their required resources are ported to an old or
+  intermediate provider under a separately directed law.
+
+Both forms must preserve empty and composition, linear obligation identity, `requiredObligations`,
+`emittedObligations`, and arbitrary frames. Their entry-world relation must be established at the
+adapter boundary; an empty or resource-forgetting relation proves nothing useful.
 
 A verified adapter is such a logical refinement plus a target realization of the adapter's own
 execution. Adapter planning may be order-dependent. Therefore associativity and commutativity of
@@ -224,6 +246,7 @@ Before ABI contexts may participate in `VerifiedProgram`, the implementation mus
 - coherent nominal-key registration and heterogeneous row well-formedness;
 - normalization, framing, identity, associativity, commutativity, and controlled-sharing laws;
 - exact argument/result/outcome-dependent obligation conservation for every call;
+- implementation/artifact identity and exact connection to emitted code;
 - full-signature target classification and physical realization correctness;
 - target-profile physical admissibility and emitted-execution fidelity;
 - finite-resource success/failure totality and accounting completeness;
@@ -242,16 +265,20 @@ Implemented in `Gasm.Core.AbiContext`:
 
 - nominal placement-free context specifications over a shared world;
 - argument-, result-, and outcome-dependent transitions;
-- explicit required/emitted obligation projections and presence laws;
+- explicit required/emitted obligation projections without a persistent-membership interpretation;
 - proof-bearing evidence for one boundary transition;
-- stateful nominal contract refinement;
-- target/environment-indexed entry, exit, signature, state, and execution types; and
-- a staged realization requiring physical admissibility and logical refinement for every execution.
+- target/environment-indexed implementation, artifact, entry, exit, signature, state, and execution
+  types;
+- non-prophetic entry decoding and relational physical/logical worlds; and
+- assume/guarantee realization requiring physical admissibility and logical refinement for every
+  execution entered from a related world satisfying the contract precondition.
 
 Not implemented:
 
 - the M1 indexed authority/obligation world and resource algebra described by `MEMORY_MODEL.md`;
 - coherent heterogeneous rows and their normalization/composition proofs;
+- linear connection laws for required/emitted obligation fragments;
+- directed provider-substitution and caller-migration refinements with frame laws;
 - concrete target boundary semantics or physical-admissibility definitions;
 - integration with `AbiDiscipline`, target `ABI.lean` files, or signature classification;
 - concrete TLS/FLS/register/argument/table realizations;
