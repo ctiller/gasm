@@ -171,10 +171,10 @@ instance {Event : Type} : Platform (WindowsX86_64 Event) where
     { state with incomingRequests := environment.incomingRequests }
   run := fun runtime artifact state =>
     letI := runtime
-    runAsmTrace artifact.instructions state
+    (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).events
   admissible := fun runtime artifact state =>
     letI := runtime
-    (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).isAdmissible
+    (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).isAdmissible false
   emit := fun artifact => .ok artifact.executable.emit
 
 instance {Event : Type} : Platform (LinuxX86_64 Event) where
@@ -205,10 +205,10 @@ instance {Event : Type} : Platform (LinuxX86_64 Event) where
     { state with incomingRequests := environment.incomingRequests }
   run := fun runtime artifact state =>
     letI := runtime
-    runAsmTrace artifact.instructions state
+    (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).events
   admissible := fun runtime artifact state =>
     letI := runtime
-    (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).isAdmissible
+    (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).isAdmissible true
   emit := fun artifact => .ok artifact.executable.emit
 
 instance {Event : Type} : Platform (LinuxAArch64 Event) where
