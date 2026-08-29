@@ -1411,4 +1411,139 @@ theorem raw_row_slice (img : ImageRGBA8) (ftOpt : Option FilterType)
     rw [show y * (img.width * 4 + 1) + 1 + i - y * (img.width * 4 + 1) = 1 + i from by omega]
     rw [encRowOf_get!_succ img ftOpt y i (by rw [hfs]; omega)]
 
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- Total size of the writer's three-chunk layout. -/
+theorem pngLayout_size (hdr : PngHeader) (zc : ByteArray) :
+    (pngLayout hdr zc).size = zc.size + 57 := by
+  unfold pngLayout
+  rw [ByteArray.size_append, ByteArray.size_append, ByteArray.size_append,
+    show pngSignature.size = 8 from rfl,
+    show (mkChunk "IHDR" (ihdrPayload hdr)).size = 25 from by
+      rw [(mkChunk_spec "IHDR" (ihdrPayload hdr) rfl).1,
+        show (ihdrPayload hdr).size = 13 from rfl],
+    (mkChunk_spec "IDAT" zc rfl).1,
+    show (mkChunk "IEND" ByteArray.empty).size = 12 from by
+      rw [(mkChunk_spec "IEND" ByteArray.empty rfl).1,
+        show ByteArray.empty.size = 0 from rfl]]
+  omega
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#31-png-signature-critical-chunks -/
+/-- The layout begins with the 8-byte PNG signature. -/
+theorem checkSignature_layout (hdr : PngHeader) (zc : ByteArray) :
+    checkSignature (pngLayout hdr zc) = true := by
+  have hj : ∀ j, j < 8 → (pngLayout hdr zc).get! j = pngSignature.get! j := by
+    intro j hjlt
+    unfold pngLayout
+    rw [ByteArray.get!_append_left _ _ j (by simp only [ByteArray.size_append,
+        show pngSignature.size = 8 from rfl]; omega),
+      ByteArray.get!_append_left _ _ j (by simp only [ByteArray.size_append,
+        show pngSignature.size = 8 from rfl]; omega),
+      ByteArray.get!_append_left _ _ j (by rw [show pngSignature.size = 8 from rfl]; omega)]
+  unfold checkSignature
+  rw [if_neg (show ¬ (pngLayout hdr zc).size < 8 from by rw [pngLayout_size]; omega)]
+  rw [hj 0 (by omega), hj 1 (by omega), hj 2 (by omega), hj 3 (by omega),
+    hj 4 (by omega), hj 5 (by omega), hj 6 (by omega), hj 7 (by omega)]
+  rfl
+
+/- REF: docs/STDLIB_PNG.md#21-pngscanlinesink-typeclass -/
+/-- The in-memory sink state after `y` reconstructed rows. -/
+def sinkAt (img : ImageRGBA8) (y : Nat) : MemoryImageSink :=
+  { header := some (rgbaHeader img), pixels := pixelsUpTo img y,
+    palette := #[], transparency := none }
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- A `forIn` loop whose body carries an invariant `inv` and always yields walks the
+    whole range. -/
+theorem loop_invariant_core {ε σ : Type} (B : Nat → σ → Except ε (ForInStep σ))
+    (inv : Nat → σ) (N : Nat)
+    (hstep : ∀ y, y < N → B y (inv y) = Except.ok (ForInStep.yield (inv (y + 1)))) :
+    ∀ k y, y + k = N →
+      forIn (m := Except ε) (List.range' y k) (inv y) B = Except.ok (inv N) := by
+  intro k
+  induction k with
+  | zero =>
+    intro y hy
+    have hyN : y = N := by omega
+    subst hyN
+    rfl
+  | succ k ih =>
+    intro y hy
+    have idb : ∀ {β : Type} (x : ForInStep σ) (f : ForInStep σ → Except ε β),
+        (Except.ok x >>= f) = f x := fun _ _ => rfl
+    rw [List.range'_succ, List.forIn_cons, hstep y (by omega), idb]
+    exact ih (y + 1) (by omega)
+
+/- REF: docs/STDLIB_PNG.md#23-monadic-pipeline-composition -/
+/-- Wrapper for `loop_invariant_core` matching an arbitrary syntactic initial state. -/
+theorem loop_invariant_general {ε σ : Type} (B : Nat → σ → Except ε (ForInStep σ))
+    (inv : Nat → σ) (N : Nat) (s0 : σ) (hs0 : s0 = inv 0)
+    (hstep : ∀ y, y < N → B y (inv y) = Except.ok (ForInStep.yield (inv (y + 1)))) :
+    forIn (m := Except ε) (List.range' 0 N) s0 B = Except.ok (inv N) := by
+  rw [hs0]
+  exact loop_invariant_core B inv N hstep N 0 (by omega)
+
+
+open Stdlib.Zlib in
+/- REF: docs/STDLIB_PNG.md#21-pngscanlinesink-typeclass -/
+/-- **Streaming reader inversion**: reading the writer's layout into the in-memory sink
+    reconstructs every scanline and accumulates exactly the image's pixel buffer. -/
+theorem readPngStream_layout (img : ImageRGBA8) (ftOpt : Option FilterType)
+    (hpix : img.pixels.size = img.width * img.height * 4)
+    (hw : 0 < img.width) (hh : 0 < img.height)
+    (hw32 : img.width < 2 ^ 32) (hh32 : img.height < 2 ^ 32)
+    (hzc32 : (zlibCompress (rawStreamOf img ftOpt img.height)).size < 2 ^ 32) :
+    readPngStream (m := Except PngError) (SinkState := MemoryImageSink)
+        (pngLayout (rgbaHeader img) (zlibCompress (rawStreamOf img ftOpt img.height)))
+        ⟨none, ByteArray.empty, #[], none⟩ =
+      .ok (.ok (sinkAt img img.height)) := by
+  unfold readPngStream
+  simp only [Bind.bind, Except.bind, pure, Except.pure]
+  rw [checkSignature_layout]
+  rw [if_neg (show ¬ (!true) = true from by simp)]
+  rw [parsePngChunks_layout (rgbaHeader img) (zlibCompress (rawStreamOf img ftOpt img.height))
+    rfl rfl rfl rfl rfl hw hh hw32 hh32 hzc32]
+  dsimp only
+  rw [memSink_onHeader]
+  dsimp only
+  rw [if_neg (show ¬ (!(#[] : Array (UInt8 × UInt8 × UInt8)).isEmpty) = true from by decide)]
+  rw [Stdlib.Zlib.zlib_roundtrip_soundness (rawStreamOf img ftOpt img.height)]
+  dsimp only
+  rw [scanlineByteLength_rgba, bytesPerPixel_rgba,
+    show (rgbaHeader img).height = img.height from rfl,
+    rawStreamOf_size img ftOpt hpix img.height (Nat.le_refl _)]
+  rw [if_neg (show ¬ img.height * (img.width * 4 + 1) < (img.width * 4 + 1) * img.height from by
+    have h := Nat.mul_comm (img.width * 4 + 1) img.height
+    omega)]
+  simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
+    Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one]
+  rw [loop_invariant_general _
+    (fun y => ((none : Option (Except PngError MemoryImageSink)), sinkAt img y,
+      prevRowOf img y, y * (img.width * 4 + 1)))
+    img.height _ ?hs0 ?hstep]
+  · dsimp only
+    rw [memSink_onEnd]
+  case hs0 =>
+    rw [Nat.zero_mul]
+    rfl
+  case hstep =>
+    intro y hy
+    dsimp only
+    rw [if_neg (show ¬ y * (img.width * 4 + 1) ≥ img.height * (img.width * 4 + 1) from by
+      have h := Nat.mul_le_mul (show y + 1 ≤ img.height from hy)
+        (Nat.le_refl (img.width * 4 + 1))
+      rw [Nat.succ_mul] at h
+      omega)]
+    rw [raw_filter_byte img ftOpt hpix img.height y hy (Nat.le_refl _)]
+    rw [filterType_byte_roundtrip]
+    dsimp only
+    rw [raw_row_slice img ftOpt hpix img.height y hy (Nat.le_refl _)]
+    rw [filter_unfilter_soundness (chosenFtOf img ftOpt y) (rowSliceOf img y)
+      (prevRowOf img y) 4 (by omega)]
+    rw [memSink_onScanline]
+    dsimp only
+    rw [show y * (img.width * 4 + 1) + 1 + img.width * 4 =
+      (y + 1) * (img.width * 4 + 1) from by rw [Nat.succ_mul]; omega]
+    rfl
+
 end Stdlib.Png
