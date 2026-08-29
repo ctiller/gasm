@@ -300,6 +300,11 @@ indirect calls (with simultaneous proofs for recursive SCCs), shared invariants,
 teardown, and call-transitive clobbers. Adapters are realized entry stubs and require directed
 protocol refinement; neither names nor ABI labels constitute such a proof.
 
+The generic law is `JointLinkCertificate.composedExportSet`: it returns only the export set proved
+directly against the final artifact. `TargetLinkSemantics` is a separate profile interface, so a
+target or project that never links components pays no link-proof burden. Once a certificate exists,
+downstream callers consume the final set without replaying layout or relocation proofs.
+
 `VerifiedProgram` carries the same exact export-set certificate for auxiliary callable boundaries,
 while retaining its separate whole-process root theorem. A root such as WASI `_start` is not
 misrepresented as an ordinary library call merely because it is physically exported.
@@ -326,6 +331,8 @@ Implemented in `Gasm.Core.AbiContext`:
 - caller-side `EstablishedBoundaryEntry` evidence for every canonical external environment.
 - exact `VerifiedExportSet` manifests, unique target lookup keys, proof-bearing callable entries,
   one final artifact identity, and target-owned joint admissibility;
+- the target-optional `TargetLinkSemantics`, final-artifact `JointLinkCertificate`, and generic
+  export-set composition law;
 - non-total `VerifiedComponent` contracts over nonempty verified callable export sets; and
 - `VerifiedProgram` integration of the same export-set certificate alongside its root theorem.
 
@@ -339,5 +346,5 @@ Not implemented:
 - integration with `AbiDiscipline`, target `ABI.lean` files, or signature classification;
 - concrete TLS/FLS/register/argument/table realizations;
 - verified adapters or artifact protocol fingerprints; or
-- target-profile validation, final-artifact `JointLinkCertificate`, and integration with `Callable`
-  and native shared-library emission.
+- target-profile validation, concrete target link-plan safety predicates/certificates, and
+  integration with `Callable` and native shared-library emission.

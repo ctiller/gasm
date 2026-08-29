@@ -237,6 +237,53 @@ def withoutCallableEntries
 end VerifiedExportSet
 
 /- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
+/-- Target-owned final-link semantics are separate from boundary semantics so
+    targets which never link components incur no proof burden.  A plan denotes
+    the actual layout/relocation/import-resolution operation; `safe` must cover
+    its whole final artifact, including recursive call components and shared
+    runtime state. -/
+class TargetLinkSemantics
+    (Target : Type)
+    (target : TargetBoundarySemantics Target) where
+  Plan : Type
+  sourceArtifacts : Plan → List target.Artifact
+  finalArtifact : Plan → target.Artifact
+  safe : Plan → Prop
+
+/- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
+/-- Evidence that particular verified source surfaces were safely moved into
+    one particular final artifact.  The final export set is proved directly
+    against that artifact; source certificates cannot be combined by names or
+    pairwise ABI agreement alone. -/
+structure JointLinkCertificate
+    (World Key Target : Type)
+    (spec : BoundaryContextSpec World Key)
+    (target : TargetBoundarySemantics Target)
+    (linker : TargetLinkSemantics Target target)
+    (sources : List (VerifiedExportSet World Key Target spec target))
+    (final : VerifiedExportSet World Key Target spec target) where
+  plan : linker.Plan
+  exactSources : linker.sourceArtifacts plan = sources.map (·.artifact)
+  exactFinal : linker.finalArtifact plan = final.artifact
+  safe : linker.safe plan
+
+/- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
+/-- The composition law exposes only the export set proved for the final
+    artifact.  Its small conclusion is intentional: all difficult linking
+    evidence is paid once by `JointLinkCertificate`, never by downstream
+    callers of an already-linked component. -/
+def JointLinkCertificate.composedExportSet
+    {World Key Target : Type}
+    {spec : BoundaryContextSpec World Key}
+    {target : TargetBoundarySemantics Target}
+    {linker : TargetLinkSemantics Target target}
+    {sources : List (VerifiedExportSet World Key Target spec target)}
+    {final : VerifiedExportSet World Key Target spec target}
+    (_certificate : JointLinkCertificate World Key Target spec target linker sources final) :
+    VerifiedExportSet World Key Target spec target :=
+  final
+
+/- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
 /-- A non-total library/component is exactly a nonempty jointly verified
     callable export set, with no fabricated whole-process root theorem. -/
 structure VerifiedComponent
