@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2026 Craig Tiller
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Deterministically emit concrete Spike2 Linux row certificates.
 
 The source templates remain proof terms; this tool only substitutes the row-local names,
@@ -13,6 +27,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ROWS = ROOT / "Spikes" / "Spike2Fibonacci" / "Linux"
+
+
+LEAN_HEADER = '''/-
+Copyright 2026 Craig Tiller
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-/
+'''
 
 
 def fibs() -> list[int]:
@@ -316,7 +348,7 @@ def leaf_header(row: int, local_cmp: bool = False) -> str:
   safeFallthrough := by intro _ _; rfl
 
 '''
-    return f'''import Spikes.Spike2Fibonacci.Linux.Row{row}BoundaryData
+    return LEAN_HEADER + f'''import Spikes.Spike2Fibonacci.Linux.Row{row}BoundaryData
 
 namespace Spikes.Spike2Fibonacci.Linux
 
@@ -480,7 +512,7 @@ def boundary_facts_source(row: int) -> str:
         f"Spikes.Spike2Fibonacci.Linux.Row{row - 1}BoundaryData."
         f"spike2Row{row - 1}AfterRecurrence.rsp"
     )
-    return f'''import Spikes.Spike2Fibonacci.Linux.Row{row}BoundaryData
+    return LEAN_HEADER + f'''import Spikes.Spike2Fibonacci.Linux.Row{row}BoundaryData
 
 /-!
 # Row {row} data-only header boundary
