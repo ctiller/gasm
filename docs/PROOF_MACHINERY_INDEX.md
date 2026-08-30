@@ -162,7 +162,14 @@ The following code shapes have enough evidence to investigate but are not canoni
   parallel SSA namespace.  The migration must reject cross-family ordinal collisions, retain
   selected-family evidence for every operand and result, and preserve current core behavior.  The
   selected raw codec in `0a31cb8` is evidence for the target-owned encoding boundary; it does not
-  make family admission or final emission authority generic.
+  make family admission or final emission authority generic.  Its measured predecessor `9c7d80d`
+  compared the same private, nonsemantic theorem probe at an identical warm frontier for
+  `lake build Gasm.Targets.Spirv SpirvTests`: editing central `Types.lean` took 14.858 seconds and
+  72 actual jobs (15,228.0 MiB aggregate peak memory), while editing leaf `RasterValue.lean` took
+  2.831 seconds and five jobs (3,036.2 MiB aggregate peak).  Individual processes still peaked at
+  roughly 1.4--1.6 GiB.  The demonstrated optimization is preventing dependency fan-out by keeping
+  a valuable closed semantic core while moving shared nominal identity and physical assignment to
+  collision-checked finite family descriptors; it is not a claim that per-module memory vanished.
 - Bounded byte reads appear in ELF, x86-64, AArch64, PNG, Zlib, and Gzip.  A first cursor slice
   should validate against two consumers with the same offset/progress needs while keeping format
   errors and validation consumer-owned.
