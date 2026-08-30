@@ -69,6 +69,7 @@ import Gasm.Targets.X86_64.MacroAssembler.ControlPoints
 import Gasm.Targets.X86_64.CFGBridge
 import Gasm.Targets.X86_64.CFGLinker
 import Gasm.Targets.X86_64.EventfulSegment
+import Gasm.Targets.X86_64.VerifiedProgramCFG
 import Gasm.Targets.X86_64.HardwareHarness
 import Gasm.Targets.X86_64.SemanticsFuzzer
 -- Imported for its two elaboration-time `run_cmd` audits (memory-hook seal lint; frame-theorem
