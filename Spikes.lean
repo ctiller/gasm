@@ -46,6 +46,7 @@ import Spikes.Spike2Fibonacci.Linux.Row5BoundaryFacts
 import Spikes.Spike2Fibonacci.Linux.Row6BoundaryFacts
 import Spikes.Spike2Fibonacci.Linux.Rows1To4
 import Spikes.Spike2Fibonacci.Linux.Rows5To6
+import Spikes.Spike2Fibonacci.Linux.Rows1To6
 import Spikes.Spike2Fibonacci.Linux.Row7
 import Spikes.Spike2Fibonacci.Linux.Row8
 import Spikes.Spike2Fibonacci.Linux.Equivalence
