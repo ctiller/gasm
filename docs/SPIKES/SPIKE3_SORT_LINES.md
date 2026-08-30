@@ -116,6 +116,26 @@ contract: `sortStrings_nil`, `sortStrings_single`, and one concrete three-elemen
 There is no universal sortedness theorem and no universal permutation theorem in the tree yet.
 Those remain required before the mathematical contract below can be claimed for arbitrary lists.
 
+### 5.1 Framed ghost line-world layer
+
+`Spikes/Spike3SortLines/LogicalWorld.lean` now factors the intended universal proof shape
+without making a machine or `VerifiedProgram` claim.  An immutable nominal `LineId -> bytes`
+universe is separated from the mutable tokenizer state, sorting order, and output prefix.  The
+reading layer exposes byte and line-completion transitions plus a projection to the existing
+fragmentation-independent `ByteLineStream`; a fresh nominal identity is demanded only when a
+delimiter completes a line.  The sorting layer carries one permutation frame from the completed
+IDs and proves every generic adjacent compare/swap preserves it.  The emitting layer carries an
+independent `emitted ++ remaining = order` prefix frame.
+
+These certificates deliberately do not repeat one another's representation facts: buffer
+fragmentation belongs to the reader projection, storage representation belongs to a later
+concrete-to-ghost relation, comparison belongs to the permutation/order layer, and writes belong
+to the emission prefix layer.  `PhaseTransition` composes only their selected phase transitions.
+All success and `resourceFailed` transitions preserve the same abstract cleanup/recovery frame;
+the future shared obligation algebra will refine that equality with actual transfer and discharge
+laws.  This is a reusable logical staging point, not evidence yet that native/WASI code realizes
+the states, block contracts, allocation failure handling, or arbitrary-input termination.
+
 ---
 
 ## 6. End-to-End Simulation & Verification Invariant
