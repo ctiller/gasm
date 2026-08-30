@@ -613,8 +613,8 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "costProvenance fields (field PRESENCE is compile-time and enforced by lake build "
                  "itself; this walks the compiled registry and checks field HONESTY: toUops "
                  "non-empty, a .silicon claim agrees with canFuzzHardware and clears a fuzz-vector "
-                 "vacuity floor, every reason string clears a minimum length, and every .optedOut "
-                 "instance has a matching, justified scripts/x86_obligation_allowlist.txt entry). "
+                 "vacuity floor, and every reason string clears a minimum length; no validation "
+                 "opt-out constructor or exception allowlist exists). "
                  "Run from the repo root; building it is not running it, the same distinction item "
                  "4 draws for check_gates_axioms. See Tools/CheckX86Obligations.lean's own module "
                  "docstring for the full specification.",

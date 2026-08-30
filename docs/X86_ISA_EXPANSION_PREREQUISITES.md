@@ -186,13 +186,13 @@ flight.
 `validationOracle`, and `costProvenance` are mandatory instruction fields. The NASM encoding and
 hardware-semantics suites are derived from `Registry.allEncodableInstructions`, and
 `lake exe check_x86_obligations` checks non-vacuous uops/fuzz vectors, oracle consistency,
-justifications, and explicit opt-outs against `scripts/x86_obligation_allowlist.txt`. The original
+and justifications. There is no validation opt-out constructor or exception allowlist. The original
 mutation finding below remains useful provenance for why those gates exist.
 
 **Remaining gap:** hardware coverage is still limited for memory, control-flow, privileged, and
 future SIMD forms, and all current cost coefficients remain explicitly uncalibrated. Expansion work
-must extend the harness or carry counted, justified oracle debt; it may not revive a hand-maintained
-generator or silent `canFuzzHardware := false` convention.
+must extend the hardware harness or use the admitted NASM encoding-validation path; it may not
+revive a hand-maintained generator or silent `canFuzzHardware := false` convention.
 
 **Cost of getting it wrong**: hundreds of instructions whose semantics nothing ever checked,
 with no ledger even recording which ones. `VISION.md` §3.3: "A complete, unvalidated model is a

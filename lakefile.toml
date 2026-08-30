@@ -74,7 +74,7 @@ name = "check_refs_coverage_full"
 root = "Tools.CheckRefsCoverage"
 
 # P4/P5 unified x86-64 instruction obligation gate: every registered instance must declare a
-# named validation oracle (silicon or NASM, or an explicit allowlisted opt-out) and a cost
+# named validation oracle (silicon or NASM) and a cost
 # coefficient provenance (cited or an honest model-internal marker). See
 # Tools/CheckX86Obligations.lean for the full specification and
 # docs/X86_ISA_EXPANSION_PREREQUISITES.md P4/P5 for the prerequisite this closes.

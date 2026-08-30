@@ -50,18 +50,11 @@ namespace Gasm.Targets.X86_64.Instructions
     `HardwareHarness` (i.e. `canFuzzHardware` is true for it, AND its fuzz-vector count clears
     `Tools/CheckX86Obligations.lean`'s vacuity floor); `.nasmEncoding` claims encoding-only
     cross-validation against the NASM oracle (semantics are NOT silicon-checked) and MUST carry a
-    non-empty reason; `.optedOut` claims neither oracle covers this instance at all and MUST
-    carry a non-empty reason -- this is the constructor `scripts/x86_obligation_allowlist.txt`
-    gates (see that file's header): every `.optedOut` occurrence needs a matching, justified
-    allowlist entry, exactly mirroring Law 10's `grandfathered` category. Since
-    `EncodingFuzzer.lean`'s generator is now registry-derived (P4(a) in the prerequisites
-    document), every registered instance clears NASM coverage automatically, so `.optedOut` is
-    expected to be unused today -- it exists as the honest escape hatch for a genuinely
-    uncovered future case, never a default. -/
+    non-empty reason. These are the only admitted validation paths. An instruction covered by
+    neither oracle cannot be represented as validated and must not enter the registry. -/
 inductive ValidationOracle where
   | silicon
   | nasmEncoding (reason : String)
-  | optedOut (reason : String)
   deriving Repr, DecidableEq, Inhabited
 
 /- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p5-blocking-for-the-perf-models-integrity-calibration-governance-before-mass-coefficient-entry-f2-f1-a3-cleanup -/
