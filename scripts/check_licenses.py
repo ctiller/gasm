@@ -60,18 +60,13 @@ content lines against the expected paragraph. This is deliberately
 tolerant of the different comment syntaxes Lean/Python/PowerShell/
 shell/TOML each require for the same boilerplate text.
 
-Supports scripts/license_allowlist.txt (5 `::`-delimited fields, same
-shape as scripts/gate_allowlist.txt) for genuine, narrow exceptions --
-e.g. a first-party file that cannot carry a comment header at all, or
-one later found to embed third-party code under its own terms. Seeded
-empty: as of this tool's introduction, no such exception is known to
-exist, and this allowlist must never be used to paper over an ordinary
-missing header.
+There is no exception mechanism.  Every in-scope first-party file must
+carry the header; files under third-party `references/` are outside the
+first-party scope rather than exempted from it.
 
 Usage:
     python scripts/check_licenses.py            # full report (default)
     python scripts/check_licenses.py --json      # machine-readable JSON
-    python scripts/check_licenses.py --validate  # allowlist integrity only
 """
 
 import argparse
@@ -89,7 +84,6 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() not in ("utf-8", "utf8"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ALLOWLIST_PATH = REPO_ROOT / "scripts" / "license_allowlist.txt"
 
 # --- The one line to edit if the copyright holder ever needs to change. ---
 # FLAGGED IN THE INTRODUCING REPORT: "Craig Tiller" is the repo's git author
@@ -113,7 +107,6 @@ LICENSE_BODY_LINES = [
 
 EXPECTED_HEADER_LINES = [COPYRIGHT_LINE] + LICENSE_BODY_LINES
 
-VALID_ALLOWLIST_CATEGORIES = {"third-party-embedded", "generated-file", "no-comment-syntax"}
 
 
 def normalize_line(line: str) -> str:
@@ -261,72 +254,6 @@ def count_excluded_references() -> int:
     return sum(1 for p in refs_dir.glob("**/*") if p.is_file())
 
 
-# --- Allowlist ----------------------------------------------------------------
-
-class AllowlistEntry:
-    __slots__ = ("category", "added", "added_by", "justification", "line_num")
-
-    def __init__(self, category: str, added: str, added_by: str, justification: str, line_num: int):
-        self.category = category
-        self.added = added
-        self.added_by = added_by
-        self.justification = justification
-        self.line_num = line_num
-
-
-def load_allowlist() -> Tuple[Dict[str, AllowlistEntry], List[str]]:
-    """
-    Parses scripts/license_allowlist.txt: 5 `::`-delimited fields --
-    `relative-file-path::category::added-date::added-by::justification`
-    (same shape convention as scripts/gate_allowlist.txt). Keyed on the
-    bare relative file path since a license exemption applies to the whole
-    file, not to a sub-declaration.
-    """
-    entries: Dict[str, AllowlistEntry] = {}
-    errors: List[str] = []
-
-    if not ALLOWLIST_PATH.exists():
-        return entries, errors
-
-    text = ALLOWLIST_PATH.read_text(encoding="utf-8")
-    for line_num, raw_line in enumerate(text.splitlines(), start=1):
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split("::", 4)
-        if len(parts) != 5:
-            errors.append(
-                f"license_allowlist.txt:{line_num}: expected 5 '::'-delimited fields "
-                f"(file::category::added::added_by::justification), got {len(parts)}: {raw_line!r}"
-            )
-            continue
-        file_path, category_raw, added, added_by, justification = (
-            parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip(), parts[4].strip()
-        )
-        category = category_raw.lower()
-        if category not in VALID_ALLOWLIST_CATEGORIES:
-            errors.append(
-                f"license_allowlist.txt:{line_num}: unknown category '{category_raw}' "
-                f"(expected one of {sorted(VALID_ALLOWLIST_CATEGORIES)})"
-            )
-            continue
-        if not justification:
-            errors.append(f"license_allowlist.txt:{line_num}: missing justification")
-            continue
-
-        if file_path in entries:
-            errors.append(
-                f"license_allowlist.txt:{line_num}: duplicate entry for '{file_path}' "
-                f"(first defined at line {entries[file_path].line_num}) -- duplicates are a hard "
-                f"error, not silent last-wins"
-            )
-            continue
-
-        entries[file_path] = AllowlistEntry(category, added, added_by, justification, line_num)
-
-    return entries, errors
-
-
 # --- Core check ----------------------------------------------------------------
 
 class FileResult:
@@ -335,7 +262,7 @@ class FileResult:
     def __init__(self, rel_path: str, kind: str, status: str, detail: str = ""):
         self.rel_path = rel_path
         self.kind = kind
-        self.status = status  # "ok" | "missing" | "malformed" | "allowlisted"
+        self.status = status  # "ok" | "missing" | "malformed"
         self.detail = detail
 
 
@@ -366,71 +293,26 @@ def check_file(path: Path) -> FileResult:
     return FileResult(rel_path, kind, "malformed", "header block present but does not match the expected Apache-2.0 boilerplate")
 
 
-def run_check() -> Tuple[List[FileResult], List[str], int]:
-    """Returns (results, allowlist_errors, excluded_references_count)."""
-    allowlist, allowlist_errors = load_allowlist()
+def run_check() -> Tuple[List[FileResult], int]:
+    """Returns (results, excluded_references_count)."""
     files = iter_in_scope_files()
     excluded_count = count_excluded_references()
 
     results: List[FileResult] = []
     for path in files:
-        result = check_file(path)
-        if result.status != "ok" and result.rel_path in allowlist:
-            entry = allowlist[result.rel_path]
-            result = FileResult(result.rel_path, result.kind, "allowlisted",
-                                 f"[{entry.category}] {entry.justification}")
-        results.append(result)
+        results.append(check_file(path))
 
-    # Stale allowlist entries: an entry for a file that is either compliant
-    # anyway, or that no longer exists / is no longer in scope. Both are
-    # reported as hard failures, mirroring gate_allowlist.txt's stale-entry
-    # policy -- an allowlist must reflect real, current exceptions only.
-    checked_paths = {r.rel_path for r in results}
-    ok_paths = {r.rel_path for r in results if r.status == "ok"}
-    for file_path in allowlist:
-        if file_path not in checked_paths:
-            allowlist_errors.append(
-                f"license_allowlist.txt: entry for '{file_path}' does not match any in-scope file "
-                f"(removed, renamed, or never in scope) -- stale entries are a hard failure"
-            )
-        elif file_path in ok_paths:
-            allowlist_errors.append(
-                f"license_allowlist.txt: entry for '{file_path}' is stale -- the file now carries a "
-                f"fully compliant header and no longer needs an exception"
-            )
-
-    return results, allowlist_errors, excluded_count
+    return results, excluded_count
 
 
 def main():
     parser = argparse.ArgumentParser(description="Apache-2.0 header linter for gasm's first-party source")
     parser.add_argument("--json", action="store_true", help="machine-readable JSON output")
-    parser.add_argument("--validate", action="store_true", help="allowlist integrity only; no per-file header scan")
     args = parser.parse_args()
 
-    if args.validate:
-        _, allowlist_errors, _ = run_check()
-        # run_check() above already exercises full file matching to detect
-        # staleness; --validate reports only the allowlist-integrity slice.
-        if allowlist_errors:
-            if args.json:
-                print(json.dumps({"ok": False, "errors": allowlist_errors}, indent=2))
-            else:
-                print(f"[!] FAILED: {len(allowlist_errors)} license_allowlist.txt integrity error(s):")
-                for e in allowlist_errors:
-                    print(f"    - {e}")
-            sys.exit(1)
-        else:
-            if args.json:
-                print(json.dumps({"ok": True, "errors": []}, indent=2))
-            else:
-                print("[+] scripts/license_allowlist.txt is well-formed with no stale entries.")
-            sys.exit(0)
-
-    results, allowlist_errors, excluded_count = run_check()
+    results, excluded_count = run_check()
 
     ok = [r for r in results if r.status == "ok"]
-    allowlisted = [r for r in results if r.status == "allowlisted"]
     missing = [r for r in results if r.status == "missing"]
     malformed = [r for r in results if r.status == "malformed"]
 
@@ -438,7 +320,7 @@ def main():
     for r in results:
         by_kind[r.kind] = by_kind.get(r.kind, 0) + 1
 
-    has_errors = bool(missing or malformed or allowlist_errors)
+    has_errors = bool(missing or malformed)
 
     if args.json:
         out = {
@@ -446,11 +328,9 @@ def main():
             "total_in_scope": len(results),
             "by_kind": by_kind,
             "compliant": len(ok),
-            "allowlisted": [{"file": r.rel_path, "detail": r.detail} for r in allowlisted],
             "missing": [r.rel_path for r in missing],
             "malformed": [{"file": r.rel_path, "detail": r.detail} for r in malformed],
             "excluded_references_count": excluded_count,
-            "allowlist_errors": allowlist_errors,
         }
         print(json.dumps(out, indent=2))
         sys.exit(1 if has_errors else 0)
@@ -464,12 +344,6 @@ def main():
     print(f"[*] Excluded {excluded_count} file(s) under references/ (third-party vendored material, "
           f"never receives a first-party header).")
 
-    if allowlist_errors:
-        has_errors = True
-        print(f"\n[!] FAILED: {len(allowlist_errors)} license_allowlist.txt integrity error(s):")
-        for e in allowlist_errors:
-            print(f"    - {e}")
-
     print("\n--- LICENSE HEADER CHECK ---")
     if missing:
         print(f"\n[!] FAILED: {len(missing)} file(s) missing an Apache-2.0 header entirely:")
@@ -481,16 +355,11 @@ def main():
         for r in malformed:
             print(f"    - {r.rel_path}: {r.detail}")
 
-    if allowlisted:
-        print(f"\n[i] {len(allowlisted)} file(s) exempted via scripts/license_allowlist.txt:")
-        for r in allowlisted:
-            print(f"    - {r.rel_path}: {r.detail}")
-
     if not missing and not malformed:
         print("[+] Every in-scope first-party file carries a matching Apache-2.0 header.")
 
     print("\n" + "=" * 70)
-    print(f" SUMMARY: {len(results)} in-scope file(s), {len(ok)} compliant, {len(allowlisted)} allowlisted, "
+    print(f" SUMMARY: {len(results)} in-scope file(s), {len(ok)} compliant, "
           f"{len(missing)} missing, {len(malformed)} malformed.")
     print(f"          {excluded_count} references/ file(s) excluded (third-party, not first-party-licensed).")
     print("=" * 70)

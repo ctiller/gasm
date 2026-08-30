@@ -426,31 +426,22 @@ is inside `Γ`, with no global reasoning. **Historical status**: this was MH3's 
 theorem shape and one-routine acceptance bar. Current acceptance is `docs/MEMORY_MODEL.md`
 M1's indexed-authoring exit criterion, followed by M4 for cross-thread transfer.
 
-### 4.5 Erasure, coexistence, and the bypass gate
+### 4.5 Erasure, coexistence, and unconditional admission
 
 `CheckedAsm.erase : CheckedProgram Γ → List SymbolicInstr` — proofs erased, encoding
 unchanged, so the assembler/linker/emitter pipeline is untouched. Old and new authoring
 coexist mechanically:
 
-- A ratcheted ledger, `scripts/mem_bypass_allowlist.txt` (the established 5-field
-  `::`-format), lists every module currently authoring memory-operand `SymbolicInstr`s
-  raw — seeded with today's full population (`Stdlib/Zlib/X86_64.lean`,
-  `Stdlib/SmolAlloc/Program.lean`, the spike `Program.lean`s). A gate script fails CI
-  if a memory-operand smart constructor (`mov_mem64_disp`, `movzx_r64_mem8`, `push_r64`,
-  …, enumerated from the registry's 14 memory forms, not hand-listed) is used outside
-  the ledger + the designated infrastructure modules (erasure, decoder, fuzzers,
-  roundtrip). Entries are counted and printed every gate run, may only be removed
-  (migration) — adding one requires the same justified-entry discipline as every other
-  allowlist, and review policy per Law 11 is that new entries are rejected.
-- **"Not yet migrated" vs "does not need it" is mechanical, not declared**: a module
-  with no memory-operand constructors never trips the gate and never appears in the
-  ledger. The ledger *is* the migration backlog; empty ledger = migration finished.
-  A migration that cannot be finished is thereby avoided: the end state is defined
-  (ledger empty), monotone (ratchet), and measured (count in gate output).
+- A gate rejects raw memory-operand `SymbolicInstr` construction outside designated
+  infrastructure modules (erasure, decoder, fuzzers, and roundtrip machinery). The
+  covered constructor set is derived from the registry rather than hand-maintained.
+- **"Does not need the discipline" is mechanical, not declared**: a module with no
+  memory-operand constructors acquires no proof burden. A module that selects such a
+  constructor must use the checked authoring path; there is no bypass ledger.
 
-**Historical status**: the gate script and ledger were proposed MH3 deliverables and were
-never built. M1 must choose and gate the accepted bypass-prevention mechanism; any ledger
-it adopts still needs the Law-13 negative control described above.
+**Historical status**: the earlier MH3 draft proposed a migration ledger, but it was never
+built and exception ledgers are now forbidden. M1 must gate the accepted authoring boundary
+directly and add the Law-13 negative control described above.
 
 ### 4.6 Relation to the read-binder contract (deliberately not unified)
 

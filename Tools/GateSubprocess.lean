@@ -411,10 +411,8 @@ made it wrong in two directions at once:
   of a declared target and is compiled by `lake build` like any other.
 - It counted `Gasm/Targets/X86_64/RoundtripGate/DispatchExhaustive.lean` -- a
   genuine orphan that no root reaches, so nothing compiles it -- as a bare
-  exit 1 with "0 NOT allowlisted" / "0 uncited" beside it. Two gates red at
-  once, neither naming a cause. `scripts/orphan_allowlist.txt`'s own entry for
-  that file records this as an open question and names this fix as one of its
-  two resolutions.
+  exit 1 with an empty substantive-violation count beside it. Two gates were
+  red at once, neither naming the orphan as the cause.
 
 The closure is therefore derived from EVERY declared target -- both
 `[[lean_lib]] roots` and `[[lean_exe]] root` -- over `import` edges among
@@ -430,16 +428,10 @@ that is TC15/T2 and it stays load-bearing. What changes is that a module the
 build was never asked to compile is reported as such, by name, pointing at the
 gate that owns it, instead of being indistinguishable from a real one.
 
-THE ONE BEHAVIOUR CHANGE A REVIEWER MUST SIGN OFF ON. For an orphan that
-`scripts/orphan_allowlist.txt` ALLOWLISTS, no gate is red any more, where
-before this change these two were (opaquely). That is deliberate and is what
-the allowlist entry for `RoundtripGate/DispatchExhaustive.lean` asks for in so
-many words, but it is a reduction in redness and should be read as one: the
-module is still reported by name on every run of BOTH this gate and the orphan
-gate, the orphan gate prints its category and justification, and a stale entry
-there is a hard failure -- so it is tracked and visible, not silently ignored.
-What it is not, any more, is two gates exiting 1 with "0 NOT allowlisted" /
-"0 uncited" beside them and no named cause.
+THE ONE BEHAVIOUR CHANGE A REVIEWER MUST SIGN OFF ON. An orphan is owned by
+the unconditional orphan-module gate rather than being reported opaquely by
+two unrelated compiled-environment gates. It remains a hard failure, named by
+the gate that can explain and repair it; no exception mechanism exists.
 
 CONTROL VECTORS (measured against a clean committed checkout -- a git worktree,
 never the shared working tree; the throwaway-`GIT_INDEX_FILE` staging technique

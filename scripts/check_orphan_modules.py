@@ -37,7 +37,7 @@ is evidence of a missing gate, not of a working process):
   3. Stdlib/Zlib/CanonicalTableSpec.lean -- 671 committed lines of axiom-clean proof
               that nothing built, found only because CI went red downstream of it
   4. Gasm/Targets/X86_64/RoundtripGate/DispatchExhaustive.lean -- committed in
-              d38ed28, unreached ever since; see scripts/orphan_allowlist.txt
+              d38ed28 and later wired into the build graph
 
 Instances 3 and 4 were live simultaneously. Three of the four are under `Gasm/` or
 `Spikes/`, so this is not a `Stdlib` problem and the root derivation below must
@@ -98,8 +98,7 @@ Classified, that population is:
      5  are reached only THROUGH an exe root (X86_64/{EncodingFuzzer, Fuzzer,
         NASM, Performance}.lean and Spikes/Common/WasmHostRunner.lean)
      1  is reachable from no declared root at all: RoundtripGate/
-        DispatchExhaustive.lean, a documented deliberate exclusion
-        (scripts/orphan_allowlist.txt)
+        DispatchExhaustive.lean, subsequently wired into a declared root
 
 47 of those 48 are compiled; exactly one is not. Counting them all as orphans would
 make this gate 98% allowlist -- enforcement in appearance only, the failure the
@@ -155,14 +154,13 @@ reasons first.
 `git ls-files` gets all three right by construction, because the index contains the
 tracked tree and nothing else.
 
-Exit 0 when every tracked `.lean` file is reachable (or carries a justified
-allowlist entry). Exit 1, naming every orphan, its owning umbrella, and the exact
+Exit 0 when every tracked `.lean` file is reachable. Exit 1, naming every orphan,
+its owning umbrella, and the exact
 `import` line to add, otherwise.
 
 Usage:
     python scripts/check_orphan_modules.py             # full report (default)
     python scripts/check_orphan_modules.py --json      # machine-readable JSON
-    python scripts/check_orphan_modules.py --validate  # allowlist integrity only
     python scripts/check_orphan_modules.py --self-test # plant a real orphan, prove red, revert
 """
 
@@ -186,9 +184,6 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() not in ("utf-8", "utf8"):
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LAKEFILE_PATH = REPO_ROOT / "lakefile.toml"
-ALLOWLIST_PATH = REPO_ROOT / "scripts" / "orphan_allowlist.txt"
-
-VALID_ALLOWLIST_CATEGORIES = {"deliberate-standalone", "pending-wiring"}
 
 
 # --- Enumeration ---------------------------------------------------------------
@@ -361,85 +356,11 @@ def derive_build_roots() -> Tuple[List[BuildRoot], List[str]]:
     return roots, errors
 
 
-# --- Allowlist -----------------------------------------------------------------
-
-class AllowlistEntry:
-    __slots__ = ("path", "category", "added", "added_by", "justification", "line_num")
-
-    def __init__(self, path: str, category: str, added: str, added_by: str,
-                 justification: str, line_num: int):
-        self.path = path
-        self.category = category
-        self.added = added
-        self.added_by = added_by
-        self.justification = justification
-        self.line_num = line_num
-
-
-def load_allowlist() -> Tuple[Dict[str, AllowlistEntry], List[str]]:
-    """
-    Parses scripts/orphan_allowlist.txt: 5 `::`-delimited fields --
-    `relative-file-path::category::added-date::added-by::justification`
-    (the same shape as scripts/gate_allowlist.txt and scripts/license_allowlist.txt).
-
-    Keyed on the file path, since an exemption applies to a whole module. A line with
-    any other field count, an unknown category, an empty path, an empty justification,
-    or a duplicate path is a HARD PARSE FAILURE -- never a silently-skipped line.
-    """
-    entries: Dict[str, AllowlistEntry] = {}
-    errors: List[str] = []
-
-    if not ALLOWLIST_PATH.exists():
-        return entries, errors
-
-    text = ALLOWLIST_PATH.read_text(encoding="utf-8")
-    for line_num, raw_line in enumerate(text.splitlines(), start=1):
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split("::", 4)
-        if len(parts) != 5:
-            errors.append(
-                f"orphan_allowlist.txt:{line_num}: expected 5 '::'-delimited fields "
-                f"(file::category::added::added_by::justification), got {len(parts)}: {raw_line!r}"
-            )
-            continue
-        file_path, category_raw, added, added_by, justification = (
-            parts[0].strip(), parts[1].strip(), parts[2].strip(),
-            parts[3].strip(), parts[4].strip(),
-        )
-        category = category_raw.lower()
-        if not file_path:
-            errors.append(f"orphan_allowlist.txt:{line_num}: empty file path")
-            continue
-        if category not in VALID_ALLOWLIST_CATEGORIES:
-            errors.append(
-                f"orphan_allowlist.txt:{line_num}: unknown category '{category_raw}' "
-                f"(expected one of {sorted(VALID_ALLOWLIST_CATEGORIES)})"
-            )
-            continue
-        if not justification:
-            errors.append(f"orphan_allowlist.txt:{line_num}: missing justification")
-            continue
-        if file_path in entries:
-            errors.append(
-                f"orphan_allowlist.txt:{line_num}: duplicate entry for '{file_path}' "
-                f"(first defined at line {entries[file_path].line_num}) -- duplicates are a "
-                f"hard error, not silent last-wins"
-            )
-            continue
-        entries[file_path] = AllowlistEntry(
-            file_path, category, added, added_by, justification, line_num
-        )
-
-    return entries, errors
-
-
 # --- Core check ----------------------------------------------------------------
 
 class Orphan:
     __slots__ = ("rel_path", "module", "owner_lib", "owner_root_module",
-                 "owner_root_path", "allowlisted", "entry")
+                 "owner_root_path")
 
     def __init__(self, rel_path: str, module: str, owner_lib: Optional[str],
                  owner_root_module: Optional[str], owner_root_path: Optional[str]):
@@ -448,8 +369,6 @@ class Orphan:
         self.owner_lib = owner_lib
         self.owner_root_module = owner_root_module
         self.owner_root_path = owner_root_path
-        self.allowlisted = False
-        self.entry: Optional[AllowlistEntry] = None
 
 
 def _owning_library(module: str, roots: List[BuildRoot]) -> Optional[BuildRoot]:
@@ -482,7 +401,6 @@ def compute(env: Optional[Dict[str, str]] = None) -> Dict:
     module_to_path = {module_of(f): f for f in files}
 
     roots, errors = derive_build_roots()
-    allowlist, allowlist_errors = load_allowlist()
     errors = list(errors)
 
     # A declared root with no file on disk is a hard failure, not a skipped root: it
@@ -527,29 +445,7 @@ def compute(env: Optional[Dict[str, str]] = None) -> Dict:
             owner_root_module=owner.module if owner else None,
             owner_root_path=path_of(owner.module) if owner else None,
         )
-        entry = allowlist.get(orphan.rel_path)
-        if entry is not None:
-            orphan.allowlisted = True
-            orphan.entry = entry
         orphans.append(orphan)
-
-    # A stale allowlist entry (its file is no longer an orphan, or no longer exists)
-    # is a hard failure, exactly as in check_gates.py / check_doc_facade.py: a
-    # standing exemption for a defect that is gone is a pre-authorization for its
-    # return, and this repository's allowlists are audited, not accumulated.
-    orphan_paths = {o.rel_path for o in orphans}
-    for path, entry in sorted(allowlist.items()):
-        if path not in orphan_paths:
-            reason = ("that file is no longer orphaned (it is now reachable from a declared "
-                      "root) -- delete this entry"
-                      if path in set(files)
-                      else "that file is not a tracked .lean file (renamed or deleted) -- "
-                           "delete this entry")
-            allowlist_errors.append(
-                f"orphan_allowlist.txt:{entry.line_num}: stale entry for '{path}': {reason}"
-            )
-
-    blocking = [o for o in orphans if not o.allowlisted]
     reachable_depths = [d for d in depth.values() if d > 0]
 
     return {
@@ -564,10 +460,8 @@ def compute(env: Optional[Dict[str, str]] = None) -> Dict:
         "max_import_depth": max(depth.values()) if depth else 0,
         "reached_indirectly": len(reachable_depths),
         "orphans": orphans,
-        "blocking": blocking,
-        "allowlisted": [o for o in orphans if o.allowlisted],
+        "blocking": orphans,
         "errors": errors,
-        "allowlist_errors": allowlist_errors,
         "missing_roots": [r.module for r in missing_roots],
     }
 
@@ -616,19 +510,10 @@ def print_report(result: Dict) -> None:
     print(f" reachable from a declared root     : {result['reachable']} "
           f"({result['reached_indirectly']} of them only via an intermediate import; "
           f"max import depth {result['max_import_depth']})")
-    print(f" orphans                            : {len(result['orphans'])} "
-          f"({len(result['blocking'])} blocking, {len(result['allowlisted'])} allowlisted)")
-
-    for entry_orphan in result["allowlisted"]:
-        e = entry_orphan.entry
-        print(f"\n  ALLOWLISTED  {entry_orphan.rel_path}  [{e.category}]")
-        print(f"    {e.justification}")
+    print(f" orphans                            : {len(result['orphans'])}")
 
     for err in result["errors"]:
         print(f"\n  ERROR  {err}", file=sys.stderr)
-    for err in result["allowlist_errors"]:
-        print(f"\n  ALLOWLIST ERROR  {err}", file=sys.stderr)
-
     for orphan in result["blocking"]:
         print(f"\n  ORPHAN  {orphan.rel_path}", file=sys.stderr)
         print(f"    module: {orphan.module}", file=sys.stderr)
@@ -640,10 +525,9 @@ def print_report(result: Dict) -> None:
             print(line, file=sys.stderr)
 
     print("\n" + "=" * 78)
-    if result["blocking"] or result["errors"] or result["allowlist_errors"]:
+    if result["blocking"] or result["errors"]:
         print(f" FAILED: {len(result['blocking'])} orphaned module(s), "
-              f"{len(result['errors'])} error(s), "
-              f"{len(result['allowlist_errors'])} allowlist error(s).")
+              f"{len(result['errors'])} error(s).")
     else:
         print(f" OK: all {result['tracked_files']} tracked .lean files are reachable from a "
               f"lakefile.toml root.")
@@ -651,7 +535,7 @@ def print_report(result: Dict) -> None:
 
 
 def result_exit_code(result: Dict) -> int:
-    failed = bool(result["blocking"]) or bool(result["errors"]) or bool(result["allowlist_errors"])
+    failed = bool(result["blocking"]) or bool(result["errors"])
     return 1 if failed else 0
 
 
@@ -667,13 +551,7 @@ def result_to_json(result: Dict) -> Dict:
              "umbrella": o.owner_root_path}
             for o in result["blocking"]
         ],
-        "allowlisted": [
-            {"file": o.rel_path, "category": o.entry.category,
-             "justification": o.entry.justification}
-            for o in result["allowlisted"]
-        ],
         "errors": result["errors"],
-        "allowlist_errors": result["allowlist_errors"],
         "exit_code": result_exit_code(result),
     }
 
@@ -857,31 +735,12 @@ def main() -> int:
         description="Orphan-module reachability gate for gasm (docs/REVIEW.md Law 13)"
     )
     parser.add_argument("--json", action="store_true", help="machine-readable JSON output")
-    parser.add_argument("--validate", action="store_true",
-                        help="check scripts/orphan_allowlist.txt integrity only")
     parser.add_argument("--self-test", action="store_true",
                         help="plant a real orphan module, assert red, revert, assert green")
     args = parser.parse_args()
 
     if args.self_test:
         return run_self_test(args.json)
-
-    if args.validate:
-        _, allowlist_errors = load_allowlist()
-        # A stale entry is only detectable against a real run, so --validate does the
-        # full computation and then reports the allowlist half of it.
-        result = compute()
-        errors = result["allowlist_errors"]
-        if args.json:
-            print(json.dumps({"allowlist_errors": errors,
-                              "entries": len(result["allowlisted"]),
-                              "exit_code": 1 if errors else 0}, indent=2))
-        else:
-            for err in errors:
-                print(f"  ALLOWLIST ERROR  {err}", file=sys.stderr)
-            print(f"orphan_allowlist.txt: {len(result['allowlisted'])} live entr(ies), "
-                  f"{len(errors)} error(s).")
-        return 1 if errors else 0
 
     result = compute()
     if args.json:

@@ -1,0 +1,179 @@
+# Copyright 2026 Craig Tiller
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Ratchet against reintroducing gate exception ledgers.
+
+All already-empty exception mechanisms have been deleted.  The Law-10 gate
+ledger is the sole temporary debt file; its live-entry ceiling only moves
+downward and the parser is confined to the two tools that consume it.  Once
+that debt reaches zero, remove the final entries, parser, file, and temporary
+allowances below.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Iterable
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+RATCHET_PATH = Path(__file__).relative_to(REPO_ROOT).as_posix()
+TEMPORARY_LEDGER = "scripts/gate_allowlist.txt"
+MAX_TEMPORARY_GATE_ENTRIES = 17
+TEMPORARY_PARSER_FILES = {
+    "scripts/check_gates.py",
+    "Tools/CheckGatesAxioms.lean",
+}
+FORBIDDEN_PATH_PARTS = ("allowlist", "allow_list", "whitelist", "waiver_ledger", "exception_ledger")
+PARSER_MARKERS = ("ALLOWLIST_PATH", "load_allowlist", "parseAllowlist", "AllowlistEntry")
+LEDGER_REFERENCE_RE = re.compile(
+    r"scripts/[A-Za-z0-9_.-]*(?:allowlist|allow_list|whitelist|waiver_ledger|exception_ledger)"
+    r"[A-Za-z0-9_.-]*",
+    re.IGNORECASE,
+)
+
+
+def tracked_files() -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git ls-files failed: {result.stderr.strip()}")
+    return [line.strip().replace("\\", "/") for line in result.stdout.splitlines() if line.strip()]
+
+
+def forbidden_ledger_paths(paths: Iterable[str]) -> list[str]:
+    bad = []
+    for path in paths:
+        lowered = path.lower()
+        if path in {TEMPORARY_LEDGER, RATCHET_PATH}:
+            continue
+        if any(part in lowered for part in FORBIDDEN_PATH_PARTS):
+            bad.append(path)
+    return sorted(bad)
+
+
+def parser_leaks(paths: Iterable[str]) -> list[str]:
+    leaks = []
+    for rel in paths:
+        if rel in TEMPORARY_PARSER_FILES or rel == RATCHET_PATH:
+            continue
+        if not (rel.startswith("scripts/") or rel.startswith("Tools/") or rel == "lakefile.toml"):
+            continue
+        path = REPO_ROOT / rel
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        hits = [marker for marker in PARSER_MARKERS if marker in text]
+        if hits:
+            leaks.append(f"{rel}: {', '.join(hits)}")
+    return sorted(leaks)
+
+
+def forbidden_ledger_references(paths: Iterable[str]) -> list[str]:
+    """Reject documentation or code that advertises a retired exception path."""
+    leaks = []
+    for rel in paths:
+        if rel == RATCHET_PATH:
+            continue
+        path = REPO_ROOT / rel
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        references = sorted(set(LEDGER_REFERENCE_RE.findall(text)))
+        retired = [
+            ref for ref in references
+            if ref.rstrip(".") not in {TEMPORARY_LEDGER, RATCHET_PATH}
+        ]
+        if retired:
+            leaks.append(f"{rel}: {', '.join(retired)}")
+    return sorted(leaks)
+
+
+def live_temporary_entries() -> int:
+    path = REPO_ROOT / TEMPORARY_LEDGER
+    if not path.is_file():
+        return 0
+    return sum(
+        1 for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
+def run_check(paths: Iterable[str] | None = None) -> tuple[list[str], list[str], list[str], int]:
+    selected = list(paths) if paths is not None else tracked_files()
+    return (
+        forbidden_ledger_paths(selected),
+        parser_leaks(selected),
+        forbidden_ledger_references(selected),
+        live_temporary_entries(),
+    )
+
+
+def self_test() -> int:
+    bad_paths = forbidden_ledger_paths([
+        "scripts/new_allowlist.txt",
+        "scripts/waiver_ledger.toml",
+        TEMPORARY_LEDGER,
+    ])
+    reference_probe = "_exception_ledger_reference_probe.txt"
+    probe_path = REPO_ROOT / reference_probe
+    probe_path.write_text("use scripts/new_allowlist.txt\n", encoding="utf-8")
+    try:
+        bad_references = forbidden_ledger_references([reference_probe])
+    finally:
+        probe_path.unlink(missing_ok=True)
+    passed = (
+        bad_paths == ["scripts/new_allowlist.txt", "scripts/waiver_ledger.toml"]
+        and bad_references == [f"{reference_probe}: scripts/new_allowlist.txt"]
+    )
+    print(f"synthetic exception-ledger path/reference rejection: {'PASS' if passed else 'FAIL'}")
+    return 0 if passed else 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Reject gate exception ledgers and parser wiring")
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
+        return self_test()
+
+    bad_paths, leaks, bad_references, live_entries = run_check()
+    failed = bool(bad_paths or leaks or bad_references or live_entries > MAX_TEMPORARY_GATE_ENTRIES)
+    print("=" * 72)
+    print(" Exception-ledger removal ratchet")
+    print("=" * 72)
+    for path in bad_paths:
+        print(f"[!] forbidden exception-ledger path: {path}")
+    for leak in leaks:
+        print(f"[!] exception parser outside temporary Law-10 tools: {leak}")
+    for leak in bad_references:
+        print(f"[!] retired exception ledger is still advertised: {leak}")
+    if live_entries > MAX_TEMPORARY_GATE_ENTRIES:
+        print(f"[!] temporary Law-10 debt grew: {live_entries} > {MAX_TEMPORARY_GATE_ENTRIES}")
+    else:
+        print(f"[*] temporary Law-10 debt: {live_entries}/{MAX_TEMPORARY_GATE_ENTRIES}")
+    if not failed:
+        print("[+] no retired exception ledger or parser has been reintroduced")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

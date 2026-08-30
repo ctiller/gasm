@@ -520,6 +520,13 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "full-repository declaration-coverage launcher",
          "cmd": [py, "scripts/check_full_refs_gate_wiring.py"], "slow": False,
          "tools": ["python"], "depends_on": []},
+        {"key": "check_no_exception_ledgers",
+         "desc": "python scripts/check_no_exception_ledgers.py",
+         "group": "linters",
+         "long": "ratchet: retired gate exception ledgers and parser wiring cannot be reintroduced; "
+                 "the shrinking Law-10 debt ledger is the sole temporary exception",
+         "cmd": [py, "scripts/check_no_exception_ledgers.py"], "slow": False,
+         "tools": ["python"], "depends_on": []},
         {"key": "check_refs_coverage", "desc": "python scripts/run_full_refs_coverage.py --full-repository",
          "group": "proofs",
          "long": "Law 1 LOAD-BEARING declaration-coverage gate -- walks the compiled environment, "

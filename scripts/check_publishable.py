@@ -50,14 +50,14 @@ What IS this script's own job, because nothing else in scripts/ owns it:
    legally clearable (see docs/THIRD_PARTY_LICENSES.md) -- NONE of it may
    ship. Any file under references/, and any Lean `REF:` citation resolving
    to a path under references/, is an unconditional hard failure with NO
-   allowlist override. This is intentionally the least forgiving check in
+   exception override. This is intentionally the least forgiving check in
    the script.
 5. Root LICENSE / NOTICE presence (a legal ship-blocking obligation, distinct
    from #4 -- see the module docstring's distinction below).
 6. NOTICE-vs-reality consistency -- see check_notice_matches_references_state():
    NOTICE's "third-party content is NOT included" claim is bound to whether
    references/ actually holds any file, in both directions. Same
-   no-allowlist-override treatment as #4: a false claim in a legal file is
+   unconditional treatment as #4: a false claim in a legal file is
    worse than the raw presence of the prose it lies about, so nothing may
    excuse it via a justification field.
 
@@ -71,19 +71,15 @@ this project's own words (e.g. docs/TARGETS/WINDOWS.md's account of the
 Win32 ABI) is neither of the above -- it is ours, and it is fine to keep. Do
 not conflate the three.
 
-A finding may be suppressed only via scripts/publish_allowlist.txt, in the
-same 5-field `::`-delimited shape as scripts/gate_allowlist.txt and
-scripts/license_allowlist.txt. THIRD_PARTY_PROSE and REF_CITES_BANNED_PROSE
-findings have no allowlist override by design (see load_allowlist()).
+There is no suppression or exception mechanism. Every finding is blocking.
 
 FILE ENUMERATION -- TRACKED vs. UNTRACKED (read this before touching
 iter_repo_files()): this script used to walk the raw filesystem
 (`REPO_ROOT.rglob("*")`), which is exactly the "crying wolf" bug the rest of
 this gate suite was fixed for -- an untracked nested worktree checkout under
 `.claude/worktrees/agent-*/` contains a full second copy of this source
-tree, so a plain filesystem walk re-discovers every already-allowlisted
-finding at a bogus nested path the allowlist (keyed on real paths) can never
-match, and duplicates every SECRET/MACHINE_PATH finding under a path that
+tree, so a plain filesystem walk re-discovers every finding at a bogus nested
+path and duplicates every SECRET/MACHINE_PATH finding under a path that
 will never be published. Now: this script enumerates git-TRACKED files
 (`git ls-files`) UNION git-UNTRACKED-BUT-NOT-IGNORED files (`git ls-files
 --others --exclude-standard`) -- see iter_repo_files(). Deliberately EXCLUDES
@@ -123,7 +119,7 @@ Usage:
                                                      # environments where that
                                                      # dependency isn't set up)
 
-Exit code is 0 iff there are zero non-allowlisted findings AND every
+Exit code is 0 iff there are zero findings AND every
 delegated subprocess check (check_licenses.py) also exits 0.
 """
 
@@ -140,19 +136,10 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() not in ("utf-8", "utf8"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ALLOWLIST_PATH = REPO_ROOT / "scripts" / "publish_allowlist.txt"
 LICENSE_PATH = REPO_ROOT / "LICENSE"
 NOTICE_PATH = REPO_ROOT / "NOTICE"
 REFERENCES_DIR = REPO_ROOT / "references"
 
-# Checks whose findings can NEVER be suppressed via the allowlist, no matter
-# what justification is offered. THIRD_PARTY_PROSE and REF_CITES_BANNED_PROSE
-# implement the owner's "no third-party prose in the repo" ruling directly --
-# an allowlist entry for either would silently reintroduce exactly the thing
-# this script exists to catch.
-NO_OVERRIDE_CHECKS = {"THIRD_PARTY_PROSE", "REF_CITES_BANNED_PROSE", "NOTICE_CLAIM_MISMATCH"}
-
-VALID_ALLOWLIST_CATEGORIES = {"SECRET", "MACHINE_PATH", "TRACKED_BINARY", "ROOT_LICENSE_TEXT"}
 
 EXCLUDED_DIR_NAMES = {".git", ".jj", ".lake", "__pycache__", ".venv", "node_modules", ".system_generated"}
 
@@ -198,7 +185,6 @@ class Finding(NamedTuple):
     check_id: str
     path: str
     detail: str
-    allowlisted: bool
 
 
 class RepoFile(NamedTuple):
@@ -271,55 +257,6 @@ def iter_repo_files():
         yield RepoFile(p, rel, False)
 
 
-def load_allowlist() -> List[dict]:
-    """5 `::`-delimited fields, matching scripts/gate_allowlist.txt and
-    scripts/license_allowlist.txt's convention:
-        <check_id>::<path-or-'*'>::<added-date>::<added-by>::<justification>
-    A malformed line, an unknown check_id, or an attempt to allowlist a
-    NO_OVERRIDE_CHECKS check_id is a hard parse error, not a silent skip."""
-    entries: List[dict] = []
-    if not ALLOWLIST_PATH.exists():
-        return entries
-    errors = []
-    for line_num, raw in enumerate(ALLOWLIST_PATH.read_text(encoding="utf-8").splitlines(), start=1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split("::", 4)
-        if len(parts) != 5:
-            errors.append(f"publish_allowlist.txt:{line_num}: expected 5 '::'-delimited fields, got {len(parts)}: {raw!r}")
-            continue
-        check_id, path, added, added_by, justification = (p.strip() for p in parts)
-        if check_id in NO_OVERRIDE_CHECKS:
-            errors.append(f"publish_allowlist.txt:{line_num}: check_id '{check_id}' has NO allowlist "
-                           f"override by design (owner ruling: no third-party prose in the tree) -- "
-                           f"remove the offending content instead of allowlisting it")
-            continue
-        if check_id not in VALID_ALLOWLIST_CATEGORIES:
-            errors.append(f"publish_allowlist.txt:{line_num}: unknown check_id '{check_id}' "
-                           f"(expected one of {sorted(VALID_ALLOWLIST_CATEGORIES)})")
-            continue
-        if not justification:
-            errors.append(f"publish_allowlist.txt:{line_num}: missing justification")
-            continue
-        entries.append({"check_id": check_id, "path": path, "added": added,
-                         "added_by": added_by, "justification": justification})
-    if errors:
-        print(f"[!] WARNING: {len(errors)} malformed publish_allowlist.txt entr{'y' if len(errors)==1 else 'ies'}:")
-        for e in errors:
-            print(f"    - {e}")
-    return entries
-
-
-def is_allowlisted(allowlist: List[dict], check_id: str, rel_path: str) -> bool:
-    if check_id in NO_OVERRIDE_CHECKS:
-        return False
-    for e in allowlist:
-        if e["check_id"] == check_id and (e["path"] == rel_path or e["path"] == "*"):
-            return True
-    return False
-
-
 def _untracked_note(rf: "RepoFile") -> str:
     return "" if rf.tracked else (
         " [UNTRACKED: not yet part of a commit -- currently safe only because nobody has "
@@ -328,7 +265,7 @@ def _untracked_note(rf: "RepoFile") -> str:
     )
 
 
-def check_secrets(allowlist: List[dict]) -> List[Finding]:
+def check_secrets() -> List[Finding]:
     findings = []
     for rf in iter_repo_files():
         if rf.path.suffix.lower() not in TEXT_EXTENSIONS_TO_SCAN and rf.path.name != ".gitignore":
@@ -339,12 +276,11 @@ def check_secrets(allowlist: List[dict]) -> List[Finding]:
             continue
         for name, pattern in SECRET_PATTERNS:
             if pattern.search(text):
-                findings.append(Finding("SECRET", rf.rel, f"{name} pattern matched{_untracked_note(rf)}",
-                                         is_allowlisted(allowlist, "SECRET", rf.rel)))
+                findings.append(Finding("SECRET", rf.rel, f"{name} pattern matched{_untracked_note(rf)}"))
     return findings
 
 
-def check_machine_local_paths(allowlist: List[dict]) -> List[Finding]:
+def check_machine_local_paths() -> List[Finding]:
     findings = []
     for rf in iter_repo_files():
         if rf.path.suffix.lower() not in TEXT_EXTENSIONS_TO_SCAN:
@@ -359,12 +295,11 @@ def check_machine_local_paths(allowlist: List[dict]) -> List[Finding]:
                 sample = matches[0]
                 findings.append(Finding("MACHINE_PATH", rf.rel,
                                          f"{name} ({len(matches)} occurrence(s), e.g. {sample!r})"
-                                         f"{_untracked_note(rf)}",
-                                         is_allowlisted(allowlist, "MACHINE_PATH", rf.rel)))
+                                         f"{_untracked_note(rf)}"))
     return findings
 
 
-def check_tracked_binaries(allowlist: List[dict]) -> List[Finding]:
+def check_tracked_binaries() -> List[Finding]:
     # NOTE: previously silently SKIPPED this check on any git failure (a soft
     # warning, exit 0 either way) -- the exact "fail-soft on a missing/broken
     # git" trap this whole gate suite is being hardened against elsewhere.
@@ -374,8 +309,7 @@ def check_tracked_binaries(allowlist: List[dict]) -> List[Finding]:
     for rel in git_tracked_files():
         ext = Path(rel).suffix.lower()
         if ext in TRACKED_BINARY_EXTENSIONS:
-            findings.append(Finding("TRACKED_BINARY", rel, f"tracked file has build-artifact extension '{ext}'",
-                                     is_allowlisted(allowlist, "TRACKED_BINARY", rel)))
+            findings.append(Finding("TRACKED_BINARY", rel, f"tracked file has build-artifact extension '{ext}'"))
     return findings
 
 
@@ -383,7 +317,7 @@ def check_no_reference_prose() -> List[Finding]:
     """Owner ruling: zero third-party prose in the tree at publish. This is
     the loud, unconditional check -- every file under references/ is a
     finding, full stop, regardless of what docs/THIRD_PARTY_LICENSES.md says
-    about its redistributability. No allowlist override (see NO_OVERRIDE_CHECKS)."""
+    about its redistributability. Findings are unconditional."""
     findings = []
     if not REFERENCES_DIR.is_dir():
         return findings
@@ -439,8 +373,8 @@ def check_notice_matches_references_state() -> List[Finding]:
     be a false statement in a legal file, actively disclaiming an
     attribution obligation that in fact applied -- worse than the raw
     presence of the prose alone (a reader has no reason to double-check a
-    claim this specific). No allowlist override: same category as
-    THIRD_PARTY_PROSE/REF_CITES_BANNED_PROSE (NO_OVERRIDE_CHECKS) -- a false
+    claim this specific). No exception override: same category as
+    THIRD_PARTY_PROSE/REF_CITES_BANNED_PROSE -- a false
     legal-file claim is not something a justification field can excuse."""
     findings = []
     if not NOTICE_PATH.exists():
@@ -467,13 +401,12 @@ def check_notice_matches_references_state() -> List[Finding]:
     return findings
 
 
-def check_root_license_text(allowlist: List[dict]) -> List[Finding]:
+def check_root_license_text() -> List[Finding]:
     findings = []
     for name, path in (("LICENSE", LICENSE_PATH), ("NOTICE", NOTICE_PATH)):
         if not path.exists():
             findings.append(Finding("ROOT_LICENSE_TEXT", name, f"repository root has no {name} file "
-                                     f"(this is required legal text, not documentation - see module docstring)",
-                                     is_allowlisted(allowlist, "ROOT_LICENSE_TEXT", name)))
+                                     f"(this is required legal text, not documentation - see module docstring)"))
     return findings
 
 
@@ -503,34 +436,27 @@ def main() -> int:
     print(" gasm Pre-Flatten Publishability Gate")
     print("=" * 70)
 
-    allowlist = load_allowlist()
-    print(f"[*] Loaded {len(allowlist)} allowlist entr{'y' if len(allowlist) == 1 else 'ies'} from "
-          f"{ALLOWLIST_PATH.relative_to(REPO_ROOT).as_posix()}")
-
     all_findings: List[Finding] = []
-    all_findings += check_secrets(allowlist)
-    all_findings += check_machine_local_paths(allowlist)
-    all_findings += check_tracked_binaries(allowlist)
-    all_findings += check_root_license_text(allowlist)
+    all_findings += check_secrets()
+    all_findings += check_machine_local_paths()
+    all_findings += check_tracked_binaries()
+    all_findings += check_root_license_text()
     all_findings += check_no_reference_prose()
     all_findings += check_ref_citations_into_references()
     all_findings += check_notice_matches_references_state()
 
-    blocking = [f for f in all_findings if not f.allowlisted]
-    suppressed = [f for f in all_findings if f.allowlisted]
+    blocking = all_findings
 
     by_check = {}
     for f in all_findings:
         by_check.setdefault(f.check_id, []).append(f)
 
     for check_id, findings in sorted(by_check.items()):
-        loud = " *** NO ALLOWLIST OVERRIDE ***" if check_id in NO_OVERRIDE_CHECKS else ""
-        print(f"\n--- {check_id} ({len(findings)} finding(s)){loud} ---")
+        print(f"\n--- {check_id} ({len(findings)} finding(s)) ---")
         # references/ can be 1000+ findings; summarize rather than flooding.
         display = findings[:20]
         for f in display:
-            tag = "ALLOWLISTED" if f.allowlisted else "BLOCKING"
-            print(f"    [{tag}] {f.path}: {f.detail}")
+            print(f"    [BLOCKING] {f.path}: {f.detail}")
         if len(findings) > len(display):
             print(f"    ... and {len(findings) - len(display)} more (see full listing with a narrower "
                   f"tool if needed, e.g. `find references -type f`)")
@@ -540,7 +466,7 @@ def main() -> int:
         subprocess_ok = run_subprocess_check(["scripts/check_licenses.py"], "scripts/check_licenses.py (Apache-2.0 header coverage)")
 
     print("\n" + "=" * 70)
-    print(f" SUMMARY: {len(blocking)} blocking finding(s), {len(suppressed)} allowlisted finding(s).")
+    print(f" SUMMARY: {len(blocking)} blocking finding(s).")
     print(f"          delegated check_licenses.py: {'PASS' if subprocess_ok else 'FAIL' if not args.skip_subprocess_checks else 'SKIPPED'}")
     print("=" * 70)
 

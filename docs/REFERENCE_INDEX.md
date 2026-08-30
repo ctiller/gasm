@@ -115,19 +115,18 @@ for illustration; the real registration step fixes it against the fetched PDF's 
 | `edition` | string | yes for `pdf-locator` entries, no otherwise | Free text: order number, revision, commit SHA, RFC number — whatever the upstream uses to distinguish editions. **Machine-checked for `pdf-locator` entries**: the validator hard-fails if empty, and the re-pin workflow (§4) treats any change to this field as *ipso facto* substantive — see §4 and §2.3's revision-policy note. Not machine-checked for other `anchor_mode`s, where content-level checking already exists. |
 | `page_count` | integer | **yes for `pdf-locator` entries**, no otherwise | Total page count of the fetched PDF. Makes `PEND <= page_count` a mandatory bound check (§2.3) rather than the merely-optional one an earlier draft of this schema left it as. |
 | `size_bytes` | integer | no | Byte length of the exact fetched content, alongside `sha256` as a cheap second pin — also what the drift report in §4 prints. |
-| `license` | string | yes | A controlled vocabulary token identifying the upstream license/terms (see §1.3). Free text is not accepted — an unrecognized token is a hard parse failure, the same discipline `scripts/gate_allowlist.txt` and `scripts/license_allowlist.txt` already apply to their own controlled category fields. |
+| `license` | string | yes | A controlled vocabulary token identifying the upstream license/terms (see §1.3). Free text is not accepted: an unrecognized token is a hard parse failure. |
 | `distribution` | enum | yes | One of `unmodified-copy-only`, `no-restriction`, `attribution-required`, `unclear`. Derived from `license` at registration time by a human, not inferred by the tool — this is a judgment call the audit already made per corpus in `docs/THIRD_PARTY_LICENSES.md` §1, carried into the schema so it travels with the citation instead of living only in a standalone audit document. `unclear` is a legitimate value (mirrors the audit's own `UNCLEAR` verdicts) and forces manual sign-off before an entry may ship — it is not a default. |
 | `anchor_mode` | enum | yes | One of `heading` (markdown/html — GitHub-style anchor, checkable), `pdf-locator` (well-formedness-checkable only, §2.3), `json-pointer` (checkable), `rfc-section` (checkable against cached plain text, §2.5), `c-symbol` (checkable, §2.6). |
 | `last_reviewed` | string (ISO-8601 date) | yes | Date a human last confirmed this entry's hash/URL/license fields are correct — set at registration, updated only by the re-pin workflow (§4), never by `--refresh` alone. |
-| `reviewer` | string | yes | Who performed the last review (an email, matching the convention already used for `scripts/license_allowlist.txt`'s `<added-by>` field). |
+| `reviewer` | string | yes | Who performed the last review (an email recorded as durable attribution). |
 | `review_note` | string | yes | Free text, non-empty. What the last review found (or, at registration, "initial registration"). |
 
 Every field is required except `archive_url` and `size_bytes`, with `edition`/`page_count`
 additionally required whenever `anchor_mode` is `pdf-locator` (both are load-bearing for that
 grammar specifically — see §2.3, §4). A missing required field, an unrecognized
 `media_type`/`distribution`/`anchor_mode` token, or an unrecognized `license` token is a hard
-parse failure for the validator — the same "no silently-skipped malformed line" discipline
-`scripts/check_gates.py`'s allowlist parser already applies (§4.1.1 of `docs/REVIEW.md`).
+parse failure for the validator: malformed records are never silently skipped.
 
 ### 1.3 License vocabulary
 
@@ -500,8 +499,7 @@ not measured):
    <slug> --acknowledge-drift`, which promotes the newly-fetched content into the cache, updates
    `sha256`/`fetched_date` in `references.json`, and requires `--reviewer`/`--review-note`
    arguments that get written into the entry's `last_reviewed`/`reviewer`/`review_note` fields —
-   there is no way to bump the hash without leaving a reviewed, attributed trail, mirroring the
-   `<added-by>`/justification discipline `scripts/license_allowlist.txt` already enforces.
+   there is no way to bump the hash without leaving a reviewed, attributed trail.
 5. If the citing Lean files needed locator updates from step 3, those land in the same commit as
    the re-pin — a re-pin without a corresponding review of its dependent citations is incomplete,
    not merely undocumented.

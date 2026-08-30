@@ -53,7 +53,7 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------
-  # Linters: fast standalone Python validation across all 7 linter gates.
+  # Linters: fast standalone Python validation across all linter gates.
   # Runs on ubuntu-latest in parallel without waiting for Lean builds.
   # ---------------------------------------------------------------------
   linters:
@@ -73,6 +73,7 @@ jobs:
           python scripts/run_gates.py --group linters \
             --gate check_refs \
             --gate check_full_refs_gate_wiring \
+            --gate check_no_exception_ledgers \
             --gate check_gates \
             --gate check_publishable \
             --gate check_licenses \

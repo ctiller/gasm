@@ -237,7 +237,7 @@ in `docs/CI.md` §7. If any required gate fails, the PR is instantly rejected:
    from every declared Lake root and standalone-scans modules outside its baseline imports (see
    `docs/TECHNICAL_NOTES.md` §1). See §4.1.1 for the tooling specification. Mechanical
    connection-theorem coverage remains backlog.
-5. **Apache-2.0 Header Compliance:** `python scripts/check_licenses.py` must return exit code 0. Every first-party file (`Gasm/**/*.lean`, `Stdlib/**/*.lean`, `Spikes/**/*.lean`, `Tools/**/*.lean`, root `*.lean`, `scripts/*.py`, `scripts/*.ps1`, `scripts/*.sh`, `lakefile.toml`, `.github/**/*.yml`, `.github/**/*.yaml`, `.github/CODEOWNERS` — the last three added when CI was established, see `docs/CI.md`) must carry the standard Apache-2.0 short-form header in its type's comment syntax; `references/` (third-party vendored material) is explicitly and visibly excluded, and the excluded count is reported on every run. Genuine exceptions require a justified entry in `scripts/license_allowlist.txt` (5 `::`-delimited fields, same shape as `scripts/gate_allowlist.txt`); stale or unjustified entries are a hard failure, same as a missing header.
+5. **Apache-2.0 Header Compliance:** `python scripts/check_licenses.py` must return exit code 0. Every first-party file (`Gasm/**/*.lean`, `Stdlib/**/*.lean`, `Spikes/**/*.lean`, `Tools/**/*.lean`, root `*.lean`, `scripts/*.py`, `scripts/*.ps1`, `scripts/*.sh`, `lakefile.toml`, `.github/**/*.yml`, `.github/**/*.yaml`, `.github/CODEOWNERS` — the last three added when CI was established, see `docs/CI.md`) must carry the standard Apache-2.0 short-form header in its type's comment syntax; `references/` (third-party vendored material) is explicitly and visibly excluded, and the excluded count is reported on every run. There is no header-exception mechanism: a missing header is a hard failure.
 6. **Retired decision-record gate — not a current gate:** the former `PLAN`/per-ADR/per-task
    record and its checker were removed during documentation consolidation. Durable architectural
    rulings now live in `docs/DECISIONS.md`, delivery summaries in `docs/ROADMAP.md`, and detailed
@@ -266,32 +266,37 @@ This subsection specifies what the two Law 10 gate tools implement, so that Pill
 7. **Doc-Facade Linter:** `python scripts/check_doc_facade.py` must return exit code 0. It rejects
    normative present-tense mechanism claims with no matching Lean declaration, missing or unwired
    gates, and displayed theorem/lemma names absent from the tree. Honest file/section-level
-   design-status markers exempt proposals, and justified exceptional examples live in
-   `scripts/doc_facade_allowlist.txt`. The script's module docstring owns the exact rules.
+   design-status markers identify proposals. Every remaining finding is a hard failure;
+   there is no exception ledger. The script's module docstring owns the exact rules.
 8. **Orphan Module Gate:** `python scripts/check_orphan_modules.py` must return exit code 0.
    Every tracked project module must be reachable from a Lake root; a file outside every build
    closure is not checked merely because it exists in the repository.
-9. **Roundtrip and Fuzzer Gates:** `lake exe test_roundtrip` must exit 0. The unfiltered local
+9. **No-Exception-Ledger Ratchet:** `python scripts/check_no_exception_ledgers.py` must return
+   exit code 0. Retired exception-ledger paths, their parser/matching machinery, and documentation
+   that advertises a retired ledger are forbidden. Until Law-10 debt reaches zero, its one named
+   ledger is the sole temporary exception and its live-entry count may only decrease; after zero,
+   that file and its two parsers are deleted too.
+10. **Roundtrip and Fuzzer Gates:** `lake exe test_roundtrip` must exit 0. The unfiltered local
    runner's `fuzzers` group — currently `perf_fuzzer`, `x86_fuzzer`, `encoding_fuzzer`,
    `wasm_fuzzer`, `gzip_fuzzer`, `png_stability_fuzzer`, `x86_stability_fuzzer`, and
    `elf_stability_fuzzer` — must also pass on suitable hosts with their declared oracles. Hosted
    PR CI selects platform-specific subsets and is not, by itself, an execution of this complete
    group; see `docs/CI.md` §2 and §7.
-10. **Spike/Stdlib CLI Test Suites:** the spike and Stdlib gates registered in
+11. **Spike/Stdlib CLI Test Suites:** the spike and Stdlib gates registered in
     `scripts/run_gates.py`'s `spikes` group must be invoked; declaring a `lean_exe` in
     `lakefile.toml`, or compiling a library that contains its modules, is not execution. The
     runner table is the current gate list. A modeled exit-2 "runner unavailable" outcome is an
     explicit skip, not evidence that host execution occurred.
-11. **x86-64 Instruction Obligation Gate:** `lake exe check_x86_obligations` — run from the
+12. **x86-64 Instruction Obligation Gate:** `lake exe check_x86_obligations` — run from the
     repository root — must exit 0. Mandatory `validationOracle` and `costProvenance` fields make
     omission unrepresentable; the gate checks registry-wide honesty, fuzz-vector floors, reason
     strings, and opt-out allowlisting. Calibration remains explicitly unvalidated until the
     `docs/RDTSC_HARNESS.md`/`docs/CALIBRATION_GOVERNANCE.md` path lands. See
     `docs/X86_ISA_EXPANSION_PREREQUISITES.md` and the tool's module docstring.
-12. **AArch64 Instruction Obligation Gate:** `lake exe check_aarch64_obligations` — run from
+13. **AArch64 Instruction Obligation Gate:** `lake exe check_aarch64_obligations` — run from
     the repository root — must exit 0. It enforces the registered AArch64 instruction
     validation-oracle and cost-provenance obligations.
-13. **Instructions.lean Umbrella Completeness:** `python scripts/check_instructions_umbrella.py`
+14. **Instructions.lean Umbrella Completeness:** `python scripts/check_instructions_umbrella.py`
     must return exit code 0. It diffs instruction-family declarations against the hand-maintained
     x86 umbrella in both directions and has a planted-family self-test. This prevents a family from
     being invisible to registry/environment audits merely because Lean never imported it. See

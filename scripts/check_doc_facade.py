@@ -72,7 +72,7 @@ and REJECTED -- see "REJECTED SHAPES" below):
    anywhere in the same PARAGRAPH. Tested against the live tree, this
    immediately mis-flagged `` `warningAsError` `` in docs/REVIEW.md #4.1 item 4
    -- a real, existing lakefile.toml key mentioned in an aside 30+ words away
-   from that paragraph's actual "must be allowlisted" clause, which belongs to
+   from that paragraph's actual gate-policy clause, which belongs to
    a different sentence entirely. Requiring same-LINE proximity (not
    paragraph) and requiring the trigger phrase to appear BEFORE the
    identifier (not merely nearby) eliminates that class: a parenthetical
@@ -136,7 +136,7 @@ and REJECTED -- see "REJECTED SHAPES" below):
    Declaration-site resolution finds 19: the same 18 plus that one. The cost of the
    stricter test is one extra false-positive class -- a doc legitimately displaying a
    Mathlib/core theorem this repository does not itself declare -- which measured zero
-   instances in the current corpus and is handled by the allowlist if one appears. (Checks
+   instances in the current corpus. Any future instance must be rewritten honestly. (Checks
    1 and 2 keep token presence: they scan PROSE, where a mention in a comment really does
    mean the identifier is not fabricated.)
 
@@ -190,12 +190,8 @@ and REJECTED -- see "REJECTED SHAPES" below):
        Note this escape uses FILE_STATUS_MARKER_RE, deliberately STRICTER than the
        section escape's STATUS_MARKER_RE -- see that constant for the measured false
        negative (`docs/EQUIVALENCE_PROOFS.md`) that forced the distinction.
-   (c) ALLOWLIST: `scripts/doc_facade_allowlist.txt`, check name `theorem-fence-absent`.
-       Used for the cases where neither marker would be HONEST -- a pedagogical worked
-       example (`docs/SOFTWARE_MODELING_SDLC.md`'s `get_after_put`) or a syntax
-       illustration over a placeholder name (`docs/READ_BINDER_CONTRACT.md`'s
-       `foo_correct`) is not a "design pending implementation", and stamping a design
-       Status on it would be a second, subtler doc-facade defect.
+   Pedagogical examples and syntax illustrations must be written so that they cannot be
+   mistaken for repository declarations; there is no per-finding exception mechanism.
 
 IDENTIFIER PRESENCE (the absence test underlying check 1): an identifier
 "exists in the tree" if it appears as a token ANYWHERE in any `.lean` file's
@@ -264,21 +260,8 @@ English sentence about `NOTICE` corresponds to this specific tree property"
 that would not also match countless unrelated sentences) -- rejected as
 too bespoke to generalize into a linter rule.
 
-ALLOWLIST: scripts/doc_facade_allowlist.txt, 5 `::`-delimited fields (same
-shape as every other allowlist in this repository):
-
-    <check>::<key>::<added>::<added-by>::<justification>
-
-`<check>` is one of `mechanism-absent`, `gate-script-missing`,
-`gate-not-wired`. `<key>` is `<file>:<line>:<token>` for every check (the
-file relative to the repo root, the 1-based line number after fenced-code-
-block stripping, and the flagged identifier/script/exe name -- unique because
-a single line can name more than one candidate). A line with any other field
-count, an unknown check name, an empty key, or an empty justification is a
-hard parse failure -- never a silently-skipped line, matching every other
-Law-10-style allowlist in this repository. A stale entry (its (check, key) no
-longer trips anything) is also a hard failure, the same mutation-tested
-discipline used by the other live gates.
+There is no exception mechanism. Every finding must be fixed or described
+honestly with the existing status/purpose markers.
 
 Usage:
     python scripts/check_doc_facade.py            # full report (default)
@@ -337,10 +320,6 @@ DOCS_DIR = REPO_ROOT / "docs"
 REVIEW_MD = DOCS_DIR / "REVIEW.md"
 RUN_GATES_PY = REPO_ROOT / "scripts" / "run_gates.py"
 LAKEFILE_TOML = REPO_ROOT / "lakefile.toml"
-ALLOWLIST_PATH = REPO_ROOT / "scripts" / "doc_facade_allowlist.txt"
-
-VALID_ALLOWLIST_CHECKS = {"mechanism-absent", "gate-script-missing", "gate-not-wired",
-                          "theorem-fence-absent"}
 
 # --- Identifier candidate filter -------------------------------------------------
 
@@ -507,71 +486,11 @@ def _has_status_escape(lines: List[str], start: int, end: int) -> bool:
 # --- Finding -----------------------------------------------------------------
 
 class Finding:
-    __slots__ = ("check", "detail", "allowlisted")
+    __slots__ = ("check", "detail")
 
-    def __init__(self, check: str, detail: str, allowlisted: bool = False):
+    def __init__(self, check: str, detail: str):
         self.check = check
         self.detail = detail
-        self.allowlisted = allowlisted
-
-
-# --- Allowlist ------------------------------------------------------------------
-
-class AllowlistEntry:
-    __slots__ = ("check", "key", "added", "added_by", "justification", "line_num")
-
-    def __init__(self, check, key, added, added_by, justification, line_num):
-        self.check = check
-        self.key = key
-        self.added = added
-        self.added_by = added_by
-        self.justification = justification
-        self.line_num = line_num
-
-
-def load_allowlist() -> Tuple[Dict[Tuple[str, str], AllowlistEntry], List[str]]:
-    entries: Dict[Tuple[str, str], AllowlistEntry] = {}
-    errors: List[str] = []
-
-    if not ALLOWLIST_PATH.exists():
-        return entries, errors
-
-    text = ALLOWLIST_PATH.read_text(encoding="utf-8")
-    for line_num, raw_line in enumerate(text.splitlines(), start=1):
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split("::", 4)
-        if len(parts) != 5:
-            errors.append(
-                f"doc_facade_allowlist.txt:{line_num}: expected 5 '::'-delimited "
-                f"fields (check::key::added::added_by::justification), got {len(parts)}: {raw_line!r}"
-            )
-            continue
-        check, key, added, added_by, justification = (p.strip() for p in parts)
-        if check not in VALID_ALLOWLIST_CHECKS:
-            errors.append(
-                f"doc_facade_allowlist.txt:{line_num}: unknown check '{check}' "
-                f"(expected one of {sorted(VALID_ALLOWLIST_CHECKS)})"
-            )
-            continue
-        if not key:
-            errors.append(f"doc_facade_allowlist.txt:{line_num}: empty key")
-            continue
-        if not justification:
-            errors.append(f"doc_facade_allowlist.txt:{line_num}: missing justification")
-            continue
-        dup_key = (check, key)
-        if dup_key in entries:
-            errors.append(
-                f"doc_facade_allowlist.txt:{line_num}: duplicate entry for "
-                f"'{check}::{key}' (first defined at line {entries[dup_key].line_num}) -- "
-                f"duplicates are a hard error, not silent last-wins"
-            )
-            continue
-        entries[dup_key] = AllowlistEntry(check, key, added, added_by, justification, line_num)
-
-    return entries, errors
 
 
 # --- CHECK 1: MECHANISM_ABSENT ---------------------------------------------------
@@ -590,9 +509,7 @@ PRESENT_CLAIM_RE = re.compile(
 
 
 def _raw_mechanism_absent() -> Dict[str, str]:
-    """Maps allowlist key ('<file>:<line>:<ident>') -> human detail, for every
-    currently-firing (non-escaped) MECHANISM_ABSENT instance. Shared by the
-    live check and the stale-allowlist sweep."""
+    """Maps each currently firing mechanism finding key to human detail."""
     out: Dict[str, str] = {}
     for path in iter_scanned_docs():
         rel = path.relative_to(REPO_ROOT).as_posix()
@@ -624,20 +541,14 @@ def _raw_mechanism_absent() -> Dict[str, str]:
     return out
 
 
-def check_mechanism_absent(allowlist: Dict[Tuple[str, str], AllowlistEntry]) -> List[Finding]:
+def check_mechanism_absent() -> List[Finding]:
     findings = []
     for key, detail in sorted(_raw_mechanism_absent().items()):
-        if ("mechanism-absent", key) in allowlist:
-            entry = allowlist[("mechanism-absent", key)]
-            findings.append(Finding("MECHANISM_ABSENT", f"{detail} Allowlisted: {entry.justification}", True))
-            continue
         findings.append(Finding(
             "MECHANISM_ABSENT",
             f"{detail} Either add a `**Status**:` sentence (docs/REVIEW.md Law 9's "
             f"convention: implemented / ratified design pending implementation, citing "
-            f"a tracking task) next to the claim, or add a "
-            f"scripts/doc_facade_allowlist.txt entry ('mechanism-absent::{key}::...') "
-            f"recording why not."
+            f"a tracking task) next to the claim, or correct the claim."
         ))
     return findings
 
@@ -843,10 +754,11 @@ def iter_theorem_fence_docs() -> List[Path]:
 
 
 def _raw_theorem_fence_absent() -> Dict[str, str]:
-    """Maps allowlist key ('<file>:<line>:<name>') -> human detail for every currently
-    firing (non-escaped) THEOREM_FENCE_ABSENT instance. Shared by the live check and the
-    stale-allowlist sweep. Line numbers are raw (this check does NOT strip fences -- the
-    fences are its subject), so they point at the declaration header itself."""
+    """Maps each theorem-fence finding key to detail.
+
+    Line numbers are raw (this check does not strip fences, which are its subject),
+    so they point at the declaration header itself.
+    """
     out: Dict[str, str] = {}
     for path in iter_theorem_fence_docs():
         try:
@@ -885,14 +797,9 @@ def _raw_theorem_fence_absent() -> Dict[str, str]:
     return out
 
 
-def check_theorem_fence_absent(allowlist: Dict[Tuple[str, str], AllowlistEntry]) -> List[Finding]:
+def check_theorem_fence_absent() -> List[Finding]:
     findings = []
     for key, detail in sorted(_raw_theorem_fence_absent().items()):
-        if ("theorem-fence-absent", key) in allowlist:
-            entry = allowlist[("theorem-fence-absent", key)]
-            findings.append(Finding("THEOREM_FENCE_ABSENT",
-                                    f"{detail} Allowlisted: {entry.justification}", True))
-            continue
         findings.append(Finding(
             "THEOREM_FENCE_ABSENT",
             f"{detail} Fix it one of four ways. (1) If the theorem exists under another "
@@ -909,8 +816,7 @@ def check_theorem_fence_absent(allowlist: Dict[Tuple[str, str], AllowlistEntry])
             f"second `##` heading) once, the way docs/MEMORY_HOOK.md #1 does, and every "
             f"block in the file is covered. (4) If neither marker would be honest -- a "
             f"pedagogical example or a placeholder name is not a 'design pending "
-            f"implementation' -- add a scripts/doc_facade_allowlist.txt entry "
-            f"('theorem-fence-absent::{key}::<date>::<who>::<why>')."
+            f"implementation' -- mark it explicitly as an example/placeholder."
         ))
     return findings
 
@@ -944,9 +850,7 @@ def _lakefile_text() -> str:
 
 
 def _raw_gate_claims() -> Dict[str, Tuple[str, str]]:
-    """Maps allowlist key ('docs/REVIEW.md:<line>:<name>') -> (check, detail) for
-    every currently-firing (non-escaped) GATE_SCRIPT_MISSING/GATE_NOT_WIRED
-    instance. Shared by the live check and the stale-allowlist sweep."""
+    """Maps each currently firing gate-claim key to its check and detail."""
     out: Dict[str, Tuple[str, str]] = {}
     if not REVIEW_MD.is_file():
         return out
@@ -1006,67 +910,34 @@ def _raw_gate_claims() -> Dict[str, Tuple[str, str]]:
     return out
 
 
-def check_gate_claims(allowlist: Dict[Tuple[str, str], AllowlistEntry]) -> List[Finding]:
+def check_gate_claims() -> List[Finding]:
     findings = []
     for key, (check, detail) in sorted(_raw_gate_claims().items()):
         check_name = "GATE_SCRIPT_MISSING" if check == "gate-script-missing" else "GATE_NOT_WIRED"
-        if (check, key) in allowlist:
-            entry = allowlist[(check, key)]
-            findings.append(Finding(check_name, f"{detail} Allowlisted: {entry.justification}", True))
-            continue
         findings.append(Finding(
             check_name,
             f"{detail} Either wire it into scripts/run_gates.py (and docs/REVIEW.md #4.1's "
             f"enumerated list) in the same change that adds the claim, add a `**Status**:`/"
             f"'not yet registered' disclosure (as scripts/check_calibration.py's own entry "
-            f"does), or add a scripts/doc_facade_allowlist.txt entry "
-            f"('{check}::{key}::...') recording why not."
+            f"does)."
         ))
     return findings
 
 
 # --- Runner -----------------------------------------------------------------------
 
-def run_all() -> Tuple[List[Finding], List[str]]:
+def run_all() -> List[Finding]:
     global _LEAN_TOKENS, _LEAN_DECL_NAMES, _RUN_GATES_TEXT, _LAKEFILE_TEXT
     _LEAN_TOKENS = None
     _LEAN_DECL_NAMES = None
     _RUN_GATES_TEXT = None
     _LAKEFILE_TEXT = None
 
-    allowlist, allowlist_errors = load_allowlist()
     findings: List[Finding] = []
-    findings.extend(check_mechanism_absent(allowlist))
-    findings.extend(check_gate_claims(allowlist))
-    findings.extend(check_theorem_fence_absent(allowlist))
-
-    raw_mechanism = set(_raw_mechanism_absent().keys())
-    raw_gate = _raw_gate_claims()
-    raw_fence = set(_raw_theorem_fence_absent().keys())
-
-    for (check, key), entry in allowlist.items():
-        if check == "theorem-fence-absent" and key not in raw_fence:
-            allowlist_errors.append(
-                f"doc_facade_allowlist.txt:{entry.line_num}: entry 'theorem-fence-absent::{key}' "
-                f"is stale -- that block no longer fires (the theorem now exists, the block was "
-                f"corrected or removed, a Status marker was added, or the line moved); remove or "
-                f"update the entry."
-            )
-        elif check == "mechanism-absent" and key not in raw_mechanism:
-            allowlist_errors.append(
-                f"doc_facade_allowlist.txt:{entry.line_num}: entry 'mechanism-absent::{key}' "
-                f"is stale -- that claim no longer fires (fixed, or the identifier now "
-                f"exists, or a Status marker was added); remove the entry."
-            )
-        elif check in ("gate-script-missing", "gate-not-wired"):
-            hit = raw_gate.get(key)
-            if hit is None or hit[0] != check:
-                allowlist_errors.append(
-                    f"doc_facade_allowlist.txt:{entry.line_num}: entry '{check}::{key}' is "
-                    f"stale -- that claim no longer fires that way; remove or update the entry."
-                )
-
-    return findings, allowlist_errors
+    findings.extend(check_mechanism_absent())
+    findings.extend(check_gate_claims())
+    findings.extend(check_theorem_fence_absent())
+    return findings
 
 
 def main():
@@ -1079,10 +950,8 @@ def main():
     if args.self_test:
         sys.exit(run_self_test(args.json))
 
-    findings, allowlist_errors = run_all()
-    blocking = [f for f in findings if not f.allowlisted]
-    allowlisted = [f for f in findings if f.allowlisted]
-    has_errors = bool(blocking or allowlist_errors)
+    blocking = run_all()
+    has_errors = bool(blocking)
 
     by_check: Dict[str, int] = {}
     for f in blocking:
@@ -1094,8 +963,6 @@ def main():
             "blocking_count": len(blocking),
             "by_check": by_check,
             "blocking": [{"check": f.check, "detail": f.detail} for f in blocking],
-            "allowlisted": [{"check": f.check, "detail": f.detail} for f in allowlisted],
-            "allowlist_errors": allowlist_errors,
         }
         print(json.dumps(out, indent=2))
         sys.exit(1 if has_errors else 0)
@@ -1105,12 +972,6 @@ def main():
     print("=" * 70)
     print("[*] Checks: MECHANISM_ABSENT, GATE_SCRIPT_MISSING, GATE_NOT_WIRED, "
           "THEOREM_FENCE_ABSENT")
-
-    if allowlist_errors:
-        has_errors = True
-        print(f"\n[!] FAILED: {len(allowlist_errors)} doc_facade_allowlist.txt integrity error(s):")
-        for e in allowlist_errors:
-            print(f"    - {e}")
 
     if blocking:
         print(f"\n[!] FAILED: {len(blocking)} blocking finding(s):")
@@ -1122,14 +983,8 @@ def main():
     else:
         print("\n[+] No blocking findings.")
 
-    if allowlisted:
-        print(f"\n[i] {len(allowlisted)} finding(s) exempted via scripts/doc_facade_allowlist.txt:")
-        for f in allowlisted:
-            print(f"    - [{f.check}] {f.detail}")
-
     print("\n" + "=" * 70)
-    print(f" SUMMARY: {len(blocking)} blocking, {len(allowlisted)} allowlisted, "
-          f"{len(allowlist_errors)} allowlist error(s).")
+    print(f" SUMMARY: {len(blocking)} blocking finding(s).")
     print("=" * 70)
 
     sys.exit(1 if has_errors else 0)
@@ -1144,12 +999,11 @@ def main():
 # --------------------------------------------------------------------------------
 
 def _run_check_json() -> Dict:
-    findings, allowlist_errors = run_all()
-    blocking = [f for f in findings if not f.allowlisted]
+    blocking = run_all()
     by_check: Dict[str, int] = {}
     for f in blocking:
         by_check[f.check] = by_check.get(f.check, 0) + 1
-    return {"by_check": by_check, "allowlist_errors": allowlist_errors}
+    return {"by_check": by_check}
 
 
 def _self_test_mechanism_absent() -> Dict:

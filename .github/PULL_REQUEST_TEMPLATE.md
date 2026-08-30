@@ -35,10 +35,8 @@ than leaving them blank.
 
 - [ ] CI is green on this PR (both platforms; see `docs/CI.md` for exactly
       what each platform's job covers and what it deliberately does not).
-- [ ] If a gate had to be skipped, allowlisted, or excluded, it is named
-      explicitly here, with the file/line of the allowlist entry
-      (`scripts/gate_allowlist.txt` / `scripts/license_allowlist.txt`) and
-      its justification -- not left for the reviewer to discover.
+- [ ] No mandatory gate was skipped, bypassed, or weakened. The temporary
+      Law-10 debt ledger was not widened.
 
 ## Pillar 2 -- Semantic integrity (only for new/changed theorems)
 
