@@ -26,6 +26,16 @@ capability, eliminate it by streaming, or specify failure and recovery.  Keep pr
 from a resource enforced by emitted code.  A useful bound often supplies the induction measure:
 `UInt64` decimal length is at most 20 and determines formatter capacity, iterations, and work.
 
+## Iterate certificates, not evaluators
+
+For a bounded production loop, expose the mathematical bound, prove one pass, carry its invariant,
+and compose exact prefix and fuel certificates before discharging the platform wrapper.  Spike 2
+uses `Stdlib.Fmt.UInt64DecimalSchedule` for the one-to-twenty-digit schedule,
+`Gasm.Targets.X86_64.DecimalSchedule` for one-pass machine effects, and
+`Gasm.Targets.X86_64.EventfulSegment` for production-prefix composition; instruction semantics and
+artifact authority remain with their target owners.  Reducing the closed 50,000-step native run
+with `native_decide` instead caused pathological time and memory use while hiding this induction.
+
 ## Prove layers, then compose
 
 Separate logical transformation, physical representation, algorithmic progress, host interaction,
