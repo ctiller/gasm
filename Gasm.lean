@@ -72,6 +72,7 @@ import Gasm.Targets.X86_64.MacroAssembler.ControlPoints
 import Gasm.Targets.X86_64.CFGBridge
 import Gasm.Targets.X86_64.CFGLinker
 import Gasm.Targets.X86_64.EventfulSegment
+import Gasm.Targets.X86_64.SelectedLoopTermination
 import Gasm.Targets.X86_64.DecimalSegments
 import Gasm.Targets.X86_64.DecimalSchedule
 import Gasm.Targets.X86_64.DecimalMacro
