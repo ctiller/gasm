@@ -115,6 +115,15 @@ additional certificate families selected by reachable features and advertised gu
 unselected optional feature must contribute no key, while adding a reachable feature must extend the
 required set rather than weakening an existing proof.
 
+Native x86-64 profiles expose `NativeObservable`, derived from the explicit `NativeRunOutcome`,
+not a projected event list.  Their realized runtime carries a typed, caller-selected
+`NativeExecutionPolicy`, including its finite instruction fuel.  Thus a whole-program contract
+observes normal return, profile-approved process halt, machine fault, and fuel exhaustion
+distinctly without having to specify a machine-internal final state.  Fuel exhaustion is an
+explicit resource outcome rather than a hidden fixed 50,000-step target default or an inadmissible
+state; a program that selects a finite policy must specify the corresponding outcome or recovery
+behavior.  Profiles that do not select native execution incur no such obligation.
+
 The implemented spikes are the executable reference architecture for this rule, not disposable
 integration tests. The trust-repair milestone is not complete merely because each spike happens to
 construct a `VerifiedProgram`: every implemented spike must expose the same ownership-scoped

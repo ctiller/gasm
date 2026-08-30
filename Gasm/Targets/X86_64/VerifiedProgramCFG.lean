@@ -64,14 +64,16 @@ theorem machineState {Event : Type} (target : NativeX86_64Target Event) :
     Platform.State (P := PlatformOf target) = X86_64MachineState := by
   cases target <;> rfl
 
-/-- The closed targets use the x86-64 external-call interceptor directly. -/
+/-- The closed targets use a native runtime containing both the x86-64 host-call interceptor and
+    the caller-selected finite execution policy. -/
 theorem runtimeContext {Event : Type} (target : NativeX86_64Target Event) :
-    Platform.RuntimeContext (P := PlatformOf target) = ExternalCallInterceptor X86_64 Event := by
+    Platform.RuntimeContext (P := PlatformOf target) = NativeX86_64Runtime Event := by
   cases target <;> rfl
 
-/-- The closed targets expose exactly the native event list. -/
+/-- The closed targets expose a classification-preserving native observation, including explicit
+    fuel exhaustion and fault rather than an event-list projection. -/
 theorem observation {Event : Type} (target : NativeX86_64Target Event) :
-    Platform.Observation (P := PlatformOf target) = List Event := by
+    Platform.Observation (P := PlatformOf target) = NativeObservable Event := by
   cases target <;> rfl
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
@@ -86,12 +88,18 @@ def linkedText {Event : Type} (target : NativeX86_64Target Event) :
   | .windows => fun artifact =>
       { base := artifact.executable.load.rip, instructions := artifact.instructions }
 
-/-- The runtime interceptor consumed by the native semantics is exactly the
-    platform runtime context for either closed target. -/
+/-- The runtime interceptor consumed by native step semantics is extracted from the exact
+    platform runtime context.  Its selected execution policy remains in the context and is used
+    by the whole-program runner below. -/
 @[instance_reducible] def runtimeOf {Event : Type} (target : NativeX86_64Target Event)
     (runtime : Platform.RuntimeContext (P := PlatformOf target)) :
     ExternalCallInterceptor X86_64 Event :=
-  cast (runtimeContext target) runtime
+  (cast (runtimeContext target) runtime).interceptor
+
+/-- Extract the finite policy selected with the exact platform runtime context. -/
+def executionPolicyOf {Event : Type} (target : NativeX86_64Target Event)
+    (runtime : Platform.RuntimeContext (P := PlatformOf target)) : NativeExecutionPolicy :=
+  (cast (runtimeContext target) runtime).executionPolicy
 
 /-- The production instruction index is a projection of the exact artifact
     through the closed target extractor. -/
@@ -112,7 +120,8 @@ theorem runFromConnected {Event : Type} (target : NativeX86_64Target Event)
       cast (observation target).symm
         (letI : ExternalCallInterceptor X86_64 Event := runtimeOf target runtime
          (runProgramOutcomeWithLoops (Event := Event) state.rip
-           (linkedText target artifact).instructions 50000 state).events) := by
+           (linkedText target artifact).instructions
+           (executionPolicyOf target runtime).instructionFuel state).observable) := by
   cases target <;> rfl
 
 /-- Closed-target runtime derivation preserves the platform support predicate. -/
@@ -121,18 +130,15 @@ theorem runtimeOf_supports {Event : Type} (target : NativeX86_64Target Event)
     (artifact : Platform.Artifact (P := PlatformOf target))
     (provider : Platform.Provider (P := PlatformOf target))
     (supported : Platform.runtimeSupports runtime artifact provider) :
-    Platform.runtimeSupports
-      (cast (runtimeContext target).symm (runtimeOf target runtime)) artifact provider := by
-  simpa [runtimeOf] using supported
+    Platform.runtimeSupports runtime artifact provider := supported
 
 /-- Capability realization remains the one runtime used by the closed target. -/
 theorem runtimeOf_realize {Event : Type} (target : NativeX86_64Target Event)
     (capabilities : CapabilityComposition (PlatformOf target))
     (artifact : Platform.Artifact (P := PlatformOf target))
     (context : capabilities.root.Context) :
-    cast (runtimeContext target).symm
-      (runtimeOf target (capabilities.realize artifact context)) =
-      capabilities.realize artifact context := by
+    runtimeOf target (capabilities.realize artifact context) =
+      (cast (runtimeContext target) (capabilities.realize artifact context)).interceptor := by
   simp [runtimeOf]
 
 end NativeX86_64Target
@@ -235,14 +241,14 @@ theorem runtimeSupportsProvider
   capabilities.realizeSupports (program.entryContext environment) program.artifact provider
     selected (program.providersLinked provider selected)
 
-/-- Provider support survives transport to the exact interceptor consumed by
-    the CFG bridge. -/
+/-- Provider support is retained for the exact realized native runtime.  The CFG bridge extracts
+    only its interceptor for local steps; it does not manufacture a second runtime or policy. -/
 theorem operationalRuntimeSupportsProvider
     (certificate : VerifiedProgramCFGArtifactCertificate target program environment graph)
     (provider : Platform.Provider (P := NativeX86_64Target.PlatformOf target))
     (selected : provider ∈ capabilities.root.providers) :
     Platform.runtimeSupports
-      (cast (NativeX86_64Target.runtimeContext target).symm (runtime certificate))
+      (capabilities.realize program.artifact (program.entryContext environment))
       program.artifact provider :=
   NativeX86_64Target.runtimeOf_supports target
     (capabilities.realize program.artifact (program.entryContext environment))
@@ -250,11 +256,13 @@ theorem operationalRuntimeSupportsProvider
     (capabilities.realizeSupports (program.entryContext environment) program.artifact provider
       selected (program.providersLinked provider selected))
 
-/-- The runtime consumed by the bridge is the program's realized runtime. -/
+/-- The interceptor consumed by the bridge is the interceptor selected by the program's exact
+    realized native runtime. -/
 theorem operationalRuntimeIsRealized
     (certificate : VerifiedProgramCFGArtifactCertificate target program environment graph) :
-    cast (NativeX86_64Target.runtimeContext target).symm (runtime certificate) =
-      capabilities.realize program.artifact (program.entryContext environment) :=
+    runtime certificate =
+      (cast (NativeX86_64Target.runtimeContext target)
+        (capabilities.realize program.artifact (program.entryContext environment))).interceptor :=
   NativeX86_64Target.runtimeOf_realize target capabilities
     program.artifact (program.entryContext environment)
 
@@ -315,8 +323,10 @@ theorem runLoadedMachineExact
         (letI : ExternalCallInterceptor X86_64 Event := runtime certificate
          (runProgramOutcomeWithLoops (Event := Event)
            certificate.entryPoint.state.machine.rip
-           (NativeX86_64Target.linkedText target program.artifact).instructions 50000
-           certificate.entryPoint.state.machine).events) := by
+           (NativeX86_64Target.linkedText target program.artifact).instructions
+           (NativeX86_64Target.executionPolicyOf target
+             (capabilities.realize program.artifact (program.entryContext environment))).instructionFuel
+           certificate.entryPoint.state.machine).observable) := by
   rw [← certificate.entryLoadedState]
   exact NativeX86_64Target.runFromConnected target
     (capabilities.realize program.artifact (program.entryContext environment))

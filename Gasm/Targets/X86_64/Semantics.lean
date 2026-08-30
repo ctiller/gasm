@@ -157,14 +157,38 @@ def events : NativeRunOutcome Event → List Event
   | .returned _ emitted | .halted _ emitted | .faulted _ emitted |
       .fuelExhausted _ emitted => emitted
 
-/-- Profile-sensitive native admissibility.  `allowHalted` is true only for profiles whose
-    operational exit convention deliberately uses `X86_64Fault.halted`. -/
+/-- Profile-sensitive native machine safety.  `allowHalted` is true only for profiles whose
+    operational exit convention deliberately uses `X86_64Fault.halted`.
+
+    Fuel exhaustion is deliberately *not* a machine-safety failure: it is the explicit outcome
+    of the finite execution policy selected by a caller.  A whole-program contract must still
+    state what that outcome means (for example, resource recovery or cancellation), but cannot
+    erase it merely by making the platform predicate false. -/
 def isAdmissible (allowHalted : Bool) : NativeRunOutcome Event → Prop
   | .returned _ _ => True
   | .halted _ _ => allowHalted = true
-  | .faulted _ _ | .fuelExhausted _ _ => False
+  | .faulted _ _ => False
+  | .fuelExhausted _ _ => True
 
 end NativeRunOutcome
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The caller-visible native outcome.  It erases machine-internal final state only after
+    retaining every stop classification and its event prefix; in particular, a partial trace from
+    fuel exhaustion or a fault cannot be confused with a successful return. -/
+inductive NativeObservable (Event : Type) where
+  | returned (events : List Event) : NativeObservable Event
+  | halted (events : List Event) : NativeObservable Event
+  | faulted (events : List Event) : NativeObservable Event
+  | fuelExhausted (events : List Event) : NativeObservable Event
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Externally observes an explicit native run without projecting away why it stopped. -/
+def NativeRunOutcome.observable : NativeRunOutcome Event → NativeObservable Event
+  | .returned _ emitted => .returned emitted
+  | .halted _ emitted => .halted emitted
+  | .faulted _ emitted => .faulted emitted
+  | .fuelExhausted _ emitted => .fuelExhausted emitted
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- One production native transition, including selected host interception and event accumulation. -/
