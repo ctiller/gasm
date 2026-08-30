@@ -239,6 +239,30 @@ derives the existing `TypedControlFlowGraph` fields (`entryInGraph`, `uniqueIds`
 `Builder.sum` / `Builder.finAppend` compose independent scopes with proved collision-free `Sum` and
 `Fin` injections. Byte layout remains entirely deferred to the linker and operational realization.
 
+### Instruction-relative authoring
+
+`Gasm.Targets.X86_64.MacroAssembler.ControlPoints` supports requests such as “back K instructions”
+without making the numeric offset proof authority. A `ControlPointRef` has a scoped nominal ID and
+retains an exact `BlockRef`; `PointAt` additionally contains a structural
+`code = before ++ after` split, a nonempty suffix proving the point precedes the current boundary,
+and exact membership of its target definition in the existing acyclic builder. `Scope` makes point
+IDs and distances unique. `markThenAppend` is the normal smart constructor: it marks the current
+boundary with an already-interned block and then appends a nonempty instruction suffix.
+
+`resolveBack` is fallible. Zero is rejected as the current boundary, and an instruction distance
+without a typed mark is rejected instead of being treated as permission to enter a block interior.
+A successful result carries the nominal point, exact structural split, and interned destination;
+`ResolvedBack.jmp` and `.jcc` then desugar directly to the existing `DirectTerminator` constructors
+and their typed edges. A fresh current block ID is proved distinct from every resolved target, so
+this acyclic slice cannot create a self loop. Forward references and genuine local loop backs remain
+deferred to a finite recursive/fixpoint builder.
+
+`Scope.mapIds` and `Scope.sum` transport whole scopes through injective or collision-free `Sum`
+embeddings while structurally adjusting instruction splits. Once relative syntax is resolved, the
+numeric distance is discarded: later insertion, component composition, and relayout preserve the
+symbolic block/control-point identity and regenerate only layout/relocation evidence. This module
+adds no linker, execution, artifact, or `VerifiedProgram` authority.
+
 Recursive and mutually recursive components remain a later finite fixpoint-builder extension over
 the same nominal IDs. CALL/indirect forms remain unselected and therefore add no obligations in
 this slice. When added, CALL must carry return-continuation, ABI, obligation-transfer, and
