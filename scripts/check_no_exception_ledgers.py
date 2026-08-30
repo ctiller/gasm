@@ -35,6 +35,25 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RATCHET_PATH = Path(__file__).relative_to(REPO_ROOT).as_posix()
 TEMPORARY_LEDGER = "scripts/gate_allowlist.txt"
 MAX_TEMPORARY_GATE_ENTRIES = 17
+HISTORICAL_GATE_KEYS = {
+    "Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3_canonical_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Windows.spike3_canonical_effect_trace_equivalence_inst",
+    "Spikes/Spike2Fibonacci/Windows/Equivalence.lean::spike2VerifiedProgram::Spikes.Spike2Fibonacci.Windows.spike2VerifiedProgram",
+    "Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3VerifiedProgram::Spikes.Spike3SortLines.Windows.spike3VerifiedProgram",
+    "Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3_effect_trace_equivalence_for_canonical_stdin::Spikes.Spike3SortLines.Windows.spike3_effect_trace_equivalence_for_canonical_stdin",
+    "Spikes/Spike2Fibonacci/Windows/Emit.lean::main::main",
+    "Spikes/Spike3SortLines/Windows/Emit.lean::main::main",
+    "Spikes/Spike3SortLines/Windows/Test.lean::runTests::Spikes.Spike3SortLines.Windows.runTests",
+    "Spikes/Spike3SortLines/Windows/Test.lean::main::main",
+    "Spikes/Spike2Fibonacci/Linux/Emit.lean::main::main",
+    "Spikes/Spike2Fibonacci/Linux/Equivalence.lean::spike2VerifiedProgram::Spikes.Spike2Fibonacci.Linux.spike2VerifiedProgram",
+    "Spikes/Spike3SortLines/Linux/Emit.lean::main::main",
+    "Spikes/Spike3SortLines/Linux/Equivalence.lean::spike3VerifiedProgram::Spikes.Spike3SortLines.Linux.spike3VerifiedProgram",
+    "Spikes/Spike3SortLines/Linux/Equivalence.lean::spike3_canonical_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Linux.spike3_canonical_effect_trace_equivalence_inst",
+    "Spikes/Spike3SortLines/Linux/Equivalence.lean::spike3_empty_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Linux.spike3_empty_effect_trace_equivalence_inst",
+    "Spikes/Spike3SortLines/Linux/Test.lean::main::main",
+    "Spikes/Spike3SortLines/Linux/Test.lean::runTests::Spikes.Spike3SortLines.Linux.runTests",
+    "Spikes/Spike2Fibonacci/Linux/Test.lean::main::main",
+}
 TEMPORARY_PARSER_FILES = {
     "scripts/check_gates.py",
     "Tools/CheckGatesAxioms.lean",
@@ -128,27 +147,53 @@ def live_temporary_entries() -> int:
     return count_live_entries(path.read_text(encoding="utf-8"))
 
 
+def temporary_keys(text: str) -> set[str]:
+    keys = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split("::")
+        if len(parts) >= 3:
+            keys.add("::".join(part.strip() for part in parts[:3]))
+    return keys
+
+
+def unexpected_temporary_keys(keys: set[str]) -> list[str]:
+    return sorted(keys - HISTORICAL_GATE_KEYS)
+
+
+def live_unexpected_temporary_keys() -> list[str]:
+    path = REPO_ROOT / TEMPORARY_LEDGER
+    if not path.is_file():
+        return []
+    return unexpected_temporary_keys(temporary_keys(path.read_text(encoding="utf-8")))
+
+
 def temporary_debt_exceeded(count: int) -> bool:
     return count > MAX_TEMPORARY_GATE_ENTRIES
 
 
 def has_failures(
-    bad_paths: list[str], parser_leak_list: list[str], bad_references: list[str], live_entries: int
+    bad_paths: list[str], parser_leak_list: list[str], bad_references: list[str],
+    unexpected_keys: list[str], live_entries: int
 ) -> bool:
     return bool(
         bad_paths
         or parser_leak_list
         or bad_references
+        or unexpected_keys
         or temporary_debt_exceeded(live_entries)
     )
 
 
-def run_check(paths: Iterable[str] | None = None) -> tuple[list[str], list[str], list[str], int]:
+def run_check(paths: Iterable[str] | None = None) -> tuple[list[str], list[str], list[str], list[str], int]:
     selected = list(paths) if paths is not None else tracked_files()
     return (
         forbidden_ledger_paths(selected),
         parser_leaks(selected),
         forbidden_ledger_references(selected),
+        live_unexpected_temporary_keys(),
         live_temporary_entries(),
     )
 
@@ -174,14 +219,20 @@ def self_test() -> int:
     boundary_is_accepted = not temporary_debt_exceeded(MAX_TEMPORARY_GATE_ENTRIES)
     ceiling_rejects_growth = temporary_debt_exceeded(MAX_TEMPORARY_GATE_ENTRIES + 1)
     aggregate_rejects_each_kind = all([
-        has_failures(["path"], [], [], 0),
-        has_failures([], ["parser"], [], 0),
-        has_failures([], [], ["reference"], 0),
-        has_failures([], [], [], MAX_TEMPORARY_GATE_ENTRIES + 1),
+        has_failures(["path"], [], [], [], 0),
+        has_failures([], ["parser"], [], [], 0),
+        has_failures([], [], ["reference"], [], 0),
+        has_failures([], [], [], ["new-key"], 0),
+        has_failures([], [], [], [], MAX_TEMPORARY_GATE_ENTRIES + 1),
     ])
     aggregate_accepts_clean_boundary = not has_failures(
-        [], [], [], MAX_TEMPORARY_GATE_ENTRIES
+        [], [], [], [], MAX_TEMPORARY_GATE_ENTRIES
     )
+    sample_key = next(iter(HISTORICAL_GATE_KEYS))
+    identity_accepts_historical = unexpected_temporary_keys({sample_key}) == []
+    identity_rejects_replacement = unexpected_temporary_keys({"Gasm/New.lean::proof::Gasm.New.proof"}) == [
+        "Gasm/New.lean::proof::Gasm.New.proof"
+    ]
     passed = (
         bad_paths == ["scripts/new_allowlist.txt", "scripts/waiver_ledger.toml"]
         and bad_references == [f"{reference_probe}: scripts/new_allowlist.txt"]
@@ -190,8 +241,10 @@ def self_test() -> int:
         and ceiling_rejects_growth
         and aggregate_rejects_each_kind
         and aggregate_accepts_clean_boundary
+        and identity_accepts_historical
+        and identity_rejects_replacement
     )
-    print(f"synthetic path/reference/parser/ceiling rejection: {'PASS' if passed else 'FAIL'}")
+    print(f"synthetic path/reference/parser/identity/ceiling rejection: {'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1
 
 
@@ -202,8 +255,8 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
-    bad_paths, leaks, bad_references, live_entries = run_check()
-    failed = has_failures(bad_paths, leaks, bad_references, live_entries)
+    bad_paths, leaks, bad_references, unexpected_keys, live_entries = run_check()
+    failed = has_failures(bad_paths, leaks, bad_references, unexpected_keys, live_entries)
     print("=" * 72)
     print(" Exception-ledger removal ratchet")
     print("=" * 72)
@@ -213,6 +266,8 @@ def main() -> int:
         print(f"[!] exception parser outside temporary Law-10 tools: {leak}")
     for leak in bad_references:
         print(f"[!] retired exception ledger is still advertised: {leak}")
+    for key in unexpected_keys:
+        print(f"[!] new Law-10 debt identity is forbidden: {key}")
     if temporary_debt_exceeded(live_entries):
         print(f"[!] temporary Law-10 debt grew: {live_entries} > {MAX_TEMPORARY_GATE_ENTRIES}")
     else:
