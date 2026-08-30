@@ -143,6 +143,7 @@ def spike1LinuxBehaviorCertificate :
         environment.incomingRequests)).observable =
       .halted (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
     rw [spike1_outcome_external_input_frame]
+    simp only [NativeRunOutcome.withExternalInputs_observable]
     exact spike1_canonical_observable
 
 /-- Sole universal whole-program contract for Spike 1 (Linux Hello World). -/
