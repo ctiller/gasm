@@ -82,4 +82,67 @@ theorem evalWasmFallibleMallocZeroHeaderEpilogue_returns_null (memory : WasmMemo
       .ok ([.i32 0], memory, false) := by
   rfl
 
+/-- The stale-header counterexample state used to execute the complete emitted allocator.
+    Local 25 deliberately starts at a nonzero would-be allocation header. -/
+private def staleHeaderOverflowStart (memory : WasmMemory) : WasmMachineState :=
+  { stack := [.i32 0xFFFFFFF9],
+    locals := (List.replicate 28 (.i32 0)).set 25 (.i32 0x100),
+    memory := memory }
+
+/-- The exact state after the real allocator initialization has aligned and rejected the raw
+    request, but before it dispatches the alignment guard. -/
+private def staleHeaderOverflowPrepared (memory : WasmMemory) : WasmMachineState :=
+  { locals := (List.replicate 28 (.i32 0)).set 23 (.i32 0xFFFFFFF9), memory := memory }
+
+private def noHostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal :=
+  fun _ state => (state, .next)
+
+/-- The nine real initialization instructions consume their exact outer interpreter budget and
+    clear the stale header without touching memory.  `rest` remains arbitrary so this lemma can
+    be composed with the actual guard, allocator body, and epilogue. -/
+private theorem staleHeaderOverflow_initialization_with_rest
+    (rest : List WasmInstr) (memory : WasmMemory) :
+    evalInstrs 24
+      (emitSmolMallocWasmFallibleInitialization 23 24 25 ++ rest)
+      (staleHeaderOverflowStart memory) noHostCall =
+    evalInstrs 15 rest (staleHeaderOverflowPrepared memory) noHostCall := by
+  rfl
+
+/-- The real alignment guard sees `0 < 0xfffffff9`, takes its empty rejecting branch, and hence
+    cannot evaluate its arbitrary accepted allocator continuation. -/
+private theorem staleHeaderOverflow_guard_with_rest
+    (accepted rest : List WasmInstr) (memory : WasmMemory) :
+    evalInstrs 15 (emitWasmAlignmentNoWrapGuard 23 24 accepted ++ rest)
+      (staleHeaderOverflowPrepared memory) noHostCall =
+    evalInstrs 11 rest (staleHeaderOverflowPrepared memory) noHostCall := by
+  rfl
+
+private def staleHeaderOverflowNullResult (memory : WasmMemory) : WasmMachineState :=
+  { stack := [.i32 0],
+    locals := (List.replicate 28 (.i32 0)).set 23 (.i32 0xFFFFFFF9),
+    memory := memory }
+
+/-- The shared real epilogue converts the initialized zero header into null, while preserving an
+    arbitrary continuation and leaving memory untouched. -/
+private theorem staleHeaderOverflow_epilogue_with_rest
+    (rest : List WasmInstr) (memory : WasmMemory) :
+    evalInstrs 11 (emitSmolMallocWasmFallibleEpilogue 25 ++ rest)
+      (staleHeaderOverflowPrepared memory) noHostCall =
+    evalInstrs 7 rest (staleHeaderOverflowNullResult memory) noHostCall := by
+  rfl
+
+/-- Full emitted allocator evaluation at the raw-alignment overflow boundary.  Starting from a
+    stale nonzero header, the production instruction list rejects before the real free-list and
+    fresh-bump continuation, returns null, does not trap, and leaves all memory unchanged. -/
+theorem evalWasmFallibleMallocStaleHeaderOverflow_full
+    (memory : WasmMemory) :
+    evalInstrs 24 (emitSmolMallocWasmFallible 23 24 25 26 27)
+      (staleHeaderOverflowStart memory) noHostCall =
+    .ok (staleHeaderOverflowNullResult memory, .next) := by
+  rw [emitSmolMallocWasmFallible_decomposes]
+  rw [List.append_assoc]
+  rw [staleHeaderOverflow_initialization_with_rest]
+  rw [staleHeaderOverflow_guard_with_rest]
+  exact (staleHeaderOverflow_epilogue_with_rest [] memory).trans (by rfl)
+
 end Stdlib.SmolAlloc
