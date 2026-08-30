@@ -244,6 +244,63 @@ private theorem spike2_extraction_div_fallthrough (state : X86_64MachineState)
     · rename_i hfits
       simp [hnonzero, hfits, core]
 
+/- The program-owned link witness turns each non-branch successor into its exact Spike 2 text
+coordinate.  This is deliberately local to the decimal authority proof: it does not turn RIP
+placement into a dispatcher policy. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_extraction_reached_addresses (initial : X86_64MachineState)
+    (entry : initial.rip = spike2ExtractionAddress .clearHigh)
+    (safe : ExtractionExecutionSafety 236 initial) :
+    (extractionStates initial).1.rip = spike2ExtractionAddress .divide ∧
+    (extractionStates initial).2.1.rip = spike2ExtractionAddress .ascii ∧
+    (extractionStates initial).2.2.1.rip = spike2ExtractionAddress .push ∧
+    (extractionStates initial).2.2.2.1.rip = spike2ExtractionAddress .increment ∧
+    (extractionStates initial).2.2.2.2.1.rip = spike2ExtractionAddress .compare ∧
+    (extractionStates initial).2.2.2.2.2.rip = spike2ExtractionAddress .branch := by
+  have h1 : (extractionStates initial).1.rip = spike2ExtractionAddress .divide := by
+    rw [show (extractionStates initial).1.rip = initial.rip + 2 by rfl, entry]
+    decide
+  have h2 : (extractionStates initial).2.1.rip = spike2ExtractionAddress .ascii := by
+    have divSafe : (X86_64Instruction.step (div_r64 .r10) (extractionStates initial).1).fault = none :=
+      safe.divSafe
+    rw [show (extractionStates initial).2.1.rip =
+      (X86_64Instruction.step (div_r64 .r10) (extractionStates initial).1).rip by rfl,
+      spike2_extraction_div_fallthrough _ divSafe, h1]
+    decide
+  have h3 : (extractionStates initial).2.2.1.rip = spike2ExtractionAddress .push := by
+    rw [show (extractionStates initial).2.2.1.rip =
+      (extractionStates initial).2.1.rip + 4 by rfl, h2]
+    decide
+  have h4 : (extractionStates initial).2.2.2.1.rip = spike2ExtractionAddress .increment := by
+    rw [show (extractionStates initial).2.2.2.1.rip =
+      (extractionStates initial).2.2.1.rip + 1 by rfl, h3]
+    decide
+  have h5 : (extractionStates initial).2.2.2.2.1.rip = spike2ExtractionAddress .compare := by
+    rw [show (extractionStates initial).2.2.2.2.1.rip =
+      (extractionStates initial).2.2.2.1.rip + 4 by rfl, h4]
+    decide
+  have h6 : (extractionStates initial).2.2.2.2.2.rip = spike2ExtractionAddress .branch := by
+    rw [show (extractionStates initial).2.2.2.2.2.rip =
+      (extractionStates initial).2.2.2.2.1.rip + 4 by rfl, h5]
+    decide
+  exact ⟨h1, h2, h3, h4, h5, h6⟩
+
+/- A reached state with unchanged memory inherits exactly the one named text observation that
+belongs to its concrete RIP.  The separate RIP and memory equalities prevent this helper from
+being an address-only dispatcher shortcut. -/
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+private theorem spike2_ordinary_from_initial_memory (initial state : X86_64MachineState)
+    (address : UInt64) (rip : state.rip = address) (memory : state.memory = initial.memory)
+    (notLinux : address ≠ Gasm.Targets.X86_64.Instructions.linuxSyscallEntry)
+    (notIat : initial.read64 address ≠ address) : Spike2OrdinaryCode state := by
+  constructor
+  · rw [rip]
+    exact notLinux
+  · rw [rip]
+    change X86_64Mem.read .w64 address state.memory ≠ address
+    rw [memory]
+    exact notIat
+
 /-- The DIV successor is still ordinary Linux code: its read64 observation is the original
 ASCII instruction observation, proved via the concrete no-memory-write theorem. -/
 /- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
@@ -268,5 +325,20 @@ private theorem spike2_extraction_div_ordinary (initial : X86_64MachineState)
       (extractionStates initial).2.1.memory ≠ spike2ExtractionAddress .ascii
     rw [extractionAfterDiv_preservesMemory initial]
     exact authority.extractAscii
+
+/-- The ASCII-add successor reaches PUSH with the unchanged concrete Linux text observation. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_extraction_ascii_ordinary (initial : X86_64MachineState)
+    (entry : initial.rip = spike2ExtractionAddress .clearHigh)
+    (authority : Spike2DecimalTextAuthority initial)
+    (safe : ExtractionExecutionSafety 236 initial) :
+    Spike2OrdinaryCode (extractionStates initial).2.2.1 := by
+  obtain ⟨_, _, rip, _, _, _⟩ := spike2_extraction_reached_addresses initial entry safe
+  apply spike2_ordinary_from_initial_memory initial _ (spike2ExtractionAddress .push) rip
+  · rw [show (extractionStates initial).2.2.1.memory =
+      (extractionStates initial).2.1.memory by rfl]
+    exact extractionAfterDiv_preservesMemory initial
+  · decide
+  · exact authority.extractPush
 
 end Spikes.Spike2Fibonacci.Linux
