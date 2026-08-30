@@ -67,7 +67,6 @@ structure Graph (EventId : Type u) (Location : Type v) (Value : Type w)
 namespace Graph
 
 variable {EventId : Type u} {Location : Type v} {Value : Type w} {AtomicObject : Type x}
-variable [DecidableEq EventId] [DecidableEq Location]
 variable {g : Graph EventId Location Value AtomicObject}
 
 /- REF: docs/MEMORY_MODEL.md#4-common-dynamic-memory-event-vocabulary -/
@@ -158,11 +157,12 @@ theorem WellFormed.not_co_to_initial (h : g.WellFormed) {w init : EventId} {loc 
     (hi : g.initialAt init loc) : ¬ g.co w init loc := by
   intro hco
   have hw := (h.co_classes hco).1
-  by_cases heq : init = w
-  · subst w
+  have hne : init ≠ w := by
+    intro heq
+    subst w
     exact h.co_irrefl init loc hco
-  · have hfirst := h.initial_first hi hw heq
-    exact h.co_irrefl w loc (h.co_trans hco hfirst)
+  have hfirst := h.initial_first hi hw hne
+  exact h.co_irrefl w loc (h.co_trans hco hfirst)
 
 /- REF: docs/MEMORY_MODEL.md#4-common-dynamic-memory-event-vocabulary -/
 /-- Expands a derived `fr` edge to its reads-from and coherence witnesses. -/

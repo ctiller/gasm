@@ -33,6 +33,7 @@ import Gasm.Core.Verification
 import Gasm.Proof.LocalExecution
 
 import Gasm.MemoryModel.CpuGraph
+import Gasm.MemoryModel.CpuGraphPremiseControls
 import Gasm.MemoryModel.ProgramOrder
 import Gasm.MemoryModel.ProgramOrderPremiseControls
 import Gasm.MemoryModel.FiniteSearch
