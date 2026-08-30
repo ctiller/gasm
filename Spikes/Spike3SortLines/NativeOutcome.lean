@@ -53,6 +53,13 @@ def runSpike3WindowsWithGrant (grant : Spike3NativeArenaGrant) (stdin : ByteArra
 def emittedSpike3ResourceFailure (outcome : NativeRunOutcome AnyEvent) : Bool :=
   (outcome.events).contains (AnyEvent.of (ProcessEvent.exit spike3ResourceFailureExitCode))
 
+/-- The resource-exhaustion contract is stated over the unprojected native outcome, leaving room
+    for a caller to demand cleanup/reclamation facts about the exact final machine state before it
+    observes the process result. -/
+def spike3ResourceFailurePostcondition (post : X86_64MachineState → Prop) :
+    NativeRunOutcome AnyEvent → Prop :=
+  NativeRunOutcome.processExitPostcondition spike3ResourceFailureExitCode post
+
 /-- The intentionally insufficient capability used to exercise the genuine native failure path. -/
 def noNativeArenaGrant : Spike3NativeArenaGrant := ⟨0⟩
 
@@ -77,21 +84,34 @@ theorem linux_rejected_reservation_is_exact (_stdin : ByteArray) (state : X86_64
     spike3LinuxMmapHook_rejection_is_raw_errno _ _ h,
     spike3LinuxMmapHook_rejection_preserves_memory _ _ h⟩
 
-/-- The selected Linux `sys_exit` runtime produces the exact halted resource outcome and leaves
+/-- The selected Linux `sys_exit` runtime produces the exact typed process-exit resource outcome and leaves
     memory intact after the raw-errno branch has selected `resource_exhausted`. -/
 theorem linux_resource_exit_is_exact (state : X86_64MachineState)
     (hcode : (state.gprs .rdi).toUInt32 = spike3ResourceFailureExitCode) :
-    (Gasm.Targets.Linux.sysExitHook (Event := AnyEvent) state).1.fault = some .halted ∧
+    (Gasm.Targets.Linux.sysExitHook (Event := AnyEvent) state).1.fault =
+      some (.processExit spike3ResourceFailureExitCode) ∧
       (Gasm.Targets.Linux.sysExitHook (Event := AnyEvent) state).1.memory = state.memory ∧
       (Gasm.Targets.Linux.sysExitHook (Event := AnyEvent) state).2 =
         some (Inject.inject (ProcessEvent.exit spike3ResourceFailureExitCode)) := by
   simp [Gasm.Targets.Linux.sysExitHook, hcode]
 
-/-- The selected Win32 `ExitProcess` runtime produces the exact halted resource outcome and does
+/-- The Linux insufficient-arena path can discharge a caller-selected cleanup postcondition while
+    the full terminal state is still present; only after this proof may it be observed as an exit. -/
+theorem linux_resource_exit_has_memory_recovery_postcondition (state : X86_64MachineState)
+    (hcode : (state.gprs .rdi).toUInt32 = spike3ResourceFailureExitCode) :
+    spike3ResourceFailurePostcondition (fun final => final.memory = state.memory)
+      (.terminated (.processExit spike3ResourceFailureExitCode)
+        (Gasm.Targets.Linux.sysExitHook (Event := AnyEvent) state).1
+        ((Gasm.Targets.Linux.sysExitHook (Event := AnyEvent) state).2.toList)) := by
+  simp [spike3ResourceFailurePostcondition, NativeRunOutcome.processExitPostcondition,
+    Gasm.Targets.Linux.sysExitHook, hcode]
+
+/-- The selected Win32 `ExitProcess` runtime produces the exact typed process-exit resource outcome and does
     not alter memory.  This is separate from the Linux raw-errno convention. -/
 theorem windows_resource_exit_is_exact (state : X86_64MachineState)
     (hcode : (state.gprs .rcx).toUInt32 = spike3ResourceFailureExitCode) :
-    (spike3ExitProcessHook (Event := AnyEvent) state).1.fault = some .halted ∧
+    (spike3ExitProcessHook (Event := AnyEvent) state).1.fault =
+      some (.processExit spike3ResourceFailureExitCode) ∧
       (spike3ExitProcessHook (Event := AnyEvent) state).1.memory = state.memory ∧
       (spike3ExitProcessHook (Event := AnyEvent) state).2 =
         some (Inject.inject (ProcessEvent.exit spike3ResourceFailureExitCode)) := by

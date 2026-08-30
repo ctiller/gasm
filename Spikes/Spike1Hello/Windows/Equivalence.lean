@@ -56,42 +56,40 @@ theorem spike1_canonical_effect_trace_equivalence :
   decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Spike 1 selects an explicit finite native execution policy rather than inheriting a target
-    runner default. -/
-def spike1WindowsExecutionPolicy : NativeExecutionPolicy :=
-  { instructionFuel := 50000 }
+/-- Spike 1 supplies an explicit evaluator proof bound rather than inheriting a target default. -/
+def spike1WindowsProofBudget : NativeProofBudget :=
+  { evaluatorFuel := 50000 }
 
 /-- The concrete Spike 1 execution reaches only input-independent host boundaries and returns
     cleanly within the platform budget. -/
 theorem spike1_selected_termination :
     selectedExecutionTerminates (Event := AnyEvent) false selectedNonInputWin32Call
       (indexInstructions spike1Executable.load.rip spike1Instructions)
-      spike1WindowsExecutionPolicy.instructionFuel
+      spike1WindowsProofBudget.evaluatorFuel
       spike1Executable.load = true := by
   decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- The canonical finite execution reaches the ordinary end-of-text return outcome after the
-    `ExitProcess` host event.  The terminal classification remains part of the proof contract. -/
+/-- The canonical finite execution reaches Win32's typed `ExitProcess` outcome. -/
 theorem spike1_canonical_observable :
     (@runProgramOutcomeWithLoops AnyEvent (standardWindowsRuntime AnyEvent)
-      spike1Executable.load.rip spike1Instructions spike1WindowsExecutionPolicy.instructionFuel
+      spike1Executable.load.rip spike1Instructions spike1WindowsProofBudget.evaluatorFuel
       spike1Executable.load).observable =
-      .returned (runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit)) := by
+      .processExited 0 (runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit)) := by
   decide
 
 def spike1TerminationCertificate :
     SelectedTerminationCertificate (Event := AnyEvent) false selectedNonInputWin32Call
       spike1Executable.load.rip spike1Instructions spike1Executable.load where
-  fuel := spike1WindowsExecutionPolicy.instructionFuel
+  fuel := spike1WindowsProofBudget.evaluatorFuel
   verifies := spike1_selected_termination
 
 theorem spike1_outcome_external_input_frame (environment : Environment) :
     runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
-        spike1Instructions spike1WindowsExecutionPolicy.instructionFuel
+        spike1Instructions spike1WindowsProofBudget.evaluatorFuel
         (spike1Executable.load.withExternalInputs environment.stdin environment.incomingRequests) =
       (runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
-        spike1Instructions spike1WindowsExecutionPolicy.instructionFuel spike1Executable.load).withExternalInputs
+        spike1Instructions spike1WindowsProofBudget.evaluatorFuel spike1Executable.load).withExternalInputs
           environment.stdin environment.incomingRequests := by
   exact spike1TerminationCertificate.externalInputFrame
     (fun instr _ => instruction_preserves_external_input_frame instr)
@@ -118,7 +116,7 @@ def spike1WindowsArtifactCertificate :
 
 def spike1WindowsProviderCertificate :
     ProgramProviderCertificate (WindowsX86_64 AnyEvent)
-      (standardWindowsHostCapabilities AnyEvent spike1WindowsExecutionPolicy) spike1WindowsArtifact where
+      (standardWindowsHostCapabilities AnyEvent spike1WindowsProofBudget) spike1WindowsArtifact where
   importsCovered := by
     intro imported himported
     change imported ∈ [GetStdHandleDef, ReadFileDef, WriteFileDef, ExitProcessDef,
@@ -152,19 +150,19 @@ def spike1WindowsProviderCertificate :
 
 def spike1WindowsEntryCertificate :
     ProgramEntryCertificate (WindowsX86_64 AnyEvent)
-      (standardWindowsHostCapabilities AnyEvent spike1WindowsExecutionPolicy) spike1WindowsArtifact where
+      (standardWindowsHostCapabilities AnyEvent spike1WindowsProofBudget) spike1WindowsArtifact where
   entryContext := fun _ => ()
   entryEstablished := by intro; trivial
 
 def spike1WindowsAdmissibilityCertificate :
     ProgramAdmissibilityCertificate (WindowsX86_64 AnyEvent)
-      (standardWindowsHostCapabilities AnyEvent spike1WindowsExecutionPolicy) spike1WindowsArtifact
+      (standardWindowsHostCapabilities AnyEvent spike1WindowsProofBudget) spike1WindowsArtifact
       spike1WindowsEntryCertificate where
   platformAdmissible := by
     intro environment
     change (@runProgramOutcomeWithLoops AnyEvent (standardWindowsRuntime AnyEvent)
       spike1Executable.load.rip
-      spike1Instructions spike1WindowsExecutionPolicy.instructionFuel
+      spike1Instructions spike1WindowsProofBudget.evaluatorFuel
       (spike1Executable.load.withExternalInputs environment.stdin
         environment.incomingRequests)).isAdmissible false
     rw [spike1_outcome_external_input_frame]
@@ -173,17 +171,17 @@ def spike1WindowsAdmissibilityCertificate :
 
 def spike1WindowsBehaviorCertificate :
     ProgramBehaviorCertificate (WindowsX86_64 AnyEvent)
-      (standardWindowsHostCapabilities AnyEvent spike1WindowsExecutionPolicy) spike1WindowsArtifact
+      (standardWindowsHostCapabilities AnyEvent spike1WindowsProofBudget) spike1WindowsArtifact
       spike1WindowsEntryCertificate where
-  spec := fun _ => .returned (runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit))
+  spec := fun _ => .processExited 0 (runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit))
   traceEquivalence := by
     intro environment
     change (@runProgramOutcomeWithLoops AnyEvent (standardWindowsRuntime AnyEvent)
       spike1Executable.load.rip
-      spike1Instructions spike1WindowsExecutionPolicy.instructionFuel
+      spike1Instructions spike1WindowsProofBudget.evaluatorFuel
       (spike1Executable.load.withExternalInputs environment.stdin
         environment.incomingRequests)).observable =
-      .returned (runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit))
+      .processExited 0 (runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit))
     rw [spike1_outcome_external_input_frame]
     simp only [NativeRunOutcome.withExternalInputs_observable]
     exact spike1_canonical_observable
@@ -191,7 +189,7 @@ def spike1WindowsBehaviorCertificate :
 /-- Sole universal whole-program contract for Spike 1 (Windows Hello World). -/
 def spike1VerifiedProgram :
     VerifiedProgram (WindowsX86_64 AnyEvent)
-      (standardWindowsHostCapabilities AnyEvent spike1WindowsExecutionPolicy) :=
+      (standardWindowsHostCapabilities AnyEvent spike1WindowsProofBudget) :=
   VerifiedProgram.compose "Spike 1: Windows Hello World"
     spike1WindowsArtifactCertificate spike1WindowsProviderCertificate
     spike1WindowsEntryCertificate spike1WindowsAdmissibilityCertificate

@@ -102,10 +102,10 @@ def sysWriteHook {Event : Type} [Inject ConsoleEvent Event] [Inject NetEvent Eve
     (s', none)
 
 /- REF: docs/TARGETS/LINUX.md#23-semantic-syscall-interception -/
-/-- Linux sys_exit hook: extracts exit code from RDI, halts machine state, and emits ProcessEvent. -/
+/-- Linux `sys_exit` ends the selected process with its typed exit code.  It is not x86 HLT. -/
 def sysExitHook {Event : Type} [Inject ProcessEvent Event] (s : X86_64MachineState) : X86_64MachineState × Option Event :=
   let exitCode := (s.gprs .rdi).toUInt32
-  let s' := { s with rip := 0, fault := some .halted }
+  let s' := { s with rip := 0, fault := some (.processExit exitCode) }
   (s', some (Inject.inject (ProcessEvent.exit exitCode)))
 
 /- REF: docs/TARGETS/LINUX.md#23-semantic-syscall-interception -/

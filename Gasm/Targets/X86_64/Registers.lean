@@ -67,6 +67,9 @@ inductive X86_64Fault where
   | divideError
   | memFault (kind : MemAccessKind) (width : MemWidth) (addr : Address)
   | halted
+  /-- A selected host process termination marker.  This stops the machine loop but is classified
+      as `NativeTerminalCause.processExit`, never as a CPU fault or architectural HLT. -/
+  | processExit (code : UInt32)
   deriving DecidableEq, Repr, Inhabited
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/

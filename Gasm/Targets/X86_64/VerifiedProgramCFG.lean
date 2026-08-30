@@ -97,9 +97,9 @@ def linkedText {Event : Type} (target : NativeX86_64Target Event) :
   (cast (runtimeContext target) runtime).interceptor
 
 /-- Extract the finite policy selected with the exact platform runtime context. -/
-def executionPolicyOf {Event : Type} (target : NativeX86_64Target Event)
-    (runtime : Platform.RuntimeContext (P := PlatformOf target)) : NativeExecutionPolicy :=
-  (cast (runtimeContext target) runtime).executionPolicy
+def proofBudgetOf {Event : Type} (target : NativeX86_64Target Event)
+    (runtime : Platform.RuntimeContext (P := PlatformOf target)) : NativeProofBudget :=
+  (cast (runtimeContext target) runtime).proofBudget
 
 /-- The production instruction index is a projection of the exact artifact
     through the closed target extractor. -/
@@ -121,7 +121,7 @@ theorem runFromConnected {Event : Type} (target : NativeX86_64Target Event)
         (letI : ExternalCallInterceptor X86_64 Event := runtimeOf target runtime
          (runProgramOutcomeWithLoops (Event := Event) state.rip
            (linkedText target artifact).instructions
-           (executionPolicyOf target runtime).instructionFuel state).observable) := by
+           (proofBudgetOf target runtime).evaluatorFuel state).observable) := by
   cases target <;> rfl
 
 /-- Closed-target runtime derivation preserves the platform support predicate. -/
@@ -324,8 +324,8 @@ theorem runLoadedMachineExact
          (runProgramOutcomeWithLoops (Event := Event)
            certificate.entryPoint.state.machine.rip
            (NativeX86_64Target.linkedText target program.artifact).instructions
-           (NativeX86_64Target.executionPolicyOf target
-             (capabilities.realize program.artifact (program.entryContext environment))).instructionFuel
+           (NativeX86_64Target.proofBudgetOf target
+             (capabilities.realize program.artifact (program.entryContext environment))).evaluatorFuel
            certificate.entryPoint.state.machine).observable) := by
   rw [← certificate.entryLoadedState]
   exact NativeX86_64Target.runFromConnected target

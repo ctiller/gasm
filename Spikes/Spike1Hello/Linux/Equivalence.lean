@@ -44,39 +44,39 @@ theorem spike1_canonical_effect_trace_equivalence :
   decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Spike 1 selects an explicit finite native execution policy.  This is a program choice, not a
-    platform default: callers of a different native component select their own resource policy. -/
-def spike1LinuxExecutionPolicy : NativeExecutionPolicy :=
-  { instructionFuel := 50000 }
+/-- Spike 1 supplies an explicit evaluator proof bound.  It is not a runtime resource policy;
+    the artifact proves its typed process exit before this bound is exhausted. -/
+def spike1LinuxProofBudget : NativeProofBudget :=
+  { evaluatorFuel := 50000 }
 
 theorem spike1_selected_termination :
-    selectedExecutionTerminates (Event := AnyEvent) true selectedNonInputPlatformCall
+    selectedExecutionTerminates (Event := AnyEvent) false selectedNonInputPlatformCall
       (indexInstructions spike1Executable.load.rip spike1Instructions)
-      spike1LinuxExecutionPolicy.instructionFuel
+      spike1LinuxProofBudget.evaluatorFuel
       spike1Executable.load = true := by
   decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- The canonical finite execution reaches Linux's deliberate process-halt outcome.  The
+/-- The canonical finite execution reaches Linux's typed process-exit outcome.  The
     observable keeps that terminal classification alongside the output trace. -/
 theorem spike1_canonical_observable :
     (runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
-      spike1Instructions spike1LinuxExecutionPolicy.instructionFuel spike1Executable.load).observable =
-      .halted (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)) := by
+      spike1Instructions spike1LinuxProofBudget.evaluatorFuel spike1Executable.load).observable =
+      .processExited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)) := by
   decide
 
 def spike1TerminationCertificate :
-    SelectedTerminationCertificate (Event := AnyEvent) true selectedNonInputPlatformCall
+    SelectedTerminationCertificate (Event := AnyEvent) false selectedNonInputPlatformCall
       spike1Executable.load.rip spike1Instructions spike1Executable.load where
-  fuel := spike1LinuxExecutionPolicy.instructionFuel
+  fuel := spike1LinuxProofBudget.evaluatorFuel
   verifies := spike1_selected_termination
 
 theorem spike1_outcome_external_input_frame (environment : Environment) :
     runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
-        spike1Instructions spike1LinuxExecutionPolicy.instructionFuel
+        spike1Instructions spike1LinuxProofBudget.evaluatorFuel
         (spike1Executable.load.withExternalInputs environment.stdin environment.incomingRequests) =
       (runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
-        spike1Instructions spike1LinuxExecutionPolicy.instructionFuel spike1Executable.load).withExternalInputs
+        spike1Instructions spike1LinuxProofBudget.evaluatorFuel spike1Executable.load).withExternalInputs
           environment.stdin environment.incomingRequests := by
   exact spike1TerminationCertificate.externalInputFrame
     (fun instr _ => instruction_preserves_external_input_frame instr)
@@ -100,7 +100,7 @@ def spike1LinuxArtifactCertificate :
 
 def spike1LinuxProviderCertificate :
     ProgramProviderCertificate (LinuxX86_64 AnyEvent)
-      (linuxHostCapabilities AnyEvent spike1LinuxExecutionPolicy) spike1LinuxArtifact where
+      (linuxHostCapabilities AnyEvent spike1LinuxProofBudget) spike1LinuxArtifact where
   importsCovered := by
     intro imported h
     change imported ∈ [] at h
@@ -112,43 +112,43 @@ def spike1LinuxProviderCertificate :
 
 def spike1LinuxEntryCertificate :
     ProgramEntryCertificate (LinuxX86_64 AnyEvent)
-      (linuxHostCapabilities AnyEvent spike1LinuxExecutionPolicy) spike1LinuxArtifact where
+      (linuxHostCapabilities AnyEvent spike1LinuxProofBudget) spike1LinuxArtifact where
   entryContext := fun _ => ()
   entryEstablished := by intro; trivial
 
 def spike1LinuxAdmissibilityCertificate :
     ProgramAdmissibilityCertificate (LinuxX86_64 AnyEvent)
-      (linuxHostCapabilities AnyEvent spike1LinuxExecutionPolicy) spike1LinuxArtifact
+      (linuxHostCapabilities AnyEvent spike1LinuxProofBudget) spike1LinuxArtifact
       spike1LinuxEntryCertificate where
   platformAdmissible := by
     intro environment
     change (runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
-      spike1Instructions spike1LinuxExecutionPolicy.instructionFuel
+      spike1Instructions spike1LinuxProofBudget.evaluatorFuel
       (spike1Executable.load.withExternalInputs environment.stdin
-        environment.incomingRequests)).isAdmissible true
+        environment.incomingRequests)).isAdmissible false
     rw [spike1_outcome_external_input_frame]
     simp only [NativeRunOutcome.withExternalInputs_isAdmissible]
     exact spike1TerminationCertificate.isAdmissible
 
 def spike1LinuxBehaviorCertificate :
     ProgramBehaviorCertificate (LinuxX86_64 AnyEvent)
-      (linuxHostCapabilities AnyEvent spike1LinuxExecutionPolicy) spike1LinuxArtifact
+      (linuxHostCapabilities AnyEvent spike1LinuxProofBudget) spike1LinuxArtifact
       spike1LinuxEntryCertificate where
-  spec := fun _ => .halted (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
+  spec := fun _ => .processExited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
   traceEquivalence := by
     intro environment
     change (runProgramOutcomeWithLoops (Event := AnyEvent) spike1Executable.load.rip
-      spike1Instructions spike1LinuxExecutionPolicy.instructionFuel
+      spike1Instructions spike1LinuxProofBudget.evaluatorFuel
       (spike1Executable.load.withExternalInputs environment.stdin
         environment.incomingRequests)).observable =
-      .halted (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
+      .processExited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
     rw [spike1_outcome_external_input_frame]
     simp only [NativeRunOutcome.withExternalInputs_observable]
     exact spike1_canonical_observable
 
 /-- Sole universal whole-program contract for Spike 1 (Linux Hello World). -/
 def spike1VerifiedProgram :
-    VerifiedProgram (LinuxX86_64 AnyEvent) (linuxHostCapabilities AnyEvent spike1LinuxExecutionPolicy) :=
+    VerifiedProgram (LinuxX86_64 AnyEvent) (linuxHostCapabilities AnyEvent spike1LinuxProofBudget) :=
   VerifiedProgram.compose "Spike 1: Linux Hello World"
     spike1LinuxArtifactCertificate spike1LinuxProviderCertificate
     spike1LinuxEntryCertificate spike1LinuxAdmissibilityCertificate

@@ -132,10 +132,11 @@ def writeFileHook {Event : Type} [Inject ConsoleEvent Event] (s : X86_64MachineS
   (s', some (Inject.inject (ConsoleEvent.out text)))
 
 /- REF: windows-exitprocess#parameters -/
-/-- Win32 ExitProcess call hook: extracts exit code from RCX and emits ProcessEvent. -/
+/-- Win32 `ExitProcess` ends the selected process with its typed exit code. -/
 def exitProcessHook {Event : Type} [Inject ProcessEvent Event] (s : X86_64MachineState) : X86_64MachineState × Option Event :=
   let exitCode := (s.gprs .rcx).toUInt32
-  (s, some (Inject.inject (ProcessEvent.exit exitCode)))
+  ({ s with fault := some (.processExit exitCode) },
+    some (Inject.inject (ProcessEvent.exit exitCode)))
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
 /-- Win32 VirtualAlloc call hook: returns simulated virtual memory page pointer in RAX. -/
@@ -363,7 +364,8 @@ theorem win32CallIntercept_preserves_selected_external_input_frame {Event : Type
             X86_64MachineState.setGpr64] <;> rfl
         | succ index =>
           cases index with
-          | zero => simp [win32Intercept, h, exitProcessHook]
+          | zero => simp [win32Intercept, h, exitProcessHook,
+            X86_64MachineState.withExternalInputs]
           | succ index => simp [selectedNonInputWin32Call, h] at hselected
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/

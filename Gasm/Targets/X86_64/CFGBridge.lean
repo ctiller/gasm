@@ -138,7 +138,7 @@ inductive TerminatorRealization {Event BlockId : Type}
       (eventsAfter : List Event)
       (transition : nativeOutcomeTransition instruction before eventsRev =
         (exit.machine, eventsAfter))
-      (halted : exit.machine.fault = some .halted) :
+      (processExited : exit.machine.fault = some (.processExit exitCode.toUInt32)) :
       TerminatorRealization instruction before eventsRev exit (.sysExit exitCode hdroppable)
   | halt {S} {exit : ComposedState X86_64 S}
       (hdroppable : ∀ o ∈ exit.obligations, o.isDroppableOnExit)
@@ -151,8 +151,7 @@ inductive TerminatorRealization {Event BlockId : Type}
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- Production continuation selected by the logical terminator after its concrete instruction has
-    executed. The logical constructor remains visible, so a syscall exit cannot be confused with an
-    arbitrary HLT even though both use the native evaluator's `halted` stop reason. -/
+    executed. A syscall process exit and architectural HLT retain distinct typed terminal causes. -/
 def resumeAfterTerminator {Event BlockId S : Type}
     [ExternalCallInterceptor X86_64 Event]
     (indexed : List (UInt64 × X86_64Instr)) (fuel : Nat)
@@ -160,7 +159,8 @@ def resumeAfterTerminator {Event BlockId S : Type}
     CpuTerminator X86_64 BlockId exit → NativeRunOutcome Event
   | .jmp _ | .jmpIndirect _ | .jcc .. | .ret .. =>
       runProgramOutcomeLoop indexed fuel exit.machine eventsRev
-  | .sysExit .. | .halt .. => .halted exit.machine eventsRev.reverse
+  | .sysExit exitCode _ => .terminated (.processExit exitCode.toUInt32) exit.machine eventsRev.reverse
+  | .halt .. => .terminated .architecturalHalt exit.machine eventsRev.reverse
 
 namespace TerminatorRealization
 

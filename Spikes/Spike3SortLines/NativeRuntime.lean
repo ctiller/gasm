@@ -49,6 +49,13 @@ structure Spike3NativeArenaGrant where
   bytes : UInt32
   deriving Repr, DecidableEq
 
+/-- Entry context for the selected native Spike 3 capability.  The arena grant is a real,
+    fallible runtime resource; the evaluator budget is separate proof evidence and cannot become
+    a successful resource outcome. -/
+structure Spike3NativeExecutionContext where
+  arenaGrant : Spike3NativeArenaGrant
+  proofBudget : NativeProofBudget
+
 /-- The emitted artifact asks for the grant's bounded amount, with a 64 KiB minimum so even an
     empty/insufficient grant follows the ordinary reservation-and-failure path rather than issuing
     an invalid zero-length OS request. -/
@@ -116,13 +123,12 @@ def spike3VirtualAllocHook {Event : Type} (grant : Spike3NativeArenaGrant)
       (popReturnAddress state |>.setGpr64 .rax 0, none)
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
-/-- Spike 3's process exit is terminal for both success and resource exhaustion.  The general
-    Win32 trace helper retains a nonterminal legacy event state; this selected runtime instead
-    records the real process boundary so no execution can fall through after `ExitProcess`. -/
+/-- Spike 3's process exit is terminal for both success and resource exhaustion. -/
 def spike3ExitProcessHook {Event : Type} [Inject ProcessEvent Event]
     (state : X86_64MachineState) : X86_64MachineState × Option Event :=
   let code := (state.gprs .rcx).toUInt32
-  ({ state with rip := 0, fault := some .halted }, some (Inject.inject (ProcessEvent.exit code)))
+  ({ state with rip := 0, fault := some (.processExit code) },
+    some (Inject.inject (ProcessEvent.exit code)))
 
 /- REF: docs/TARGETS/LINUX.md#23-semantic-syscall-interception -/
 /-- Linux runtime dispatch for a consumer that explicitly selected a Spike 3 finite arena grant. -/
@@ -159,7 +165,7 @@ def spike3WindowsRuntime (Event : Type) [Inject ConsoleEvent Event] [Inject Proc
     grant-indexed syscall runtime, not to claim a fictitious import.  Consumers that do not select
     this composition continue using the ordinary Linux runtime and carry no arena premise. -/
 def spike3LinuxArenaCapability (Event : Type) : Capability (LinuxX86_64 Event) where
-  Context := Spike3NativeArenaGrant
+  Context := Spike3NativeExecutionContext
   providers := []
   establishes := fun _ _ _ _ => True
 
@@ -169,7 +175,9 @@ def spike3LinuxArenaCapability (Event : Type) : Capability (LinuxX86_64 Event) w
 def spike3LinuxArenaCapabilities (Event : Type) [Inject ConsoleEvent Event] [Inject ProcessEvent Event]
     [Inject NetEvent Event] : CapabilityComposition (LinuxX86_64 Event) where
   root := spike3LinuxArenaCapability Event
-  realize := fun _ grant => spike3LinuxRuntime Event grant
+  realize := fun _ context =>
+    { interceptor := spike3LinuxRuntime Event context.arenaGrant,
+      proofBudget := context.proofBudget }
   realizeSupports := by simp [spike3LinuxArenaCapability]
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
@@ -177,7 +185,7 @@ def spike3LinuxArenaCapabilities (Event : Type) [Inject ConsoleEvent Event] [Inj
     imported-service row: callers compose it with their selected Win32 providers, while this row
     contributes only the finite arena context consumed by `spike3WindowsRuntime`. -/
 def spike3WindowsArenaCapability (Event : Type) : Capability (WindowsX86_64 Event) where
-  Context := Spike3NativeArenaGrant
+  Context := Spike3NativeExecutionContext
   providers := []
   establishes := fun _ _ _ _ => True
 
@@ -186,11 +194,12 @@ def spike3WindowsArenaCapability (Event : Type) : Capability (WindowsX86_64 Even
     altered cases are `ExitProcess` (made terminal) and `VirtualAlloc` (made fallible); both still
     resolve their exact target-owned provider slots. -/
 theorem spike3WindowsRuntimeSupports (Event : Type) [Inject ConsoleEvent Event]
-    [Inject ProcessEvent Event] [Inject NetEvent Event] (grant : Spike3NativeArenaGrant) :
+    [Inject ProcessEvent Event] [Inject NetEvent Event] (context : Spike3NativeExecutionContext) :
     ∀ artifact provider, provider ∈ standardWindowsProviders →
       Platform.providerLinked (P := WindowsX86_64 Event) artifact provider →
       Platform.runtimeSupports (P := WindowsX86_64 Event)
-        (spike3WindowsRuntime Event grant) artifact provider := by
+        ({ interceptor := spike3WindowsRuntime Event context.arenaGrant,
+           proofBudget := context.proofBudget } : NativeX86_64Runtime Event) artifact provider := by
   intro artifact provider hprovider hlinked
   rcases hlinked with ⟨_, hlinkedSlot⟩
   let layout := computeSectionLayout artifact.executable.textBytes.size
@@ -199,7 +208,7 @@ theorem spike3WindowsRuntimeSupports (Event : Type) [Inject ConsoleEvent Event]
   change (match slots[provider.importIndex]? with
     | some address => ∀ state, Gasm.Targets.Windows.findIatIndex state address =
         some provider.iatIndex →
-        ((spike3WindowsRuntime Event grant).interceptCall address state).isSome
+        ((spike3WindowsRuntime Event context.arenaGrant).interceptCall address state).isSome
     | none => False)
   change (match slots[provider.importIndex]? with
     | some address => _
@@ -212,7 +221,7 @@ theorem spike3WindowsRuntimeSupports (Event : Type) [Inject ConsoleEvent Event]
       simp only [standardWindowsProviders, List.mem_cons, List.not_mem_nil, or_false] at hprovider
       rcases hprovider with rfl | rfl | rfl | rfl | rfl | rfl
       all_goals
-        change (spike3WindowsCallIntercept grant address state).isSome
+        change (spike3WindowsCallIntercept context.arenaGrant address state).isSome
         simp [spike3WindowsCallIntercept, win32CallIntercept, win32Intercept, windowsProvider, hfind]
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
@@ -224,7 +233,9 @@ def spike3WindowsArenaCapabilities (Event : Type) [Inject ConsoleEvent Event]
     CapabilityComposition (WindowsX86_64 Event) where
   root := Capability.compose (windowsHostCapability Event standardWindowsProviders)
     (spike3WindowsArenaCapability Event)
-  realize := fun _ context => spike3WindowsRuntime Event context.2
+  realize := fun _ context =>
+    { interceptor := spike3WindowsRuntime Event context.2.arenaGrant,
+      proofBudget := context.2.proofBudget }
   realizeSupports := by
     intro context artifact provider hmember hlinked
     simp only [Capability.compose] at hmember

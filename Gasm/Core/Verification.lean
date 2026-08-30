@@ -91,19 +91,20 @@ inductive LinuxX86_64 (Event : Type)
 inductive LinuxAArch64 (Event : Type)
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
-/-- A caller-selected finite execution resource.  It is intentionally a value in the native
-    runtime context rather than a target constant: selecting a capability composition also
-    selects the budget under which its explicit `.fuelExhausted` result is observed. -/
-structure NativeExecutionPolicy where
-  instructionFuel : Nat
+/-- A caller-selected proof budget for evaluating a sealed native artifact.  This is not a machine
+    allocation, CPU-time, or cancellation capability, and `.fuelExhausted` is consequently not an
+    admissible platform behavior.  A real resource limit must be enforced by the artifact/runtime
+    and appear in the typed full execution outcome. -/
+structure NativeProofBudget where
+  evaluatorFuel : Nat
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
-/-- The realized native runtime consists of the target's host-call implementation and the
-    selected finite execution policy.  Keeping them together prevents a verified program from
-    proving behavior for one interceptor while `Platform.run` silently chooses another budget. -/
+/-- The realized native runtime consists of the target's host-call implementation and selected
+    proof budget.  Keeping them together prevents a certificate from silently evaluating a
+    different sealed runtime/bound pair. -/
 structure NativeX86_64Runtime (Event : Type) where
   interceptor : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event
-  executionPolicy : NativeExecutionPolicy
+  proofBudget : NativeProofBudget
 
 def linuxProviderCallTarget (artifact : LinuxX86_64Artifact)
     (index : Nat) : Option Address :=
@@ -187,11 +188,11 @@ instance {Event : Type} : Platform (WindowsX86_64 Event) where
   run := fun runtime artifact state =>
     letI := runtime.interceptor
     (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
-      runtime.executionPolicy.instructionFuel state).observable
+      runtime.proofBudget.evaluatorFuel state).observable
   admissible := fun runtime artifact state =>
     letI := runtime.interceptor
     (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
-      runtime.executionPolicy.instructionFuel state).isAdmissible false
+      runtime.proofBudget.evaluatorFuel state).isAdmissible false
   emit := fun artifact => .ok artifact.executable.emit
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
@@ -203,7 +204,7 @@ def linuxX86_64Admissible {Event : Type}
     (artifact : LinuxX86_64Artifact) (state : X86_64MachineState) : Prop :=
   letI := runtime.interceptor
   (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
-    runtime.executionPolicy.instructionFuel state).isAdmissible true
+    runtime.proofBudget.evaluatorFuel state).isAdmissible false
 
 theorem linuxX86_64Admissible_iff {Event : Type}
     (runtime : NativeX86_64Runtime Event)
@@ -211,7 +212,7 @@ theorem linuxX86_64Admissible_iff {Event : Type}
     linuxX86_64Admissible runtime artifact state ↔
       (letI := runtime.interceptor
        (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
-         runtime.executionPolicy.instructionFuel state).isAdmissible true) := Iff.rfl
+         runtime.proofBudget.evaluatorFuel state).isAdmissible false) := Iff.rfl
 
 theorem linuxX86_64Admissible_of_outcome {Event : Type}
     (runtime : NativeX86_64Runtime Event)
@@ -219,7 +220,7 @@ theorem linuxX86_64Admissible_of_outcome {Event : Type}
     (outcome :
       (letI := runtime.interceptor
        (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
-         runtime.executionPolicy.instructionFuel state).isAdmissible true)) :
+         runtime.proofBudget.evaluatorFuel state).isAdmissible false)) :
     linuxX86_64Admissible runtime artifact state := outcome
 
 /-- Admissibility from a proved execution result.  Keeping the execution equality separate prevents
@@ -232,8 +233,8 @@ theorem linuxX86_64Admissible_of_execution {Event : Type}
     (executes :
       (letI := runtime.interceptor
        runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
-         runtime.executionPolicy.instructionFuel state) = execution)
-    (admissible : execution.isAdmissible true) :
+         runtime.proofBudget.evaluatorFuel state) = execution)
+    (admissible : execution.isAdmissible false) :
     linuxX86_64Admissible runtime artifact state := by
   apply linuxX86_64Admissible_of_outcome
   rw [executes]
@@ -246,7 +247,7 @@ theorem linuxX86_64Admissible_of_returned {Event : Type}
     (executes :
       (letI := runtime.interceptor
        runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
-         runtime.executionPolicy.instructionFuel state) = .returned finalState events) :
+         runtime.proofBudget.evaluatorFuel state) = .returned finalState events) :
     linuxX86_64Admissible runtime artifact state := by
   apply linuxX86_64Admissible_of_execution runtime artifact state (.returned finalState events)
   · exact executes
@@ -258,7 +259,7 @@ theorem linuxX86_64Admissible_to_outcome {Event : Type}
     (admissible : linuxX86_64Admissible runtime artifact state) :
     (letI := runtime.interceptor
      (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
-       runtime.executionPolicy.instructionFuel state).isAdmissible true) := admissible
+       runtime.proofBudget.evaluatorFuel state).isAdmissible false) := admissible
 
 instance {Event : Type} : Platform (LinuxX86_64 Event) where
   Artifact := LinuxX86_64Artifact
@@ -289,7 +290,7 @@ instance {Event : Type} : Platform (LinuxX86_64 Event) where
   run := fun runtime artifact state =>
     letI := runtime.interceptor
     (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
-      runtime.executionPolicy.instructionFuel state).observable
+      runtime.proofBudget.evaluatorFuel state).observable
   admissible := linuxX86_64Admissible
   emit := fun artifact => .ok artifact.executable.emit
 
@@ -356,12 +357,12 @@ def standardWindowsProviders : List WindowsX86_64Provider :=
 /-- The production Win32 dispatcher supports every provider in the exact standard table whenever
     that provider is linked into the final artifact.  This target-owned fact is proved once here,
     not replayed by each `VerifiedProgram`. -/
-theorem standardWindowsRuntimeSupports (Event : Type) (executionPolicy : NativeExecutionPolicy)
+theorem standardWindowsRuntimeSupports (Event : Type) (proofBudget : NativeProofBudget)
     [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
     ∀ artifact provider, provider ∈ standardWindowsProviders →
       Platform.providerLinked (P := WindowsX86_64 Event) artifact provider →
       Platform.runtimeSupports (P := WindowsX86_64 Event)
-        ({ interceptor := standardWindowsRuntime Event, executionPolicy } : NativeX86_64Runtime Event)
+        ({ interceptor := standardWindowsRuntime Event, proofBudget } : NativeX86_64Runtime Event)
         artifact provider := by
   intro artifact provider hprovider hlinked
   rcases hlinked with ⟨_, hlinkedSlot⟩
@@ -399,36 +400,36 @@ def windowsHostCapability (Event : Type) (providers : List WindowsX86_64Provider
   establishes := fun _ _ _ _ => True
 
 def windowsHostCapabilities (Event : Type) (providers : List WindowsX86_64Provider)
-    (executionPolicy : NativeExecutionPolicy)
+    (proofBudget : NativeProofBudget)
     [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event]
     (supports : ∀ artifact provider, provider ∈ providers →
       Platform.providerLinked (P := WindowsX86_64 Event) artifact provider →
       Platform.runtimeSupports (P := WindowsX86_64 Event)
-        ({ interceptor := runtime, executionPolicy } : NativeX86_64Runtime Event) artifact provider) :
+        ({ interceptor := runtime, proofBudget } : NativeX86_64Runtime Event) artifact provider) :
     CapabilityComposition (WindowsX86_64 Event) where
   root := windowsHostCapability Event providers
   realize := fun _ _ => by
-    exact ({ interceptor := runtime, executionPolicy } : NativeX86_64Runtime Event)
+    exact ({ interceptor := runtime, proofBudget } : NativeX86_64Runtime Event)
   realizeSupports := by
     intro context artifact provider membership linked
     exact supports artifact provider membership linked
 
-def standardWindowsHostCapabilities (Event : Type) (executionPolicy : NativeExecutionPolicy)
+def standardWindowsHostCapabilities (Event : Type) (proofBudget : NativeProofBudget)
     [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [Inject NetEvent Event] :
     CapabilityComposition (WindowsX86_64 Event) :=
   { root := windowsHostCapability Event standardWindowsProviders
     realize := fun _ _ =>
-      ({ interceptor := standardWindowsRuntime Event, executionPolicy } : NativeX86_64Runtime Event)
+      ({ interceptor := standardWindowsRuntime Event, proofBudget } : NativeX86_64Runtime Event)
     realizeSupports := by
       intro context artifact provider membership linked
-      exact standardWindowsRuntimeSupports Event executionPolicy artifact provider membership linked }
+      exact standardWindowsRuntimeSupports Event proofBudget artifact provider membership linked }
 
-def linuxHostCapabilities (Event : Type) (executionPolicy : NativeExecutionPolicy)
+def linuxHostCapabilities (Event : Type) (proofBudget : NativeProofBudget)
     [runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event] :
     CapabilityComposition (LinuxX86_64 Event) where
   root := Capability.empty _
   realize := fun _ _ => by
-    exact ({ interceptor := runtime, executionPolicy } : NativeX86_64Runtime Event)
+    exact ({ interceptor := runtime, proofBudget } : NativeX86_64Runtime Event)
   realizeSupports := by simp [Capability.empty]
 
 def aarch64LinuxHostCapabilities (Event : Type)

@@ -140,13 +140,19 @@ def runAsmTrace {Event : Type} [ExternalCallInterceptor X86_64 Event]
   runProgramTraceWithLoops s.rip instructions fuel s
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- The reason a fuel-bounded native execution stopped.  In particular, a target's deliberate
-    process halt is not conflated with either a CPU/memory fault or exhaustion of the proof
-    evaluator's fuel.  Whether `.halted` is an admissible process exit is a platform-profile
-    decision (Linux syscall profiles accept it; Windows profiles do not). -/
+/-- A non-fault terminal cause selected by the platform profile. -/
+inductive NativeTerminalCause where
+  | processExit (code : UInt32)
+  | architecturalHalt
+  deriving DecidableEq, Repr, Inhabited
+
+/-- The reason a fuel-bounded native execution stopped.  A host process exit and an architectural
+    HLT have distinct typed causes.  `fuelExhausted` is evaluator evidence, never an admissible
+    emitted-program behavior unless a future platform profile supplies artifact-enforced budget
+    evidence and models that resource outcome separately. -/
 inductive NativeRunOutcome (Event : Type) where
   | returned (state : X86_64MachineState) (events : List Event)
-  | halted (state : X86_64MachineState) (events : List Event)
+  | terminated (cause : NativeTerminalCause) (state : X86_64MachineState) (events : List Event)
   | faulted (state : X86_64MachineState) (events : List Event)
   | fuelExhausted (state : X86_64MachineState) (events : List Event)
 
@@ -154,21 +160,34 @@ namespace NativeRunOutcome
 
 /-- Events are projected only after the stop reason has been retained. -/
 def events : NativeRunOutcome Event → List Event
-  | .returned _ emitted | .halted _ emitted | .faulted _ emitted |
+  | .returned _ emitted | .terminated _ _ emitted | .faulted _ emitted |
       .fuelExhausted _ emitted => emitted
 
-/-- Profile-sensitive native machine safety.  `allowHalted` is true only for profiles whose
-    operational exit convention deliberately uses `X86_64Fault.halted`.
+/-- The final physical state is retained in the full outcome.  Resource/recovery contracts must
+    be stated over this outcome before callers project it to `NativeObservable`. -/
+def finalState : NativeRunOutcome Event → X86_64MachineState
+  | .returned state _ | .terminated _ state _ | .faulted state _ |
+      .fuelExhausted state _ => state
 
-    Fuel exhaustion is deliberately *not* a machine-safety failure: it is the explicit outcome
-    of the finite execution policy selected by a caller.  A whole-program contract must still
-    state what that outcome means (for example, resource recovery or cancellation), but cannot
-    erase it merely by making the platform predicate false. -/
-def isAdmissible (allowHalted : Bool) : NativeRunOutcome Event → Prop
+/-- A resource/recovery postcondition for a typed process exit.  Unlike `NativeObservable`, this
+    predicate retains the final physical state, so an artifact can prove cleanup, reclamation, or
+    request-local recovery before publishing the exit observation. -/
+def processExitPostcondition (code : UInt32) (post : X86_64MachineState → Prop) :
+    NativeRunOutcome Event → Prop
+  | .terminated (.processExit observed) state _ => observed = code ∧ post state
+  | _ => False
+
+/-- Profile-sensitive native machine safety.  Process exits are always typed terminal outcomes;
+    `allowArchitecturalHalt` governs only the x86 HLT instruction.  Evaluator fuel exhaustion is
+    never admissible emission behavior: it records an insufficient proof bound, not an artifact
+    resource failure.  Real resource recovery contracts inspect `finalState` on the full outcome
+    before any observation projection. -/
+def isAdmissible (allowArchitecturalHalt : Bool) : NativeRunOutcome Event → Prop
   | .returned _ _ => True
-  | .halted _ _ => allowHalted = true
+  | .terminated (.processExit _) _ _ => True
+  | .terminated .architecturalHalt _ _ => allowArchitecturalHalt = true
   | .faulted _ _ => False
-  | .fuelExhausted _ _ => True
+  | .fuelExhausted _ _ => False
 
 end NativeRunOutcome
 
@@ -178,7 +197,8 @@ end NativeRunOutcome
     fuel exhaustion or a fault cannot be confused with a successful return. -/
 inductive NativeObservable (Event : Type) where
   | returned (events : List Event) : NativeObservable Event
-  | halted (events : List Event) : NativeObservable Event
+  | processExited (code : UInt32) (events : List Event) : NativeObservable Event
+  | architecturalHalted (events : List Event) : NativeObservable Event
   | faulted (events : List Event) : NativeObservable Event
   | fuelExhausted (events : List Event) : NativeObservable Event
   deriving DecidableEq, BEq
@@ -187,14 +207,16 @@ inductive NativeObservable (Event : Type) where
 /-- Externally observes an explicit native run without projecting away why it stopped. -/
 def NativeRunOutcome.observable : NativeRunOutcome Event → NativeObservable Event
   | .returned _ emitted => .returned emitted
-  | .halted _ emitted => .halted emitted
+  | .terminated (.processExit code) _ emitted => .processExited code emitted
+  | .terminated .architecturalHalt _ emitted => .architecturalHalted emitted
   | .faulted _ emitted => .faulted emitted
   | .fuelExhausted _ emitted => .fuelExhausted emitted
 
 /-- The event payload remains available for diagnostics, but its stop classification is never
     discarded by this projection. -/
 def NativeObservable.events : NativeObservable Event → List Event
-  | .returned emitted | .halted emitted | .faulted emitted | .fuelExhausted emitted => emitted
+  | .returned emitted | .processExited _ emitted | .architecturalHalted emitted |
+      .faulted emitted | .fuelExhausted emitted => emitted
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- One production native transition, including selected host interception and event accumulation. -/
@@ -224,7 +246,10 @@ def runProgramOutcomeLoop {Event : Type}
       let nextEventsRevAndState := nativeOutcomeTransition instr state eventsRev
       match nextEventsRevAndState.1.fault with
       | none => runProgramOutcomeLoop indexed fuel nextEventsRevAndState.1 nextEventsRevAndState.2
-      | some .halted => .halted nextEventsRevAndState.1 nextEventsRevAndState.2.reverse
+      | some (.processExit code) => .terminated (.processExit code)
+          nextEventsRevAndState.1 nextEventsRevAndState.2.reverse
+      | some .halted => .terminated .architecturalHalt
+          nextEventsRevAndState.1 nextEventsRevAndState.2.reverse
       | some .divideError => .faulted nextEventsRevAndState.1 nextEventsRevAndState.2.reverse
       | some (.memFault _ _ _) => .faulted nextEventsRevAndState.1 nextEventsRevAndState.2.reverse
 
@@ -330,7 +355,7 @@ structure NativeTerminationCertificate {Event : Type}
   outcome : NativeRunOutcome Event
   verifies : runProgramOutcomeWithLoops baseRip instructions fuel initial = outcome
   terminated : match outcome with
-    | .returned _ _ | .halted _ _ => True
+    | .returned _ _ | .terminated _ _ _ => True
     | .faulted _ _ | .fuelExhausted _ _ => False
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
@@ -406,7 +431,8 @@ def InterceptorPreservesExternalInputFrame {Event : Type}
 def NativeRunOutcome.withExternalInputs (stdin : ByteArray) (requests : List ByteArray) :
     NativeRunOutcome Event → NativeRunOutcome Event
   | .returned state emitted => .returned (state.withExternalInputs stdin requests) emitted
-  | .halted state emitted => .halted (state.withExternalInputs stdin requests) emitted
+  | .terminated cause state emitted =>
+      .terminated cause (state.withExternalInputs stdin requests) emitted
   | .faulted state emitted => .faulted (state.withExternalInputs stdin requests) emitted
   | .fuelExhausted state emitted => .fuelExhausted (state.withExternalInputs stdin requests) emitted
 
@@ -418,19 +444,23 @@ def NativeRunOutcome.withExternalInputs (stdin : ByteArray) (requests : List Byt
 @[simp] theorem NativeRunOutcome.withExternalInputs_observable
     (outcome : NativeRunOutcome Event) (stdin : ByteArray) (requests : List ByteArray) :
     (outcome.withExternalInputs stdin requests).observable = outcome.observable := by
-  cases outcome <;> rfl
+  cases outcome <;> try rfl
+  rename_i cause _ _
+  cases cause <;> rfl
 
 @[simp] theorem NativeRunOutcome.withExternalInputs_isAdmissible
-    (outcome : NativeRunOutcome Event) (allowHalted : Bool)
+    (outcome : NativeRunOutcome Event) (allowArchitecturalHalt : Bool)
     (stdin : ByteArray) (requests : List ByteArray) :
-    (outcome.withExternalInputs stdin requests).isAdmissible allowHalted ↔
-      outcome.isAdmissible allowHalted := by
-  cases outcome <;> rfl
+    (outcome.withExternalInputs stdin requests).isAdmissible allowArchitecturalHalt ↔
+      outcome.isAdmissible allowArchitecturalHalt := by
+  cases outcome <;> try rfl
+  rename_i cause _ _
+  cases cause <;> rfl
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Executable checker for the two facts a native universal proof needs from its closed reference
     run: every reached host boundary is in the selected congruent subset, and execution reaches a
-    returned/halted terminal state before fuel is exhausted and without a CPU/memory fault. -/
+    return, typed process exit, or selected architectural halt before evaluator fuel is exhausted. -/
 def selectedExecutionTerminates {Event : Type}
     [interceptor : ExternalCallInterceptor X86_64 Event]
     (allowHalted : Bool)
@@ -449,6 +479,7 @@ def selectedExecutionTerminates {Event : Type}
         let next := (nativeOutcomeTransition (Event := Event) instr state []).1
         match next.fault with
         | none => selectedExecutionTerminates (Event := Event) allowHalted selected indexed fuel next
+        | some (.processExit _) => true
         | some .halted => allowHalted
         | some .divideError | some (.memFault _ _ _) => false
 
@@ -506,6 +537,9 @@ theorem selectedExecutionTerminates_isAdmissible {Event : Type}
                 exact ih _ _ hcertificate
             | some fault =>
                 cases fault with
+                | processExit code =>
+                    simp [runProgramOutcomeLoop, hlookup, hfault,
+                      NativeRunOutcome.isAdmissible]
                 | halted =>
                     simpa [runProgramOutcomeLoop, hlookup, hfault,
                       NativeRunOutcome.isAdmissible] using hcertificate
@@ -579,6 +613,7 @@ theorem runProgramOutcomeLoop_external_input_frame {Event : Type}
           rw [ih _ _ hcert]
         | some fault =>
           cases fault with
+          | processExit code => simp [hfault, NativeRunOutcome.withExternalInputs]
           | halted => simp [hfault, NativeRunOutcome.withExternalInputs]
           | divideError => simp [hfault] at hcert
           | memFault kind width address => simp [hfault] at hcert
