@@ -38,6 +38,8 @@ import Gasm.MemoryModel.FiniteSearch
 import Gasm.MemoryModel.CpuGraphNegativeControls
 import Gasm.MemoryModel.FiniteSearchNegativeControls
 import Gasm.MemoryModel.StructuralBaselineFixture
+import Gasm.MemoryModel.RelationPath
+import Gasm.MemoryModel.RelationPathControls
 
 import Gasm.Effects.Inject
 import Gasm.Effects.Console
