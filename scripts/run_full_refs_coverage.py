@@ -26,6 +26,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tomllib
 
 from lean_process_lease import inherited_lease_environment, lean_process_lease
 
@@ -44,6 +45,7 @@ AUTHORITY_INPUTS = [
     "Tools/CheckRefsCoverage.lean",
     "Tools/GateSubprocess.lean",
 ]
+AUTHORITY_BUILD_BATCH_SIZE = 32
 
 
 def fnv1a64(path: Path) -> str:
@@ -71,7 +73,7 @@ def content_entry(path: Path) -> dict[str, object]:
     }
 
 
-def authority_sources() -> list[Path]:
+def authority_plan() -> tuple[list[Path], list[str]]:
     suffix = ".exe" if os.name == "nt" else ""
     gate_executable = REPO_ROOT / ".lake" / "build" / "bin" / f"check_refs_coverage_full{suffix}"
     output = subprocess.check_output(
@@ -80,10 +82,39 @@ def authority_sources() -> list[Path]:
     marker = "GASM_AUTHORITY_MODULES "
     if not output.startswith(marker):
         raise ValueError("declaration-coverage executable returned no authority module census")
-    paths = json.loads(output[len(marker) :])
+    plan = json.loads(output[len(marker) :])
+    if not isinstance(plan, dict):
+        raise ValueError("declaration-coverage authority plan is malformed")
+    paths = plan.get("sources")
+    roots = plan.get("roots")
     if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
-        raise ValueError("declaration-coverage authority module census is malformed")
-    return [REPO_ROOT / path for path in paths]
+        raise ValueError("declaration-coverage authority source census is malformed")
+    if not isinstance(roots, list) or not roots or not all(isinstance(root, str) for root in roots):
+        raise ValueError("declaration-coverage authority root census is malformed")
+    if len(set(roots)) != len(roots):
+        raise ValueError("declaration-coverage authority root census contains duplicates")
+    return [REPO_ROOT / path for path in paths], roots
+
+
+def declared_roots() -> list[str]:
+    """Parse declared roots without requiring the gate executable to exist."""
+    with (REPO_ROOT / "lakefile.toml").open("rb") as stream:
+        lakefile = tomllib.load(stream)
+    roots: list[str] = []
+    for library in lakefile.get("lean_lib", []):
+        roots.extend(library.get("roots", [library["name"]]))
+    for executable in lakefile.get("lean_exe", []):
+        roots.append(executable.get("root", executable["name"]))
+    return list(dict.fromkeys(roots))
+
+
+def authority_build_commands(lake: str, roots: list[str]) -> list[list[str]]:
+    """Build every declared root, including non-default executable-only closures."""
+    modules = [f"+{root}:olean" for root in roots]
+    return [
+        [lake, "-Kjobs=1", "build", *modules[index:index + AUTHORITY_BUILD_BATCH_SIZE]]
+        for index in range(0, len(modules), AUTHORITY_BUILD_BATCH_SIZE)
+    ]
 
 
 def gate_executable_path() -> Path:
@@ -100,16 +131,19 @@ def built_artifact(path: Path) -> dict[str, object]:
     }
 
 
-def write_build_authority(authority_file: Path, nonce: str) -> None:
+def write_build_authority(
+    authority_file: Path, nonce: str, worker_nonce: str, sources: list[Path]
+) -> None:
     entries = []
-    for source in authority_sources():
+    for source in sources:
         if source.suffix != ".lean":
             continue
         relative_source = source.relative_to(REPO_ROOT)
         olean = OLEAN_ROOT / relative_source.with_suffix(".olean")
         olean_hash = Path(f"{olean}.hash")
-        if not olean.is_file() or not olean_hash.is_file():
-            continue
+        trace = olean.with_suffix(".trace")
+        if not olean.is_file() or not olean_hash.is_file() or not trace.is_file():
+            raise ValueError(f"authority module was not built completely: {relative_source}")
         entries.append(
             {
                 "path": relative_source.as_posix(),
@@ -118,6 +152,9 @@ def write_build_authority(authority_file: Path, nonce: str) -> None:
                 "oleanPath": olean.relative_to(REPO_ROOT).as_posix(),
                 "oleanHash": olean_hash.read_text(encoding="utf-8").strip(),
                 "olean": file_fingerprint(olean),
+                "tracePath": trace.relative_to(REPO_ROOT).as_posix(),
+                "traceHash": fnv1a64(trace),
+                "trace": file_fingerprint(trace),
             }
         )
     lake = shutil.which("lake") or "lake"
@@ -132,8 +169,9 @@ def write_build_authority(authority_file: Path, nonce: str) -> None:
     authority_file.write_text(
         json.dumps(
             {
-                "version": 1,
+                "version": 3,
                 "nonce": nonce,
+                "workerNonce": worker_nonce,
                 "leanVersion": lean_version,
                 "gate": built_artifact(gate_executable_path()),
                 "inputs": inputs,
@@ -149,38 +187,50 @@ def opted_in(flag: bool) -> bool:
     return flag or os.environ.get(OPT_IN_ENV, "").strip().lower() in TRUE_VALUES
 
 
-def lake_commands(forwarded: list[str]) -> list[list[str]]:
+def lake_commands() -> list[list[str]]:
     lake = shutil.which("lake") or "lake"
     return [
-        [lake, "build"],
-        [lake, "exe", "check_refs_coverage_full", "--", *forwarded],
+        [lake, "build", "check_refs_coverage_full"],
+        [lake, "exe", "check_refs_coverage_full"],
     ]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run the full-repository compiled declaration-coverage gate.",
-        epilog=(
-            "Arguments after `--` are forwarded to the underlying Lean executable. "
-            f"CI may set {OPT_IN_ENV}=1 instead of passing --full-repository."
-        ),
+        epilog=f"CI may set {OPT_IN_ENV}=1 instead of passing --full-repository.",
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--full-repository",
         action="store_true",
         help="acknowledge and run the complete Gasm/Stdlib/Spikes gate",
+    )
+    mode.add_argument(
+        "--self-test-authority",
+        action="store_true",
+        help="build the small gate executable and run only its authority lifecycle self-test",
     )
     parser.add_argument(
         "--print-command",
         action="store_true",
         help="print the opted-in Lake command without executing it",
     )
-    parser.add_argument("forwarded", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
-    forwarded = args.forwarded
-    if forwarded[:1] == ["--"]:
-        forwarded = forwarded[1:]
+    commands = lake_commands()
+    if args.self_test_authority:
+        with lean_process_lease():
+            environment = inherited_lease_environment()
+            build = subprocess.run(commands[0], cwd=REPO_ROOT, check=False, env=environment)
+            if build.returncode != 0:
+                return build.returncode
+            return subprocess.run(
+                [str(gate_executable_path()), "--self-test-authority"],
+                cwd=REPO_ROOT,
+                check=False,
+                env=environment,
+            ).returncode
 
     if not opted_in(args.full_repository):
         print(
@@ -209,9 +259,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    commands = lake_commands(forwarded)
     if args.print_command:
-        for command in commands:
+        roots = declared_roots()
+        for command in [
+            commands[0],
+            *authority_build_commands(commands[0][0], roots),
+            commands[1],
+        ]:
             print(subprocess.list2cmdline(command))
         return 0
     try:
@@ -223,10 +277,25 @@ def main(argv: list[str] | None = None) -> int:
             if build_result.returncode != 0:
                 return build_result.returncode
 
+            sources, roots = authority_plan()
+            for authority_build in authority_build_commands(commands[0][0], roots):
+                build_result = subprocess.run(
+                    authority_build, cwd=REPO_ROOT, check=False, env=environment
+                )
+                if build_result.returncode != 0:
+                    return build_result.returncode
+
+            # Re-enumerate after the exact build. The gate executable and repository inputs are
+            # fingerprinted below; refusing census drift prevents authority over a different
+            # module set than the one just rebuilt.
+            if authority_plan() != (sources, roots):
+                raise ValueError("declaration-coverage authority census changed during build")
+
             nonce = secrets.token_urlsafe(32)
+            worker_nonce = secrets.token_urlsafe(32)
             AUTHORITY_DIR.mkdir(parents=True, exist_ok=True)
             authority_file = AUTHORITY_DIR / f"{nonce}.token"
-            write_build_authority(authority_file, nonce)
+            write_build_authority(authority_file, nonce, worker_nonce, sources)
             gate_environment = environment.copy()
             gate_environment[AUTHORITY_ENV] = nonce
             try:

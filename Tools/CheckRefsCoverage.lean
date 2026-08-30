@@ -170,6 +170,7 @@ guess:
 import Lean
 import Lean.Data.Json
 import Lake.Build.Trace
+import Lake.Build.Common
 import Tools.GateSubprocess
 
 open Lean
@@ -552,6 +553,9 @@ private structure AuthorityModule where
   oleanPath : String
   oleanHash : String
   olean : AuthorityStat
+  tracePath : String
+  traceHash : String
+  trace : AuthorityStat
 
 private structure AuthorityArtifact where
   path : String
@@ -560,6 +564,7 @@ private structure AuthorityArtifact where
 
 private structure BuildAuthority where
   nonce : String
+  workerNonce : String
   leanVersion : String
   gate : AuthorityArtifact
   inputs : Array AuthorityContent
@@ -587,6 +592,9 @@ private def parseAuthorityModule (json : Json) : Except String AuthorityModule :
     oleanPath := ← (← json.getObjVal? "oleanPath").getStr?
     oleanHash := ← (← json.getObjVal? "oleanHash").getStr?
     olean := ← parseAuthorityStat (← json.getObjVal? "olean")
+    tracePath := ← (← json.getObjVal? "tracePath").getStr?
+    traceHash := ← (← json.getObjVal? "traceHash").getStr?
+    trace := ← parseAuthorityStat (← json.getObjVal? "trace")
   }
 
 private def parseAuthorityArtifact (json : Json) : Except String AuthorityArtifact := do
@@ -599,11 +607,12 @@ private def parseAuthorityArtifact (json : Json) : Except String AuthorityArtifa
 private def parseBuildAuthority (text : String) : Except String BuildAuthority := do
   let json ← Json.parse text
   let version ← (← json.getObjVal? "version").getNat?
-  if version != 1 then throw s!"unsupported authority manifest version {version}"
+  if version != 3 then throw s!"unsupported authority manifest version {version}"
   let inputsJson ← (← json.getObjVal? "inputs").getArr?
   let entriesJson ← (← json.getObjVal? "entries").getArr?
   return {
     nonce := ← (← json.getObjVal? "nonce").getStr?
+    workerNonce := ← (← json.getObjVal? "workerNonce").getStr?
     leanVersion := ← (← json.getObjVal? "leanVersion").getStr?
     gate := ← parseAuthorityArtifact (← json.getObjVal? "gate")
     inputs := ← inputsJson.mapM parseAuthorityContent
@@ -633,6 +642,28 @@ private def verifyContent (entry : AuthorityContent) : IO Bool := do
   let metadata ← path.metadata
   if !statMatches entry.stat metadata then return false
   return toString (← fnv1a64File path) == entry.hash
+
+private def authorityStatFor (path : System.FilePath) : IO AuthorityStat := do
+  let metadata ← path.metadata
+  return {
+    size := metadata.byteSize.toNat
+    mtimeSec := metadata.modified.sec.toNat
+    mtimeNsec := metadata.modified.nsec.toNat
+  }
+
+private def traceBindsCurrentSource (tracePath source : System.FilePath) : IO Bool := do
+  let traceText ← IO.FS.readFile tracePath
+  let metadata ←
+    match Lake.BuildMetadata.parse traceText with
+    | .ok metadata => pure metadata
+    | .error _ => return false
+  let expectedPath := canonicalPath (← IO.FS.realPath source)
+  let expectedHash := toString (← Lake.computeFileHash source true)
+  return metadata.inputs.any fun (caption, value) =>
+    canonicalPath (System.FilePath.mk caption) == expectedPath &&
+      match value with
+      | .str hash => hash == expectedHash
+      | _ => false
 
 private def verifyBuildAuthority (expectedNonce : String) (manifest : BuildAuthority) : IO Bool := do
   if manifest.nonce != expectedNonce || manifest.leanVersion != Lean.versionString then
@@ -689,43 +720,141 @@ private def verifyBuildAuthority (expectedNonce : String) (manifest : BuildAutho
       let recordedHash := (← IO.FS.readFile hashPath).trimAscii.toString
       if recordedHash != entry.oleanHash || toString (← Lake.computeBinFileHash oleanPath) != entry.oleanHash then
         return false
+      let tracePath := oleanPath.withExtension "trace"
+      if entry.tracePath != canonicalPath tracePath then return false
+      let traceMetadata ← tracePath.metadata
+      if !statMatches entry.trace traceMetadata ||
+          toString (← fnv1a64File tracePath) != entry.traceHash then
+        return false
+      if !(← traceBindsCurrentSource tracePath source) then return false
   return true
+
+/-- A final, cheap barrier after the content-hash pass.  The full verification above establishes
+the content and Lake trace bindings.  This second pass rereads the repository census and every
+recorded filesystem identity immediately before success, closing the practical race where an
+ordinary editor/build changes an entry already visited by the sequential hash pass.
+
+This is an accidental-concurrency guard, not a security boundary against a hostile process with
+the same operating-system account: portable filesystem metadata APIs do not provide an atomic
+snapshot of a repository tree. -/
+private def verifyModuleBarrier (entries : Array AuthorityModule)
+    (files : Array System.FilePath) : IO Bool := do
+  try
+    let moduleMap : Std.HashMap String AuthorityModule :=
+      entries.foldl (init := {}) (fun map entry => map.insert entry.path entry)
+    if moduleMap.size != entries.size || moduleMap.size != files.size then return false
+    for source in files do
+      let sourceKey := canonicalPath source
+      let some entry := moduleMap[sourceKey]? | return false
+      if !statMatches entry.source (← source.metadata) then return false
+      let oleanPath := System.FilePath.mk entry.oleanPath
+      if !statMatches entry.olean (← oleanPath.metadata) then return false
+      let tracePath := System.FilePath.mk entry.tracePath
+      if !statMatches entry.trace (← tracePath.metadata) then return false
+      let hashPath := System.FilePath.mk (oleanPath.toString ++ ".hash")
+      if (← IO.FS.readFile hashPath).trimAscii.toString != entry.oleanHash then return false
+    return true
+  catch _ =>
+    return false
+
+private def verifyArtifactBarrier (expected : AuthorityArtifact)
+    (actualPath : System.FilePath) : IO Bool := do
+  try
+    if canonicalPath actualPath != expected.path ||
+        !statMatches expected.stat (← actualPath.metadata) then
+      return false
+    let hashPath := System.FilePath.mk (actualPath.toString ++ ".hash")
+    return (← IO.FS.readFile hashPath).trimAscii.toString == expected.lakeHash
+  catch _ =>
+    return false
+
+private def verifyBuildAuthorityBarrier (manifest : BuildAuthority) : IO Bool := do
+  try
+    let gatePath ← IO.appPath
+    if !(← verifyArtifactBarrier manifest.gate gatePath) then return false
+
+    for entry in manifest.inputs do
+      if !(← verifyContent entry) then return false
+
+    let enumeration ← discoverProjectModules
+    return ← verifyModuleBarrier manifest.entries enumeration.files
+  catch _ =>
+    return false
 
 private def validAuthorityNonce (nonce : String) : Bool :=
   nonce.length ≥ 32 &&
     nonce.all (fun c => c.isAlphanum || c == '-' || c == '_')
 
-private def consumeFreshBuildAuthority : IO Bool := do
+private def consumeFreshBuildAuthority : IO (Option BuildAuthority) := do
   match ← IO.getEnv "GASM_FULL_REFS_BUILD_AUTHORITY" with
   | none =>
     IO.eprintln "[!] REFUSED: raw declaration-coverage execution has no fresh-build authority."
     IO.eprintln "    Use: python scripts/run_full_refs_coverage.py --full-repository"
-    return false
+    return none
   | some nonce =>
     if !validAuthorityNonce nonce then
       IO.eprintln "[!] REFUSED: malformed declaration-coverage build authority."
-      return false
+      return none
     let authorityPath : System.FilePath :=
       ".lake" / "build" / "full_refs_authority" / s!"{nonce}.token"
     try
       let manifestText ← IO.FS.readFile authorityPath
+      -- Consume before parsing or verification: malformed, stale, and valid manifests are all
+      -- one-attempt capabilities and cannot be repaired in place for a replay.
+      IO.FS.removeFile authorityPath
       let manifest ←
         match parseBuildAuthority manifestText with
         | .ok manifest => pure manifest
         | .error error =>
           IO.eprintln s!"[!] REFUSED: malformed declaration-coverage authority manifest: {error}"
-          return false
+          return none
       if !(← verifyBuildAuthority nonce manifest) then
         IO.eprintln "[!] REFUSED: tracked sources, build inputs, toolchain, or olean outputs changed"
         IO.eprintln "    after the full build; rerun the canonical launcher."
-        return false
-      -- Consume before scanning: one successful full build authorizes exactly one top-level run.
-      IO.FS.removeFile authorityPath
-      return true
+        return none
+      if !validAuthorityNonce manifest.workerNonce then return none
+      return some manifest
     catch _ =>
       IO.eprintln "[!] REFUSED: declaration-coverage build authority is absent or already consumed."
       IO.eprintln "    Use: python scripts/run_full_refs_coverage.py --full-repository"
-      return false
+      return none
+
+private def fnv1a64String (text : String) : UInt64 := Id.run do
+  let mut value : UInt64 := 14695981039346656037
+  for byte in text.toUTF8 do
+    value := (value ^^^ UInt64.ofNat byte.toNat) * 1099511628211
+  return value
+
+private def workerAuthorityPath (nonce : String) : System.FilePath :=
+  ".lake" / "build" / "full_refs_authority" / s!"{nonce}.worker"
+
+private def issueWorkerAuthority (master payload : String) : IO String := do
+  let nonce := s!"{master}_{fnv1a64String payload}"
+  let expires := (← IO.monoMsNow) + 300000
+  IO.FS.writeFile (workerAuthorityPath nonce) s!"{expires}\n{payload}"
+  return nonce
+
+/-- Consume an accidental-invocation capability before doing work.  The marker prevents stale or
+mistyped internal CLI use; it is intentionally not presented as hostile same-user authorization.
+A crashed parent can leave the exact payload capability usable until its five-minute expiry. -/
+private def consumeWorkerAuthority (nonce payload : String) : IO Bool := do
+  if !validAuthorityNonce nonce then return false
+  let workerPath : System.FilePath :=
+    ".lake" / "build" / "full_refs_authority" / s!"{nonce}.worker"
+  try
+    let contents ← IO.FS.readFile workerPath
+    IO.FS.removeFile workerPath
+    match contents.splitOn "\n" with
+    | [expiresText, authorizedPayload] =>
+      match expiresText.toNat? with
+      | some expires => return (← IO.monoMsNow) ≤ expires && authorizedPayload == payload
+      | none => return false
+    | _ => return false
+  catch _ =>
+    return false
+
+private def removeWorkerAuthority (nonce : String) : IO Unit := do
+  try IO.FS.removeFile (workerAuthorityPath nonce) catch _ => pure ()
 
 private def printAuthorityModules : IO UInt32 := do
   let enumeration ← discoverProjectModules
@@ -733,11 +862,21 @@ private def printAuthorityModules : IO UInt32 := do
     for error in enumeration.errors do IO.eprintln error
     return 1
   let paths := enumeration.files.map (fun path => (canonicalPath path : Json))
-  IO.println s!"GASM_AUTHORITY_MODULES {(Json.arr paths).compress}"
+  let lakefileText ← IO.FS.readFile "lakefile.toml"
+  let (declaredRoots, rootErrors) := deriveLakeBuildRoots lakefileText
+  if !rootErrors.isEmpty then
+    for error in rootErrors do IO.eprintln error
+    return 1
+  let mut rootNames : Array String := #[]
+  for root in declaredRoots do
+    if !rootNames.contains root.module then rootNames := rootNames.push root.module
+  let roots : Array Json := rootNames.map fun (root : String) => (root : Json)
+  let plan := Json.mkObj [("sources", Json.arr paths), ("roots", Json.arr roots)]
+  IO.println s!"GASM_AUTHORITY_MODULES {plan.compress}"
   return 0
 
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
-def runGate : IO UInt32 := do
+def runGate (workerNonce : String) : IO UInt32 := do
   let startTime ← IO.monoMsNow
 
   setupSearchPath
@@ -761,7 +900,11 @@ def runGate : IO UInt32 := do
   let selfExe ← IO.appPath
   let cwd ← IO.currentDir
   for root in #[`Gasm, `Stdlib, `Spikes] do
-    let payloadRes ← spawnAndGetResultPayload selfExe cwd #["--scan-root", toString root]
+    let payload := s!"root:{root}"
+    let workerToken ← issueWorkerAuthority workerNonce payload
+    let payloadRes ← spawnAndGetResultPayload selfExe cwd
+      #["--scan-root", workerToken, toString root]
+    removeWorkerAuthority workerToken
     match payloadRes with
     | .error spawnErr =>
       IO.eprintln s!"[!] umbrella worker {root} failed; falling back to per-module scans: {spawnErr}"
@@ -779,7 +922,11 @@ def runGate : IO UInt32 := do
   let missing := discovered.filter (fun (moduleName, _) => !baselineModules.contains moduleName)
   let concurrency ← defaultScanConcurrency
   let workerResults ← runWorkerPool missing concurrency fun (target, targetFile) => do
-    let payloadRes ← spawnAndGetResultPayload selfExe cwd #["--scan-module", toString target, targetFile.toString]
+    let workerPayload := s!"module:{target}:{targetFile}"
+    let workerToken ← issueWorkerAuthority workerNonce workerPayload
+    let payloadRes ← spawnAndGetResultPayload selfExe cwd
+      #["--scan-module", workerToken, toString target, targetFile.toString]
+    removeWorkerAuthority workerToken
     pure (target, targetFile, payloadRes)
 
   let mut coveredStandalone := 0
@@ -890,17 +1037,175 @@ def runGate : IO UInt32 := do
   IO.println sepLine
   return if failed then 1 else 0
 
-/-- CLI entry point. `--scan-root <dotted name>` and
-`--scan-module <dotted name> <file path>` are internal, undocumented modes:
+/-- CLI entry point. `--scan-root <one-time authority> <dotted name>` and
+`--scan-module <one-time authority> <dotted name> <file path>` are internal modes:
 they are how `runGate` re-invokes this executable as isolated workers (see
 this file's header's SUBPROCESS ISOLATION section) and are never meant to be typed by a human.
-Any other argument list (including none) runs the gate itself, exactly as
-before this fix. -/
+Any other argument list (including none) attempts the protected top-level gate. -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+private def runAuthoritySelfTest : IO UInt32 := do
+  let authorityDir : System.FilePath := ".lake" / "build" / "full_refs_authority"
+  IO.FS.createDirAll authorityDir
+  let master := "selftest_authority_nonce_0123456789abcdef"
+  let payload := "root:DefinitelyMissing"
+  let token ← issueWorkerAuthority master payload
+  if !(← consumeWorkerAuthority token payload) then return 1
+  if ← consumeWorkerAuthority token payload then return 1
+
+  let mismatch ← issueWorkerAuthority master "root:Expected"
+  if ← consumeWorkerAuthority mismatch "root:Wrong" then return 1
+  if ← (workerAuthorityPath mismatch).pathExists then return 1
+
+  let expired := s!"{master}_expired"
+  IO.FS.writeFile (workerAuthorityPath expired) "0\nroot:Expired"
+  if ← consumeWorkerAuthority expired "root:Expired" then return 1
+  if ← (workerAuthorityPath expired).pathExists then return 1
+
+  let malformed := s!"{master}_malformed"
+  IO.FS.writeFile (workerAuthorityPath malformed) "not-a-worker-capability"
+  if ← consumeWorkerAuthority malformed "root:Malformed" then return 1
+  if ← (workerAuthorityPath malformed).pathExists then return 1
+
+  if (parseBuildAuthority "{\"version\":2}").isOk then return 1
+  if (parseBuildAuthority "{\"version\":3}").isOk then return 1
+  if (parseRefsWorkerResult "not-json").isOk then return 1
+
+  let selfExe ← IO.appPath
+  let cwd ← IO.currentDir
+  let rawOld ← IO.Process.output {
+    cmd := selfExe.toString
+    args := #["--scan-root", "old-reusable-worker-marker", "Gasm"]
+    cwd := some cwd
+  }
+  if rawOld.exitCode != 2 then return 1
+  let rawMalformed ← IO.Process.output {
+    cmd := selfExe.toString
+    args := #["--scan-module", "malformed", "Gasm.Core.Arch", "Gasm/Core/Arch.lean"]
+    cwd := some cwd
+  }
+  if rawMalformed.exitCode != 2 then return 1
+
+  let topNonce := "selftest_top_authority_0123456789abcdef"
+  let topPath := authorityDir / s!"{topNonce}.token"
+  IO.FS.writeFile topPath "malformed top-level manifest"
+  let malformedTop ← IO.Process.output {
+    cmd := selfExe.toString
+    cwd := some cwd
+    env := #[("GASM_FULL_REFS_BUILD_AUTHORITY", some topNonce)]
+  }
+  if malformedTop.exitCode != 2 || (← topPath.pathExists) then return 1
+  let replayTop ← IO.Process.output {
+    cmd := selfExe.toString
+    cwd := some cwd
+    env := #[("GASM_FULL_REFS_BUILD_AUTHORITY", some topNonce)]
+  }
+  if replayTop.exitCode != 2 then return 1
+
+  let source := authorityDir / "trace-binding-selftest.lean"
+  let trace := authorityDir / "trace-binding-selftest.trace"
+  IO.FS.writeFile source "def traceBindingSelfTest : Nat := 1\n"
+  let sourcePath ← IO.FS.realPath source
+  let sourceHash ← Lake.computeFileHash source true
+  let metadata : Lake.BuildMetadata := {
+    depHash := sourceHash
+    inputs := #[(sourcePath.toString, toJson sourceHash)]
+    outputs? := none
+    log := {}
+    synthetic := false
+  }
+  IO.FS.writeFile trace (toJson metadata).compress
+  if !(← traceBindsCurrentSource trace source) then return 1
+  let sourceContent : AuthorityContent := {
+    path := source.toString
+    hash := toString (← fnv1a64File source)
+    stat := ← authorityStatFor source
+  }
+  if !(← verifyContent sourceContent) then return 1
+  IO.FS.writeFile source "def traceBindingSelfTestChanged : Nat := 200\n"
+  if ← verifyContent sourceContent then return 1
+  if ← traceBindsCurrentSource trace source then return 1
+
+  IO.FS.writeFile source "def traceBindingSelfTest : Nat := 1\n"
+  let wrongSource := authorityDir / "trace-binding-wrong-source.lean"
+  IO.FS.writeFile wrongSource "def wrongTraceBindingSource : Nat := 1\n"
+  if ← traceBindsCurrentSource trace wrongSource then return 1
+  IO.FS.writeFile trace "malformed trace"
+  if ← traceBindsCurrentSource trace source then return 1
+  IO.FS.writeFile trace (toJson metadata).compress
+
+  let olean := authorityDir / "trace-binding-selftest.olean"
+  let oleanHashPath := System.FilePath.mk (olean.toString ++ ".hash")
+  IO.FS.writeFile olean "synthetic olean"
+  IO.FS.writeFile oleanHashPath "synthetic-olean-hash"
+  let artifact : AuthorityArtifact := {
+    path := canonicalPath olean
+    lakeHash := "synthetic-olean-hash"
+    stat := ← authorityStatFor olean
+  }
+  if !(← verifyArtifactBarrier artifact olean) then return 1
+  IO.FS.writeFile oleanHashPath "mutated artifact hash"
+  if ← verifyArtifactBarrier artifact olean then return 1
+  IO.FS.writeFile oleanHashPath "synthetic-olean-hash"
+  let mkEntry : IO AuthorityModule := do
+    return {
+      path := canonicalPath source
+      sourceHash := toString (← fnv1a64File source)
+      source := ← authorityStatFor source
+      oleanPath := canonicalPath olean
+      oleanHash := "synthetic-olean-hash"
+      olean := ← authorityStatFor olean
+      tracePath := canonicalPath trace
+      traceHash := toString (← fnv1a64File trace)
+      trace := ← authorityStatFor trace
+    }
+  let entry ← mkEntry
+  if !(← verifyModuleBarrier #[entry] #[source]) then return 1
+  if ← verifyModuleBarrier #[] #[source] then return 1
+  if ← verifyModuleBarrier #[entry] #[] then return 1
+  if ← verifyModuleBarrier #[entry, entry] #[source] then return 1
+  if ← verifyModuleBarrier #[entry] #[source, wrongSource] then return 1
+
+  IO.FS.writeFile source "source mutation detected by final barrier\n"
+  if ← verifyModuleBarrier #[entry] #[source] then return 1
+  IO.FS.writeFile source "def traceBindingSelfTest : Nat := 1\n"
+  let entry ← mkEntry
+  IO.FS.writeFile olean "synthetic olean mutation with a different size"
+  if ← verifyModuleBarrier #[entry] #[source] then return 1
+  IO.FS.writeFile olean "synthetic olean"
+  let entry ← mkEntry
+  IO.FS.writeFile trace "synthetic trace mutation with a different size"
+  if ← verifyModuleBarrier #[entry] #[source] then return 1
+
+  IO.FS.removeFile source
+  IO.FS.removeFile wrongSource
+  IO.FS.removeFile trace
+  IO.FS.removeFile olean
+  IO.FS.removeFile oleanHashPath
+  IO.println "full-refs authority self-test passed"
+  return 0
+
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
 def main (args : List String) : IO UInt32 :=
   match args with
+  | ["--self-test-authority"] => runAuthoritySelfTest
   | ["--list-authority-modules"] => printAuthorityModules
-  | ["--scan-root", modStr] => runRootWorker (nameOfDotted modStr)
-  | ["--scan-module", modStr, fileStr] => runScanWorker (nameOfDotted modStr) (System.FilePath.mk fileStr)
+  | ["--scan-root", workerNonce, modStr] => do
+    if ← consumeWorkerAuthority workerNonce s!"root:{modStr}" then
+      runRootWorker (nameOfDotted modStr)
+    else return 2
+  | ["--scan-module", workerNonce, modStr, fileStr] => do
+    if ← consumeWorkerAuthority workerNonce s!"module:{modStr}:{fileStr}" then
+      runScanWorker (nameOfDotted modStr) (System.FilePath.mk fileStr)
+    else return 2
   | _ => do
-    if ← consumeFreshBuildAuthority then runGate else return 2
+    match ← consumeFreshBuildAuthority with
+    | some manifest => do
+      let result ← runGate manifest.workerNonce
+      if !(← verifyBuildAuthority manifest.nonce manifest) then
+        IO.eprintln "[!] REFUSED: repository/build state changed during declaration coverage."
+        return 2
+      if !(← verifyBuildAuthorityBarrier manifest) then
+        IO.eprintln "[!] REFUSED: repository/build state changed during final validation."
+        return 2
+      return result
+    | none => return 2

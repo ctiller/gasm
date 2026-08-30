@@ -468,16 +468,25 @@ class TestT1_04_03(BaseTier1Test):
 
 
 class TestT1_04_04(BaseTier1Test):
-    """T1.04.04: Verify check_refs_coverage gate executable compiles via lake."""
+    """T1.04.04: Verify the full declaration-coverage authority lifecycle controls."""
     def __init__(self):
-        super().__init__("T1.04.04", 4, "M1", "check_refs_coverage_compiled", "Verify check_refs_coverage executable compiles.")
+        super().__init__("T1.04.04", 4, "M1", "check_refs_coverage_compiled", "Verify full declaration-coverage authority controls.")
 
     def run(self, ctx: ExecutionContext) -> TestResult:
         start = time.monotonic()
-        src = ctx.repo_root / "Tools" / "CheckRefsCoverage.lean"
-        if not src.exists():
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "Tools/CheckRefsCoverage.lean missing", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "Tools/CheckRefsCoverage.lean exists", time.monotonic() - start)
+        launcher_code, launcher_out, launcher_err = ctx.run_cmd(
+            [ctx.python_exe, "scripts/test_full_refs_launcher.py"],
+            timeout=30.0,
+        )
+        if launcher_code != 0:
+            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Full declaration-coverage launcher controls failed (exit {launcher_code}): {launcher_out or launcher_err}", time.monotonic() - start)
+        code, out, err = ctx.run_cmd(
+            [ctx.python_exe, "scripts/run_full_refs_coverage.py", "--self-test-authority"],
+            timeout=300.0,
+        )
+        if code == 0:
+            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "Full declaration-coverage authority controls passed", time.monotonic() - start)
+        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Full declaration-coverage authority controls failed (exit {code}): {out or err}", time.monotonic() - start)
 
 
 class TestT1_04_05(BaseTier1Test):

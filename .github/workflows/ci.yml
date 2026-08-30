@@ -73,6 +73,7 @@ jobs:
           python scripts/run_gates.py --group linters \
             --gate check_refs \
             --gate check_full_refs_gate_wiring \
+            --gate check_full_refs_launcher \
             --gate check_no_exception_ledgers \
             --gate check_no_ignored_lean_sources \
             --gate check_verification_authority \
