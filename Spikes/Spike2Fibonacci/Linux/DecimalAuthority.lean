@@ -551,4 +551,36 @@ private theorem spike2_write_store_ordinary {stackUpper outputLimit : UInt64}
   · decide
   · exact authority.writeAdvance
 
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+private theorem spike2_write_cursor_ordinary {stackUpper outputLimit : UInt64}
+    (initial : X86_64MachineState) (entry : initial.rip = spike2WriteAddress .pop)
+    (authority : Spike2DecimalTextAuthority initial) (safety : WriteSafety stackUpper outputLimit initial)
+    (safe : WriteExecutionSafety 243 initial) (writeNoWrap : (initial.gprs .rdi).toNat + 1 ≤ 2 ^ 64)
+    (above : 4198635 ≤ (initial.gprs .rdi).toNat) : Spike2OrdinaryCode (writeStates initial).2.2.1 := by
+  obtain ⟨_, _, rip, _⟩ := spike2_write_reached_addresses initial entry
+  apply spike2_ordinary_from_output_write initial _ (spike2WriteAddress .decrement)
+    (initial.gprs .rdi) (initial.read64 initial.rsp).toUInt8.toUInt64 rip
+  · rw [show (writeStates initial).2.2.1.memory = (writeFinal 243 initial).memory by rfl,
+      (writePassEffect 243 stackUpper outputLimit initial safety safe).memory]
+  · exact writeNoWrap
+  · exact spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress])
+  · decide
+  · exact authority.writeDecrement
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+private theorem spike2_write_count_ordinary {stackUpper outputLimit : UInt64}
+    (initial : X86_64MachineState) (entry : initial.rip = spike2WriteAddress .pop)
+    (authority : Spike2DecimalTextAuthority initial) (safety : WriteSafety stackUpper outputLimit initial)
+    (safe : WriteExecutionSafety 243 initial) (writeNoWrap : (initial.gprs .rdi).toNat + 1 ≤ 2 ^ 64)
+    (above : 4198635 ≤ (initial.gprs .rdi).toNat) : Spike2OrdinaryCode (writeStates initial).2.2.2 := by
+  obtain ⟨_, _, _, rip⟩ := spike2_write_reached_addresses initial entry
+  apply spike2_ordinary_from_output_write initial _ (spike2WriteAddress .branch)
+    (initial.gprs .rdi) (initial.read64 initial.rsp).toUInt8.toUInt64 rip
+  · rw [show (writeStates initial).2.2.2.memory = (writeFinal 243 initial).memory by rfl,
+      (writePassEffect 243 stackUpper outputLimit initial safety safe).memory]
+  · exact writeNoWrap
+  · exact spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress])
+  · decide
+  · exact authority.writeBranch
+
 end Spikes.Spike2Fibonacci.Linux
