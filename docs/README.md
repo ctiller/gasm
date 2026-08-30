@@ -141,4 +141,6 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**Proof-Carrying Assembly DSL**](PROOF_CARRYING_ASSEMBLY.md): Current typed assembly pieces and
   design-only capability/memory-discipline boundaries.
 - [**Equivalence Proofs**](EQUIVALENCE_PROOFS.md): Split Theorem Principle (`Functional Equivalence`, `Callability & ABI`, `Memory Safety`) and layered function proof composition.
+- [**Practical Proof Tactics**](PROOF_TACTICS.md): concise, evidence-based advice on ghost state,
+  bounds, layering, local control-flow proofs, alternative proof decompositions, and proof economy.
 - [**Target Specifications**](TARGETS/TARGET_MODEL.md): Target models, calling conventions, and platform specifics.
