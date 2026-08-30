@@ -58,6 +58,16 @@ def crlfBytes : ByteArray := "\r\n".toUTF8
 def defaultSampleInput : ByteArray :=
   "cherry\r\napple\r\nbanana\r\n".toUTF8
 
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- The typed resource-exit segment is named apart from the large sorter body so a certified
+    linker can retain exact placement and a local terminal-call proof without replaying the
+    unrelated program prefix. -/
+def spike3ResourceExhaustedSegment : List SymbolicInstr := [
+  label "resource_exhausted",
+  instr (mov_r32 .ecx spike3ResourceFailureExitCode),
+  call_import "ExitProcess"
+]
+
 /- REF: docs/STDLIB_SMOLALLOC.md#1-overview-architectural-role -/
 /- REF: docs/MEMORY_PROVENANCE.md#3-provenance-lifecycle-in-spike-3-line-sorter -/
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
@@ -544,13 +554,7 @@ def spike3SymbolicProgramWithArena (arenaBytes : UInt32) : List SymbolicInstr :=
   instr (xor_r32 .ecx .ecx),
   call_import "ExitProcess",
 
-  -- Every fallible allocation branches here before its result is stored or dereferenced.  The
-  -- process exits with the shared resource outcome; recovery is a fresh run with a larger chosen
-  -- capability, never an implicit unbounded allocator fallback.
-  label "resource_exhausted",
-  instr (mov_r32 .ecx spike3ResourceFailureExitCode),
-  call_import "ExitProcess"
-] ++ [
+] ++ spike3ResourceExhaustedSegment ++ [
   -- =========================================================================
   -- STANDARD LIBRARY SMOLALLOC SUBROUTINES (FROM STDLIB.SMOLALLOC.PROGRAM)
   -- =========================================================================
