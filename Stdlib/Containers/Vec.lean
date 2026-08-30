@@ -70,6 +70,12 @@ def set (values : Vec α n) (index : Fin n) (value : α) : Vec α n :=
     simp [values.size_eq]⟩
 
 /- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+/-- Exchange two valid positions without changing the vector length. -/
+def swap (values : Vec α n) (left right : Fin n) : Vec α n :=
+  ⟨values.data.swap left.val right.val (by simp [values.size_eq]) (by simp [values.size_eq]),
+    by simp [values.size_eq]⟩
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
 def push (values : Vec α n) (value : α) : Vec α (n + 1) :=
   ⟨values.data.push value, by simp [values.size_eq]⟩
 
@@ -193,6 +199,45 @@ theorem get_set_of_ne (values : Vec α n) {left right : Fin n} (different : left
   · simp [values.size_eq]
   · intro equal
     exact different (Fin.ext (Eq.symm equal))
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+@[simp] theorem get_swap_left (values : Vec α n) (left right : Fin n) :
+    (values.swap left right).get left = values.get right := by
+  simp [swap, get]
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+@[simp] theorem get_swap_right (values : Vec α n) (left right : Fin n) :
+    (values.swap left right).get right = values.get left := by
+  simp [swap, get]
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+theorem get_swap_of_ne (values : Vec α n) {left right index : Fin n}
+    (notLeft : index ≠ left) (notRight : index ≠ right) :
+    (values.swap left right).get index = values.get index := by
+  unfold swap get
+  apply Array.getElem_swap_of_ne
+  · intro equal
+    exact notLeft (Fin.ext equal)
+  · intro equal
+    exact notRight (Fin.ext equal)
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+@[simp] theorem size_swap (values : Vec α n) (left right : Fin n) :
+    (values.swap left right).size = values.size := rfl
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+@[simp] theorem swap_swap (values : Vec α n) (left right : Fin n) :
+    (values.swap left right).swap left right = values := by
+  cases values with
+  | mk data size_eq =>
+    cases size_eq
+    simp [swap]
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+theorem toList_swap_perm (values : Vec α n) (left right : Fin n) :
+    (values.swap left right).toList.Perm values.toList := by
+  exact Array.perm_iff_toList_perm.mp
+    (Array.swap_perm (xs := values.data) (by simp [values.size_eq]) (by simp [values.size_eq]))
 
 /- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
 @[simp] theorem get_map (f : α → β) (values : Vec α n) (index : Fin n) :

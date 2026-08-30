@@ -24,7 +24,7 @@ of asymptotically optimal runtime.
 `Stdlib.VecSpec.Model` is the representation-free semantic layer. `Stdlib.Vec` is the
 currently selected contiguous `Array` realization, and `ByteArray.toVec` relates
 Lean's specialized byte storage to the same model. Construction, indexing, update,
-append, mapping, and folds expose laws connecting execution to the model.
+append, mapping, swapping, and folds expose laws connecting execution to the model.
 Bounds-sensitive successful access uses `Fin`; `get?` exposes failure explicitly.
 
 The Array representation is certified but not opaque: Lean exposes the structure
