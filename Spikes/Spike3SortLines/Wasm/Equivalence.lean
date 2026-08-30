@@ -108,9 +108,21 @@ def spike3WasmInputFor (environment : Environment) : List (List UInt8) :=
   environmentInputLines environment
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
-/-- The independent, byte-total specification attached to the canonical environment. -/
-def spike3WasmSpec (environment : Environment) : WasiObservable AnyEvent :=
-  .exited 0 (spike3ByteSortSpec environment)
+/-- The success arm of the one finite-resource byte specification, retained as a named WASI
+    observation for the target bridge.  A universal certificate must additionally classify the
+    real WASI resource outcome as `.available` or `.exhausted`; it cannot use this arm to erase
+    memory/fuel exhaustion. -/
+def spike3WasmSuccessSpec (environment : Environment) : WasiObservable AnyEvent :=
+  .exited 0 (byteSortOutput (sortByteLines (environmentInputLines environment)))
+
+/-- The independent, byte-total finite-resource specification attached to the canonical
+    environment.  This is the shape a completed universal WASI bridge must classify against.
+    The platform's detailed memory/fuel outcomes remain distinct in `WasiObservable`, so a bridge
+    must prove their relationship to this source-level resource result rather than project them
+    to a trace. -/
+def spike3WasmFiniteSpec (environment : Environment) (resource : Spike3ResourceOutcome) :
+    Spike3ByteSortOutcome :=
+  spike3ByteSortSpec environment resource
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
 /-- The Spike 3 WASI profile preserves the environment verbatim at the platform boundary. This
@@ -147,7 +159,7 @@ def spike3WasiExports : VerifiedExportSet Unit Unit WasiPlatform
 
 def spike3VerifiedWasmProgram
     (traceEquivalence : ∀ environment : Environment,
-      spike3WasmTraceFor environment = spike3WasmSpec environment) :
+      spike3WasmTraceFor environment = spike3WasmSuccessSpec environment) :
     VerifiedProgram Spike3WasiPreview1Platform spike3WasiCapabilities := {
   name := "Spike 3: Byte-stream line sorter (WebAssembly / WASI Preview 1)"
   artifact := spike3WasiArtifact
@@ -162,7 +174,7 @@ def spike3VerifiedWasmProgram
     constructor
     · rfl
     constructor <;> rfl
-  spec := spike3WasmSpec
+  spec := spike3WasmSuccessSpec
   importsCovered := by
     intro imported himported
     change imported ∈ ["fd_read", "fd_write", "proc_exit"] at himported

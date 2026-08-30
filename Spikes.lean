@@ -43,6 +43,7 @@ import Spikes.Spike2Fibonacci.Wasm.Equivalence
 
 import Spikes.Spike3SortLines.Spec
 import Spikes.Spike3SortLines.LogicalWorld
+import Spikes.Spike3SortLines.TargetBridge
 import Spikes.Spike3SortLines.Windows.Program
 import Spikes.Spike3SortLines.Windows.Equivalence
 import Spikes.Spike3SortLines.TraceStepLemmas

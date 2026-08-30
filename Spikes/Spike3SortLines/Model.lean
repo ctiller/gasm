@@ -68,10 +68,44 @@ def byteSortOutput : List (List UInt8) → List AnyEvent
       Inject.inject (ConsoleEvent.out "\r\n") :: byteSortOutput rest
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
+/-- The finite-resource outcome that a target bridge must classify before it may state a whole
+    program behavior.  It is intentionally not a second obligation ledger: it is the observable
+    result of the already-selected target resource capability. -/
+inductive Spike3ResourceOutcome where
+  | available
+  | exhausted
+  deriving DecidableEq, BEq
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- Byte-total behavior of one sorter invocation.  A successful run has the independent sorted
+    byte trace; an exhausted finite arena/budget has no partial successful trace.  Retrying is a
+    new invocation with `.available` after its target-owned resource governor has supplied a
+    sufficient fresh capability. -/
+inductive Spike3ByteSortOutcome where
+  | completed (trace : List AnyEvent)
+  | resourceFailure
+  deriving DecidableEq, BEq
+
+/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- Independent byte-total whole-program specification. Every `Environment.stdin` byte string
     has a meaning: only LF-completed records participate in the sort, exactly as the streaming
-    decoder specifies. -/
-def spike3ByteSortSpec (environment : Environment) : List AnyEvent :=
-  byteSortOutput (sortByteLines (environmentInputLines environment))
+    decoder specifies.  The selected target resource result decides whether that sort can be
+    observed in this invocation or the caller receives the explicit retryable failure outcome. -/
+def spike3ByteSortSpec (environment : Environment) : Spike3ResourceOutcome → Spike3ByteSortOutcome
+  | .available => .completed (byteSortOutput (sortByteLines (environmentInputLines environment)))
+  | .exhausted => .resourceFailure
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- The success arm used by a fresh retry once a target bridge has established an available
+    resource result.  This is merely the `.available` branch of the one specification, not a
+    legacy success-only alternate specification. -/
+theorem spike3ByteSortSpec_recovers (environment : Environment) :
+    spike3ByteSortSpec environment .available =
+      .completed (byteSortOutput (sortByteLines (environmentInputLines environment))) := rfl
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- An exhausted finite resource never masquerades as a successful trace. -/
+theorem spike3ByteSortSpec_exhausted (environment : Environment) :
+    spike3ByteSortSpec environment .exhausted = .resourceFailure := rfl
 
 end Spikes.Spike3SortLines
