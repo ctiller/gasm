@@ -147,3 +147,4 @@ import Gasm.Targets.BareMetal.Linker
 import Gasm.Targets.BareMetal.QEMU
 
 import Gasm.Targets.WASI.ABI
+import Gasm.Targets.WASI.ObservableNormalization
