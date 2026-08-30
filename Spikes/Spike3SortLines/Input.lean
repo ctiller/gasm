@@ -81,10 +81,86 @@ def ByteLineStream.finalizedLines (state : ByteLineStream) : List (List UInt8) :
   | [] => state.completedLines
   | _ => state.completedLines ++ [state.currentRev.reverse]
 
+/-! The finalized line view is deliberately lossy: a trailing CR before LF is
+trimmed and it does not record whether the final record ended at EOF.  Native
+allocation planning must retain that information, because the lowered scanner
+checks capacity before every non-LF byte, *before* the LF branch removes a
+trailing CR.  The record view below is the non-lossy companion used only by
+the native preparation boundary. -/
+
+/-- How a native scanner record ended.  `lineFeed` has consumed an LF after
+    `scanned`; `eof` retains a nonempty final unterminated byte run. -/
+inductive NativeRecordEnd where
+  | lineFeed
+  | eof
+  deriving Repr, DecidableEq
+
+/-- One exact scanner record.  `scanned` is precisely the sequence of
+    non-LF bytes to which the native lowering applied its pre-append capacity
+    test.  `line` is the subsequently retained logical line. -/
+structure NativeInputRecord where
+  scanned : List UInt8
+  ending : NativeRecordEnd
+deriving Repr, DecidableEq
+
+def NativeInputRecord.line (record : NativeInputRecord) : List UInt8 :=
+  match record.ending with
+  | .lineFeed => trimLineEnding record.scanned
+  | .eof => record.scanned
+
+/-- Structural raw-record decoder.  It mirrors `ByteLineStream.step`, but
+    intentionally retains the pre-trim bytes and EOF/LF distinction. -/
+def decodeNativeRecordsAux (currentRev : List UInt8) : List UInt8 → List NativeInputRecord
+  | [] =>
+      match currentRev with
+      | [] => []
+      | _ => [{ scanned := currentRev.reverse, ending := .eof }]
+  | byte :: rest =>
+      if byte == lineFeed then
+        { scanned := currentRev.reverse, ending := .lineFeed } ::
+          decodeNativeRecordsAux [] rest
+      else
+        decodeNativeRecordsAux (byte :: currentRev) rest
+
+/-- Exact native scanner records for every byte of stdin.  This is not a
+    replacement input domain: it is a lossless derivation from the universal
+    byte-array binder. -/
+def decodeNativeRecords (stdin : ByteArray) : List NativeInputRecord :=
+  decodeNativeRecordsAux [] stdin.toList
+
+/-- The lossless native record view preserves exactly the public decoded-line
+    observation.  It adds scanner facts; it does not create a second input
+    domain or permit a plan to choose different lines. -/
+theorem decodeNativeRecordsAux_lines (prior : List (List UInt8)) (currentRev : List UInt8)
+    (bytes : List UInt8) :
+    (ByteLineStream.feed { currentRev := currentRev, completedRev := prior.reverse } bytes).finalizedLines =
+      prior ++ (decodeNativeRecordsAux currentRev bytes).map NativeInputRecord.line := by
+  induction bytes generalizing currentRev prior with
+  | nil =>
+      cases currentRev <;> simp [ByteLineStream.feed, ByteLineStream.finalizedLines,
+        ByteLineStream.completedLines, decodeNativeRecordsAux, NativeInputRecord.line]
+  | cons byte bytes ih =>
+      by_cases h : byte == lineFeed
+      · simp only [ByteLineStream.feed, ByteLineStream.step, h, ↓reduceIte,
+          decodeNativeRecordsAux]
+        have hcompleted : trimLineEnding currentRev.reverse :: prior.reverse =
+            (prior ++ [trimLineEnding currentRev.reverse]).reverse := by
+          simp
+        rw [hcompleted, ih (prior ++ [trimLineEnding currentRev.reverse]) []]
+        simp [NativeInputRecord.line, List.append_assoc]
+      · simp only [ByteLineStream.feed, ByteLineStream.step, h,
+          decodeNativeRecordsAux]
+        exact ih prior (byte :: currentRev)
+
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- The byte-level stdin model used by Spike 3's universal-environment specification. -/
 def decodeStdinLines (stdin : ByteArray) : List (List UInt8) :=
   (ByteLineStream.feed {} stdin.toList).finalizedLines
+
+theorem decodeNativeRecords_lines (stdin : ByteArray) :
+    (decodeNativeRecords stdin).map NativeInputRecord.line = decodeStdinLines stdin := by
+  unfold decodeNativeRecords decodeStdinLines
+  simpa using (decodeNativeRecordsAux_lines [] [] stdin.toList).symm
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- Streaming composition: splitting an arbitrary stdin stream into host read chunks cannot

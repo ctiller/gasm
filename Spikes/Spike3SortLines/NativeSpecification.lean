@@ -17,6 +17,7 @@ limitations under the License.
 import Spikes.Spike3SortLines.Composition
 import Spikes.Spike3SortLines.NativeRuntime
 import Stdlib.SmolAlloc.Equivalence
+import Gasm.Targets.X86_64.Assembler
 
 /-!
 Phase-indexed native preparation evidence shared by the Linux and Win32 bridges.
@@ -34,6 +35,7 @@ namespace Spikes.Spike3SortLines
 open Gasm.Core.Platform
 open Stdlib.SmolAlloc
 open Gasm.Targets.X86_64
+open Gasm.Targets.X86_64.Assembler
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- Classification of the initial fallible OS reservation alone.  This is intentionally not the
@@ -122,13 +124,22 @@ structure NativeAllocatorCall (arena : NativeArenaCapability) (request : UInt64)
     (before after : SmolAllocatorFrame) (result : NativeAllocatorCallResult) where
   machineBefore : X86_64MachineState
   machineAfter : X86_64MachineState
-  entry : machineBefore.rip = 0x1000
+  /-- The allocator RIP is a link-time coordinate.  It must not be fixed to
+      the standalone routine's old `0x1000` test base: the selected native
+      artifact embeds this exact code at its own linked address. -/
+  entryRip : UInt64
+  entry : machineBefore.rip = entryRip
+  instructions : List X86_64Instr
+  /-- Reassemble the allocator's one symbolic body at the *linked* entry.
+      Relative branch displacements are consequently those in the selected
+      final artifact, not those of the historical standalone `0x1000` probe. -/
+  instructionIdentity : instructions = assembleProgram entryRip smolMallocSymbolicProgram
   requestInstalled : machineBefore.gprs .rcx = request
   arenaBaseInstalled : machineBefore.gprs .r11 = before.bump
   arenaEndInstalled : machineBefore.gprs .r15 = arena.endExclusive
   freeListInstalled : machineBefore.gprs .r10 = before.freeHead
   memoryInstalled : machineBefore.memory = before.memory
-  executes : runProgramWithLoops 0x1000 smolMallocInstructions 30 machineBefore = machineAfter
+  executes : runProgramWithLoops entryRip instructions 30 machineBefore = machineAfter
   bumpProjected : machineAfter.gprs .r11 = after.bump
   freeListProjected : machineAfter.gprs .r10 = after.freeHead
   memoryProjected : machineAfter.memory = after.memory
@@ -142,12 +153,15 @@ silently modelled as a fresh bump allocation. -/
 structure NativeAllocatorFreeCall (before after : SmolAllocatorFrame) (payload : UInt64) where
   machineBefore : X86_64MachineState
   machineAfter : X86_64MachineState
-  entry : machineBefore.rip = 0x1000
+  entryRip : UInt64
+  entry : machineBefore.rip = entryRip
+  instructions : List X86_64Instr
+  instructionIdentity : instructions = assembleProgram entryRip smolFreeSymbolicProgram
   payloadInstalled : machineBefore.gprs .rcx = payload
   bumpInstalled : machineBefore.gprs .r11 = before.bump
   freeListInstalled : machineBefore.gprs .r10 = before.freeHead
   memoryInstalled : machineBefore.memory = before.memory
-  executes : runProgramWithLoops 0x1000 smolFreeInstructions 30 machineBefore = machineAfter
+  executes : runProgramWithLoops entryRip instructions 30 machineBefore = machineAfter
   bumpProjected : machineAfter.gprs .r11 = after.bump
   freeListProjected : machineAfter.gprs .r10 = after.freeHead
   memoryProjected : machineAfter.memory = after.memory
@@ -238,8 +252,15 @@ inductive NativeOperationTrace (arena : NativeArenaCapability) :
 therefore does not claim a mathematical request size unless this premise rules out wrapping. -/
 def nativeUInt64Modulus : Nat := 18446744073709551616
 
-def NativeLineCapacityFits (line : List UInt8) (capacity : UInt64) : Prop :=
-  line.length + 1 < nativeUInt64Modulus ∧ line.length.toUInt64 + 1 ≤ capacity
+/-- The scanner's growth guard is evaluated before appending each *raw*
+    non-LF byte.  It must therefore be indexed by `NativeInputRecord.scanned`,
+    not by the CRLF-trimmed retained line or by its later NUL-terminated payload
+    request.  In particular, a 256-byte unterminated record fits a 256-byte
+    scan buffer (its later 257-byte retained payload is a different malloc),
+    while a 256-byte CRLF record grows when the scanner reaches its trailing
+    CR. -/
+def NativeRecordCapacityFits (record : NativeInputRecord) (capacity : UInt64) : Prop :=
+  record.scanned.length < nativeUInt64Modulus ∧ record.scanned.length.toUInt64 ≤ capacity
 
 def NativeGrowthSafe (capacity : UInt64) : Prop :=
   capacity ≤ 0xFFFFFFFFFFFFFFFF - 256
@@ -251,36 +272,42 @@ def NativeTableRequestFits (stored : List (List UInt8)) : Prop :=
 followed immediately by freeing the old buffer.  It can occur only for the next line which does
 not fit, carries a nonwrapping bound, and recurs at the enlarged capacity; hence it cannot insert
 arbitrary/zero growth steps.  Retention consumes exactly one line in input order. -/
-inductive NativeIngestionOperationOrder : UInt64 → List (List UInt8) →
+inductive NativeIngestionOperationOrder : UInt64 → List NativeInputRecord →
     List NativePreparationOperation → UInt64 → Prop where
   | done (capacity : UInt64) : NativeIngestionOperationOrder capacity [] [] capacity
-  | grow {capacity : UInt64} {line : List UInt8} {lines : List (List UInt8)}
+  | grow {capacity : UInt64} {record : NativeInputRecord} {records : List NativeInputRecord}
       {operations : List NativePreparationOperation} {finish : UInt64}
       (safe : NativeGrowthSafe capacity)
-      (doesNotFit : ¬ NativeLineCapacityFits line capacity)
+      (doesNotFit : ¬ NativeRecordCapacityFits record capacity)
       (oldPayload : UInt64)
-      (rest : NativeIngestionOperationOrder (capacity + 256) (line :: lines) operations finish) :
-      NativeIngestionOperationOrder capacity (line :: lines)
+      (rest : NativeIngestionOperationOrder (capacity + 256) (record :: records) operations finish) :
+      NativeIngestionOperationOrder capacity (record :: records)
         (.malloc (.growLineBuffer capacity) ::
           .free (.replaceLineBuffer capacity) oldPayload :: operations) finish
-  | retained {capacity finish : UInt64} {line : List UInt8} {lines : List (List UInt8)}
+  | retained {capacity finish : UInt64} {record : NativeInputRecord} {records : List NativeInputRecord}
       {operations : List NativePreparationOperation}
-      (fits : NativeLineCapacityFits line capacity)
-      (rest : NativeIngestionOperationOrder capacity lines operations finish) :
-      NativeIngestionOperationOrder capacity (line :: lines)
-        (.malloc (.retainedPayload line) :: .malloc (.retainedNode line) :: operations) finish
+      (fits : NativeRecordCapacityFits record capacity)
+      (rest : NativeIngestionOperationOrder capacity records operations finish) :
+      NativeIngestionOperationOrder capacity (record :: records)
+        (.malloc (.retainedPayload record.line) ::
+          .malloc (.retainedNode record.line) :: operations) finish
 
 /-- The complete successful operation shape.  Startup failures are modeled separately; after
 both startup allocations, EOF always frees both staging buffers.  For empty input no table
 allocation appears at all, while a nonempty finalized source has exactly one `count * 16` table
 operation after those frees. -/
 structure NativePreparationPlan (stored : List (List UInt8)) where
+  /-- The lossless scanner records from the read binder.  Keeping this beside
+      `stored` prevents a plan from reconstructing a pre-append growth decision
+      from a CRLF-trimmed line value. -/
+  records : List NativeInputRecord
+  recordsExact : records.map NativeInputRecord.line = stored
   readBufferPayload : UInt64
   initialLineBufferPayload : UInt64
   ingestionOperations : List NativePreparationOperation
   finalLineCapacity : UInt64
   finalLineBufferPayload : UInt64
-  ingestionExact : NativeIngestionOperationOrder 256 stored ingestionOperations finalLineCapacity
+  ingestionExact : NativeIngestionOperationOrder 256 records ingestionOperations finalLineCapacity
   postEofOperations : List NativePreparationOperation
   postEofExact : if stored = [] then postEofOperations = [] else
     postEofOperations = [.malloc (.sortTable stored)]
@@ -333,19 +360,22 @@ inductive NativePreparationEvidence (target : NativePreparationTarget)
   | startupReadBufferRefused
       (arena : NativeArenaCapability) (reservation : NativeReservationEvidence target context arena)
       (initial : SmolAllocatorFrame) (initialFrame : NativeAllocatorInitialFrame arena initial)
-      (plan : NativePreparationPlan (environmentInputLines environment))
-      (failure : NativeOperationRefusal arena plan initial)
-      (firstOperation : failure.completedOperations = [] ∧
-        failure.nextPurpose = NativeMallocPurpose.startupReadBuffer) :
+      /- Startup rejection occurs before stdin is read.  Requiring a full
+          future plan here would make an early real failure depend on raw
+          records that were never observed (and can be arbitrarily large). -/
+      (refused : NativeAllocatorCall arena NativeMallocPurpose.startupReadBuffer.request
+        initial initial .refused) :
       NativePreparationEvidence target context environment storageCapacity readCapacity chunks
   | startupLineBufferRefused
       (arena : NativeArenaCapability) (reservation : NativeReservationEvidence target context arena)
-      (initial : SmolAllocatorFrame) (initialFrame : NativeAllocatorInitialFrame arena initial)
-      (plan : NativePreparationPlan (environmentInputLines environment))
-      (failure : NativeOperationRefusal arena plan initial)
-      (firstOperation : failure.completedOperations =
-        [NativePreparationOperation.malloc NativeMallocPurpose.startupReadBuffer] ∧
-        failure.nextPurpose = NativeMallocPurpose.startupLineBuffer) :
+      (initial afterRead : SmolAllocatorFrame) (initialFrame : NativeAllocatorInitialFrame arena initial)
+      (readBuffer : NativeAllocatorCall arena NativeMallocPurpose.startupReadBuffer.request
+        initial afterRead .allocated)
+      (readBufferPayload : readBuffer.machineAfter.gprs .rax ≠ 0)
+      /- As above, this second startup rejection is still before any input
+          record is decoded, so it carries only its reachable startup prefix. -/
+      (refused : NativeAllocatorCall arena NativeMallocPurpose.startupLineBuffer.request
+        afterRead afterRead .refused) :
       NativePreparationEvidence target context environment storageCapacity readCapacity chunks
   | ingestionRefused
       (arena : NativeArenaCapability) (reservation : NativeReservationEvidence target context arena)
@@ -358,9 +388,19 @@ inductive NativePreparationEvidence (target : NativePreparationTarget)
       (ingestionRefused : ingestion = .refused prepared first untouchedTail)
       (inputPartition : environmentInputLines environment = prepared ++ first :: untouchedTail)
       (plan : NativePreparationPlan (environmentInputLines environment))
+      /- This partition is over the lossless scanner records, not merely over
+          their line values.  It identifies the failed occurrence by position,
+          so repeated equal lines cannot justify a prefix for another record. -/
+      (preparedRecords untouchedRecords : List NativeInputRecord) (firstRecord : NativeInputRecord)
+      (recordPartition : plan.records = preparedRecords ++ firstRecord :: untouchedRecords)
+      (preparedExact : prepared = preparedRecords.map NativeInputRecord.line)
+      (firstExact : first = firstRecord.line)
+      (untouchedExact : untouchedTail = untouchedRecords.map NativeInputRecord.line)
       (prefixOperations : List NativePreparationOperation)
       (remainingIngestionOperations : List NativePreparationOperation)
       (failurePurpose : NativeIngestionFailurePurpose first)
+      (prefixIsPriorRecords : ∃ capacity,
+        NativeIngestionOperationOrder 256 preparedRecords prefixOperations capacity)
       (ingestionPlanSplit : plan.ingestionOperations = prefixOperations ++
         .malloc failurePurpose.mallocPurpose :: remainingIngestionOperations)
       (failure : NativeOperationRefusal arena plan initial)
