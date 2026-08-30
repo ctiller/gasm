@@ -82,8 +82,6 @@ def parser_leaks(paths: Iterable[str]) -> list[str]:
     for rel in paths:
         if rel in TEMPORARY_PARSER_FILES or rel == RATCHET_PATH:
             continue
-        if not (rel.startswith("scripts/") or rel.startswith("Tools/") or rel == "lakefile.toml"):
-            continue
         path = REPO_ROOT / rel
         try:
             text = path.read_text(encoding="utf-8")
@@ -130,6 +128,21 @@ def live_temporary_entries() -> int:
     return count_live_entries(path.read_text(encoding="utf-8"))
 
 
+def temporary_debt_exceeded(count: int) -> bool:
+    return count > MAX_TEMPORARY_GATE_ENTRIES
+
+
+def has_failures(
+    bad_paths: list[str], parser_leak_list: list[str], bad_references: list[str], live_entries: int
+) -> bool:
+    return bool(
+        bad_paths
+        or parser_leak_list
+        or bad_references
+        or temporary_debt_exceeded(live_entries)
+    )
+
+
 def run_check(paths: Iterable[str] | None = None) -> tuple[list[str], list[str], list[str], int]:
     selected = list(paths) if paths is not None else tracked_files()
     return (
@@ -158,12 +171,25 @@ def self_test() -> int:
     finally:
         probe_path.unlink(missing_ok=True)
         (REPO_ROOT / parser_probe).unlink(missing_ok=True)
-    ceiling_rejects_growth = count_live_entries("entry\n" * (MAX_TEMPORARY_GATE_ENTRIES + 1)) > MAX_TEMPORARY_GATE_ENTRIES
+    boundary_is_accepted = not temporary_debt_exceeded(MAX_TEMPORARY_GATE_ENTRIES)
+    ceiling_rejects_growth = temporary_debt_exceeded(MAX_TEMPORARY_GATE_ENTRIES + 1)
+    aggregate_rejects_each_kind = all([
+        has_failures(["path"], [], [], 0),
+        has_failures([], ["parser"], [], 0),
+        has_failures([], [], ["reference"], 0),
+        has_failures([], [], [], MAX_TEMPORARY_GATE_ENTRIES + 1),
+    ])
+    aggregate_accepts_clean_boundary = not has_failures(
+        [], [], [], MAX_TEMPORARY_GATE_ENTRIES
+    )
     passed = (
         bad_paths == ["scripts/new_allowlist.txt", "scripts/waiver_ledger.toml"]
         and bad_references == [f"{reference_probe}: scripts/new_allowlist.txt"]
         and bad_parsers == [f"{parser_probe}: load_exceptions"]
+        and boundary_is_accepted
         and ceiling_rejects_growth
+        and aggregate_rejects_each_kind
+        and aggregate_accepts_clean_boundary
     )
     print(f"synthetic path/reference/parser/ceiling rejection: {'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1
@@ -177,7 +203,7 @@ def main() -> int:
         return self_test()
 
     bad_paths, leaks, bad_references, live_entries = run_check()
-    failed = bool(bad_paths or leaks or bad_references or live_entries > MAX_TEMPORARY_GATE_ENTRIES)
+    failed = has_failures(bad_paths, leaks, bad_references, live_entries)
     print("=" * 72)
     print(" Exception-ledger removal ratchet")
     print("=" * 72)
@@ -187,7 +213,7 @@ def main() -> int:
         print(f"[!] exception parser outside temporary Law-10 tools: {leak}")
     for leak in bad_references:
         print(f"[!] retired exception ledger is still advertised: {leak}")
-    if live_entries > MAX_TEMPORARY_GATE_ENTRIES:
+    if temporary_debt_exceeded(live_entries):
         print(f"[!] temporary Law-10 debt grew: {live_entries} > {MAX_TEMPORARY_GATE_ENTRIES}")
     else:
         print(f"[*] temporary Law-10 debt: {live_entries}/{MAX_TEMPORARY_GATE_ENTRIES}")

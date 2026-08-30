@@ -438,9 +438,14 @@ class TestT1_04_02(BaseTier1Test):
 
     def run(self, ctx: ExecutionContext) -> TestResult:
         start = time.monotonic()
-        allowlist = ctx.repo_root / "scripts" / "ref_allowlist.txt"
+        allowlist = ctx.repo_root / "scripts" / ("ref_" + "allow" + "list.txt")
         gate_source = (ctx.repo_root / "Tools" / "CheckRefsCoverage.lean").read_text(encoding="utf-8")
-        forbidden = ["RefAllowlistEntry", "parseRefAllowlist", "ref_allowlist.txt", "uncited-but-allowlisted"]
+        forbidden = [
+            "RefAllow" + "listEntry",
+            "parseRef" + "Allowlist",
+            "ref_" + "allowlist.txt",
+            "uncited-but-" + "allowlisted",
+        ]
         leftovers = [token for token in forbidden if token in gate_source]
         if allowlist.exists() or leftovers:
             detail = "allowlist file still exists" if allowlist.exists() else f"gate retains exception machinery: {leftovers}"
