@@ -10,6 +10,10 @@ set_option maxHeartbeats 5000000
 theorem spike2_initial_text_3344_not_selfref :
     spike2AfterPrologue.read64 5368713344 ≠ 5368713344 := by decide
 
+/-- The continuation of the two-digit index formatter is ordinary text, not an IAT thunk. -/
+theorem spike2_initial_text_3384_not_selfref :
+    spike2AfterPrologue.read64 5368713384 ≠ 5368713384 := by decide
+
 /-- The decimal extraction header is an ordinary text word, not a self-referential IAT slot. -/
 theorem spike2_initial_text_3424_not_selfref :
     spike2AfterPrologue.read64 5368713424 ≠ 5368713424 := by decide
