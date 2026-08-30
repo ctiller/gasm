@@ -18,6 +18,7 @@ import Gasm.Targets.WASI.ABI
 
 namespace Gasm.Targets.WASI
 
+/- REF: docs/PROOF_TACTICS.md#prove-layers-then-compose -/
 /-- Replace the payload of a successful exit while preserving every other observable outcome.
 
 This total, proof-free normalizer is deliberately separated from evaluator-backed proofs that a
@@ -30,29 +31,35 @@ def WasiObservable.normalizeSuccessfulExit
   | .exited 0 events => successful events
   | observation => observation
 
+/- REF: docs/PROOF_TACTICS.md#prove-layers-then-compose -/
 @[simp] theorem WasiObservable.normalizeSuccessfulExit_completed
     (successful : List Event → WasiObservable Event) (events : List Event) :
     (WasiObservable.completed events).normalizeSuccessfulExit successful = .completed events := rfl
 
+/- REF: docs/PROOF_TACTICS.md#prove-layers-then-compose -/
 @[simp] theorem WasiObservable.normalizeSuccessfulExit_exited_zero
     (successful : List Event → WasiObservable Event) (events : List Event) :
     (WasiObservable.exited 0 events).normalizeSuccessfulExit successful = successful events := rfl
 
+/- REF: docs/PROOF_TACTICS.md#prove-layers-then-compose -/
 @[simp] theorem WasiObservable.normalizeSuccessfulExit_exited_nonzero
     (successful : List Event → WasiObservable Event) (code : UInt32) (events : List Event)
     (nonzero : code ≠ 0) :
     (WasiObservable.exited code events).normalizeSuccessfulExit successful = .exited code events := by
   simp [WasiObservable.normalizeSuccessfulExit, nonzero]
 
+/- REF: docs/PROOF_TACTICS.md#prove-layers-then-compose -/
 @[simp] theorem WasiObservable.normalizeSuccessfulExit_trapped
     (successful : List Event → WasiObservable Event) (events : List Event) :
     (WasiObservable.trapped events).normalizeSuccessfulExit successful = .trapped events := rfl
 
+/- REF: docs/PROOF_TACTICS.md#prove-layers-then-compose -/
 @[simp] theorem WasiObservable.normalizeSuccessfulExit_fuelExhausted
     (successful : List Event → WasiObservable Event) :
     (WasiObservable.fuelExhausted : WasiObservable Event).normalizeSuccessfulExit successful =
       .fuelExhausted := rfl
 
+/- REF: docs/PROOF_TACTICS.md#prove-layers-then-compose -/
 @[simp] theorem WasiObservable.normalizeSuccessfulExit_memoryExhausted
     (successful : List Event → WasiObservable Event) (requested available : Nat) :
     (WasiObservable.memoryExhausted requested available).normalizeSuccessfulExit successful =
