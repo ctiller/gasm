@@ -58,6 +58,17 @@ theorem ControlFlowFree.sequential {instruction : X86_64Instr}
   safeFallthrough := fun state _ => ordinary.step_rip_eq state
 
 /- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
+/-- The 32-bit immediate move used by native ABI setup is a safe sequential instruction.  It is
+    kept separate from the smaller macro-only `ControlFlowFree` classification, whose existing
+    constructors intentionally cover only the original reusable segment vocabulary. -/
+theorem mov_r32_sequential (dst : Reg32) (value : UInt32) :
+    SequentialInstruction (mov_r32 dst value) where
+  encoding := .mov32 dst value
+  safeFallthrough := by
+    intro state _
+    cases dst <;> rfl
+
+/- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
 /-- Every concrete instruction step reached inside a sequential segment is safe. Fault-capable
     instructions pay this obligation at the block that establishes their operand invariant. -/
 def SafeSequentialOn (code : List X86_64Instr) (initial : X86_64MachineState) : Prop :=
