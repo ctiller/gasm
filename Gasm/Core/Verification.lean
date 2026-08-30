@@ -177,6 +177,72 @@ instance {Event : Type} : Platform (WindowsX86_64 Event) where
     (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).isAdmissible false
   emit := fun artifact => .ok artifact.executable.emit
 
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Linux x86-64 termination/admissibility, named at the target boundary so dependent
+    whole-program certificates do not normalize a concrete 50k-step interpreter merely to expose
+    the proposition.  The iff below records that this wrapper is exactly the platform condition. -/
+def linuxX86_64Admissible {Event : Type}
+    (runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event)
+    (artifact : LinuxX86_64Artifact) (state : X86_64MachineState) : Prop :=
+  letI := runtime
+  (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
+    50000 state).isAdmissible true
+
+theorem linuxX86_64Admissible_iff {Event : Type}
+    (runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event)
+    (artifact : LinuxX86_64Artifact) (state : X86_64MachineState) :
+    linuxX86_64Admissible runtime artifact state ↔
+      (letI := runtime
+       (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
+         50000 state).isAdmissible true) := Iff.rfl
+
+theorem linuxX86_64Admissible_of_outcome {Event : Type}
+    (runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event)
+    (artifact : LinuxX86_64Artifact) (state : X86_64MachineState)
+    (outcome :
+      (letI := runtime
+       (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
+         50000 state).isAdmissible true)) :
+    linuxX86_64Admissible runtime artifact state := outcome
+
+/-- Admissibility from a proved execution result.  Keeping the execution equality separate prevents
+    elaboration of a concrete certificate from evaluating the interpreter while preserving the
+    exact target predicate. -/
+theorem linuxX86_64Admissible_of_execution {Event : Type}
+    (runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event)
+    (artifact : LinuxX86_64Artifact) (state : X86_64MachineState)
+    (execution : NativeRunOutcome Event)
+    (executes :
+      (letI := runtime
+       runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
+         50000 state) = execution)
+    (admissible : execution.isAdmissible true) :
+    linuxX86_64Admissible runtime artifact state := by
+  apply linuxX86_64Admissible_of_outcome
+  rw [executes]
+  exact admissible
+
+theorem linuxX86_64Admissible_of_returned {Event : Type}
+    (runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event)
+    (artifact : LinuxX86_64Artifact) (state finalState : X86_64MachineState)
+    (events : List Event)
+    (executes :
+      (letI := runtime
+       runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
+         50000 state) = .returned finalState events) :
+    linuxX86_64Admissible runtime artifact state := by
+  apply linuxX86_64Admissible_of_execution runtime artifact state (.returned finalState events)
+  · exact executes
+  · trivial
+
+theorem linuxX86_64Admissible_to_outcome {Event : Type}
+    (runtime : Gasm.Targets.X86_64.ExternalCallInterceptor X86_64 Event)
+    (artifact : LinuxX86_64Artifact) (state : X86_64MachineState)
+    (admissible : linuxX86_64Admissible runtime artifact state) :
+    (letI := runtime
+     (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
+       50000 state).isAdmissible true) := admissible
+
 instance {Event : Type} : Platform (LinuxX86_64 Event) where
   Artifact := LinuxX86_64Artifact
   State := X86_64MachineState
@@ -206,9 +272,7 @@ instance {Event : Type} : Platform (LinuxX86_64 Event) where
   run := fun runtime artifact state =>
     letI := runtime
     (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).events
-  admissible := fun runtime artifact state =>
-    letI := runtime
-    (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions 50000 state).isAdmissible true
+  admissible := linuxX86_64Admissible
   emit := fun artifact => .ok artifact.executable.emit
 
 instance {Event : Type} : Platform (LinuxAArch64 Event) where
