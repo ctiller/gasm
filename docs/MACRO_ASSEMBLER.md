@@ -242,26 +242,34 @@ derives the existing `TypedControlFlowGraph` fields (`entryInGraph`, `uniqueIds`
 ### Instruction-relative authoring
 
 `Gasm.Targets.X86_64.MacroAssembler.ControlPoints` supports requests such as “back K instructions”
-without making the numeric offset proof authority. A `ControlPointRef` has a scoped nominal ID and
-retains an exact `BlockRef`; `PointAt` additionally contains a structural
-`code = before ++ after` split, a nonempty suffix proving the point precedes the current boundary,
-and exact membership of its target definition in the existing acyclic builder. `Scope` makes point
-IDs and distances unique. `markThenAppend` is the normal smart constructor: it marks the current
-boundary with an already-interned block and then appends a nonempty instruction suffix.
+without making the numeric offset proof authority. Its single generic `OrderedPoint` / `Scope`
+kernel is parameterized by item type, nominal point ID, and a concrete target payload. Every point
+stores `code = before ++ after`, a nonempty suffix proving the point precedes the current boundary,
+and its derived distance; the scope makes point IDs and distances unique. `markThenAppend` marks the
+current boundary with a payload and appends a nonempty item suffix. Generic mapping and `Sum`
+composition remap nominal point IDs collision-free and transport payloads without introducing an
+abstract binding relation.
 
 `resolveBack` is fallible. Zero is rejected as the current boundary, and an instruction distance
 without a typed mark is rejected instead of being treated as permission to enter a block interior.
-A successful result carries the nominal point, exact structural split, and interned destination;
-`ResolvedBack.jmp` and `.jcc` then desugar directly to the existing `DirectTerminator` constructors
-and their typed edges. A fresh current block ID is proved distinct from every resolved target, so
-this acyclic slice cannot create a self loop. Forward references and genuine local loop backs remain
-deferred to a finite recursive/fixpoint builder.
+A successful result carries exact scope membership and the stored target payload. The Nat query is
+not passed to an edge constructor and is discarded after resolution.
 
-`Scope.mapIds` and `Scope.sum` transport whole scopes through injective or collision-free `Sum`
-embeddings while structurally adjusting instruction splits. Once relative syntax is resolved, the
-numeric distance is discarded: later insertion, component composition, and relayout preserve the
-symbolic block/control-point identity and regenerate only layout/relocation evidence. This module
-adds no linker, execution, artifact, or `VerifiedProgram` authority.
+The acyclic binding instantiates the payload with an exact `BlockRef` plus intrinsic membership in
+the selected `CFGBuilder.Builder` table. Its thin JMP/JCC functions desugar only to the existing
+`DirectTerminator` and require the existing typed edges and exact target-entry equalities. A fresh
+current block ID is distinct from every resolved target, so this binding cannot create a self loop.
+The recursive binding instead uses exactly a same-scope `RecursiveCFGBuilder.DeclRef`; it desugars
+to the existing `RecursiveTerminator`, permitting forward, self, and mutual edges because the later
+finite seal proves table closure. JCC retains both oriented static targets while runtime selection
+activates only the applicable edge contract. Recursive component composition maps point, block, and
+declaration identities through collision-free `Sum`; foreign-scope refs remain uninhabitable.
+
+Once relative syntax is resolved, later insertion or composition preserves the symbolic point and
+target rather than reinterpreting its old number. Differential relayout need regenerate only
+layout/relocation evidence. This logical binding does not prove an emitted address, establish that
+an arbitrary instruction boundary is a native block entry, or add linker, execution, artifact, or
+`VerifiedProgram` authority; those remain target/linker placement obligations.
 
 ### Finite recursive CFG authoring
 
@@ -288,8 +296,8 @@ Injective BlockId remapping reuses every body and has an exact generated-block c
 theorem. `Scope.sum` and `Definitions.sum` compose closed independent components through collision-
 free `Sum` identities, with exact left/right definition correspondence. Such composition preserves
 each side's old targets; cross-component mutual recursion must instead be authored from the start
-against the combined declaration scope. The instruction-relative adapter is intentionally a later
-frontend commit.
+against the combined declaration scope. The generic instruction-relative kernel binds same-scope
+declaration refs without weakening this rule.
 
 CALL/indirect forms remain unselected and therefore add no obligations in this slice. When added,
 CALL must carry return-continuation, ABI, obligation-transfer, and
