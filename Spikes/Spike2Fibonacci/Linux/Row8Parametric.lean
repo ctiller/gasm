@@ -235,7 +235,11 @@ structure TailFrame (predecessor : X86_64MachineState) : Prop where
     (X86_64Instruction.step syscall_op (beforeWriteSyscall predecessor)) =
       some (afterWriteSyscall predecessor, writeEvent predecessor)
   afterWriteSyscallSafe : (afterWriteSyscall predecessor).fault = none
+  liveR13 : (afterWriteSyscall predecessor).gprs .r13 = predecessor.gprs .r13
+  liveR14 : (afterWriteSyscall predecessor).gprs .r14 = predecessor.gprs .r14
+  liveR15 : (afterWriteSyscall predecessor).gprs .r15 = predecessor.gprs .r15
   recurrence : SequentialBlockFrame recurrenceHeadCode (afterWriteSyscall predecessor)
+  backRip : (beforeBackEdge predecessor).rip = 4198701
   backLookup : instructionAtRipIndexed spike2Indexed (beforeBackEdge predecessor).rip =
     some (jmp_rel32 4294967027)
   backOrdinary : Spike2OrdinaryCode (afterRecurrence predecessor)
@@ -256,14 +260,17 @@ private theorem ordinarySilent (state : X86_64MachineState)
   simp [ordinary.notLinuxEntry, Gasm.Targets.Windows.win32Intercept,
     Gasm.Targets.Windows.findIatIndex, ordinary.notWin32Iat]
 
-private theorem bodyRip {predecessor : X86_64MachineState}
-    (entry : Spike2LinuxRowEntry 7 21 34 predecessor) :
+private theorem bodyRip {completed : Nat} {current next : UInt64}
+    {predecessor : X86_64MachineState}
+    (entry : Spike2LinuxRowEntry completed current next predecessor) :
     (body predecessor).rip = 4198447 :=
-  spike2_after_main_header_body_rip 7 predecessor entry.completed_lt entry.rip entry.counter
+  spike2_after_main_header_body_rip completed predecessor entry.completed_lt entry.rip entry.counter
 
-private theorem indexHeaderPrefix {predecessor : X86_64MachineState}
+private theorem indexHeaderPrefix {completed : Nat} {current next : UInt64}
+    {predecessor : X86_64MachineState}
     {eventsRev : List AnyEvent}
-    (entry : Spike2LinuxRowEntry 7 21 34 predecessor)
+    (entry : Spike2LinuxRowEntry completed current next predecessor)
+    (oneDigit : completed + 1 < 10)
     (frame : OpeningFrame predecessor) :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 6
       (body predecessor) eventsRev (afterIndexHeader predecessor) eventsRev [] := by
@@ -288,12 +295,12 @@ private theorem indexHeaderPrefix {predecessor : X86_64MachineState}
     rw [afterIndexCmp, show (X86_64Instruction.step (cmp_r64_imm8 .r13 10)
       (afterOpen predecessor)).rip = (afterOpen predecessor).rip + 4 by rfl, hopen]
     decide
-  have hcounter : (afterOpen predecessor).gprs .r13 = (8 : UInt64) := by
-    change predecessor.gprs .r13 = (8 : UInt64)
-    simpa using entry.counter
+  have hcounter : (afterOpen predecessor).gprs .r13 = (completed + 1).toUInt64 := by
+    change predecessor.gprs .r13 = (completed + 1).toUInt64
+    exact entry.counter
   have hfallthrough : ¬ X86BranchCondition.greaterEqual.holds
       (afterIndexCmp predecessor) := by
-    exact spike2_index_one_digit (afterOpen predecessor) 8 (by omega) hcounter
+    exact spike2_index_one_digit (afterOpen predecessor) (completed + 1) oneDigit hcounter
   refine ProductionPrefix.SelectedPrefix.ordinary ({
       encoding := .movRspByte 0x40 0x46
       safeFallthrough := by intro _ _; rfl }) ?_ ?_ ?_ ?_ ?_
@@ -354,13 +361,15 @@ private theorem indexHeaderPrefix {predecessor : X86_64MachineState}
               exact entry.safe
             · exact .nil _ _
 
-theorem openingPrefix {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
-    (entry : Spike2LinuxRowEntry 7 21 34 predecessor)
+theorem openingPrefix {completed : Nat} {current next : UInt64}
+    {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
+    (entry : Spike2LinuxRowEntry completed current next predecessor)
+    (oneDigit : completed + 1 < 10)
     (frame : OpeningFrame predecessor) :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 8
       predecessor eventsRev (afterIndexHeader predecessor) eventsRev [] := by
   exact (spike2_row_header_from_entry (eventsRev := eventsRev) entry).append
-    (indexHeaderPrefix entry frame)
+    (indexHeaderPrefix entry oneDigit frame)
 
 /-- One-digit index materialization and decimal value setup from the exact symbolic predecessor. -/
 theorem openingRestPrefix {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
@@ -455,12 +464,14 @@ theorem tailPrefix {predecessor : X86_64MachineState} {eventsRev : List AnyEvent
     recurrenceHeadCode, beforeBackEdge, afterRecurrence] using beforeCall.append afterCall
 
 /-- Opaque cache boundaries keep downstream row composition independent of constructor spines. -/
-opaque openingProducer {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
-    (entry : Spike2LinuxRowEntry 7 21 34 predecessor)
+opaque openingProducer {completed : Nat} {current next : UInt64}
+    {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
+    (entry : Spike2LinuxRowEntry completed current next predecessor)
+    (oneDigit : completed + 1 < 10)
     (frame : OpeningFrame predecessor) :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 8
       predecessor eventsRev (afterIndexHeader predecessor) eventsRev [] :=
-  openingPrefix entry frame
+  openingPrefix entry oneDigit frame
 
 opaque openingRestProducer {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
     (frame : OpeningRestFrame predecessor) :
@@ -484,8 +495,10 @@ opaque tailProducer {predecessor : X86_64MachineState} {eventsRev : List AnyEven
 
 /-- Complete Row 8 producer from the exact symbolic predecessor.  All intermediate states are
 functions of `predecessor`, so the five schedule-sized producers append without transport. -/
-theorem rowPrefix {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
-    (entry : Spike2LinuxRowEntry 7 21 34 predecessor)
+theorem rowPrefix {completed : Nat} {current next : UInt64}
+    {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
+    (entry : Spike2LinuxRowEntry completed current next predecessor)
+    (oneDigit : completed + 1 < 10)
     (openingFrame : OpeningFrame predecessor)
     (openingRestFrame : OpeningRestFrame predecessor)
     (formatterFrame : FormatterFrame predecessor)
@@ -494,7 +507,7 @@ theorem rowPrefix {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
       predecessor eventsRev (afterRecurrence predecessor)
       (accumulateEvent eventsRev (writeEvent predecessor))
       (emittedBy (writeEvent predecessor)) := by
-  have opening := openingProducer (eventsRev := eventsRev) entry openingFrame
+  have opening := openingProducer (eventsRev := eventsRev) entry oneDigit openingFrame
   have rest := openingRestProducer (eventsRev := eventsRev) openingRestFrame
   have formatter := formatterProducer (eventsRev := eventsRev) formatterFrame
   have tail := tailProducer (eventsRev := eventsRev) tailFrame
