@@ -622,8 +622,15 @@ theorem step_shr_r64_imm8 (dst : Reg64) (imm : UInt8) (s : X86_64MachineState) :
           (if (imm &&& 0x3F).toUInt64 == 1 then (s.gprs dst >>> 63) &&& 1 else 0)
           (imm &&& 0x3F) with
         rip := s.rip + 4 } := by
-  cases s
-  rfl
+  let core : X86_64MachineState :=
+    { s with stdinBuffer := ByteArray.empty, incomingRequests := [] }
+  let stepped := @X86_64Instruction.step ShrR64Imm8 instX86_64InstructionShrR64Imm8
+    (ShrR64Imm8.mk dst imm) core
+  change ({ { stepped with stdinBuffer := s.stdinBuffer } with
+    incomingRequests := s.incomingRequests } : X86_64MachineState) = _
+  simp only [stepped, X86_64Instruction.step, core, X86_64MachineState.setGpr64,
+    X86_64MachineState.setFlagsShift64]
+  split <;> rfl
 
 /- REF: docs/PATHFINDER_CRC32.md#31-fourteen-distinct-instruction-types-revised-again-m5 -/
 theorem step_cmp_r64_imm8 (dst : Reg64) (imm : UInt8) (s : X86_64MachineState) :
