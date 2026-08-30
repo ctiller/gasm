@@ -44,6 +44,32 @@ cleaner.  Build such memory-heavy proofs sequentially, extract the generic certi
 working consumers afterward, and introduce semantic chunks only if one proof exceeds the resource
 envelope on its own.
 
+Changing the evaluator does not rescue a proposition whose proof term is itself monolithic.  On the
+exact 90-row Spike 2 Windows certificate, `decide +kernel` exceeded 60 GB without producing an
+`.olean`; do not rerun that shape.  A 52-step first-row producer took about 19 seconds, while a
+consumer of its opaque certificate took about 2 seconds but still paid roughly 851 MiB of import
+floor.  The useful boundary therefore exports only the next control point, recurrence and ABI
+registers, event delta, fault status, and the smallest output-memory frame, with the exact production
+prefix retained behind an opaque projection.  Prove one parameterized row step and compose it by
+structural induction; copying one opaque consumer per concrete row merely moves the scaling defect.
+
+## Cache exact producers behind narrow typed boundaries
+
+When an exact production certificate is expensive to elaborate, keep it in the module that proves
+the concrete execution and export a second theorem containing only the observations needed by its
+successor.  Spike 2's accepted Linux Row 8 slice proves the exact 64-transition `SelectedPrefix`,
+including `Fib(8) = 21\r\n`, the selected write event, and the recurrence step.  Its separate
+data-only boundary exposes the next RIP, recurrence registers `(9, 34, 55)`, preserved stack
+pointer, and absence of fault without importing or unfolding the prefix certificate.  A clean build
+spends roughly 24--37 seconds producing/opening the exact boundary but about 1.6 seconds on final
+composition.
+
+The boundary is a cache line for proof terms, not a weaker semantics.  Reproduce generated inputs,
+retain the exact production prefix in the producer, and make the consumer interface no wider than
+its next proof obligation.  This pattern establishes forward fact transfer across one typed
+boundary; it does not yet supply generic forward/backward CFG contract derivation, loop-invariant
+discovery, termination, or final artifact authority.
+
 ## Prove layers, then compose
 
 Separate logical transformation, physical representation, algorithmic progress, host interaction,

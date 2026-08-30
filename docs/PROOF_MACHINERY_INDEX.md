@@ -22,6 +22,17 @@ candidate rather than widening the library speculatively.
 | Preserve dependent CFG identity through lowering or nominal remapping | `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock`, `lower_ref_exact`, and `lowerDefinitions_mapBlockId_block` | compiler CFG authoring/lowering | typed CFG lowering and x86-64 control-point remapping | matching names or entries do not substitute for equality of the complete dependent definition |
 | Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.UInt64DecimalScheduleRealization` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection |
 
+## Proven composition patterns
+
+- For an expensive exact execution proof, keep the complete certificate in its producer and export
+  a separate typed boundary containing only the observations required by the successor.  The
+  accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
+  execution and `spike2_row8_after_recurrence_boundary` for RIP, recurrence/ABI registers, stack,
+  and fault transfer from Row 7 to Row 8.  Exact generator reproduction and output/event facts stay
+  with the producer.  Clean builds measured roughly 24--37 seconds for boundary data/opening and
+  about 1.6 seconds for final composition.  This is a proven proof-term caching and forward-boundary
+  pattern, not yet a target-independent API.
+
 ## Admission record
 
 Reusable extraction should leave a short audit trail.  Record:
@@ -49,6 +60,23 @@ use the commits to inspect the reviewed extraction delta.
 
 The following code shapes have enough evidence to investigate but are not canonical generic APIs:
 
+- Bidirectional contract derivation for typed CFGs is not yet present.
+  `Gasm.Compiler.TypedCFG.SourceScope` permits contracts to be declared before bodies, but the
+  author still supplies them;
+  `Gasm.Core.CFG.Invariant.alongReachable` checks an invariant over already defined block steps, and
+  `Gasm.Targets.X86_64.VerifiedProgramCFG` connects reached blocks to exact emitted realizations.
+  A candidate derivation layer would start from a symbolic control-flow skeleton, propagate
+  reachable facts forward from the entry, propagate required facts backward from terminal
+  postconditions, demand an explicit invariant at every join or cycle, and expose their local
+  intersection as each block's implementation obligation.  Failed inclusion at an edge should be
+  reported at that edge, not rediscovered during whole-path replay.  Spike 2 Row 8 now demonstrates
+  narrow forward fact transfer across one accepted typed boundary, but it does not derive contracts
+  from a symbolic graph or propagate requirements backward.  A generic consumer must also add a
+  progress measure or runtime-enforced bound: closed-graph typing alone proves neither functional
+  correctness nor termination.  Spike 3 should wait for its streaming, relational ghost-state, and
+  resource-recovery invariants.
+  Keep generic worklist or dataflow iteration separate until the candidates in
+  `docs/STDLIB_FACILITIES_PLAN.md` earn promotion; automatic invariant discovery is not implied.
 - Bounded byte reads appear in ELF, x86-64, AArch64, PNG, Zlib, and Gzip.  A first cursor slice
   should validate against two consumers with the same offset/progress needs while keeping format
   errors and validation consumer-owned.
