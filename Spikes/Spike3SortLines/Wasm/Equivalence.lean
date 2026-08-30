@@ -260,8 +260,8 @@ def spike3WasiArtifact : WasiArtifact where
   instructions := spike3WasmInstructions
   dataSegments := spike3DataSegments
   imports := ["fd_read", "fd_write", "proc_exit"]
-  -- Static artifact metadata pins the linear-memory ceiling.  The entry capability supplies
-  -- its finite evaluator fuel in `spike3WasiResourcesFor`.
+  -- This is a tool-facing default profile only. The entry capability supplies the actual finite
+  -- fuel and linear-memory ceiling through `spike3WasiResourcesFor`.
   defaultResources := { fuel := 0, memoryPages := 65536 }
 
 def spike3WasiExports : VerifiedExportSet Unit Unit WasiPlatform
