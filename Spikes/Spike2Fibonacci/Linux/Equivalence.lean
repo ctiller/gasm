@@ -30,6 +30,7 @@ import Spikes.Spike2Fibonacci.Linux.Row1
 import Spikes.Spike2Fibonacci.Linux.DecimalLayout
 import Spikes.Spike2Fibonacci.Linux.DecimalRuntime
 import Spikes.Spike2Fibonacci.Linux.DecimalPhases
+import Spikes.Spike2Fibonacci.Linux.DecimalAuthority
 import Spikes.Spike2Fibonacci.Linux.DecimalRow1
 
 namespace Spikes.Spike2Fibonacci.Linux
