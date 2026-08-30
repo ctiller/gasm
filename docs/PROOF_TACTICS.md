@@ -115,6 +115,12 @@ hole with an explicit contract: discharge it when the body arrives, and use one 
 composition theorem after every hole is filled.  This is currently a search discipline, not a
 prescribed deterministic tactic or an established generic fixed-point library.
 
+For an x86 body hole, `Gasm.Targets.X86_64.LocalBlockDischarge` is the accepted local mechanism.  It
+carries only the canonical selected-production-prefix cutpoint, strengthens entries and weakens
+exits with the usual contract variance, and composes adjacent runs through the exact middle machine,
+event, and ghost state.  Its result is a caller-logical phase classification; native termination,
+CFG identity, placement, and final artifact authority remain separate obligations.
+
 ## Preserve exact dependent CFG definitions
 
 At the CFG authoring and lowering layer, composition or nominal-ID remapping must preserve the whole

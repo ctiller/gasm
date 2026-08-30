@@ -21,6 +21,8 @@ candidate rather than widening the library speculatively.
 | Show bounded finite exploration contains only normative reachable states | `Gasm.MemoryModel.FiniteSearch.Enumerator.search_sound` | memory-model presentation/search boundary | the checked incomplete-enumerator negative control exercises the one-way guarantee | completeness is separate and may not be inferred from bounded fuel or a finite result |
 | Preserve dependent CFG identity through lowering or nominal remapping | `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock`, `lower_ref_exact`, and `lowerDefinitions_mapBlockId_block` | compiler CFG authoring/lowering | typed CFG lowering and x86-64 control-point remapping | matching names or entries do not substitute for equality of the complete dependent definition |
 | Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.UInt64DecimalScheduleRealization` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection |
+| Cache an exact selected x86 production prefix | `ProductionPrefix.SelectedPrefix.Cutpoint` | x86-64 eventful production semantics | canonical evidence carried by `LocalBlockRun` | a cutpoint proves an exact prefix only; it does not classify the caller's logical phase or prove termination |
+| Discharge and compose an x86 local body contract | `LocalBlockDischarge`, `LocalBlockDischarge.refine`, and `LocalBlockRun.then` | x86-64 local contract/production-prefix bridge | accepted implementation-hole mechanism for proof-directed blocks | contracts and middle-entry facts remain explicit; CFG identity, placement, terminal outcomes, and artifact authority are separate |
 
 ## Proven composition patterns
 
@@ -35,6 +37,13 @@ candidate rather than widening the library speculatively.
   facts stay with the producer.  Clean builds measured roughly 24--37 seconds for boundary
   data/opening and about 1.6 seconds for final composition.  This is a proven proof-term caching and
   forward-boundary pattern, not yet a target-independent API.
+- For one x86 body hole, package the canonical `SelectedPrefix.Cutpoint` in a `LocalBlockRun` and
+  expose a `LocalBlockDischarge` for every admitted entry.  `refine` has the correct variance:
+  strengthen the required entry and weaken or project the guaranteed exit.  `LocalBlockRun.then`
+  applies the next discharge to the first run's exact final machine, reverse-event accumulator, and
+  ghost state; `SequentialLocalBlockRuns.combinedPrefix` composes the real selected prefixes and
+  event deltas.  The caller-logical `Result` classifies a proof phase only.  Native termination or a
+  production outcome still needs separate target-owned terminal evidence.
 
 ## Admission record
 
@@ -55,6 +64,9 @@ Two useful precedents are:
   `runLocalSteps` reduction behavior through a small equality proof.
 - `a65316a` extracted `X86_64Mem.read64_write_below`, migrated Spike 2 and Spike 5, and removed the
   duplicated local proofs without weakening their arbitrary-width or address-bound premises.
+- `7b89615` introduced the canonical x86 `SelectedPrefix.Cutpoint` cache without adding a second
+  evaluator; `81cc49a` built the accepted `LocalBlockDischarge` body-hole mechanism over it, with
+  exact-middle sequential composition and no termination or artifact claim.
 
 Commit identifiers are provenance, not API names.  Follow the declarations above on current main;
 use the commits to inspect the reviewed extraction delta.
@@ -71,15 +83,14 @@ The following code shapes have enough evidence to investigate but are not canoni
   A candidate derivation layer would use the same named typed boundaries in both directions:
   propagate strongest useful reachable and ghost facts forward from the entry, propagate weakest
   requirements backward from exits and target postconditions, and alternate refinements to a stable
-  contract at every join and loop invariant.  Each unknown body remains a local implementation hole
-  governed by that contract; supplying it should require one local discharge, followed by one
-  closed-graph composition theorem after all holes are filled.  Useful combinator candidates are
-  contract refinement/order, monotone forward and backward transfer, checked join stabilization,
-  local body discharge, and closed-graph composition—not a mandated worklist algorithm or automatic
-  invariant discovery.  Failed inclusion should be reported at its edge rather than rediscovered by
-  whole-path replay.
+  contract at every join and loop invariant.  On x86, accepted `LocalBlockDischarge` now fills one
+  such body hole and composes adjacent exact runs.  Graph-level contract derivation and closure are
+  still absent.  Candidate combinators are monotone forward and backward transfer, checked join
+  stabilization, and one closed-graph composition theorem—not a mandated worklist algorithm or
+  automatic invariant discovery.  Failed inclusion should be reported at its edge rather than
+  rediscovered by whole-path replay.
 
-  Spike 2 Row 8 demonstrates narrow forward transfer across one accepted typed boundary, but not
+  Spike 2 Row 8 remains the concrete factored forward-boundary exemplar; it does not demonstrate
   derived contracts, backward propagation, or fixed-point convergence.  A generic consumer must
   also add a progress measure or runtime-enforced bound: closed-graph typing alone proves neither
   functional correctness nor termination.  Spike 3 should wait for accepted streaming, relational
