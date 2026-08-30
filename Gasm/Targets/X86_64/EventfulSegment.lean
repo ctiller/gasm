@@ -200,6 +200,151 @@ theorem events_reverse_append {Event : Type} [interceptor : ExternalCallIntercep
       simp [List.append_assoc]
 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- A production prefix augmented with the exact selected-call evidence consumed by
+    `selectedExecutionTerminates`.  This is deliberately a separate certificate from
+    `ProductionPrefix`: ordinary production prefixes are useful for artifacts that permit a
+    wider host surface, while a universal closed-program proof must account for every reached
+    call boundary.  Its constructors still fetch and execute the real indexed instructions. -/
+inductive SelectedPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr)) :
+    (fuel : Nat) → (initial : X86_64MachineState) → (initialEventsRev : List Event) →
+    (final : X86_64MachineState) → (finalEventsRev : List Event) → (emitted : List Event) → Prop where
+  | nil (state : X86_64MachineState) (eventsRev : List Event) :
+      SelectedPrefix selected indexed 0 state eventsRev state eventsRev []
+  | ordinary {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      (encoding : SequentialInstruction instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (silent : interceptor.interceptCall
+        (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : SelectedPrefix selected indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted) :
+      SelectedPrefix selected indexed (fuel + 1) state eventsRev final finalEventsRev emitted
+  | directBranch {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      (encoding : DirectJumpEncoding instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (silent : interceptor.interceptCall
+        (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : SelectedPrefix selected indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted) :
+      SelectedPrefix selected indexed (fuel + 1) state eventsRev final finalEventsRev emitted
+  | conditionalTaken {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      {kind : X86BranchCondition}
+      (encoding : ConditionalJumpEncoding instruction kind)
+      (chosen : kind.holds state)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (silent : interceptor.interceptCall
+        (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : SelectedPrefix selected indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted) :
+      SelectedPrefix selected indexed (fuel + 1) state eventsRev final finalEventsRev emitted
+  | conditionalFallthrough {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      {kind : X86BranchCondition}
+      (encoding : ConditionalJumpEncoding instruction kind)
+      (notChosen : ¬ kind.holds state)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (silent : interceptor.interceptCall
+        (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : SelectedPrefix selected indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted) :
+      SelectedPrefix selected indexed (fuel + 1) state eventsRev final finalEventsRev emitted
+  | hostIntercept {fuel : Nat} {state hooked final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr} {event : Option Event}
+      (encoding : HostInterceptEncoding instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (intercept : interceptor.interceptCall
+        (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = some (hooked, event))
+      (safe : hooked.fault = none)
+      (tail : SelectedPrefix selected indexed fuel hooked (accumulateEvent eventsRev event)
+        final finalEventsRev emitted) :
+      SelectedPrefix selected indexed (fuel + 1) state eventsRev final finalEventsRev
+        (emittedBy event ++ emitted)
+
+namespace SelectedPrefix
+
+/-- Forgetting selected-call side conditions yields the ordinary production-prefix certificate. -/
+theorem toProductionPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {fuel : Nat}
+    {initial final : X86_64MachineState} {initialEventsRev finalEventsRev emitted : List Event}
+    (certificate : SelectedPrefix selected indexed fuel initial initialEventsRev final finalEventsRev emitted) :
+    ProductionPrefix indexed fuel initial initialEventsRev final finalEventsRev emitted := by
+  induction certificate with
+  | nil state eventsRev => exact .nil state eventsRev
+  | ordinary encoding lookup _ silent safe tail ih =>
+      exact .ordinary encoding lookup silent safe ih
+  | directBranch encoding lookup _ silent safe tail ih =>
+      exact .directBranch encoding lookup silent safe ih
+  | conditionalTaken encoding chosen lookup _ silent safe tail ih =>
+      exact .conditionalTaken encoding chosen lookup silent safe ih
+  | conditionalFallthrough encoding notChosen lookup _ silent safe tail ih =>
+      exact .conditionalFallthrough encoding notChosen lookup silent safe ih
+  | hostIntercept encoding lookup _ intercept safe tail ih =>
+      exact .hostIntercept encoding lookup intercept safe ih
+
+/-- A selected prefix unfolds the executable selected-call checker one certified instruction at a
+    time.  It relates the checker to the unchanged continuation rather than replaying a closed
+    evaluator. -/
+theorem selectedExecutionTerminates_run {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {allowHalted : Bool} {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {fuel : Nat}
+    {initial final : X86_64MachineState} {initialEventsRev finalEventsRev emitted : List Event}
+    (certificate : SelectedPrefix selected indexed fuel initial initialEventsRev final finalEventsRev emitted)
+    (continuationFuel : Nat) :
+    selectedExecutionTerminates (Event := Event) allowHalted selected indexed
+      (fuel + continuationFuel) initial =
+      selectedExecutionTerminates (Event := Event) allowHalted selected indexed
+        continuationFuel final := by
+  induction certificate generalizing continuationFuel with
+  | nil => simp
+  | ordinary encoding lookup selectedAt silent safe tail ih =>
+      simp only [Nat.add_assoc, Nat.add_comm 1 continuationFuel]
+      simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, silent, safe]
+      exact ih continuationFuel
+  | directBranch encoding lookup selectedAt silent safe tail ih =>
+      simp only [Nat.add_assoc, Nat.add_comm 1 continuationFuel]
+      simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, silent, safe]
+      exact ih continuationFuel
+  | conditionalTaken encoding chosen lookup selectedAt silent safe tail ih =>
+      simp only [Nat.add_assoc, Nat.add_comm 1 continuationFuel]
+      simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, silent, safe]
+      exact ih continuationFuel
+  | conditionalFallthrough encoding notChosen lookup selectedAt silent safe tail ih =>
+      simp only [Nat.add_assoc, Nat.add_comm 1 continuationFuel]
+      simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, silent, safe]
+      exact ih continuationFuel
+  | hostIntercept encoding lookup selectedAt intercept safe tail ih =>
+      simp only [Nat.add_assoc, Nat.add_comm 1 continuationFuel]
+      simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, intercept, safe]
+      exact ih continuationFuel
+
+end SelectedPrefix
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 /-- Composing certified prefixes preserves the exact final machine state, reverse accumulator,
     and every native stop reason supplied by the continuation. -/
 theorem run_compose {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
