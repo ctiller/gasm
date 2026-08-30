@@ -427,6 +427,29 @@ theorem wasiHostCall_fd_write_single
   simp [wasiHostCall, wasiHostCallRaw, popI32, hciovec, hpayload'', hwritten,
     hsize, pushVal, WasmMachineState.withExternalInputs]
 
+/- REF: docs/TARGETS/WASI.md#20-fdread -/
+/-- Typed single-iovec `fd_read` contract.  This is the exact operational
+    progress fact used by streaming WASI consumers: while bytes remain, the
+    host copies at most the declared iovec length and advances the concrete
+    input cursor by exactly that copied prefix.  The caller retains the iovec
+    and checked-memory premises; no unbounded or fabricated read result is
+    introduced by the ABI layer. -/
+theorem wasiHostCall_fd_read_single
+    (state : WasmMachineState) (nreadPtr : UInt32) (pos : Nat)
+    (memoryAfterRead memoryAfter : WasmMemory)
+    (hpos : pos < state.stdin.size)
+    (hbuf : WasmMem.read32 state.memory 0 = some 0x100)
+    (hlen : WasmMem.read32 state.memory 4 = some 512)
+    (hwrite : WasmMem.writeBytes state.memory 0x100
+      (state.stdin.extract pos (pos + Nat.min 512 (state.stdin.size - pos))) = some memoryAfterRead)
+    (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat
+      (Nat.min 512 (state.stdin.size - pos)).toUInt32 = some memoryAfter) :
+    wasiHostCall ["fd_read", "fd_write", "proc_exit"] 0
+      { state with stack := [.i32 nreadPtr, .i32 1, .i32 0, .i32 0], stdinPos := pos } =
+      (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos + Nat.min 512 (state.stdin.size - pos), stack := [] }), .next) := by
+  simp [wasiHostCall, wasiImportUsesExternalInputs, wasiHostCallRaw, popI32, hbuf, hlen, hpos, hwrite, hnread,
+    pushVal]
+
 /- REF: docs/TARGETS/WASI.md#22-procexit -/
 /-- Typed clean `proc_exit(0)` boundary contract. -/
 @[simp] theorem wasiHostCall_proc_exit_zero (state : WasmMachineState) :

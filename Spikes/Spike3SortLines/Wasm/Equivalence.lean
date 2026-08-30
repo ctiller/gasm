@@ -28,6 +28,7 @@ import Spikes.Spike3SortLines.Platform
 import Spikes.Spike3SortLines.Spec
 import Spikes.Spike3SortLines.Wasm.Program
 import Spikes.Spike3SortLines.Wasm.Outcome
+import Spikes.Spike3SortLines.Wasm.Fuel
 
 namespace Spikes.Spike3SortLines.Wasm
 
