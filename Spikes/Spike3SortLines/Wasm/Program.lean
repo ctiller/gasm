@@ -745,6 +745,18 @@ def spike3WasmModule : WasmModule := {
   ]
 }
 
+/-- The program module owns the definitional artifact shape.  Whole-program certificates consume
+    this lemma instead of repeatedly unfolding the large generated instruction body while proving
+    the unrelated export/artifact connection. -/
+theorem spike3WasmArtifactShape :
+    spike3WasmModule.functions.head?.map (fun fn => fn.body) = some spike3WasmInstructions ∧
+      spike3WasmModule.dataSegments = spike3DataSegments ∧
+      spike3WasmModule.imports.map (fun imported => imported.name) =
+        ["fd_read", "fd_write", "proc_exit"] := by
+  constructor
+  · rfl
+  constructor <;> rfl
+
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
 /-- Exact bytes returned by the fail-closed Wasm encoder for this module. -/
 def spike3EncodedWasmBytes : ByteArray :=
