@@ -196,21 +196,13 @@ The presentation model captures a local serialization digest for each shader onl
 data. It does not prove that a native shader module has those bytes or that the Vulkan implementation
 accepted it. A later target-owned artifact/link certificate must establish those identities.
 
-## 6. Opt-in native behavior probes
+## 6. Native validation boundary
 
-`scripts/run_graphics_window_probe.ps1` is an explicitly unverified, opt-in Windows behavior probe.
-It may open a native window, observe keyboard/mouse/resize messages, and provide differential evidence
-for later modeling. It is not imported by Lean, is not part of verified emission, and cannot create a
-`ValidatedModule`, Vulkan certificate, equivalence theorem, or `VerifiedProgram`.
-
-`scripts/run_graphics_cube_probe.ps1` launches the optional managed cube probe. It pins Veldrid
-packages, requests its Vulkan backend explicitly, compiles the selected vertex and fragment GLSL to
-SPIR-V at runtime, and draws a continuously rotating indexed cube in a resizable input window.
-Escape closes it and the arrow keys alter its rotation axis.
-
-The optional managed cube probe uses a Vulkan-only backend and runtime GLSL-to-SPIR-V compilation.
-It is behavioral evidence, not a realization certificate, and its package/runtime/native-library
-identity is not part of `VerifiedProgram`.
+Graphics validation shipped by this repository must remain inside the Lean/Gasm thesis: specifications,
+lowering, emitted artifacts, target execution bridges, and evidence are authored and checked through the
+same proof-producing stack. Host-language demo applications or managed wrappers are not repository
+implementations and cannot substitute for a target profile. External experiments may inform the model,
+but their code and package ecosystems do not enter the Gasm source tree or its verification authority.
 
 ## 7. Promotion gates
 
