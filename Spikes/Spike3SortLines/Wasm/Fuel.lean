@@ -21,6 +21,7 @@ namespace Spikes.Spike3SortLines.Wasm
 
 open Gasm.Targets.Wasm
 open Gasm.Targets.WASI
+open Stdlib.SmolAlloc
 
 /-! Direct fuel/progress facts for the production Spike 3 Wasm body.
 
@@ -149,6 +150,85 @@ theorem spike3_stdout_ciovec_store4_preserves_ingestion_iovec
   rw [readCiovec_preserved_of_prefix8 _ _
     (evalLeafInstr_i32_store_preserves_prefix8 2 0 state value 0x14 rest written
       _ spike3_stdout_ciovec_store4_after_iovec hwrite)]
+  exact hciovec
+
+/-- The two allocator control cells used by the real Spike 3 program have fixed guest-i32
+    addresses.  Their effective addresses are formed in `Nat` by the Wasm evaluator, so these
+    closed facts rule out both guest-word and host-natural-address ambiguity at bootstrap. -/
+theorem spike3_allocator_control_cell_addresses :
+    wasmArenaBumpPtrAddr.toNat = 0x1000 ∧
+      wasmFreeListHeadAddr.toNat = 0x1004 ∧
+      8 ≤ wasmArenaBumpPtrAddr.toNat ∧
+      8 ≤ wasmFreeListHeadAddr.toNat := by
+  decide
+
+/-- The production allocator bootstrap is an exact six-instruction evaluation, not an
+    initialization convention: it writes the bump pointer `0x2000` and a null free-list head.
+    The two successful checked stores are retained as premises so the result exposes precisely
+    the machine-memory transition on which later allocation proofs must build. -/
+theorem spike3_initWasmSmolAlloc_exec
+    (state : WasmMachineState) (first second : WasmMemory)
+    (htrapped : state.trapped = false) (hexit : state.exitCode = none)
+    (hfirst : WasmMem.write32 state.memory 0x1000 0x2000 = some first)
+    (hsecond : WasmMem.write32 first 0x1004 0 = some second) :
+    evalInstrs 7 (initWasmSmolAlloc 0x2000) state
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) =
+      .ok ({ state with memory := second }, .next) := by
+  unfold initWasmSmolAlloc
+  let host := wasiHostCall ["fd_read", "fd_write", "proc_exit"]
+  let s1 := pushVal (.i32 wasmArenaBumpPtrAddr) state
+  let s2 := pushVal (.i32 0x2000) s1
+  let s3 : WasmMachineState := { state with memory := first }
+  let s4 := pushVal (.i32 wasmFreeListHeadAddr) s3
+  let s5 := pushVal (.i32 0) s4
+  calc
+    evalInstrs 7
+        [.i32_const wasmArenaBumpPtrAddr, .i32_const 0x2000, .i32_store 2 0,
+          .i32_const wasmFreeListHeadAddr, .i32_const 0, .i32_store 2 0]
+        state host =
+        evalInstrs 6
+          [.i32_const 0x2000, .i32_store 2 0, .i32_const wasmFreeListHeadAddr,
+            .i32_const 0, .i32_store 2 0] s1 host := by
+          exact spike3_evalInstrs_step 5 _ _ _ _ htrapped hexit (by
+            simp [evalInstrMatch, s1])
+    _ = evalInstrs 5
+          [.i32_store 2 0, .i32_const wasmFreeListHeadAddr,
+            .i32_const 0, .i32_store 2 0] s2 host := by
+          exact spike3_evalInstrs_step 4 _ _ _ _ (by simpa [s1, pushVal] using htrapped)
+            (by simpa [s1, pushVal] using hexit) (by simp [evalInstrMatch, s1, s2])
+    _ = evalInstrs 4
+          [.i32_const wasmFreeListHeadAddr, .i32_const 0, .i32_store 2 0] s3 host := by
+          exact spike3_evalInstrs_step 3 _ _ _ _ (by simpa [s2, s1, pushVal] using htrapped)
+            (by simpa [s2, s1, pushVal] using hexit) (by
+              simpa [evalInstrMatch, s1, s2, s3, host, pushVal] using
+                (evalLeafInstr_i32_store 2 0 state 0x2000 wasmArenaBumpPtrAddr state.stack first host hfirst))
+    _ = evalInstrs 3 [.i32_const 0, .i32_store 2 0] s4 host := by
+          exact spike3_evalInstrs_step 2 _ _ _ _ (by simpa [s3] using htrapped)
+            (by simpa [s3] using hexit) (by simp [evalInstrMatch, s4])
+    _ = evalInstrs 2 [.i32_store 2 0] s5 host := by
+          exact spike3_evalInstrs_step 1 _ _ _ _ (by simpa [s4, s3, pushVal] using htrapped)
+            (by simpa [s4, s3, pushVal] using hexit) (by simp [evalInstrMatch, s4, s5])
+    _ = evalInstrs 1 [] { state with memory := second } host := by
+          exact spike3_evalInstrs_step 0 _ _ _ _ (by simpa [s5, s4, s3, pushVal] using htrapped)
+            (by simpa [s5, s4, s3, pushVal] using hexit) (by
+              simpa [evalInstrMatch, s3, s4, s5, host, pushVal] using
+                (evalLeafInstr_i32_store 2 0 s3 0 wasmFreeListHeadAddr state.stack second host hsecond))
+    _ = .ok ({ state with memory := second }, .next) := by simp [evalInstrs]
+
+/-- The two bootstrap control-cell writes are disjoint from the stdin descriptor.  This frames
+    only those writes; it makes no claim about the intervening line-builder setup, subsequent
+    allocator operations, or eventual outer-loop entry. -/
+theorem spike3_initWasmSmolAlloc_preserves_ingestion_iovec
+    (state : WasmMachineState) (first second : WasmMemory)
+    (hciovec : Spike3IngestionIovec state)
+    (hfirst : WasmMem.write32 state.memory 0x1000 0x2000 = some first)
+    (hsecond : WasmMem.write32 first 0x1004 0 = some second) :
+    Spike3IngestionIovec { state with memory := second } := by
+  unfold Spike3IngestionIovec
+  rw [readCiovec_preserved_of_prefix8 _ _
+    (WasmMem.write32_preserves_prefix8 _ _ _ _ (by decide) hsecond)]
+  rw [readCiovec_preserved_of_prefix8 _ _
+    (WasmMem.write32_preserves_prefix8 _ _ _ _ (by decide) hfirst)]
   exact hciovec
 
 /-- One production `fd_read` with Spike 3's statically installed single
