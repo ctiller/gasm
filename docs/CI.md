@@ -61,6 +61,13 @@ sources and prebuilds it in dependency-first waves. The automatic wave size budg
 override. These are redundant builds of modules already in the default closure, not a narrower
 validation surface, and the final bare no-build check remains authoritative.
 
+For one or more edited Lean files, use
+`python scripts/check_lean.py path/to/Module.lean` instead of `lake env lean path/to/Module.lean`.
+The focused launcher builds each module's Lake `:olean` target sequentially under the host-global
+lease. This makes the result reusable by later checks and turns an unchanged repeat into a cheap
+trace check; direct `lake env lean` elaboration does not populate that module cache. A focused
+check remains an inner-loop tool and does not replace `python scripts/build_full.py` before review.
+
 All canonical Lean/Lake launchers also share one host-global OS file lease. The lease is common
 across worktrees, releases automatically if its owner crashes, and on Windows keeps an adaptive
 reserve before starting a child tree: 30% of commit (capped at 32 GiB) and 25% of physical memory
