@@ -88,4 +88,33 @@ theorem spike2_prologue_prefix :
         · rfl
         · exact .nil _ _
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The same linked prologue carries the selected-Linux-call evidence needed to compose it into
+    the universal termination certificate.  All four instructions are ordinary fallthrough
+    instructions, so they cannot enter a syscall boundary. -/
+theorem spike2_prologue_selected_prefix :
+    ProductionPrefix.SelectedPrefix selectedNonInputLinuxCall spike2Indexed 4 spike2Executable.load
+      ([] : List AnyEvent) spike2AfterPrologue [] [] := by
+  refine ProductionPrefix.SelectedPrefix.ordinary (sequentialSubRsp 136) ?_ ?_ ?_ ?_ ?_
+  · rfl
+  · rfl
+  · rfl
+  · rfl
+  · refine ProductionPrefix.SelectedPrefix.ordinary (sequentialMovImm .r13 1) ?_ ?_ ?_ ?_ ?_
+    · rfl
+    · rfl
+    · rfl
+    · rfl
+    · refine ProductionPrefix.SelectedPrefix.ordinary (sequentialMovImm .r14 1) ?_ ?_ ?_ ?_ ?_
+      · rfl
+      · rfl
+      · rfl
+      · rfl
+      · refine ProductionPrefix.SelectedPrefix.ordinary (sequentialMovImm .r15 1) ?_ ?_ ?_ ?_ ?_
+        · rfl
+        · rfl
+        · rfl
+        · rfl
+        · exact .nil _ _
+
 end Spikes.Spike2Fibonacci.Linux
