@@ -101,6 +101,11 @@ theorem spike2_after_prologue_lowMemory : Spike2RowLowMemory spike2AfterPrologue
   intro _ _
   rfl
 
+/-- Scalar stack boundary exported without exposing the concrete prologue state to row consumers. -/
+theorem spike2_after_prologue_rsp_eq :
+    spike2AfterPrologue.rsp = 140737488289664 := by
+  rfl
+
 theorem spike2_fib_literal_lowMemory (state : X86_64MachineState)
     (holds : Spike2RowLowMemory state)
     (rsp : state.rsp = spike2AfterPrologue.rsp) :
