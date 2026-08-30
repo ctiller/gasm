@@ -21,6 +21,7 @@ import Gasm.Targets.X86_64.Assembler
 import Gasm.Targets.Windows.PEFormat
 import Gasm.Targets.Windows.Win32API
 import Spikes.Spike3SortLines.Windows.Program
+import Spikes.Spike3SortLines.Windows.IATLayoutCertificate
 
 /-!
 # Retiring the `WindowsExecutable.load`/`.textBytes.size` performance wall
@@ -37,18 +38,14 @@ whole PE encoding. Measured before this file: ~57s for `.textBytes.size` alone, 
 one full `read64` fact -- the wall the prior agent diagnosed but did not have budget to fix
 (`git log`, "feat(spike3): trace-step infrastructure...").
 
-The fix has two independent parts, both landed here:
+The fix has two independent parts:
 
-1. **`.size` without `serializeInstructions`'s O(n) `ByteArray.append` chain.** `exe.textBytes :=
-   serializeInstructions concreteInstrs := concreteInstrs.foldl (· ++ encode ·) ByteArray.empty`
-   -- taking `.size` of the *result* forces the kernel to materialize every intermediate
-   `ByteArray.append` (the measured wall). `foldl_append_size` is a generic, size-only fold
-   homomorphism (`ByteArray.size_append`, proved once by induction, independent of what the
-   folded bytes actually are) that rewrites `.size` into a `Nat`-only fold *before* any reduction
-   happens: `(l.foldl (· ++ f ·) acc0).size = l.foldl (fun n i => n + (f i).size) acc0.size`.
-   The resulting Nat fold is cheap because it only ever forces one instruction's `encode` at a
-   time (never re-copies the growing byte buffer), landing `spike3_textBytes_size`/
-   `spike3_rdataBytes_size` in a few seconds via plain `decide` -- not 57s.
+1. **Source-sized chunks behind an `.olean` boundary.**
+   `IATLayoutCertificate.lean` proves generically that the production assembler preserves each
+   symbolic instruction's emitted width, then computes the exact 64 KiB source in seven bounded
+   chunks. It reconnects their sum to `serializeInstructions` structurally, so no theorem asks
+   the kernel to normalize one aggregate serialization. The facts below are opaque projections;
+   an edit here cannot replay the source/linker calculation.
 2. **`computeSectionLayout`'s section-disjointness is `alignUp`-generic.** `PEFormat.lean`'s
    `computeSectionLayout` places each section at `prevRva + alignUp (max 0x1000 size) 0x1000`,
    and `alignUp (max 0x1000 size) 0x1000 ≥ size` holds for *every* `size : Nat` (`alignUp_ge`,
@@ -91,40 +88,15 @@ theorem alignUp_ge (size : Nat) : size ≤ alignUp (max 0x1000 size) 0x1000 := b
   omega
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
-/-- Size-only fold homomorphism for `ByteArray.foldl (· ++ f ·)`: the running `.size` of a
-    `ByteArray` built by repeated `++` equals the `Nat` fold of each contributor's own `.size` --
-    provable once, generically over `f`/`l`/the starting accumulator, by structural induction and
-    `ByteArray.size_append`, never inspecting what any `f i` actually contains. This is what lets
-    `serializeInstructions`'s `.size` be computed without ever materializing the fully-appended
-    `ByteArray` (the O(n) `ByteArray.append` chain that makes `exe.textBytes.size` expensive to
-    reduce directly). -/
-theorem foldl_append_size.{u} {α : Type u} (f : α → ByteArray) (l : List α) (acc0 : ByteArray) :
-    (l.foldl (fun acc i => acc ++ f i) acc0).size =
-      l.foldl (fun n i => n + (f i).size) acc0.size := by
-  induction l generalizing acc0 with
-  | nil => rfl
-  | cons x xs ih =>
-    simp only [List.foldl_cons]
-    rw [ih (acc0 ++ f x)]
-    congr 1
-    exact ByteArray.size_append
-
-/- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
-/-- Spike 3's assembled `.text` section is exactly 1549 bytes. Proved via `foldl_append_size`
-    (never touching `serializeInstructions`'s appended `ByteArray` itself) followed by a `decide`
-    over the resulting `Nat` fold, which only ever forces one instruction's `encode` at a time --
-    measured at a few seconds, against ~57s for `.size` reduced directly through the naive
-    `ByteArray.append` chain. -/
+/-- Stable projection of the exact 64 KiB source/linker layout certificate. -/
 theorem spike3_textBytes_size : spike3Executable.textBytes.size = 1549 := by
-  show (Assembler.serializeInstructions spike3Instructions).size = 1549
-  unfold Assembler.serializeInstructions
-  rw [foldl_append_size (fun i => X86_64Instruction.encode i) spike3Instructions ByteArray.empty]
-  decide
+  exact spike3IATLayout.textSize
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
 /-- Spike 3's `.rdata` section (`crlfBytes = "\r\n"`) is exactly 2 bytes. Cheap directly: unlike
     `.text`, `.rdata` is a single small literal concatenation, no per-instruction `encode` chain. -/
-theorem spike3_rdataBytes_size : spike3Executable.rdataBytes.size = 2 := by decide
+theorem spike3_rdataBytes_size : spike3Executable.rdataBytes.size = 2 := by
+  exact spike3IATLayout.rdataSize
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- `X86_64Mem.read .w64` restated as its 8 constituent `readByte`-through-`initRegion`
@@ -193,8 +165,7 @@ theorem spike3_load_layout :
     computeSectionLayout spike3Executable.textBytes.size spike3Executable.rdataBytes.size 512 =
       { textRva := 0x1000, textRawSize := 2048, rdataRva := 0x2000, rdataRawSize := 512,
         idataRva := 0x3000, idataRawSize := 512, sizeOfImage := 0x4000 } := by
-  rw [spike3_textBytes_size, spike3_rdataBytes_size]
-  decide
+  exact spike3IATLayout.layout
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
 /-- Macro-shaped tactic block proving one IAT slot's self-reference fact: `s.read64` at the given
