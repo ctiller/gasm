@@ -658,6 +658,7 @@ structure Spike2WriteFacts (value : UInt64) (initial : X86_64MachineState)
   fault : state.fault = none
   stack : StackHolds state.memory state.rsp remaining
   buffer : BufHolds state.memory (initial.gprs .rdi) written
+  r10 : state.gprs .r10 = initial.gprs .r10
   preservesR12 : state.gprs .r12 = initial.gprs .r12
   preservesR13 : state.gprs .r13 = initial.gprs .r13
   preservesR14 : state.gprs .r14 = initial.gprs .r14
@@ -874,6 +875,9 @@ theorem spike2_decimal_write_phase (value : UInt64) (initial : X86_64MachineStat
       have finalRcx : final.gprs .rcx = UInt64.ofNat rest.length := by
         rw [effect.count, holds.rcx, remainingLength]
         simp [Nat.toUInt64]
+      have finalR10 : final.gprs .r10 = initial.gprs .r10 := by
+        rw [write_preserves_gpr state .r10 (by decide) (by decide) (by decide) (by decide),
+          holds.r10]
       by_cases restEmpty : rest = []
       · have fallthrough : ¬X86BranchCondition.notEqual.holds (writeStates state).2.2.2 := by
           rw [write_branch_iff, holds.rcx, remainingLength, restEmpty]
@@ -918,6 +922,7 @@ theorem spike2_decimal_write_phase (value : UInt64) (initial : X86_64MachineStat
           fault := effect.fault
           stack := finalStack
           buffer := finalBuffer
+          r10 := finalR10
           preservesR12 := effect.preservesR12.trans holds.preservesR12
           preservesR13 := effect.preservesR13.trans holds.preservesR13
           preservesR14 := effect.preservesR14.trans holds.preservesR14
@@ -970,6 +975,7 @@ theorem spike2_decimal_write_phase (value : UInt64) (initial : X86_64MachineStat
           fault := effect.fault
           stack := finalStack
           buffer := finalBuffer
+          r10 := finalR10
           preservesR12 := effect.preservesR12.trans holds.preservesR12
           preservesR13 := effect.preservesR13.trans holds.preservesR13
           preservesR14 := effect.preservesR14.trans holds.preservesR14
@@ -983,5 +989,121 @@ theorem spike2_decimal_write_phase (value : UInt64) (initial : X86_64MachineStat
             exfalso
             apply restEmpty
             simpa using (show rest.length = 0 by omega) }⟩
+
+/-- Concrete two-phase schedule certificate.  The generic schedule theorem is now the only place
+where all extraction and write passes are appended. -/
+theorem spike2_uint64_decimal_realization (value : UInt64) (initial : X86_64MachineState)
+    (initialEventsRev : List AnyEvent) (frame : Spike2DecimalFrame value initial) :
+    UInt64DecimalScheduleRealization selectedNonInputPlatformCall spike2Indexed 20 value initial
+      initialEventsRev Spike2DecimalCallerFrame := by
+  refine .ofPhases
+    (spike2_decimal_extraction_phase value initial initialEventsRev frame)
+    (spike2_decimal_write_phase value initial initialEventsRev frame) ?_ ?_ ?_ ?_ ?_
+  · refine ⟨{
+      events := rfl
+      within := Nat.zero_le _
+      remaining := value.toNat
+      remainingBound := value.toNat_lt_size
+      suffix := []
+      suffixLength := rfl
+      activeDecomposition := by intro _; simp
+      completedSuffix := ?_
+      rax := ?_
+      r10 := frame.divisor
+      rcx := frame.count
+      rspAccounting := by simp
+      rdi := rfl
+      fault := frame.fault
+      stack := trivial
+      preservesR12 := rfl
+      preservesR13 := rfl
+      preservesR14 := rfl
+      preservesR15 := rfl
+      text3424 := rfl
+      text3444 := rfl
+      text3457 := rfl
+      activeRip := fun _ => frame.entry
+      completedRip := ?_ }⟩
+    · intro impossible
+      have positive := decimalDigitCount_pos value
+      omega
+    · simpa using frame.dividend
+    · intro impossible
+      have positive := decimalDigitCount_pos value
+      omega
+  · intro middle eventsRev extractInvariant
+    rcases extractInvariant with ⟨extract⟩
+    have suffix := extract.completedSuffix rfl
+    have rip := extract.completedRip rfl
+    have fullLength : (formatDecimal value.toNat).length = decimalDigitCount value :=
+      decimal_full_length value
+    have rdiNat : (middle.gprs .rdi).toNat = (initial.gprs .rdi).toNat := by
+      rw [extract.rdi]
+    refine ⟨{
+      events := extract.events
+      within := Nat.zero_le _
+      written := []
+      remaining := formatDecimal value.toNat
+      content := by simp
+      writtenLength := rfl
+      remainingLength := by simpa using fullLength
+      rcx := by rw [extract.rcx, fullLength]
+      rspAccounting := by rw [fullLength]; exact extract.rspAccounting
+      rdi := by simpa using extract.rdi
+      rdiNat := rdiNat
+      fault := extract.fault
+      stack := by rw [← suffix]; exact extract.stack
+      buffer := trivial
+      r10 := by rw [extract.r10, frame.divisor]
+      preservesR12 := extract.preservesR12
+      preservesR13 := extract.preservesR13
+      preservesR14 := extract.preservesR14
+      preservesR15 := extract.preservesR15
+      text3424 := extract.text3424
+      text3444 := extract.text3444
+      text3457 := extract.text3457
+      activeRip := fun _ => rip
+      completedRip := ?_ }⟩
+    intro impossible
+    have positive := decimalDigitCount_pos value
+    omega
+  · exact decimalDigitCount_le_twenty value
+  · exact Nat.le_of_lt frame.bufferTop
+  · intro final finalEventsRev writeInvariant
+    rcases writeInvariant with ⟨write⟩
+    have remainingLengthZero : write.remaining.length = 0 := by
+      have := write.remainingLength
+      omega
+    have remainingNil : write.remaining = [] := by
+      simpa using remainingLengthZero
+    have writtenFull : write.written = formatDecimal value.toNat := by
+      have := write.content
+      rw [remainingNil] at this
+      simpa using this
+    have restoredRsp : final.rsp = initial.rsp := by
+      apply UInt64.toNat_inj.mp
+      have accounting := write.rspAccounting
+      rw [remainingNil] at accounting
+      simpa using accounting
+    have clearedCount : final.gprs .rcx = 0 := by
+      rw [write.rcx, remainingNil]
+      rfl
+    have formatBytes : decimalBytesAt final.memory (initial.gprs .rdi)
+        (decimalDigitCount value) = formatDecimal value.toNat := by
+      calc
+        decimalBytesAt final.memory (initial.gprs .rdi) (decimalDigitCount value) =
+            decimalBytesAt final.memory (initial.gprs .rdi) write.written.length := by
+              rw [write.writtenLength]
+        _ = write.written := decimalBytesAt_eq_of_BufHolds _ _ _ write.buffer
+        _ = formatDecimal value.toNat := writtenFull
+    exact ⟨restoredRsp, write.rdi, clearedCount, formatBytes,
+      write.preservesR12, write.preservesR13, write.preservesR14, write.preservesR15,
+      {
+        rip := write.completedRip rfl
+        fault := write.fault
+        r10 := write.r10
+        text3424 := write.text3424
+        text3444 := write.text3444
+        text3457 := write.text3457 }⟩
 
 end Spikes.Spike2Fibonacci.Windows
