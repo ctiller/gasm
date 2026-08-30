@@ -74,4 +74,17 @@ theorem spike2_recurrence_move_effect (state : X86_64MachineState) :
     (spike2AfterRecurrenceMove state).gprs .r15 = state.gprs .r15 := by
   exact ⟨rfl, rfl, rfl⟩
 
+theorem spike2_recurrence_move_boundary (state : X86_64MachineState)
+    (hrip : state.rip = 5368713523) (hsafe : state.fault = none) :
+    (spike2AfterRecurrenceMove state).rip = 5368713526 ∧
+    (spike2AfterRecurrenceMove state).fault = none := by
+  constructor
+  · unfold spike2AfterRecurrenceMove
+    rw [show (X86_64Instruction.step (mov_r64 .r8 .r14) state).rip =
+      state.rip + (X86_64Instruction.encode (mov_r64 .r8 .r14)).size.toUInt64 from
+      (sequentialRecurrenceMove.step_rip_eq_of_safe state hsafe), hrip]
+    rfl
+  · change state.fault = none
+    exact hsafe
+
 end Spikes.Spike2Fibonacci.Windows

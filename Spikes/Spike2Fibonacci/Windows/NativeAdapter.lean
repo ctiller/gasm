@@ -104,7 +104,7 @@ theorem spike2Recurrence_inc_fetch :
     instructionAtRipIndexed spike2Indexed 5368713535 = some (add_r64_imm8 .r13 1) := by rfl
 
 theorem spike2Recurrence_backedge_fetch :
-    instructionAtRipIndexed spike2Indexed 5368713539 = some (jmp_rel32 (-277)) := by rfl
+    instructionAtRipIndexed spike2Indexed 5368713539 = some (jmp_rel32 4294967019) := by rfl
 
 /-- The seven linked setup transitions form a selected production prefix.  The third transition
 is the actual IAT `GetStdHandle` call, so it cannot be replaced by a trace-only account of the
