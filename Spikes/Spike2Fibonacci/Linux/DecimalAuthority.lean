@@ -158,6 +158,45 @@ theorem Spike2DecimalTextAuthority.afterWrite {Event : Type}
       exact authority.writeAdvance | exact authority.writeDecrement |
       exact authority.writeBranch | exact authority.writeExit
 
+/-- A caller-owned byte write above the complete decimal text range preserves every named text
+observation.  This is the row-tail counterpart of `afterWrite`: callers expose only the exact
+write address bounds, never a memory equality. -/
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
+theorem Spike2DecimalTextAuthority.afterWrite8 (initial : X86_64MachineState)
+    (authority : Spike2DecimalTextAuthority initial) (writeAddress : UInt64) (value : UInt8)
+    (writeNoWrap : writeAddress.toNat + 1 ≤ 2 ^ 64)
+    (above : 4198635 ≤ writeAddress.toNat) :
+    Spike2DecimalTextAuthority (initial.write8 writeAddress value) := by
+  constructor <;>
+    change X86_64Mem.read .w64 _ (X86_64Mem.write .w8 writeAddress value.toUInt64
+      initial.memory) ≠ _ <;>
+    rw [X86_64Mem.read64_write_below .w8 initial.memory writeAddress _ _ writeNoWrap
+      (spike2_decimal_text_below _ above _
+        (by simp [spike2ExtractionAddress, spike2WriteAddress]))] <;>
+    first | exact authority.extractClearHigh | exact authority.extractDivide |
+      exact authority.extractAscii | exact authority.extractPush |
+      exact authority.extractIncrement | exact authority.extractCompare |
+      exact authority.extractBranch | exact authority.extractExit |
+      exact authority.writePop | exact authority.writeStore |
+      exact authority.writeAdvance | exact authority.writeDecrement |
+      exact authority.writeBranch | exact authority.writeExit
+
+/-- Transport decimal authority across a projection-wise read frame.  The premise equates only
+individual `read64` observations and cannot be used as a whole-memory equality. -/
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
+theorem Spike2DecimalTextAuthority.transportRead64 (before after : X86_64MachineState)
+    (authority : Spike2DecimalTextAuthority before)
+    (preserved : ∀ address, after.read64 address = before.read64 address) :
+    Spike2DecimalTextAuthority after := by
+  constructor <;> rw [preserved] <;>
+    first | exact authority.extractClearHigh | exact authority.extractDivide |
+      exact authority.extractAscii | exact authority.extractPush |
+      exact authority.extractIncrement | exact authority.extractCompare |
+      exact authority.extractBranch | exact authority.extractExit |
+      exact authority.writePop | exact authority.writeStore |
+      exact authority.writeAdvance | exact authority.writeDecrement |
+      exact authority.writeBranch | exact authority.writeExit
+
 /-- The first extraction successor reaches the concrete DIV text instruction without changing
 memory, so the program-owned text authority supplies its dispatcher fact. -/
 /- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/

@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Spikes.Spike2Fibonacci.Linux.Row8Parametric
+import Spikes.Spike2Fibonacci.Linux.DecimalAuthority
 
 /-!
 # Projection-only invariant for continuing Spike 2 Linux rows
@@ -41,13 +42,36 @@ set_option maxHeartbeats 5000000
 
 namespace Row8Parametric
 
-/-- Exactly the four local frame predicates consumed by a continuing one-digit/two-value-digit
-row.  This is the backward-collected weakest-premise boundary for `rowPrefix`. -/
+/-- Projection-only physical bounds which advance the accepted decimal text authority through
+the concrete two extraction and two reverse-write passes. -/
+structure FormatterAuthorityFrame (predecessor : X86_64MachineState) : Prop where
+  entry : Spike2DecimalTextAuthority (afterValueSetup predecessor)
+  extractionFirstNoWrap : ((afterValueSetup predecessor).rsp - 8).toNat + 8 ≤ 2 ^ 64
+  extractionFirstAbove : 4198635 ≤ ((afterValueSetup predecessor).rsp - 8).toNat
+  extractionSecondNoWrap : ((afterExtractionFirst predecessor).rsp - 8).toNat + 8 ≤ 2 ^ 64
+  extractionSecondAbove : 4198635 ≤ ((afterExtractionFirst predecessor).rsp - 8).toNat
+  writeFirstNoWrap : ((afterExtraction predecessor).gprs .rdi).toNat + 1 ≤ 2 ^ 64
+  writeFirstAbove : 4198635 ≤ ((afterExtraction predecessor).gprs .rdi).toNat
+  writeSecondNoWrap : ((afterWriteFirst predecessor).gprs .rdi).toNat + 1 ≤ 2 ^ 64
+  writeSecondAbove : 4198635 ≤ ((afterWriteFirst predecessor).gprs .rdi).toNat
+
+/-- Exact byte-write bounds for the CR/LF suffix. -/
+structure TailAuthorityFrame (predecessor : X86_64MachineState) : Prop where
+  carriageNoWrap : ((beforeCarriageReturnStore predecessor).gprs .rdi).toNat + 1 ≤ 2 ^ 64
+  carriageAbove : 4198635 ≤ ((beforeCarriageReturnStore predecessor).gprs .rdi).toNat
+  lineFeedNoWrap : ((beforeLineFeedStore predecessor).gprs .rdi).toNat + 1 ≤ 2 ^ 64
+  lineFeedAbove : 4198635 ≤ ((beforeLineFeedStore predecessor).gprs .rdi).toNat
+
+/-- The local instruction, safety, and physical authority projections consumed by a continuing
+one-digit/two-value-digit row.  This is the backward-collected weakest-premise boundary for
+`rowPrefix`; it contains no total-memory or total-state equality. -/
 structure LocalRowNeeds (predecessor : X86_64MachineState) : Prop where
   opening : OpeningFrame predecessor
   openingRest : OpeningRestFrame predecessor
   formatter : FormatterFrame predecessor
   tail : TailFrame predecessor
+  formatterAuthority : FormatterAuthorityFrame predecessor
+  tailAuthority : TailAuthorityFrame predecessor
 
 /-- The live loop boundary paired with the exact local physical needs of the next row. -/
 structure OneDigitTwoPassInvariant (completed : Nat) (current next : UInt64)

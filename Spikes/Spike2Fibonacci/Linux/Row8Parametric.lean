@@ -115,8 +115,21 @@ def lineTerminatorCode : List X86_64Instr := [
   add_r64_imm8 .rdi 1
 ]
 
+def beforeCarriageReturnStore (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_r64_imm64 .rax 13) (afterWrite predecessor)
+
+def afterCarriageReturn (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_mem8 .rdi .rax) (beforeCarriageReturnStore predecessor)
+
+def beforeLineFeedStore (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_r64_imm64 .rax 10)
+    (X86_64Instruction.step (add_r64_imm8 .rdi 1) (afterCarriageReturn predecessor))
+
+def afterLineFeed (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_mem8 .rdi .rax) (beforeLineFeedStore predecessor)
+
 def afterLineTerminator (predecessor : X86_64MachineState) : X86_64MachineState :=
-  runLocalSteps lineTerminatorCode (afterWrite predecessor)
+  X86_64Instruction.step (add_r64_imm8 .rdi 1) (afterLineFeed predecessor)
 
 def writeSetupCode : List X86_64Instr := [
   mov_r64 .r8 .rdi,
@@ -127,12 +140,29 @@ def writeSetupCode : List X86_64Instr := [
   mov_r32 .eax 1
 ]
 
+def afterWriteSetupEnd (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_r64 .r8 .rdi) (afterLineTerminator predecessor)
+
+def afterWriteSetupBuffer (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (lea_rsp .rsi 0x40) (afterWriteSetupEnd predecessor)
+
+def afterWriteSetupLength (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (sub_r64 .r8 .rsi) (afterWriteSetupBuffer predecessor)
+
+def afterWriteSetupCount (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_r64 .rdx .r8) (afterWriteSetupLength predecessor)
+
+def afterWriteSetupFd (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_r32 .edi 1) (afterWriteSetupCount predecessor)
+
 def beforeWriteSyscall (predecessor : X86_64MachineState) : X86_64MachineState :=
-  runLocalSteps writeSetupCode (afterLineTerminator predecessor)
+  X86_64Instruction.step (mov_r32 .eax 1) (afterWriteSetupFd predecessor)
+
+def beforeWriteHook (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step syscall_op (beforeWriteSyscall predecessor)
 
 def writeStep (predecessor : X86_64MachineState) : X86_64MachineState × Option AnyEvent :=
-  sysWriteHook (Event := AnyEvent)
-    (X86_64Instruction.step syscall_op (beforeWriteSyscall predecessor))
+  sysWriteHook (Event := AnyEvent) (beforeWriteHook predecessor)
 
 def afterWriteSyscall (predecessor : X86_64MachineState) : X86_64MachineState :=
   (writeStep predecessor).1
@@ -148,8 +178,20 @@ def recurrenceHeadCode : List X86_64Instr := [
   add_r64_imm8 .r13 1
 ]
 
+def afterRecurrenceLoad (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_r64 .r8 .r14) (afterWriteSyscall predecessor)
+
+def afterRecurrenceAdd (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (add_r64 .r8 .r15) (afterRecurrenceLoad predecessor)
+
+def afterRecurrenceCurrent (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_r64 .r14 .r15) (afterRecurrenceAdd predecessor)
+
+def afterRecurrenceNext (predecessor : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_r64 .r15 .r8) (afterRecurrenceCurrent predecessor)
+
 def beforeBackEdge (predecessor : X86_64MachineState) : X86_64MachineState :=
-  runLocalSteps recurrenceHeadCode (afterWriteSyscall predecessor)
+  X86_64Instruction.step (add_r64_imm8 .r13 1) (afterRecurrenceNext predecessor)
 
 def afterRecurrence (predecessor : X86_64MachineState) : X86_64MachineState :=
   X86_64Instruction.step (jmp_rel32 4294967027) (beforeBackEdge predecessor)
