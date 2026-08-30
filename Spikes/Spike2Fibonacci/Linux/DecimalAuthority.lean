@@ -385,6 +385,38 @@ private theorem spike2_extraction_cmp_ordinary {stackLower : UInt64}
   · decide
   · exact authority.extractBranch
 
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_extraction_branch_rip_taken (initial : X86_64MachineState)
+    (entry : initial.rip = spike2ExtractionAddress .clearHigh)
+    (safe : ExtractionExecutionSafety 236 initial)
+    (taken : X86BranchCondition.notEqual.holds (extractionStates initial).2.2.2.2.2) :
+    (extractionFinal 236 initial).rip = spike2ExtractionAddress .clearHigh := by
+  obtain ⟨_, _, _, _, _, branchRip⟩ := spike2_extraction_reached_addresses initial entry safe
+  change (if !(extractionStates initial).2.2.2.2.2.zf then
+      (extractionStates initial).2.2.2.2.2.rip + 2 + signExtend8To64 236 else
+      (extractionStates initial).2.2.2.2.2.rip + 2) = spike2ExtractionAddress .clearHigh
+  change (extractionStates initial).2.2.2.2.2.zf = false at taken
+  simp [taken]
+  rw [branchRip]
+  exact spike2ExtractionLinkedLayout.takenTarget
+
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_extraction_branch_rip_fallthrough (initial : X86_64MachineState)
+    (entry : initial.rip = spike2ExtractionAddress .clearHigh)
+    (safe : ExtractionExecutionSafety 236 initial)
+    (fallthrough : ¬ X86BranchCondition.notEqual.holds (extractionStates initial).2.2.2.2.2) :
+    (extractionFinal 236 initial).rip = spike2ExtractionAddress .exit := by
+  obtain ⟨_, _, _, _, _, branchRip⟩ := spike2_extraction_reached_addresses initial entry safe
+  change (if !(extractionStates initial).2.2.2.2.2.zf then
+      (extractionStates initial).2.2.2.2.2.rip + 2 + signExtend8To64 236 else
+      (extractionStates initial).2.2.2.2.2.rip + 2) = spike2ExtractionAddress .exit
+  change ¬ (extractionStates initial).2.2.2.2.2.zf = false at fallthrough
+  have zf : (extractionStates initial).2.2.2.2.2.zf = true := by
+    cases h : (extractionStates initial).2.2.2.2.2.zf <;> simp [h] at fallthrough ⊢
+  simp [zf]
+  rw [branchRip]
+  exact spike2ExtractionLinkedLayout.falseFallthrough
+
 
 /-- The DIV successor is still ordinary Linux code: its read64 observation is the original
 ASCII instruction observation, proved via the concrete no-memory-write theorem. -/
