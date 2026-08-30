@@ -42,6 +42,8 @@ import Gasm.MemoryModel.RelationPath
 import Gasm.MemoryModel.RelationPathControls
 import Gasm.MemoryModel.CpuGraphOrderPath
 import Gasm.MemoryModel.CpuGraphOrderPathControls
+import Gasm.MemoryModel.ProgramOrderPath
+import Gasm.MemoryModel.ProgramOrderPathControls
 
 import Gasm.Effects.Inject
 import Gasm.Effects.Console
