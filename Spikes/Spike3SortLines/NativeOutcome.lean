@@ -69,6 +69,16 @@ theorem linux_rejected_reservation_is_exact (_stdin : ByteArray) (state : X86_64
     spike3LinuxMmapHook_rejection_is_raw_errno _ _ h,
     spike3LinuxMmapHook_rejection_preserves_memory _ _ h⟩
 
+/-- The selected Linux `sys_exit` runtime produces the exact halted resource outcome and leaves
+    memory intact after the raw-errno branch has selected `resource_exhausted`. -/
+theorem linux_resource_exit_is_exact (state : X86_64MachineState)
+    (hcode : (state.gprs .rdi).toUInt32 = spike3ResourceFailureExitCode) :
+    (Gasm.Targets.Linux.sysExitHook (Event := AnyEvent) state).1.fault = some .halted ∧
+      (Gasm.Targets.Linux.sysExitHook (Event := AnyEvent) state).1.memory = state.memory ∧
+      (Gasm.Targets.Linux.sysExitHook (Event := AnyEvent) state).2 =
+        some (Inject.inject (ProcessEvent.exit spike3ResourceFailureExitCode)) := by
+  simp [Gasm.Targets.Linux.sysExitHook, hcode]
+
 /-- The selected Win32 `ExitProcess` runtime produces the exact halted resource outcome and does
     not alter memory.  This is separate from the Linux raw-errno convention. -/
 theorem windows_resource_exit_is_exact (state : X86_64MachineState)
