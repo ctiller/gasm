@@ -47,9 +47,9 @@ def computeAArch64BareMetalLayout (textSize : Nat) (dataSize : Nat) : AArch64Bar
     totalFileSize := totalSize }
 
 /- REF: docs/TARGETS/ARM64.md#13-bare-metal-target-qemu-virt-platform-execution -/
-/-- Emits a minimal standalone AArch64 64-bit ELF executable bootable by QEMU system emulator. -/
-def emitBareMetalELFExecutable (textBytes : ByteArray) (dataBytes : ByteArray) : ByteArray :=
-  let layout := computeAArch64BareMetalLayout textBytes.size dataBytes.size
+/-- Emits an AArch64 image using the layout shared by the executable's loader. -/
+def emitBareMetalELFExecutableWithLayout (layout : AArch64BareMetalLayout)
+    (textBytes : ByteArray) (dataBytes : ByteArray) : ByteArray :=
   let elfHdr : Elf64_Ehdr := {
     e_machine := EM_AARCH64,
     e_entry   := layout.entryAddr,
@@ -75,5 +75,11 @@ def emitBareMetalELFExecutable (textBytes : ByteArray) (dataBytes : ByteArray) :
 
   let headerPage := prePad ++ padBytes
   headerPage ++ textBytes ++ dataBytes
+
+/- REF: docs/TARGETS/ARM64.md#13-bare-metal-target-qemu-virt-platform-execution -/
+/-- Emits the canonical standalone AArch64 ELF image. -/
+def emitBareMetalELFExecutable (textBytes : ByteArray) (dataBytes : ByteArray) : ByteArray :=
+  emitBareMetalELFExecutableWithLayout
+    (computeAArch64BareMetalLayout textBytes.size dataBytes.size) textBytes dataBytes
 
 end Gasm.Targets.AArch64.BareMetal

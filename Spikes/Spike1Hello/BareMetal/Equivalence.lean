@@ -29,6 +29,7 @@ import Spikes.Spike1Hello.BareMetal.Program
 namespace Spikes.Spike1Hello.BareMetal
 
 open Gasm.Core
+open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.Targets.X86_64
@@ -55,15 +56,72 @@ theorem spike1_baremetal_canonical_effect_trace_equivalence :
   set_option maxRecDepth 4000 in
   decide
 
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- First-class VerifiedBareMetalProgram contract instantiation for Spike 1 (Bare Metal Hello World). -/
-def spike1VerifiedBareMetalProgram : VerifiedBareMetalProgram Unit AnyEvent := {
-  name             := "Spike 1: Bare Metal x86-64 Hello World"
-  executable       := spike1BareMetalExecutable
-  instructions     := spike1BareMetalInstructions
-  spec             := fun _ => runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)
-  traceEquivalence := fun _ => spike1_baremetal_canonical_effect_trace_equivalence
-}
+/-- Exact linked x86 bare-metal artifact used at the universal program boundary. -/
+def spike1BareMetalArtifact : BareMetalArtifact where
+  executable := spike1BareMetalExecutable
+  instructions := spike1BareMetalInstructions
+  artifactConnected := rfl
+
+def spike1BareMetalCapabilities : CapabilityComposition (BareMetalX86_64 AnyEvent) where
+  root :=
+    { Context := Unit
+      providers := []
+      establishes := fun artifact _ _ _ => artifact = spike1BareMetalArtifact }
+  realize := fun _ _ => ()
+  realizeSupports := by
+    intro _ _ provider membership
+    exact nomatch provider
+
+def spike1BareMetalSpecification :
+    ProgramSpecification (BareMetalX86_64 AnyEvent) spike1BareMetalCapabilities where
+  observe := fun _ _ => .debugExited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
+
+theorem spike1_baremetal_outcome :
+    runBareMetalOutcome spike1BareMetalInstructions spike1BareMetalExecutable.load =
+      .debugExited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)) := by
+  set_option maxRecDepth 4000 in
+    decide
+
+def spike1BareMetalArtifactCertificate : ProgramArtifactCertificate (BareMetalX86_64 AnyEvent) where
+  artifact := spike1BareMetalArtifact
+  exports := VerifiedExportSet.empty _ _ _ _ _ () rfl rfl rfl
+  exportsArtifact := rfl
+  artifactConnection := spike1BareMetalArtifact.artifactConnected
+
+def spike1BareMetalProviderCertificate :
+    ProgramProviderCertificate (BareMetalX86_64 AnyEvent)
+      spike1BareMetalCapabilities spike1BareMetalArtifact where
+  importsCovered := by
+    intro imported h
+    exact nomatch imported
+  providersLinked := by
+    intro provider h
+    exact nomatch provider
+
+def spike1BareMetalAdmissibilityCertificate :
+    ProgramAdmissibilityCertificate (BareMetalX86_64 AnyEvent)
+      spike1BareMetalCapabilities spike1BareMetalArtifact where
+  platformAdmissible := by
+    intro _ context _
+    rcases context with ⟨⟩
+    change (runBareMetalOutcome spike1BareMetalInstructions spike1BareMetalExecutable.load).isAdmissible
+    rw [spike1_baremetal_outcome]
+    trivial
+
+def spike1BareMetalBehaviorCertificate :
+    ProgramBehaviorCertificate (BareMetalX86_64 AnyEvent)
+      spike1BareMetalCapabilities spike1BareMetalArtifact spike1BareMetalSpecification where
+  traceEquivalence := by
+    intro _ context _
+    rcases context with ⟨⟩
+    exact spike1_baremetal_outcome
+
+/-- Sole universal verified authority for the x86 bare-metal image. -/
+def spike1VerifiedBareMetalProgram :
+    VerifiedProgram (BareMetalX86_64 AnyEvent) spike1BareMetalCapabilities
+      spike1BareMetalSpecification :=
+  VerifiedProgram.compose "Spike 1: Bare Metal x86-64 Hello World"
+    spike1BareMetalSpecification spike1BareMetalArtifactCertificate spike1BareMetalProviderCertificate
+    spike1BareMetalAdmissibilityCertificate spike1BareMetalBehaviorCertificate
 
 end Spikes.Spike1Hello.BareMetal

@@ -15,19 +15,23 @@ limitations under the License.
 -/
 
 import Lean
-import Gasm.Targets.BareMetal.Executable
+import Gasm.Core.Verification
 import Spikes.Spike1Hello.BareMetal.Program
 import Spikes.Spike1Hello.BareMetal.Equivalence
 
-open Gasm.Targets.BareMetal
+open Gasm.Core.Platform
 open Spikes.Spike1Hello.BareMetal
 
 /- REF: docs/TARGETS/BARE_METAL.md#7-spike-1-bare-metal-hello-world-verification -/
 /-- CLI Emitter Target: Serializes and writes spike1_hello_baremetal.elf to disk strictly from the verified program contract. -/
 def main : IO UInt32 := do
-  let elfBytes := emitVerifiedBareMetalExecutable spike1VerifiedBareMetalProgram
-  let outputPath := "spike1_hello_baremetal.elf"
-  IO.println s!"[*] Emitting {elfBytes.size} bytes to {outputPath}..."
-  IO.FS.writeBinFile outputPath elfBytes
-  IO.println s!"[+] Generated Bare Metal ELF64 binary: {outputPath}"
-  return 0
+  match emitVerifiedProgram spike1VerifiedBareMetalProgram with
+  | .error message =>
+    IO.eprintln s!"[!] Verified emission failed: {message}"
+    return 1
+  | .ok elfBytes =>
+    let outputPath := "spike1_hello_baremetal.elf"
+    IO.println s!"[*] Emitting {elfBytes.size} bytes to {outputPath}..."
+    IO.FS.writeBinFile outputPath elfBytes
+    IO.println s!"[+] Generated Bare Metal ELF64 binary: {outputPath}"
+    return 0

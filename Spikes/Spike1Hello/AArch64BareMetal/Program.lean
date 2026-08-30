@@ -100,7 +100,7 @@ def spike1AArch64BareMetalSymbolicProgram : List ProgramElement := [
 
 /- REF: docs/TARGETS/ARM64.md#13-bare-metal-target-qemu-virt-platform-execution -/
 def spike1AArch64BareMetalLinked : LinkedBareMetalProgram :=
-  linkBareMetalProgram 0x40001000 spike1AArch64BareMetalSymbolicProgram
+  linkBareMetalProgram spike1AArch64BareMetalSymbolicProgram
     [("helloMessage", helloMessage), ("semihostingExitBlock", semihostingExitBlock)]
 
 /- REF: docs/TARGETS/ARM64.md#13-bare-metal-target-qemu-virt-platform-execution -/

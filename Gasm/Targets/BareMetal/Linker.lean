@@ -59,8 +59,6 @@ def linkBareMetalProgram (symbolicProgram : List SymbolicInstr)
   let concreteInstrs := assembleProgram entryAddr symbolicProgram dataSymbols
   let textBytes := serializeInstructions concreteInstrs
   let exe : BareMetalExecutable := {
-    loadBase  := 0x200000,
-    entryAddr := entryAddr,
     textBytes := textBytes,
     dataBytes := dataBytes
   }

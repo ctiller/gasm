@@ -52,6 +52,8 @@ structure BareMetalDeviceState where
   mcr          : UInt8 := 0
   serialBuffer : ByteArray := ByteArray.empty
   exitStatus   : Option UInt32 := none
+  /-- Set only by the QEMU debug-exit device.  A CPU halt is a distinct platform stop. -/
+  debugExitRequested : Option UInt32 := none
   deriving DecidableEq, Inhabited
 
 /- REF: docs/TARGETS/BARE_METAL.md#1-machine-model-in-freestanding-mode -/
@@ -111,7 +113,8 @@ def stepBareMetal (instr : X86_64Instr) (s : BareMetalMachineState) : BareMetalM
         let dev' := { s.devices with mcr := byteVal }
         { s with cpu := sCpu', devices := dev' }
       else if port == DEBUG_EXIT_PORT || port == DEBUG_EXIT_PORT_ALT then
-        let dev' := { s.devices with exitStatus := some byteVal.toUInt32 }
+        let dev' := { { s.devices with exitStatus := some (byteVal.toUInt32) } with
+          debugExitRequested := some (byteVal.toUInt32) }
         { s with cpu := { sCpu' with fault := some .halted }, devices := dev' }
       else
         { s with cpu := sCpu' }
@@ -144,14 +147,74 @@ def runBareMetalProgram (baseRip : UInt64) (instructions : List X86_64Instr) (fu
 
 /- REF: docs/TARGETS/BARE_METAL.md#7-spike-1-bare-metal-hello-world-verification -/
 /-- Evaluates bare-metal execution and produces canonical observable effect trace. -/
-def runBareMetalTrace {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event]
-    (instructions : List X86_64Instr) (s0 : BareMetalMachineState) (fuel : Nat := 50000) : List Event :=
-  let finalState := runBareMetalProgram s0.cpu.rip instructions fuel s0
+def bareMetalConsoleEvents {Event : Type} [Inject ConsoleEvent Event]
+    (finalState : BareMetalMachineState) : List Event :=
   let consoleStr := match String.fromUTF8? finalState.devices.serialBuffer with
     | some str => str
     | none => String.ofList (finalState.devices.serialBuffer.toList.map (fun b => Char.ofNat b.toNat))
-  let exitCode := finalState.devices.exitStatus.getD 0
-  [ Inject.inject (ConsoleEvent.out consoleStr),
-    Inject.inject (ProcessEvent.exit exitCode) ]
+  [Inject.inject (ConsoleEvent.out consoleStr)]
+
+/-- Bare-metal execution preserves its stop classification.  In particular, fuel exhaustion,
+faults, a CPU halt, and falling off the instruction stream are not synthesized as debug exits. -/
+inductive BareMetalRunOutcome (Event : Type) where
+  | debugExited (code : UInt32) (events : List Event)
+  | platformStopped (cause : X86_64Fault) (events : List Event)
+  | faulted (cause : X86_64Fault) (events : List Event)
+  | completed (events : List Event)
+  | fuelExhausted (events : List Event)
+  deriving DecidableEq
+
+namespace BareMetalRunOutcome
+
+def events : BareMetalRunOutcome Event → List Event
+  | .debugExited _ events | .platformStopped _ events | .faulted _ events |
+      .completed events | .fuelExhausted events => events
+
+def isAdmissible : BareMetalRunOutcome Event → Prop
+  | .debugExited _ _ => True
+  | .platformStopped _ _ | .faulted _ _ | .completed _ | .fuelExhausted _ => False
+
+end BareMetalRunOutcome
+
+/-- Classified bare-metal execution with an explicit evaluator bound. -/
+def runBareMetalOutcome {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event]
+    (instructions : List X86_64Instr) (s0 : BareMetalMachineState) (fuel : Nat := 50000) :
+    BareMetalRunOutcome Event :=
+  let indexed := indexInstructions s0.cpu.rip instructions
+  let finish (state : BareMetalMachineState) : BareMetalRunOutcome Event :=
+    let console := bareMetalConsoleEvents state
+    match state.devices.debugExitRequested with
+    | some code => .debugExited code (console ++ [Inject.inject (ProcessEvent.exit code)])
+    | none =>
+      match state.cpu.fault with
+      | some .halted => .platformStopped .halted console
+      | some cause => .faulted cause console
+      | none => .completed console
+  let rec loop (remaining : Nat) (state : BareMetalMachineState) : BareMetalRunOutcome Event :=
+    -- A supplied terminal state is already an observable platform result.  It must win over
+    -- fuel accounting and instruction lookup, including when the caller supplies zero fuel.
+    match state.devices.debugExitRequested with
+    | some _ => finish state
+    | none =>
+      match state.cpu.fault with
+      | some _ => finish state
+      | none =>
+        match remaining with
+        | 0 =>
+          match instructionAtRipIndexed indexed state.cpu.rip with
+          | none => finish state
+          | some _ => .fuelExhausted (bareMetalConsoleEvents state)
+        | remaining + 1 =>
+          match instructionAtRipIndexed indexed state.cpu.rip with
+          | none => finish state
+          | some instruction =>
+            let after := stepBareMetal instruction state
+            if after.cpu.faulted then finish after else loop remaining after
+  loop fuel s0
+
+/-- Legacy list observations are now an explicit projection of a classified run. -/
+def runBareMetalTrace {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event]
+    (instructions : List X86_64Instr) (s0 : BareMetalMachineState) (fuel : Nat := 50000) : List Event :=
+  (runBareMetalOutcome instructions s0 fuel).events
 
 end Gasm.Targets.BareMetal

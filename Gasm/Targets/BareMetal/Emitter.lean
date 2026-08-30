@@ -23,9 +23,11 @@ namespace Gasm.Targets.BareMetal
 open Gasm.Core
 
 /- REF: docs/TARGETS/BARE_METAL.md#31-elf64-header-program-headers -/
-/-- Emits a minimal standalone 64-bit ELF executable with Xen PVH boot note directly bootable by QEMU -kernel. -/
-def emitBareMetalELFExecutable (textBytes : ByteArray) (dataBytes : ByteArray) : ByteArray :=
-  let layout := computeBareMetalLayout textBytes.size dataBytes.size
+/-- Emits a flat image using the supplied layout.  `BareMetalExecutable` supplies the same
+layout to both this emitter and its in-memory loader, so the artifact boundary has one address
+map rather than a canonical-emitter side channel. -/
+def emitBareMetalELFExecutableWithLayout (layout : BareMetalLayout)
+    (textBytes : ByteArray) (dataBytes : ByteArray) : ByteArray :=
   let elfHdr : ELF64Header := {
     e_entry := layout.entryAddr,
     e_phnum := 2
@@ -65,5 +67,11 @@ def emitBareMetalELFExecutable (textBytes : ByteArray) (dataBytes : ByteArray) :
 
   let headerPage := prePad ++ padBytes
   headerPage ++ textBytes ++ dataBytes
+
+/- REF: docs/TARGETS/BARE_METAL.md#31-elf64-header-program-headers -/
+/-- Emits the canonical standalone 64-bit ELF image with Xen PVH boot note. -/
+def emitBareMetalELFExecutable (textBytes : ByteArray) (dataBytes : ByteArray) : ByteArray :=
+  emitBareMetalELFExecutableWithLayout (computeBareMetalLayout textBytes.size dataBytes.size)
+    textBytes dataBytes
 
 end Gasm.Targets.BareMetal

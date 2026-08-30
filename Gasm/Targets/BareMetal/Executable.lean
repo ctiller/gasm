@@ -16,12 +16,14 @@ limitations under the License.
 
 import Lean
 import Gasm.Core.Types
+import Gasm.Core.Verification
 import Gasm.Effects.Inject
 import Gasm.Effects.Console
 import Gasm.Effects.Process
 import Gasm.Targets.X86_64.Registers
 import Gasm.Targets.X86_64.Instructions.Base
 import Gasm.Targets.X86_64.Semantics
+import Gasm.Targets.X86_64.Assembler
 import Gasm.Targets.BareMetal.ELFFormat
 import Gasm.Targets.BareMetal.Device
 import Gasm.Targets.BareMetal.Emitter
@@ -29,14 +31,17 @@ import Gasm.Targets.BareMetal.Emitter
 namespace Gasm.Targets.BareMetal
 
 open Gasm.Core
+open Gasm.Core.Platform
 open Gasm.Effects
 open Gasm.Targets.X86_64
+
+/-- x86-64 freestanding execution profile for the universal verified-program boundary. -/
+inductive BareMetalX86_64 (Event : Type) where
+  | profile
 
 /- REF: docs/TARGETS/BARE_METAL.md#3-minimal-64-bit-elf-executable-packaging-pvh-boot-protocol -/
 /-- Structured bare-metal ELF64 executable image. -/
 structure BareMetalExecutable where
-  loadBase  : Address   := 0x200000
-  entryAddr : Address   := 0x201000
   textBytes : ByteArray
   dataBytes : ByteArray := ByteArray.empty
   deriving DecidableEq, Inhabited
@@ -44,14 +49,25 @@ structure BareMetalExecutable where
 namespace BareMetalExecutable
 
 /- REF: docs/TARGETS/BARE_METAL.md#31-elf64-header-program-headers -/
+/-- The sole flat-image layout.  It is shared by execution and emission, so a verified artifact
+cannot pair a custom in-memory entry point with a different canonical ELF header. -/
+def layout (exe : BareMetalExecutable) : BareMetalLayout :=
+  computeBareMetalLayout exe.textBytes.size exe.dataBytes.size
+
+/- REF: docs/TARGETS/BARE_METAL.md#31-elf64-header-program-headers -/
 /-- Serializes the executable to flat ELF64 binary image bytes with Xen PVH boot note. -/
 def emit (exe : BareMetalExecutable) : ByteArray :=
-  emitBareMetalELFExecutable exe.textBytes exe.dataBytes
+  emitBareMetalELFExecutableWithLayout exe.layout exe.textBytes exe.dataBytes
+
+/-- Emission and loading use the exact same derived layout. -/
+theorem emit_uses_load_layout (exe : BareMetalExecutable) :
+    exe.emit = emitBareMetalELFExecutableWithLayout exe.layout exe.textBytes exe.dataBytes := rfl
 
 /- REF: docs/TARGETS/BARE_METAL.md#1-machine-model-in-freestanding-mode -/
 /-- Constructs the initial machine state for bare-metal x86-64 execution. -/
 def load (exe : BareMetalExecutable) : BareMetalMachineState :=
-  let textStart := exe.entryAddr
+  let imageLayout := exe.layout
+  let textStart := imageLayout.entryAddr
   let textEnd := textStart + exe.textBytes.size.toUInt64
   let dataStart := textEnd
   let dataEnd := dataStart + exe.dataBytes.size.toUInt64
@@ -62,8 +78,8 @@ def load (exe : BareMetalExecutable) : BareMetalMachineState :=
       exe.dataBytes.get! (a - dataStart).toNat
     else 0
   let cpu : X86_64MachineState := {
-    rip := exe.entryAddr,
-    gprs := fun r => if r == .rsp then 0x200000 + 0x20000 else 0,
+    rip := imageLayout.entryAddr,
+    gprs := fun r => if r == .rsp then imageLayout.loadBase + 0x20000 else 0,
     flags := 0,
     memory := X86_64Mem.initRegion mem
   }
@@ -71,23 +87,39 @@ def load (exe : BareMetalExecutable) : BareMetalMachineState :=
 
 end BareMetalExecutable
 
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- First-Class Verified Program Contract for x86-64 Bare Metal execution. -/
-structure VerifiedBareMetalProgram (Env : Type := Unit) (Event : Type := AnyEvent)
-    [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [BEq Event] where
-  name             : String
-  executable       : BareMetalExecutable
-  instructions     : List X86_64Instr
-  spec             : Env → List Event
-  traceEquivalence : ∀ (env : Env),
-    (runBareMetalTrace instructions executable.load == spec env) = true
+/-- An emitted bare-metal image paired with the exact instruction stream whose classified
+execution it exposes. -/
+structure BareMetalArtifact where
+  executable : BareMetalExecutable
+  instructions : List X86_64Instr
+  artifactConnected : executable.textBytes = Gasm.Targets.X86_64.Assembler.serializeInstructions instructions
 
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/-- Type-Enforced Code Emission for verified bare-metal programs. -/
-def emitVerifiedBareMetalExecutable {Env : Type} {Event : Type}
-    [Inject ConsoleEvent Event] [Inject ProcessEvent Event] [BEq Event]
-    (p : VerifiedBareMetalProgram Env Event) : ByteArray :=
-  p.executable.emit
+def BareMetalArtifact.connected (artifact : BareMetalArtifact) : Prop :=
+  artifact.executable.textBytes = Gasm.Targets.X86_64.Assembler.serializeInstructions artifact.instructions
+
+instance {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event] :
+    Platform (BareMetalX86_64 Event) where
+  Artifact := BareMetalArtifact
+  State := BareMetalMachineState
+  Observation := BareMetalRunOutcome Event
+  RuntimeContext := Unit
+  Import := Unit
+  Provider := Empty
+  BoundaryWorld := Unit
+  BoundaryKey := Unit
+  BoundaryTarget := BareMetalX86_64 Event
+  boundarySpec := Gasm.Core.Verification.emptyBoundarySpec
+  boundarySemantics := Gasm.Core.Verification.emptyBoundarySemantics _ BareMetalMachineState
+  imports := fun _ => []
+  providerProvides := fun provider => nomatch provider
+  providerLinked := fun _ provider => nomatch provider
+  runtimeSupports := fun _ _ provider => nomatch provider
+  boundaryArtifact := fun _ => ()
+  artifactConnected := BareMetalArtifact.connected
+  load := fun artifact _ => artifact.executable.load
+  run := fun _ artifact state => runBareMetalOutcome (Event := Event) artifact.instructions state
+  admissible := fun _ artifact state =>
+    (runBareMetalOutcome (Event := Event) artifact.instructions state).isAdmissible
+  emit := fun artifact => .ok artifact.executable.emit
 
 end Gasm.Targets.BareMetal

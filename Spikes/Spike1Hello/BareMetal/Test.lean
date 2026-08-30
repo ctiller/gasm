@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Lean
+import Gasm.Core.Verification
 import Gasm.Effects.Trace
 import Gasm.Targets.BareMetal.Device
 import Gasm.Targets.BareMetal.Executable
@@ -24,6 +25,7 @@ import Spikes.Spike1Hello.BareMetal.Program
 import Spikes.Spike1Hello.BareMetal.Equivalence
 
 open Gasm.Effects
+open Gasm.Core.Platform
 open Gasm.Targets.BareMetal
 open Spikes.Spike1Hello
 open Spikes.Spike1Hello.BareMetal
@@ -47,7 +49,12 @@ def main : IO UInt32 := do
   IO.println "[*] 2. QEMU Bare Metal System Verification..."
   let elfPath := "spike1_hello_baremetal.elf"
   if !(← (System.FilePath.mk elfPath).pathExists) then
-    IO.FS.writeBinFile elfPath (emitVerifiedBareMetalExecutable spike1VerifiedBareMetalProgram)
+    match emitVerifiedProgram spike1VerifiedBareMetalProgram with
+    | .error message =>
+      IO.eprintln s!"[!] Verified emission failed: {message}"
+      return 1
+    | .ok elfBytes =>
+      IO.FS.writeBinFile elfPath elfBytes
 
   -- Resolution order (see Gasm.Targets.BareMetal.findQemuPath): explicit GASM_QEMU env var,
   -- then PATH, then standard Windows/Linux install locations. `none` means the oracle is

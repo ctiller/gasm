@@ -81,15 +81,70 @@ def runBareMetalProgram (baseRip : UInt64) (instructions : List AnyAArch64Instru
   loop fuel s
 
 /- REF: docs/TARGETS/ARM64.md#machine-state -/
-/-- Evaluates bare-metal execution and produces canonical observable effect trace. -/
-def runBareMetalTrace {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event]
-    (instructions : List AnyAArch64Instruction) (s0 : AArch64BareMetalMachineState) (fuel : Nat := 50000) : List Event :=
-  let finalState := runBareMetalProgram s0.cpu.pc instructions fuel s0
+/-- The serial output accumulated before a classified platform stop. -/
+def bareMetalConsoleEvents {Event : Type} [Inject ConsoleEvent Event]
+    (finalState : AArch64BareMetalMachineState) : List Event :=
   let consoleStr := match String.fromUTF8? finalState.devices.serialBuffer with
     | some str => str
     | none => String.ofList (finalState.devices.serialBuffer.toList.map (fun b => Char.ofNat b.toNat))
-  let exitCode := finalState.devices.exitStatus.getD 0
-  [ Inject.inject (ConsoleEvent.out consoleStr),
-    Inject.inject (ProcessEvent.exit exitCode) ]
+  [Inject.inject (ConsoleEvent.out consoleStr)]
+
+/-- AArch64 bare-metal observation preserves semihosting exit, architectural fault, completion,
+and insufficient evaluator fuel as distinct outcomes. -/
+inductive BareMetalRunOutcome (Event : Type) where
+  | semihostingExited (code : UInt32) (events : List Event)
+  | faulted (cause : AArch64Fault) (events : List Event)
+  | completed (events : List Event)
+  | fuelExhausted (events : List Event)
+  deriving DecidableEq
+
+namespace BareMetalRunOutcome
+
+def events : BareMetalRunOutcome Event → List Event
+  | .semihostingExited _ events | .faulted _ events | .completed events |
+      .fuelExhausted events => events
+
+def isAdmissible : BareMetalRunOutcome Event → Prop
+  | .semihostingExited _ _ => True
+  | .faulted _ _ | .completed _ | .fuelExhausted _ => False
+
+end BareMetalRunOutcome
+
+/-- Classified AArch64 bare-metal execution with an explicit evaluator bound. -/
+def runBareMetalOutcome {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event]
+    (instructions : List AnyAArch64Instruction) (s0 : AArch64BareMetalMachineState)
+    (fuel : Nat := 50000) : BareMetalRunOutcome Event :=
+  let indexed := indexInstructions s0.cpu.pc instructions
+  let finish (state : AArch64BareMetalMachineState) : BareMetalRunOutcome Event :=
+    let console := bareMetalConsoleEvents state
+    if state.cpu.terminated then
+      .semihostingExited state.cpu.exitCode (console ++ [Inject.inject (ProcessEvent.exit state.cpu.exitCode)])
+    else
+      match state.cpu.fault with
+      | some cause => .faulted cause console
+      | none => .completed console
+  let rec loop (remaining : Nat) (state : AArch64BareMetalMachineState) : BareMetalRunOutcome Event :=
+    -- A supplied semihosting exit or architectural fault is terminal before fuel accounting;
+    -- otherwise a zero-fuel evaluator could relabel it as exhaustion or step it again.
+    if state.cpu.terminated || state.cpu.fault.isSome then finish state
+    else
+      match remaining with
+      | 0 =>
+        match instructionAtPcIndexed indexed state.cpu.pc with
+        | none => finish state
+        | some _ => .fuelExhausted (bareMetalConsoleEvents state)
+      | remaining + 1 =>
+        match instructionAtPcIndexed indexed state.cpu.pc with
+        | none => finish state
+        | some instruction =>
+          let after := stepBareMetal instruction state
+          if after.cpu.terminated || after.cpu.fault.isSome then finish after else loop remaining after
+  loop fuel s0
+
+/-- List observation is only a projection of the classified result. -/
+def runBareMetalTrace {Event : Type} [Inject ConsoleEvent Event] [Inject ProcessEvent Event]
+    (instructions : List AnyAArch64Instruction) (s0 : AArch64BareMetalMachineState)
+    (fuel : Nat := 50000) : List Event :=
+  (runBareMetalOutcome instructions s0 fuel).events
 
 end Gasm.Targets.AArch64.BareMetal

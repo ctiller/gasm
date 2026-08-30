@@ -61,14 +61,10 @@ structure LinkedBareMetalProgram where
   executable   : AArch64BareMetalExecutable
 
 /- REF: docs/TARGETS/ARM64.md#13-bare-metal-target-qemu-virt-platform-execution -/
-/-- Serializes a list of AnyAArch64Instruction into a flat ByteArray. -/
-def serializeInstructions (instrs : List AnyAArch64Instruction) : ByteArray :=
-  instrs.foldl (fun acc i => acc ++ AArch64Instruction.encode i) ByteArray.empty
-
-/- REF: docs/TARGETS/ARM64.md#13-bare-metal-target-qemu-virt-platform-execution -/
 /-- Links a symbolic ProgramElement-based AArch64 program and data items. -/
-def linkBareMetalProgram (entryAddr : Address) (elements : List ProgramElement)
+def linkBareMetalProgram (elements : List ProgramElement)
                          (dataItems : List (String × ByteArray) := []) : LinkedBareMetalProgram :=
+  let entryAddr : Address := 0x40001000
   -- Pass 1: Compute instruction label addresses
   let rec computeLabels (curPc : Address) (syms : SymbolTable) : List ProgramElement → SymbolTable
     | [] => syms
@@ -100,8 +96,6 @@ def linkBareMetalProgram (entryAddr : Address) (elements : List ProgramElement)
   let textBytes := serializeInstructions concreteInstrs
   
   let executable : AArch64BareMetalExecutable := {
-    loadBase  := 0x40000000,
-    entryAddr := entryAddr,
     textBytes := textBytes,
     dataBytes := dataBytes
   }

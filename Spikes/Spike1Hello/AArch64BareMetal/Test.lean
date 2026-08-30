@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Lean
+import Gasm.Core.Verification
 import Gasm.Effects.Trace
 import Gasm.Targets.AArch64.BareMetal.Device
 import Gasm.Targets.AArch64.BareMetal.Executable
@@ -24,6 +25,7 @@ import Spikes.Spike1Hello.AArch64BareMetal.Program
 import Spikes.Spike1Hello.AArch64BareMetal.Equivalence
 
 open Gasm.Effects
+open Gasm.Core.Platform
 open Gasm.Targets.AArch64.BareMetal
 open Spikes.Spike1Hello
 open Spikes.Spike1Hello.AArch64BareMetal
@@ -46,7 +48,12 @@ def main : IO UInt32 := do
   IO.println "[*] 2. QEMU Bare Metal System Verification..."
   let elfPath := "spike1_hello_aarch64_baremetal.elf"
   if !(← (System.FilePath.mk elfPath).pathExists) then
-    IO.FS.writeBinFile elfPath (emitVerifiedBareMetalExecutable spike1AArch64VerifiedBareMetalProgram)
+    match emitVerifiedProgram spike1AArch64VerifiedBareMetalProgram with
+    | .error message =>
+      IO.eprintln s!"[!] Verified emission failed: {message}"
+      return 1
+    | .ok elfBytes =>
+      IO.FS.writeBinFile elfPath elfBytes
 
   match ← Gasm.Execution.QEMUAArch64.runBareMetal elfPath "Hello, World!\n" 0 with
   | .passed =>
