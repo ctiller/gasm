@@ -320,6 +320,51 @@ private theorem spike2_ordinary_from_stack_write (initial state : X86_64MachineS
     rw [memory, spike2_read64_write_below .w64 initial.memory writeAddress address value writeNoWrap below]
     exact notIat
 
+/- The remaining extraction instructions and JNE do not write memory; this ties the PUSH
+intermediate observation to the already proved completed extraction effect. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_extraction_push_memory_eq_final (initial : X86_64MachineState) :
+    (extractionStates initial).2.2.2.1.memory = (extractionFinal 236 initial).memory := by
+  rfl
+
+/-- PUSH reaches the increment coordinate with the exact completed-pass stack-write frame. -/
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+private theorem spike2_extraction_push_ordinary {stackLower : UInt64}
+    (initial : X86_64MachineState) (entry : initial.rip = spike2ExtractionAddress .clearHigh)
+    (authority : Spike2DecimalTextAuthority initial) (safety : ExtractionSafety stackLower initial)
+    (safe : ExtractionExecutionSafety 236 initial)
+    (writeNoWrap : (initial.rsp - 8).toNat + 8 ≤ 2 ^ 64)
+    (above : 4198635 ≤ (initial.rsp - 8).toNat) :
+    Spike2OrdinaryCode (extractionStates initial).2.2.2.1 := by
+  obtain ⟨_, _, _, rip, _, _⟩ := spike2_extraction_reached_addresses initial entry safe
+  apply spike2_ordinary_from_stack_write initial _ (spike2ExtractionAddress .increment)
+    (initial.rsp - 8) (UInt64.ofNat ((initial.gprs .rax).toNat % 10) + 0x30) rip
+  · rw [spike2_extraction_push_memory_eq_final, (extractionPassEffect 236 stackLower initial safety safe).memory]
+  · exact writeNoWrap
+  · exact spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress])
+  · decide
+  · exact authority.extractIncrement
+
+/-- The increment successor keeps the completed extraction stack-write frame at CMP. -/
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+private theorem spike2_extraction_count_ordinary {stackLower : UInt64}
+    (initial : X86_64MachineState) (entry : initial.rip = spike2ExtractionAddress .clearHigh)
+    (authority : Spike2DecimalTextAuthority initial) (safety : ExtractionSafety stackLower initial)
+    (safe : ExtractionExecutionSafety 236 initial)
+    (writeNoWrap : (initial.rsp - 8).toNat + 8 ≤ 2 ^ 64)
+    (above : 4198635 ≤ (initial.rsp - 8).toNat) :
+    Spike2OrdinaryCode (extractionStates initial).2.2.2.2.1 := by
+  obtain ⟨_, _, _, _, rip, _⟩ := spike2_extraction_reached_addresses initial entry safe
+  apply spike2_ordinary_from_stack_write initial _ (spike2ExtractionAddress .compare)
+    (initial.rsp - 8) (UInt64.ofNat ((initial.gprs .rax).toNat % 10) + 0x30) rip
+  · rw [show (extractionStates initial).2.2.2.2.1.memory =
+      (extractionFinal 236 initial).memory by rfl,
+      (extractionPassEffect 236 stackLower initial safety safe).memory]
+  · exact writeNoWrap
+  · exact spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress])
+  · decide
+  · exact authority.extractCompare
+
 /-- The DIV successor is still ordinary Linux code: its read64 observation is the original
 ASCII instruction observation, proved via the concrete no-memory-write theorem. -/
 /- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
