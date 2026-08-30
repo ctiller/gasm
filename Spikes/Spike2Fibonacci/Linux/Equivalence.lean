@@ -26,6 +26,7 @@ import Gasm.Targets.Linux.Syscall
 import Gasm.Targets.Linux.Linker
 import Spikes.Spike2Fibonacci.Spec
 import Spikes.Spike2Fibonacci.Linux.Program
+import Spikes.Spike2Fibonacci.Linux.Row1
 
 namespace Spikes.Spike2Fibonacci.Linux
 
