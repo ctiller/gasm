@@ -434,7 +434,7 @@ theorem wasiHostCall_fd_write_single
   simp [wasiHostCall, wasiHostCallRaw, popI32, hciovec, hpayload'', hwritten,
     hsize, pushVal, WasmMachineState.withExternalInputs]
 
-/- REF: docs/TARGETS/WASI.md#20-fdread -/
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Typed single-iovec `fd_read` contract.  This is the exact operational
     progress fact used by streaming WASI consumers: while bytes remain, the
     host copies at most the declared iovec length and advances the concrete
@@ -477,7 +477,7 @@ theorem wasiHostCall_fd_read_single_preserves_iovec
         (WasmMem.writeBytes_preserves_prefix8 _ _ _ _ (by decide) hwrite)
     _ = some (0x100, 512) := hciovec
 
-/- REF: docs/TARGETS/WASI.md#20-fdread -/
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- The EOF companion to `wasiHostCall_fd_read_single`.  Once the concrete
     cursor is at or beyond the finite input, the same fixed iovec reports zero
     bytes and does not advance it.  This is the exact branch consumed by a
