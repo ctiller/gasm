@@ -76,6 +76,22 @@ When satisfying an allocation request of size $S$:
 3. If found, mark `isFree := 0`, remove from `freeList`, and return the payload pointer `headerAddr + 0x20`.
 4. If no suitable free block exists, request $\lceil (S + 32) / \text{pageSize} \rceil$ fresh pages from the `PageSource`, format a new block header, and return the payload.
 
+#### Native finite-arena realization
+
+The x86 native routine is embedded with an explicit `NativeArenaCapability { base, endExclusive }`:
+`R11` holds the next header and `R15` holds the exact exclusive end selected by the platform
+reservation.  It does not infer an end from a default capacity.  Before any allocator-state or
+allocator-memory mutation, the lowered routine rejects carry from both `S + 7` (alignment) and
+`align8(S) + 32` (header), then rejects `R11 > R15` or insufficient remaining bytes.  Only the
+post-check path advances `R11` and writes a header.  Consequently an overlarge request, wrapped
+alignment/header calculation, or exhausted arena returns null with `R11`, `R10`, and allocator
+memory unchanged.
+
+`NativeArenaCapability.ofReservation` is the semantic counterpart of the entry sequence's checked
+`base + bytes` computation: it constructs the capability only for a nonzero reservation whose
+exclusive end is representable.  The Spike 3 Linux and Win32 runtimes use that capability to
+materialize the same base/end interval the emitted code consumes.
+
 ### 3.3 Deallocation (`free`)
 When freeing payload pointer $P$:
 1. Recover header address $H = P - 0x20$.

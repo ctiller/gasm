@@ -67,6 +67,10 @@ Standard stream descriptors (FD 0 stdin, FD 1 stdout, FD 2 stderr) map directly 
 
 ### 2.2 Memory Mapping (`mmap`) State Model
 - Intercepts `SYS_mmap` (nr 9) to provide simulated memory regions (base address `0x70000000`) for user heap allocations.
+- A failing Linux syscall is represented as a raw 64-bit encoding of `-errno` in the unsigned
+  range `0xfffffffffffff001..0xffffffffffffffff`, never as a platform-null convention.  The
+  Spike 3 finite-arena runtime uses `-ENOMEM` (`0xfffffffffffffff4`) and its emitted entry checks
+  this full range before installing the allocator base.
 - Intercepts `SYS_munmap` (nr 11) returning success (`0`).
 - Programs conventionally allocate required buffers before passing pointers to subroutines; the
   current hook does not enforce capability-based memory safety.

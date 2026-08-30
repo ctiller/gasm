@@ -71,6 +71,30 @@ The relation $\le_{\text{lex}}$ is a total preorder (reflexive, transitive, and 
 Spike 3 exercises streamed input and pointer-rich lowered code, but it does not yet establish the
 repository's planned provenance model:
 
+### 4.1 Native finite-arena failure boundary
+
+The native Linux and Win32 variants take an explicit `Spike3NativeArenaGrant`; neither receives an
+implicit allocator budget.  A successful reservation materializes a `NativeArenaCapability` whose
+`base` and `endExclusive` are the same values the lowered entry sequence installs in `RAX` and
+`R15`.  The entry sequence rejects an unrepresentable `base + 65536` before initializing `R11`.
+
+- Linux reservation refusal returns raw `-ENOMEM` (`0xfffffffffffffff4`), in the ordinary Linux
+  unsigned raw-error interval `[-4095, -1]`.  The emitted program tests `RAX >=
+  0xfffffffffffff001` and branches to `resource_exhausted`; it does not treat a null pointer as
+  the Linux failure convention.
+- Win32 reservation refusal returns null from `VirtualAlloc` and takes the corresponding
+  `resource_exhausted` branch.
+- `smol_malloc` checks overflow of `size + 7` and aligned-size `+ 32`, as well as the finite
+  `R11`/`R15` capacity test, before modifying `R11`, `R10`, or allocator memory.  Failure returns
+  null with no allocator-memory mutation.
+- The reusable theorems in `NativeRuntime`/`NativeOutcome` quantify over the reservation state:
+  they establish the raw-or-null result, exact process exit boundary for Win32, and memory
+  preservation.  Literal empty-input runs are explicit `NativeRegression.lean` probes, not
+  evidence of a universal sorting theorem.
+
+Retry is a new invocation with the same stdin and a fresh sufficient grant.  It reaches the
+concrete platform reservation base; it is not a mutation of the failed invocation's arena state.
+
 - **Specification reader**: `readAllLinesFueled` is structurally recursive with an explicit
   `specMaxStdinLines` bound; it is not an unbounded termination proof.
 - **Lowered buffers**: the Windows and Wasm programs use concrete bounded buffers and fixed read

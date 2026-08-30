@@ -49,6 +49,8 @@ import Spikes.Spike3SortLines.Windows.InstructionStepLemmas
 import Spikes.Spike3SortLines.Windows.IATLemmas
 import Spikes.Spike3SortLines.Linux.Program
 import Spikes.Spike3SortLines.Linux.Equivalence
+import Spikes.Spike3SortLines.NativeRuntime
+import Spikes.Spike3SortLines.NativeOutcome
 import Spikes.Spike3SortLines.Wasm.Program
 import Spikes.Spike3SortLines.Wasm.Equivalence
 
