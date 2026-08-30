@@ -57,6 +57,14 @@ def spike2AfterPrologue : X86_64MachineState :=
       (X86_64Instruction.step (mov_r64_imm64 .r13 1)
         (X86_64Instruction.step (sub_rsp32 136) spike2Executable.load)))
 
+/-- The linked address of the main loop header. -/
+def spike2MainLoopRip : UInt64 := spike2AfterPrologue.rip
+
+/-- Exact two-instruction main-header transition on a continuing pass. -/
+def spike2AfterMainHeader (state : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (jge_rel32 259)
+    (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state)
+
 private theorem sequentialSubRsp (imm : UInt32) : SequentialInstruction (sub_rsp32 imm) where
   encoding := .subRsp32 imm
   safeFallthrough := by intro state _; rfl
@@ -66,6 +74,10 @@ private theorem sequentialMovImm (dst : Reg64) (imm : UInt64) :
   encoding := .loadImm dst imm
   safeFallthrough := by intro state _; rfl
 
+private theorem sequentialCmpCounter : SequentialInstruction (cmp_r64_imm8 .r13 91) where
+  encoding := .compareImm8 .r13 91
+  safeFallthrough := by intro _ _; rfl
+
 /- The driver uses signed JGE with nonnegative counters below 128.  The following local facts
    connect the concrete flag implementation to that finite-width signed comparison without
    enumerating the ninety counter values. -/
@@ -73,6 +85,11 @@ private theorem stepCmpImm8 (dst : Reg64) (imm : UInt8) (state : X86_64MachineSt
     X86_64Instruction.step (cmp_r64_imm8 dst imm) state =
       { state.setFlagsCmp64 (state.gprs dst) (signExtend8To64 imm) with
         rip := state.rip + 4 } := rfl
+
+private theorem stepJge32 (disp : Int32) (state : X86_64MachineState) :
+    X86_64Instruction.step (jge_rel32 disp) state =
+      { state with rip := if state.sf == state.of_ then
+          state.rip + 6 + signExtend32To64 disp else state.rip + 6 } := rfl
 
 private theorem andOrDistributes (x y z : UInt64) :
     (x ||| y) &&& z = (x &&& z) ||| (y &&& z) := by
@@ -279,6 +296,61 @@ private theorem indexTwoDigits (state : X86_64MachineState) (n : Nat)
       _ = 0 := by rw [hfirst, UInt64.and_zero]
   rw [hsf, hof]
   decide
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The linked main header selects the body for every pass `0..89`.  The proof is parameterized by
+    `completed`; the signed comparison facts above, rather than ninety concrete reductions, choose
+    the JGE fallthrough. -/
+theorem spike2_main_header_selected_prefix (completed : Nat) (state : X86_64MachineState)
+    (eventsRev : List AnyEvent) (hcompleted : completed < 90)
+    (hrip : state.rip = spike2MainLoopRip)
+    (hcounter : state.gprs .r13 = (completed + 1).toUInt64)
+    (hsafe : state.fault = none) :
+    ProductionPrefix.SelectedPrefix selectedNonInputLinuxCall spike2Indexed 2 state eventsRev
+      (spike2AfterMainHeader state) eventsRev [] := by
+  change ProductionPrefix.SelectedPrefix selectedNonInputLinuxCall spike2Indexed (1 + 1) state
+    eventsRev (spike2AfterMainHeader state) eventsRev []
+  have hcontinue := mainLoopContinues state (completed + 1) (by omega) hcounter
+  have hcmpRip : (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip = 4198441 := by
+    rw [stepCmpImm8, hrip]
+    rfl
+  have hbodyRip : (spike2AfterMainHeader state).rip = 4198447 := by
+    unfold spike2AfterMainHeader
+    simp only [X86BranchCondition.holds] at hcontinue
+    rw [stepJge32]
+    simp [hcontinue, hcmpRip]
+  refine ProductionPrefix.SelectedPrefix.ordinary
+    (Event := AnyEvent) (selected := selectedNonInputLinuxCall) (indexed := spike2Indexed)
+    sequentialCmpCounter ?_ ?_ ?_ ?_ ?_
+  · rw [hrip]
+    rfl
+  · simp [selectedNonInputLinuxCall, hcmpRip, linuxSyscallEntry]
+  · change (if (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip ==
+        linuxSyscallEntry then
+        linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+    rw [hcmpRip]
+    simp [linuxSyscallEntry, Gasm.Targets.Windows.win32Intercept,
+      Gasm.Targets.Windows.findIatIndex]
+  · rw [stepCmpImm8]
+    exact hsafe
+  · refine ProductionPrefix.SelectedPrefix.conditionalFallthrough
+      (Event := AnyEvent) (selected := selectedNonInputLinuxCall) (indexed := spike2Indexed)
+      (.jge32 259) hcontinue ?_ ?_ ?_ ?_ ?_
+    · rw [hcmpRip]
+      rfl
+    · change selectedNonInputLinuxCall (spike2AfterMainHeader state).rip
+        (spike2AfterMainHeader state) = true
+      simp [selectedNonInputLinuxCall, hbodyRip, linuxSyscallEntry]
+    · change ExternalCallInterceptor.interceptCall X86_64 (spike2AfterMainHeader state).rip
+        (spike2AfterMainHeader state) = none
+      change (if (spike2AfterMainHeader state).rip == linuxSyscallEntry then
+          linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+      rw [hbodyRip]
+      simp [linuxSyscallEntry, Gasm.Targets.Windows.win32Intercept,
+        Gasm.Targets.Windows.findIatIndex]
+    · change state.fault = none
+      exact hsafe
+    · exact .nil _ _
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- The actual four instruction setup prefix is a safe, silent production prefix.  Each lookup is
