@@ -107,6 +107,14 @@ runtime; `Gasm.Core.CFG` demonstrates this split with `targetsInGraph` and `Sele
 straight-line production prefixes once and compose loops with an explicit measure or bound.  Do not
 replace a production-runner proof with replay of a second evaluator.
 
+Use the same named boundaries in both directions during proof design.  Forward propagation derives
+the strongest useful reachable and ghost facts; backward propagation derives the weakest entry
+requirements implied by exits and the caller's goal.  Refine joins and loop invariants in both
+directions until their contracts stabilize.  An unknown block body is then a local implementation
+hole with an explicit contract: discharge it when the body arrives, and use one closed-graph
+composition theorem after every hole is filled.  This is currently a search discipline, not a
+prescribed deterministic tactic or an established generic fixed-point library.
+
 ## Preserve exact dependent CFG definitions
 
 At the CFG authoring and lowering layer, composition or nominal-ID remapping must preserve the whole

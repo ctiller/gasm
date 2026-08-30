@@ -68,18 +68,23 @@ The following code shapes have enough evidence to investigate but are not canoni
   author still supplies them;
   `Gasm.Core.CFG.Invariant.alongReachable` checks an invariant over already defined block steps, and
   `Gasm.Targets.X86_64.VerifiedProgramCFG` connects reached blocks to exact emitted realizations.
-  A candidate derivation layer would start from a symbolic control-flow skeleton, propagate
-  reachable facts forward from the entry, propagate required facts backward from terminal
-  postconditions, demand an explicit invariant at every join or cycle, and expose their local
-  intersection as each block's implementation obligation.  Failed inclusion at an edge should be
-  reported at that edge, not rediscovered during whole-path replay.  Spike 2 Row 8 now demonstrates
-  narrow forward fact transfer across one accepted typed boundary, but it does not derive contracts
-  from a symbolic graph or propagate requirements backward.  A generic consumer must also add a
-  progress measure or runtime-enforced bound: closed-graph typing alone proves neither functional
-  correctness nor termination.  Spike 3 should wait for its streaming, relational ghost-state, and
-  resource-recovery invariants.
-  Keep generic worklist or dataflow iteration separate until the candidates in
-  `docs/STDLIB_FACILITIES_PLAN.md` earn promotion; automatic invariant discovery is not implied.
+  A candidate derivation layer would use the same named typed boundaries in both directions:
+  propagate strongest useful reachable and ghost facts forward from the entry, propagate weakest
+  requirements backward from exits and target postconditions, and alternate refinements to a stable
+  contract at every join and loop invariant.  Each unknown body remains a local implementation hole
+  governed by that contract; supplying it should require one local discharge, followed by one
+  closed-graph composition theorem after all holes are filled.  Useful combinator candidates are
+  contract refinement/order, monotone forward and backward transfer, checked join stabilization,
+  local body discharge, and closed-graph composition—not a mandated worklist algorithm or automatic
+  invariant discovery.  Failed inclusion should be reported at its edge rather than rediscovered by
+  whole-path replay.
+
+  Spike 2 Row 8 demonstrates narrow forward transfer across one accepted typed boundary, but not
+  derived contracts, backward propagation, or fixed-point convergence.  A generic consumer must
+  also add a progress measure or runtime-enforced bound: closed-graph typing alone proves neither
+  functional correctness nor termination.  Spike 3 should wait for accepted streaming, relational
+  ghost-state, and resource-recovery invariants.  Keep generic worklist or dataflow iteration
+  separate until the candidates in `docs/STDLIB_FACILITIES_PLAN.md` earn promotion.
 - Bounded byte reads appear in ELF, x86-64, AArch64, PNG, Zlib, and Gzip.  A first cursor slice
   should validate against two consumers with the same offset/progress needs while keeping format
   errors and validation consumer-owned.
