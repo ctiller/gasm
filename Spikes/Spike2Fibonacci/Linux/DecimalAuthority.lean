@@ -28,6 +28,7 @@ RIP-only shortcut.
 
 namespace Spikes.Spike2Fibonacci.Linux
 
+open Gasm.Effects
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.DecimalSegments
@@ -636,5 +637,71 @@ theorem spike2WriteOrdinary_of_textAuthority {stackUpper outputLimit : UInt64}
       (spike2_write_branch_rip_fallthrough initial entry fallthrough) memory writeNoWrap
       (spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress]))
       (by decide) authority.writeExit
+
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
+structure Spike2ExtractionPhysicalLoopWitness (value stackLower : UInt64)
+    (initial : X86_64MachineState) (initialEventsRev : List AnyEvent) : Prop where
+  entry : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    (spike2ExtractionIter initial completed).rip = spike2ExtractionAddress .clearHigh
+  safety : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    ExtractionSafety stackLower (spike2ExtractionIter initial completed)
+  executionSafety : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    ExtractionExecutionSafety 236 (spike2ExtractionIter initial completed)
+  branch : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    X86BranchCondition.notEqual.holds (extractionStates (spike2ExtractionIter initial completed)).2.2.2.2.2 ∨
+      ¬ X86BranchCondition.notEqual.holds (extractionStates (spike2ExtractionIter initial completed)).2.2.2.2.2
+  authority : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    Spike2DecimalTextAuthority (spike2ExtractionIter initial completed)
+  writeNoWrap : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    ((spike2ExtractionIter initial completed).rsp - 8).toNat + 8 ≤ 2 ^ 64
+  above : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    4198635 ≤ ((spike2ExtractionIter initial completed).rsp - 8).toNat
+
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
+theorem Spike2ExtractionPhysicalLoopWitness.toPhaseWitness {value stackLower : UInt64}
+    {initial : X86_64MachineState} {initialEventsRev : List AnyEvent}
+    (physical : Spike2ExtractionPhysicalLoopWitness value stackLower initial initialEventsRev) :
+    Spike2ExtractionLoopWitness value stackLower initial initialEventsRev where
+  entry completed within := physical.entry completed within
+  safety completed within := physical.safety completed within
+  executionSafety completed within := physical.executionSafety completed within
+  ordinary completed within := spike2ExtractionOrdinary_of_textAuthority
+    _ (physical.entry completed within) (physical.authority completed within)
+    (physical.safety completed within) (physical.executionSafety completed within)
+    (physical.branch completed within) (physical.writeNoWrap completed within) (physical.above completed within)
+  branch completed within := physical.branch completed within
+
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
+structure Spike2WritePhysicalLoopWitness (value stackUpper outputLimit : UInt64)
+    (initial : X86_64MachineState) (initialEventsRev : List AnyEvent) : Prop where
+  entry : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    (spike2WriteIter initial completed).rip = spike2WriteAddress .pop
+  safety : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    WriteSafety stackUpper outputLimit (spike2WriteIter initial completed)
+  executionSafety : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    WriteExecutionSafety 243 (spike2WriteIter initial completed)
+  branch : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    X86BranchCondition.notEqual.holds (writeStates (spike2WriteIter initial completed)).2.2.2 ∨
+      ¬ X86BranchCondition.notEqual.holds (writeStates (spike2WriteIter initial completed)).2.2.2
+  authority : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    Spike2DecimalTextAuthority (spike2WriteIter initial completed)
+  writeNoWrap : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    ((spike2WriteIter initial completed).gprs .rdi).toNat + 1 ≤ 2 ^ 64
+  above : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
+    4198635 ≤ ((spike2WriteIter initial completed).gprs .rdi).toNat
+
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
+theorem Spike2WritePhysicalLoopWitness.toPhaseWitness {value stackUpper outputLimit : UInt64}
+    {initial : X86_64MachineState} {initialEventsRev : List AnyEvent}
+    (physical : Spike2WritePhysicalLoopWitness value stackUpper outputLimit initial initialEventsRev) :
+    Spike2WriteLoopWitness value stackUpper outputLimit initial initialEventsRev where
+  entry completed within := physical.entry completed within
+  safety completed within := physical.safety completed within
+  executionSafety completed within := physical.executionSafety completed within
+  ordinary completed within := spike2WriteOrdinary_of_textAuthority
+    _ (physical.entry completed within) (physical.authority completed within)
+    (physical.safety completed within) (physical.executionSafety completed within)
+    (physical.branch completed within) (physical.writeNoWrap completed within) (physical.above completed within)
+  branch completed within := physical.branch completed within
 
 end Spikes.Spike2Fibonacci.Linux
