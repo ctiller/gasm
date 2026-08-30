@@ -108,6 +108,7 @@ import Gasm.Targets.ELF.Parser
 
 import Gasm.Targets.Linux.ABI
 import Gasm.Targets.Linux.Syscall
+import Gasm.Targets.Linux.OutcomeBridge
 import Gasm.Targets.Linux.ELFFormat
 import Gasm.Targets.Linux.Emitter
 import Gasm.Targets.Linux.Linker
