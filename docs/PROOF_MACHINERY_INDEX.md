@@ -105,6 +105,13 @@ The following code shapes have enough evidence to investigate but are not canoni
   automatic invariant discovery.  Failed inclusion should be reported at its edge rather than
   rediscovered by whole-path replay.
 
+  Project each candidate contract into control, live data, relational ghost state, and outstanding
+  obligations, retaining only observations consumed by adjacent blocks.  Final graph composition
+  should request contracts only for selected, reachable blocks and edges, so absent features create
+  no proof burden.  The Linux Spike 2 write-setup/syscall bridge is the active first bidirectional
+  trial.  Its accepted result may justify transfer or inclusion lemmas; generic join/loop iteration
+  still requires another real consumer and a measured dependency-closure comparison.
+
   Spike 2 Row 8 remains the concrete factored forward-boundary exemplar; it does not demonstrate
   derived contracts, backward propagation, or fixed-point convergence.  A generic consumer must
   also add a progress measure or runtime-enforced bound: closed-graph typing alone proves neither

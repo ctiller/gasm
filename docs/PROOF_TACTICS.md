@@ -131,6 +131,14 @@ hole with an explicit contract: discharge it when the body arrives, and use one 
 composition theorem after every hole is filled.  This is currently a search discipline, not a
 prescribed deterministic tactic or an established generic fixed-point library.
 
+Keep each boundary projected to what its neighbors observe: control location, live data, relational
+ghost state, and outstanding obligations.  The closed-graph theorem should quantify only over
+selected, reachable block contracts; an unselected feature or edge must add no premise.  A failed
+forward/postcondition or backward/precondition inclusion belongs at that exact edge, rather than in
+a later whole-path replay.  The Spike 2 Linux write-setup/syscall bridge is the current proving ground
+for this discipline; wait for its accepted join/loop evidence before extracting generic iteration or
+fixed-point combinators.
+
 For an x86 body hole, `Gasm.Targets.X86_64.LocalBlockDischarge` is the accepted local mechanism.  It
 carries only the canonical selected-production-prefix cutpoint, strengthens entries and weakens
 exits with the usual contract variance, and composes adjacent runs through the exact middle machine,
