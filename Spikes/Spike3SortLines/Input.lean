@@ -79,7 +79,7 @@ lowerings; a trailing empty state after LF contributes no extra line. -/
 def ByteLineStream.finalizedLines (state : ByteLineStream) : List (List UInt8) :=
   match state.currentRev with
   | [] => state.completedLines
-  | _ => state.completedLines ++ [trimLineEnding state.currentRev.reverse]
+  | _ => state.completedLines ++ [state.currentRev.reverse]
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- The byte-level stdin model used by Spike 3's universal-environment specification. -/

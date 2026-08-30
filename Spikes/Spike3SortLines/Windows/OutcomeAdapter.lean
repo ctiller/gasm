@@ -59,15 +59,13 @@ theorem arenaCapability_establishes_iff (context : Spike3NativeExecutionContext)
 /-- A Win32 execution certificate that establishes combined ready preparation and valid finite
 reads obtains exactly the complete-output source arm for every finite environment input. -/
 theorem chunkedOutcome_agrees_native_ready_accepted (context : Spike3NativeExecutionContext)
-    {lineCapacity : Nat} {evidenceLines : List (List UInt8)}
-    (evidence : NativePreparationEvidence context lineCapacity evidenceLines)
-    (environment : Environment) (storageCapacity : Nat) {readCapacity : Nat}
-    {chunks : List (List UInt8)}
+    (environment : Environment) {storageCapacity readCapacity : Nat} {chunks : List (List UInt8)}
+    (evidence : NativePreparationEvidence .windows context environment storageCapacity readCapacity chunks)
     (reads : Gasm.Effects.ChunksOf environment.stdin.toList readCapacity chunks)
     (ready : nativePreparationOutcome evidence = .ready)
     (fits : (environmentInputLines environment).length ≤ storageCapacity) :
     boundedChunkedLineSortOutcome storageCapacity chunks .accepted =
-      nativeSpike3Spec evidence environment .accepted := by
+      nativeSpike3Spec evidence .accepted := by
   rw [boundedChunkedLineSortOutcome_agrees_ready_accepted environment storageCapacity reads fits]
   unfold nativeSpike3Spec
   rw [ready]
@@ -75,15 +73,13 @@ theorem chunkedOutcome_agrees_native_ready_accepted (context : Spike3NativeExecu
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- Win32 output refusal remains an externally selected failure after ready preparation. -/
 theorem chunkedOutcome_agrees_native_ready_refused (context : Spike3NativeExecutionContext)
-    {lineCapacity : Nat} {evidenceLines : List (List UInt8)}
-    (evidence : NativePreparationEvidence context lineCapacity evidenceLines)
-    (environment : Environment) (storageCapacity : Nat) {readCapacity : Nat}
-    {chunks : List (List UInt8)}
+    (environment : Environment) {storageCapacity readCapacity : Nat} {chunks : List (List UInt8)}
+    (evidence : NativePreparationEvidence .windows context environment storageCapacity readCapacity chunks)
     (reads : Gasm.Effects.ChunksOf environment.stdin.toList readCapacity chunks)
     (ready : nativePreparationOutcome evidence = .ready)
     (fits : (environmentInputLines environment).length ≤ storageCapacity) :
     boundedChunkedLineSortOutcome storageCapacity chunks .refused =
-      nativeSpike3Spec evidence environment .refused := by
+      nativeSpike3Spec evidence .refused := by
   rw [boundedChunkedLineSortOutcome_agrees_ready_refused environment storageCapacity reads fits]
   unfold nativeSpike3Spec
   rw [ready]
@@ -92,11 +88,11 @@ theorem chunkedOutcome_agrees_native_ready_refused (context : Spike3NativeExecut
 /-- A Win32 certificate of any combined preparation abort has only the explicit abort outcome,
 not a successful event list or an output-refusal surrogate. -/
 theorem nativeOutcome_of_exhausted_preparation (context : Spike3NativeExecutionContext)
-    {lineCapacity : Nat} {lines : List (List UInt8)}
-    (evidence : NativePreparationEvidence context lineCapacity lines)
-    (environment : Environment) (output : Spike3OutputOutcome)
+    (environment : Environment) {storageCapacity readCapacity : Nat} {chunks : List (List UInt8)}
+    (evidence : NativePreparationEvidence .windows context environment storageCapacity readCapacity chunks)
+    (output : Spike3OutputOutcome)
     (exhausted : nativePreparationOutcome evidence = .exhausted) :
-    nativeSpike3Spec evidence environment output = .preparationFailure :=
-  nativeSpike3Spec_exhausted evidence environment output exhausted
+    nativeSpike3Spec evidence output = .preparationFailure :=
+  nativeSpike3Spec_exhausted evidence output exhausted
 
 end Spikes.Spike3SortLines.Windows

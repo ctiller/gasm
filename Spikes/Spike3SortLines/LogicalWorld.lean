@@ -388,10 +388,12 @@ theorem ReadFragmentCertificate.completed_nodup
     ReadingState.reaches_completed_nodup certificate.reaches (by simp [ReadingState.initial])
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
-/-- A concrete storage witness for the *exact* input-derived line universe.  `locate` is supplied
-    by a target bridge (for example descriptor-table lookup), while this layer checks that every
-    resident entry has its generation and immutable bytes, and that the storage exposes no stale
-    entry outside the tokenizer-produced source. -/
+/-- A concrete storage witness for the *exact* EOF-finalized input-derived line universe.
+`locate` is supplied by a target bridge (for example descriptor-table lookup), while this layer
+checks that every resident entry has its generation and immutable bytes, and that the storage
+exposes no stale entry outside the tokenizer-produced source.  The byte equality deliberately
+includes a nonempty unterminated EOF record: that record is retained unchanged, whereas only a
+CR immediately preceding LF is trimmed by the decoder. -/
 structure StorageCertificate (Storage LineId : Type) (lineUniverse : LineUniverse LineId)
     (stdin : List UInt8) (capacity : Nat) (chunks : List (List UInt8)) where
   reading : ReadFragmentCertificate LineId lineUniverse stdin capacity chunks
@@ -399,19 +401,14 @@ structure StorageCertificate (Storage LineId : Type) (lineUniverse : LineUnivers
   locate : Storage → LineId → Option (Nat × List UInt8)
   generation : LineId → Nat
   source : List LineId
-  source_eq_completed : source = reading.state.completed
+  source_bytes_eq_finalized : source.map lineUniverse.bytes =
+    (ByteLineStream.feed {} stdin).finalizedLines
   generation_exact : ∀ id, id ∈ source → source[(generation id)]? = some id
   resident_exact : ∀ id, id ∈ source →
     locate storage id = some (generation id, lineUniverse.bytes id)
   no_stale_entry : ∀ id n bytes,
     locate storage id = some (n, bytes) →
       id ∈ source ∧ n = generation id ∧ bytes = lineUniverse.bytes id
-
-theorem StorageCertificate.source_nodup
-    (certificate : StorageCertificate Storage LineId lineUniverse stdin capacity chunks) :
-    certificate.source.Nodup := by
-  rw [certificate.source_eq_completed]
-  exact certificate.reading.completed_nodup
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- The sealed logical hand-off from ingestion/preparation to sorting.  `tableOrder` is the

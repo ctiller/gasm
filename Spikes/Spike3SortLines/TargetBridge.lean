@@ -51,17 +51,18 @@ theorem source_exact
   state.prepared.certificate.source_exact
 
 /- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
-/-- A prepared state retains the exact LF-completed records of its input. -/
-theorem completed_bytes
+/-- A prepared state retains the exact EOF-finalized records of its input.  A nonempty trailing
+record is therefore present unchanged; only CR immediately before an LF was trimmed while
+streaming. -/
+theorem finalized_bytes
     (state : ReadyState World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority) :
     state.prepared.certificate.ready.source.map lineUniverse.bytes =
-      (ByteLineStream.feed {} stdin).completedLines := by
+      (ByteLineStream.feed {} stdin).finalizedLines := by
   calc
     state.prepared.certificate.ready.source.map lineUniverse.bytes =
         state.prepared.certificate.storage.source.map lineUniverse.bytes := by rw [state.source_exact]
-    _ = (ByteLineStream.feed {} stdin).completedLines := by
-      rw [state.prepared.certificate.storage.source_eq_completed]
-      exact state.prepared.certificate.storage.reading.completed_bytes
+    _ = (ByteLineStream.feed {} stdin).finalizedLines :=
+      state.prepared.certificate.storage.source_bytes_eq_finalized
 
 end ReadyState
 
@@ -128,7 +129,7 @@ theorem completed_sorted_permutation {lineUniverse : LineUniverse LineId}
     emission.completed_sorted_permutation done⟩
 
 /- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
-/-- The byte records emitted on success are a permutation of the LF-completed records of the
+/-- The byte records emitted on success are a permutation of the EOF-finalized records of the
     exact logical input.  The statement is independent of the number, sizes, and boundaries of
     valid reads because preparation retains its `ChunksOf` derivation. -/
 theorem completed_input_permutation
@@ -141,11 +142,11 @@ theorem completed_input_permutation
     ∃ ready emission done cursor outputDone,
       terminal = .completed ready emission done cursor outputDone ∧
       (emission.emitting.emitted.map lineUniverse.bytes).Perm
-        ((ByteLineStream.feed {} stdin).completedLines) := by
+        ((ByteLineStream.feed {} stdin).finalizedLines) := by
   rcases success with ⟨ready, emission, done, cursor, outputDone, rfl⟩
   refine ⟨ready, emission, done, cursor, outputDone, rfl, ?_⟩
   have emitted := emission.completed_bytes_permutation done
-  rw [← ready.completed_bytes]
+  rw [← ready.finalized_bytes]
   exact emitted
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
@@ -161,13 +162,13 @@ theorem completed_input_exact
     ∃ ready emission done cursor outputDone,
       terminal = .completed ready emission done cursor outputDone ∧
       emission.emitting.emitted.map lineUniverse.bytes =
-        sortByteLines ((ByteLineStream.feed {} stdin).completedLines) := by
+        sortByteLines ((ByteLineStream.feed {} stdin).finalizedLines) := by
   rcases success with ⟨ready, emission, done, cursor, outputDone, rfl⟩
   refine ⟨ready, emission, done, cursor, outputDone, rfl, ?_⟩
   have completed := emission.completed_sorted_permutation done
   have canonical := SortingState.ordered_permutation_eq_sortByteLines lineUniverse
     completed.1 completed.2
-  rw [ready.completed_bytes] at canonical
+  rw [ready.finalized_bytes] at canonical
   exact canonical
 
 end Terminal
@@ -211,7 +212,7 @@ theorem success_input_permutation
     ∃ ready emission done cursor outputDone,
       completion.terminal = .completed ready emission done cursor outputDone ∧
       (emission.emitting.emitted.map lineUniverse.bytes).Perm
-        ((ByteLineStream.feed {} stdin).completedLines) :=
+        ((ByteLineStream.feed {} stdin).finalizedLines) :=
   Terminal.completed_input_permutation success
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
@@ -223,7 +224,7 @@ theorem success_input_exact
     ∃ ready emission done cursor outputDone,
       completion.terminal = .completed ready emission done cursor outputDone ∧
       emission.emitting.emitted.map lineUniverse.bytes =
-        sortByteLines ((ByteLineStream.feed {} stdin).completedLines) :=
+        sortByteLines ((ByteLineStream.feed {} stdin).finalizedLines) :=
   Terminal.completed_input_exact success
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
@@ -233,7 +234,7 @@ theorem success_outcome
     (success : ∃ ready emission done cursor outputDone,
       completion.terminal = .completed ready emission done cursor outputDone) :
     completion.outcome = .completed
-      (byteSortOutput (sortByteLines ((ByteLineStream.feed {} stdin).completedLines))) := by
+      (byteSortOutput (sortByteLines ((ByteLineStream.feed {} stdin).finalizedLines))) := by
   rcases completion.success_input_exact success with
     ⟨ready, emission, done, cursor, outputDone, terminalEq, bytesEq⟩
   unfold outcome
