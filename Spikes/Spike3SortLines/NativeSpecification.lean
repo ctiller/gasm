@@ -178,6 +178,47 @@ inductive NativeMallocPurpose where
   | retainedNode (line : List UInt8)
   | sortTable (stored : List (List UInt8))
 
+/-- The emitted call site, rather than its byte count, identifies the role of
+one allocator invocation.  In particular, two equal source lines produce two
+different `retainedPayload` occurrences even though their requests coincide. -/
+inductive NativeMallocCallsite where
+  | startupReadBuffer | startupLineBuffer | growLineBuffer
+  | retainedPayload | retainedNode | sortTable
+  deriving DecidableEq
+
+def NativeMallocPurpose.callsite : NativeMallocPurpose → NativeMallocCallsite
+  | .startupReadBuffer => .startupReadBuffer
+  | .startupLineBuffer => .startupLineBuffer
+  | .growLineBuffer _ => .growLineBuffer
+  | .retainedPayload _ => .retainedPayload
+  | .retainedNode _ => .retainedNode
+  | .sortTable _ => .sortTable
+
+/-- A purpose occurrence is named by its lowered call site and its ordinal at
+that site.  Request sizes are deliberately not part of this identity. -/
+structure NativeMallocOccurrence where
+  callsite : NativeMallocCallsite
+  /-- The instruction address of the lowered caller, rather than the common
+      allocator entry address.  This distinguishes growth, payload, node and
+      table calls even when they request equal byte counts. -/
+  callsiteRip : UInt64
+  occurrence : Nat
+  purpose : NativeMallocPurpose
+  callsiteExact : purpose.callsite = callsite
+
+/-- The ordinal is derived from the preceding ledger entries at the same
+callsite.  It is deliberately independent of request size: equal length
+records still have different `(callsite, occurrence)` identities. -/
+def NativeMallocOccurrencesOrdinalFrom (seen : List NativeMallocOccurrence) :
+    List NativeMallocOccurrence → Prop
+  | [] => True
+  | current :: rest =>
+      current.occurrence = (seen.filter (fun prior => prior.callsite == current.callsite)).length ∧
+        NativeMallocOccurrencesOrdinalFrom (seen ++ [current]) rest
+
+def NativeMallocOccurrencesOrdinals (occurrences : List NativeMallocOccurrence) : Prop :=
+  NativeMallocOccurrencesOrdinalFrom [] occurrences
+
 def NativeMallocPurpose.request : NativeMallocPurpose → UInt64
   | .startupReadBuffer => 512
   | .startupLineBuffer => 256
@@ -222,6 +263,10 @@ inductive NativePreparationOperation where
 
 def NativePreparationOperation.request? : NativePreparationOperation → Option UInt64
   | .malloc purpose => some purpose.request
+  | .free .. => none
+
+def NativePreparationOperation.mallocPurpose? : NativePreparationOperation → Option NativeMallocPurpose
+  | .malloc purpose => some purpose
   | .free .. => none
 
 /-- An ordered projection of actual `smol_malloc`/`smol_free` executions.  Adjacent allocator
@@ -313,6 +358,15 @@ structure NativePreparationPlan (stored : List (List UInt8)) where
     postEofOperations = [.malloc (.sortTable stored)]
   tableRequestBound : stored ≠ [] → NativeTableRequestFits stored
   operations : List NativePreparationOperation
+  /-- The purpose ledger is ordered exactly as the emitted malloc operations.
+      Its uniqueness is on `(callsite, occurrence)`, so equal-size requests
+      cannot be substituted for one another. -/
+  mallocOccurrences : List NativeMallocOccurrence
+  mallocOccurrencesExact : mallocOccurrences.map NativeMallocOccurrence.purpose =
+    operations.filterMap NativePreparationOperation.mallocPurpose?
+  mallocOccurrencesOrdinal : NativeMallocOccurrencesOrdinals mallocOccurrences
+  mallocOccurrencesDistinct : mallocOccurrences.Pairwise (fun left right =>
+    left.callsite ≠ right.callsite ∨ left.occurrence ≠ right.occurrence)
   operationsExact : operations =
     .malloc .startupReadBuffer :: .malloc .startupLineBuffer :: ingestionOperations ++
       [.free .eofReadBuffer readBufferPayload,
@@ -344,6 +398,21 @@ def NativeIngestionFailurePurpose.mallocPurpose {first : List UInt8} :
   | .grow oldCapacity => .growLineBuffer oldCapacity
   | .payload => .retainedPayload first
   | .node => .retainedNode first
+
+/-- The exact refusal position within one scanner record.  This records the
+pre-append growth check as well as the later payload and node calls, so a
+failure cannot be attributed merely to a same-sized allocation elsewhere in
+the record or in a repeated equal line. -/
+inductive NativeRecordRefusalPosition (record : NativeInputRecord) where
+  | grow (oldCapacity : UInt64)
+  | payload
+  | node
+
+def NativeRecordRefusalPosition.failurePurpose {record : NativeInputRecord} :
+    NativeRecordRefusalPosition record → NativeIngestionFailurePurpose record.line
+  | .grow capacity => .grow capacity
+  | .payload => .payload
+  | .node => .node
 
 /-- The complete phase-indexed evidence for one finite native invocation.  The constructors
 mirror the emitted control flow: reservation, the 512-byte startup malloc, the 256-byte startup
@@ -396,11 +465,21 @@ inductive NativePreparationEvidence (target : NativePreparationTarget)
       (preparedExact : prepared = preparedRecords.map NativeInputRecord.line)
       (firstExact : first = firstRecord.line)
       (untouchedExact : untouchedTail = untouchedRecords.map NativeInputRecord.line)
-      (prefixOperations : List NativePreparationOperation)
+      /- `priorRecordOperations` is the complete prefix through earlier
+          records.  `prefixOperations` is the actual failing-call prefix and
+          may additionally contain the current record's payload allocation
+          when the node allocation is refused. -/
+      (priorRecordOperations prefixOperations : List NativePreparationOperation)
       (remainingIngestionOperations : List NativePreparationOperation)
       (failurePurpose : NativeIngestionFailurePurpose first)
+      (recordRefusal : NativeRecordRefusalPosition firstRecord)
+      (recordPositionExact : firstExact ▸ failurePurpose = recordRefusal.failurePurpose)
       (prefixIsPriorRecords : ∃ capacity,
-        NativeIngestionOperationOrder 256 preparedRecords prefixOperations capacity)
+        NativeIngestionOperationOrder 256 preparedRecords priorRecordOperations capacity)
+      (prefixShape : match recordRefusal with
+        | .grow _ => prefixOperations = priorRecordOperations
+        | .payload => prefixOperations = priorRecordOperations
+        | .node => prefixOperations = priorRecordOperations ++ [.malloc (.retainedPayload first)])
       (ingestionPlanSplit : plan.ingestionOperations = prefixOperations ++
         .malloc failurePurpose.mallocPurpose :: remainingIngestionOperations)
       (failure : NativeOperationRefusal arena plan initial)
@@ -408,8 +487,8 @@ inductive NativePreparationEvidence (target : NativePreparationTarget)
         NativePreparationOperation.malloc NativeMallocPurpose.startupReadBuffer ::
           NativePreparationOperation.malloc NativeMallocPurpose.startupLineBuffer :: prefixOperations ∧
         failure.nextPurpose = failurePurpose.mallocPurpose)
-      (nodePayloadImmediatelyBefore : failurePurpose = .node → ∃ beforePayload,
-        prefixOperations = beforePayload ++ [.malloc (.retainedPayload first)]) :
+      (nodePayloadImmediatelyBefore : failurePurpose = .node →
+        prefixOperations = priorRecordOperations ++ [.malloc (.retainedPayload first)]) :
       NativePreparationEvidence target context environment storageCapacity readCapacity chunks
   | sortTableRefused
       (arena : NativeArenaCapability) (reservation : NativeReservationEvidence target context arena)
@@ -454,6 +533,16 @@ def nativePreparationOutcome {target : NativePreparationTarget} {context : Spike
   | .ready .. => .ready
   | .reservationRefused .. | .startupReadBufferRefused .. | .startupLineBufferRefused .. |
     .ingestionRefused .. | .sortTableRefused .. => .exhausted
+
+/-- Exactly the refusal constructors which occur after the stdin reader has
+started.  Keeping this classifier on the evidence spine makes it impossible
+to relabel either startup constructor as a plan-indexed refusal. -/
+def NativePreparationEvidence.isPostReadRefusal {target : NativePreparationTarget}
+    {context : Spike3NativeExecutionContext} {environment : Environment}
+    {storageCapacity readCapacity : Nat} {chunks : List (List UInt8)} :
+    NativePreparationEvidence target context environment storageCapacity readCapacity chunks → Bool
+  | .ingestionRefused .. | .sortTableRefused .. => true
+  | .reservationRefused .. | .startupReadBufferRefused .. | .startupLineBufferRefused .. | .ready .. => false
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- The independent whole-program specification receives only the combined phase-indexed
