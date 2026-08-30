@@ -16,6 +16,7 @@ limitations under the License.
 
 import Lean
 import Stdlib.Fmt.Basic
+import Stdlib.Fmt.UInt64Decimal
 import Stdlib.Fmt.Parser
 import Stdlib.Fmt.Roundtrip
 
@@ -65,6 +66,15 @@ def s2b (s : String) : List UInt8 := s.toUTF8.toList
 
 #guard (digits 18446744073709551615).length = 20
 
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+#guard decimalDigitCount 0 = 1
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+#guard writeUInt64Decimal 1 7 = .written (s2b "7") 1
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+#guard writeUInt64Decimal 1 42 = .insufficientCapacity 2 1
+
 -- === Well-formed input: must parse successfully ===
 
 /- REF: docs/STDLIB_FMT.md#52-write-then-parse-roundtrip-theorem -/
@@ -109,8 +119,8 @@ def main : IO UInt32 := do
   IO.println "======================================================================"
   IO.println " Stdlib.Fmt Test Suite (total decimal digit formatter/parser)"
   IO.println "======================================================================"
-  IO.println "[+] All #guard regression vectors passed at build time (16 checks: 8"
-  IO.println "    digits/formatDecimal witnesses, 4 well-formed parses, 4 Error-"
-  IO.println "    taxonomy rejections)."
+  IO.println "[+] All #guard regression vectors passed at build time (19 checks: 8"
+  IO.println "    digits/formatDecimal witnesses, 3 bounded-UInt64 capacity cases, 4"
+  IO.println "    well-formed parses, 4 Error-taxonomy rejections)."
   IO.println "\n[+] ALL STDLIB.FMT TESTS PASSED (100% SUCCESS)."
   return 0

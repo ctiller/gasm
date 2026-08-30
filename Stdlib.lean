@@ -53,6 +53,8 @@ import Stdlib.Http11.Parser
 import Stdlib.Http11.Roundtrip
 
 import Stdlib.Fmt.Basic
+import Stdlib.Fmt.UInt64Decimal
+import Stdlib.Fmt.UInt64DecimalSchedule
 import Stdlib.Fmt.Parser
 import Stdlib.Fmt.Roundtrip
 

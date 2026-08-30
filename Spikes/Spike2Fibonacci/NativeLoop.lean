@@ -15,7 +15,7 @@ limitations under the License.
 -/
 
 import Spikes.Spike2Fibonacci.Spec
-import Stdlib.Fmt.Basic
+import Stdlib.Fmt.UInt64Decimal
 
 /-!
 # Structural native-driver loop contract for Spike 2
@@ -34,6 +34,20 @@ logical model from being accidentally presented as an emitted-program certificat
 namespace Spikes.Spike2Fibonacci
 
 open Stdlib.Fmt
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- The native driver's inline value formatter reserves the full finite UInt64 decimal capacity.
+    This is a logical library contract only; Linux and Windows adapters still prove how their
+    concrete stack frame and division/push/pop sequence realize it. -/
+def spike2ItoaContract (value : UInt64) : UInt64DecimalContract 20 value :=
+  uint64DecimalContract 20 value
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- No UInt64 Fibonacci register value can exhaust the driver's selected 20-byte decimal field. -/
+theorem spike2Itoa_fits (value : UInt64) :
+    (spike2ItoaContract value).result =
+      .written (formatDecimal value.toNat) (decimalDigitCount value) := by
+  exact writeUInt64Decimal_fits 20 value (decimalDigitCount_le_twenty value)
 
 /- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
 /-- ASCII bytes which precede the decimal index in every native Spike 2 row. -/

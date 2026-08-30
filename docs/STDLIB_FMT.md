@@ -120,6 +120,24 @@ single : ∀ (n : Nat), n < 10 → digits n = [n]` and `digits_length_two : ∀ 
 `Spikes/Spike2Fibonacci/Windows/Program.lean`'s `main_loop` branches on (`cmp r13, 10` / `jge
 two_digits_i`) to decide one-digit versus two-digit index formatting.
 
+### 5.5 Bounded UInt64 Decimal Contract
+
+`Stdlib.Fmt.UInt64Decimal` is the callable result/capacity contract. Its `decimalDigitCount` has
+an explicit zero case and is proved equal to the canonical digit-list length, so every `UInt64`
+has between one and twenty decimal digits. `Stdlib.Fmt.UInt64DecimalSchedule` is a separate,
+optional implementation certificate: `extractDecimalReversed` is a total division/modulo schedule
+that produces the least-significant digit first, and `reverseWriteDecimal_extract` proves that
+reversing and byte-writing that extraction is exactly `formatDecimal` for every input value.
+
+`writeUInt64Decimal capacity value` makes finite memory a normal result: it returns the complete
+canonical byte string only when the exact required length fits, otherwise
+`insufficientCapacity required capacity`; it never truncates. The callable contract publishes the
+exact required length only. The separate schedule certificate publishes its own affine work count
+(`3 + 2 * digitCount`) and logical scratch clobbers; neither is a production instruction-fuel
+claim. These scratch names deliberately do not choose registers, stack slots, or an ABI: a target
+realization must separately prove its physical frame, clobbers, writes, faults, resource budget,
+and calling boundary against the callable contract.
+
 ## 6. Spike 2 Migration Status
 
 ### 6.1 The itoa Defect Class This Library Makes Provable
@@ -138,9 +156,11 @@ so a connection proof between them (§6.2) would close that gap for every input,
 
 ### 6.2 Migration Status And Remaining Work
 
-**Library layer (done).** This library exists, is fully proved (§5.1-§5.4), has zero `sorry`, zero
-new axioms, and zero `native_decide`/`bv_decide` -- every declaration here is a genuine structural
-or well-founded-recursive argument, checked by `lake exe check_gates_axioms`.
+**Library layer (bounded contract done; target realization open).** The canonical codec and the
+finite-resource UInt64 extraction/reverse-write contract (§5.1-§5.5) are proved without `sorry`,
+axioms, `native_decide`, or `bv_decide`. The separate remaining task is to connect the exact
+x86-64 division/push/pop instruction stream, its physical frame, and its selected outcome policy
+to that contract; the library does not claim that connection has happened.
 
 **Spec layer (not started).** `Spikes/Spike2Fibonacci/Spec.lean`'s `fibonacciSpec`/
 `formattedFibonacciWindowsOutput` do not call `Stdlib.Fmt.formatDecimal` -- they still go through
