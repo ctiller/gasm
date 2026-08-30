@@ -26,6 +26,22 @@ theorem spike2_selected_silent_unaligned (state : X86_64MachineState) (address :
     simp [notLinux, Gasm.Targets.Windows.win32Intercept,
       Gasm.Targets.Windows.findIatIndex, hrip, unaligned]
 
+/-- An aligned instruction address is still an ordinary selected boundary when its memory word is
+not an IAT self-reference.  Row invariants use this bridge for loop headers and branch targets,
+which cannot use the syntactic unaligned-address shortcut. -/
+theorem spike2_selected_silent_nonIat (state : X86_64MachineState) (address : UInt64)
+    (hrip : state.rip = address) (notLinux : address ≠ linuxSyscallEntry)
+    (notSelfRef : state.read64 address ≠ address) :
+    selectedNonInputPlatformCall address state = true ∧
+      @ExternalCallInterceptor.interceptCall X86_64 AnyEvent _ address state = none := by
+  constructor
+  · simp [selectedNonInputPlatformCall, notLinux, selectedNonInputWin32Call,
+      Gasm.Targets.Windows.findIatIndex, notSelfRef]
+  · change (if address == linuxSyscallEntry then linuxSyscallIntercept _ _ else
+      Gasm.Targets.Windows.win32Intercept _ _) = none
+    simp [notLinux, Gasm.Targets.Windows.win32Intercept,
+      Gasm.Targets.Windows.findIatIndex, notSelfRef]
+
 /-- One exact ordinary linked instruction at a proven non-IAT boundary.  Formatter slices supply
 only their instruction/fetch and successor address; selection and silent dispatch are derived
 here from the actual target classifier. -/
