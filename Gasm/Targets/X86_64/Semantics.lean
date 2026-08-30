@@ -181,6 +181,7 @@ inductive NativeObservable (Event : Type) where
   | halted (events : List Event) : NativeObservable Event
   | faulted (events : List Event) : NativeObservable Event
   | fuelExhausted (events : List Event) : NativeObservable Event
+  deriving DecidableEq, BEq
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Externally observes an explicit native run without projecting away why it stopped. -/
