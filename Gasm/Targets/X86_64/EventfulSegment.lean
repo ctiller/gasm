@@ -122,6 +122,37 @@ inductive ProductionPrefix {Event : Type} [interceptor : ExternalCallInterceptor
 namespace ProductionPrefix
 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Compose two exact production prefixes into one certificate.  This is proof composition over
+    the original indexed runner: no intermediate trace or evaluator is introduced. -/
+theorem append {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {indexed : List (UInt64 × X86_64Instr)} {firstFuel secondFuel : Nat}
+    {initial middle final : X86_64MachineState}
+    {initialEventsRev middleEventsRev finalEventsRev firstEvents secondEvents : List Event}
+    (first : ProductionPrefix indexed firstFuel initial initialEventsRev
+      middle middleEventsRev firstEvents)
+    (second : ProductionPrefix indexed secondFuel middle middleEventsRev
+      final finalEventsRev secondEvents) :
+    ProductionPrefix indexed (firstFuel + secondFuel) initial initialEventsRev
+      final finalEventsRev (firstEvents ++ secondEvents) := by
+  induction first with
+  | nil => simpa using second
+  | ordinary encoding lookup silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        ProductionPrefix.ordinary encoding lookup silent safe (ih second)
+  | directBranch encoding lookup silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        ProductionPrefix.directBranch encoding lookup silent safe (ih second)
+  | conditionalTaken encoding chosen lookup silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        ProductionPrefix.conditionalTaken encoding chosen lookup silent safe (ih second)
+  | conditionalFallthrough encoding notChosen lookup silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        ProductionPrefix.conditionalFallthrough encoding notChosen lookup silent safe (ih second)
+  | hostIntercept encoding lookup intercept safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, List.append_assoc] using
+        ProductionPrefix.hostIntercept encoding lookup intercept safe (ih second)
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 /-- One selected host transition is a literal production evaluator step. -/
 theorem runProgramOutcomeLoop_step_intercept {Event : Type}
     [interceptor : ExternalCallInterceptor X86_64 Event]
@@ -284,6 +315,37 @@ inductive SelectedPrefix {Event : Type} [interceptor : ExternalCallInterceptor X
         (emittedBy event ++ emitted)
 
 namespace SelectedPrefix
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Compose selected-call production prefixes while retaining every local selection premise. -/
+theorem append {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {firstFuel secondFuel : Nat}
+    {initial middle final : X86_64MachineState}
+    {initialEventsRev middleEventsRev finalEventsRev firstEvents secondEvents : List Event}
+    (first : SelectedPrefix selected indexed firstFuel initial initialEventsRev
+      middle middleEventsRev firstEvents)
+    (second : SelectedPrefix selected indexed secondFuel middle middleEventsRev
+      final finalEventsRev secondEvents) :
+    SelectedPrefix selected indexed (firstFuel + secondFuel) initial initialEventsRev
+      final finalEventsRev (firstEvents ++ secondEvents) := by
+  induction first with
+  | nil => simpa using second
+  | ordinary encoding lookup selectedAt silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        SelectedPrefix.ordinary encoding lookup selectedAt silent safe (ih second)
+  | directBranch encoding lookup selectedAt silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        SelectedPrefix.directBranch encoding lookup selectedAt silent safe (ih second)
+  | conditionalTaken encoding chosen lookup selectedAt silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        SelectedPrefix.conditionalTaken encoding chosen lookup selectedAt silent safe (ih second)
+  | conditionalFallthrough encoding notChosen lookup selectedAt silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        SelectedPrefix.conditionalFallthrough encoding notChosen lookup selectedAt silent safe (ih second)
+  | hostIntercept encoding lookup selectedAt intercept safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, List.append_assoc] using
+        SelectedPrefix.hostIntercept encoding lookup selectedAt intercept safe (ih second)
 
 /-- Forgetting selected-call side conditions yields the ordinary production-prefix certificate. -/
 theorem toProductionPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
