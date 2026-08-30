@@ -450,6 +450,25 @@ theorem wasiHostCall_fd_read_single
   simp [wasiHostCall, wasiImportUsesExternalInputs, wasiHostCallRaw, popI32, hbuf, hlen, hpos, hwrite, hnread,
     pushVal]
 
+/- REF: docs/TARGETS/WASI.md#20-fdread -/
+/-- The EOF companion to `wasiHostCall_fd_read_single`.  Once the concrete
+    cursor is at or beyond the finite input, the same fixed iovec reports zero
+    bytes and does not advance it.  This is the exact branch consumed by a
+    guest ingestion loop's termination proof. -/
+theorem wasiHostCall_fd_read_single_eof
+    (state : WasmMachineState) (nreadPtr : UInt32) (pos : Nat)
+    (memoryAfterRead memoryAfter : WasmMemory)
+    (heof : state.stdin.size ≤ pos)
+    (hbuf : WasmMem.read32 state.memory 0 = some 0x100)
+    (hlen : WasmMem.read32 state.memory 4 = some 512)
+    (hwrite : WasmMem.writeBytes state.memory 0x100 ByteArray.empty = some memoryAfterRead)
+    (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat 0 = some memoryAfter) :
+    wasiHostCall ["fd_read", "fd_write", "proc_exit"] 0
+      { state with stack := [.i32 nreadPtr, .i32 1, .i32 0, .i32 0], stdinPos := pos } =
+      (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos, stack := [] }), .next) := by
+  simp [wasiHostCall, wasiImportUsesExternalInputs, wasiHostCallRaw, popI32, hbuf, hlen, heof,
+    hwrite, hnread, pushVal]
+
 /- REF: docs/TARGETS/WASI.md#22-procexit -/
 /-- Typed clean `proc_exit(0)` boundary contract. -/
 @[simp] theorem wasiHostCall_proc_exit_zero (state : WasmMachineState) :

@@ -50,4 +50,34 @@ theorem spike3_fdRead_single_iovec
   exact wasiHostCall_fd_read_single state nreadPtr pos memoryAfterRead memoryAfter
     hpos hbuf hlen hwrite hnread
 
+/-- The positive-read branch strictly decreases the remaining-input variant
+    used by the outer ingestion loop. -/
+theorem spike3_fdRead_remaining_decreases (stdinSize pos : Nat)
+    (hpos : pos < stdinSize) :
+    stdinSize - (pos + Nat.min 512 (stdinSize - pos)) < stdinSize - pos := by
+  have hremaining : 0 < stdinSize - pos := Nat.sub_pos_iff_lt.mpr hpos
+  have hchunk : 0 < Nat.min 512 (stdinSize - pos) := by
+    by_cases h : 512 ≤ stdinSize - pos
+    · simpa only [Nat.min_eq_left h] using (show 0 < (512 : Nat) by omega)
+    · simpa only [Nat.min_eq_right (Nat.le_of_not_ge h)] using hremaining
+  rw [← Nat.sub_sub]
+  exact Nat.sub_lt hremaining hchunk
+
+/-- At EOF the fixed read path writes a zero count and preserves the concrete
+    cursor.  The enclosing Wasm loop immediately takes its existing `br_if`
+    exit on that count. -/
+theorem spike3_fdRead_single_iovec_eof
+    (state : WasmMachineState) (nreadPtr : UInt32) (pos : Nat)
+    (memoryAfterRead memoryAfter : WasmMemory)
+    (heof : state.stdin.size ≤ pos)
+    (hbuf : WasmMem.read32 state.memory 0 = some 0x100)
+    (hlen : WasmMem.read32 state.memory 4 = some 512)
+    (hwrite : WasmMem.writeBytes state.memory 0x100 ByteArray.empty = some memoryAfterRead)
+    (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat 0 = some memoryAfter) :
+    wasiHostCall ["fd_read", "fd_write", "proc_exit"] 0
+      { state with stack := [.i32 nreadPtr, .i32 1, .i32 0, .i32 0], stdinPos := pos } =
+      (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos, stack := [] }), .next) :=
+  wasiHostCall_fd_read_single_eof state nreadPtr pos memoryAfterRead memoryAfter
+    heof hbuf hlen hwrite hnread
+
 end Spikes.Spike3SortLines.Wasm
