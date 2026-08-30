@@ -26,6 +26,7 @@ import Gasm.Targets.Windows.Win32API
 import Spikes.Spike2Fibonacci.Spec
 import Spikes.Spike2Fibonacci.Windows.Program
 import Spikes.Spike2Fibonacci.Windows.LoopInvariant
+import Spikes.Spike2Fibonacci.Windows.RowTermination
 
 namespace Spikes.Spike2Fibonacci.Windows
 
@@ -86,7 +87,7 @@ theorem spike2_selected_termination :
     selectedExecutionTerminates (Event := AnyEvent) false selectedNonInputPlatformCall
       (indexInstructions spike2Executable.load.rip spike2Instructions) 50000
       spike2Executable.load = true := by
-  native_decide
+  exact spike2_selected_termination_constructive_indexed
 
 def spike2TerminationCertificate :
     SelectedTerminationCertificate (Event := AnyEvent) false selectedNonInputPlatformCall
