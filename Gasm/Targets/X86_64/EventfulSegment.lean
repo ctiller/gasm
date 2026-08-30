@@ -342,6 +342,24 @@ theorem selectedExecutionTerminates_run {Event : Type}
       simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, intercept, safe]
       exact ih continuationFuel
 
+/-- Appending one selected typed process-exit transition turns a structural selected prefix into
+    the executable termination certificate required by universal artifact verification. -/
+theorem selectedExecutionTerminates_of_processExit {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {allowHalted : Bool} {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {fuel : Nat}
+    {initial final : X86_64MachineState} {initialEventsRev finalEventsRev emitted : List Event}
+    (certificate : SelectedPrefix selected indexed fuel initial initialEventsRev final finalEventsRev emitted)
+    {instruction : X86_64Instr} {code : UInt32}
+    (lookup : instructionAtRipIndexed indexed final.rip = some instruction)
+    (selectedAt : selected (X86_64Instruction.step instruction final).rip
+      (X86_64Instruction.step instruction final) = true)
+    (exits : (nativeOutcomeTransition (Event := Event) instruction final []).1.fault =
+      some (.processExit code)) :
+    selectedExecutionTerminates (Event := Event) allowHalted selected indexed (fuel + 1) initial = true := by
+  rw [certificate.selectedExecutionTerminates_run 1]
+  simp [selectedExecutionTerminates, lookup, selectedAt, exits]
+
 end SelectedPrefix
 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
