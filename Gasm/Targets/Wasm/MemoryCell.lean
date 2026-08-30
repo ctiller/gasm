@@ -137,6 +137,23 @@ def read64 (m : WasmMemory) (addr : Nat) : Option UInt64 :=
     failure and trap rather than silently discarding it, which is exactly what made the pre-B7
     `writeMem8`/pre-seal `wasiHostCall` bypass possible (a total no-op function is
     indistinguishable, at the call site, from "nothing needed writing"). -/
+private theorem rawSet_preserves_prefix8 (bytes : ByteArray) (address : Nat) (value : UInt8)
+    (haddress : 8 ≤ address) :
+    (bytes.set! address value).extract 0 8 = bytes.extract 0 8 := by
+  apply ByteArray.ext
+  apply Array.ext
+  · simp
+  · intro index hleft hright
+    change ((bytes.set! address value).extract 0 8)[index] = (bytes.extract 0 8)[index]
+    have hright' : index < (bytes.extract 0 8).size := hright
+    have hindex : index < 8 := by
+      have hmin : index < Nat.min 8 bytes.size := by
+        simpa [ByteArray.size_extract] using hright'
+      exact Nat.lt_of_lt_of_le hmin (Nat.min_le_left _ _)
+    rw [ByteArray.getElem_extract hleft, ByteArray.getElem_extract hright]
+    apply ByteArray.getElem_set!_ne
+    omega
+
 def write8 (m : WasmMemory) (addr : Nat) (v : UInt8) : Option WasmMemory :=
   if addr < m.raw.size then some ⟨m.raw.set! addr v⟩ else none
 
@@ -198,6 +215,112 @@ def writeBytes (m : WasmMemory) (addr : Nat) (bytes : ByteArray) : Option WasmMe
   if addr + bytes.size <= m.raw.size then
     some ⟨(List.range bytes.size).foldl (fun acc i => acc.set! (addr + i) (bytes.get! i)) m.raw⟩
   else none
+
+/-- A checked byte write outside the fixed input-iovec cell preserves that cell. -/
+theorem write8_preserves_prefix8 (memory : WasmMemory) (address : Nat) (value : UInt8)
+    (written : WasmMemory) (haddress : 8 ≤ address)
+    (hwrite : write8 memory address value = some written) :
+    readBytes written 0 8 = readBytes memory 0 8 := by
+  unfold write8 at hwrite
+  split at hwrite
+  · cases hwrite
+    unfold readBytes
+    simp only [ByteArray.size_set!]
+    by_cases hprefix : 8 ≤ memory.raw.size
+    · rw [if_pos hprefix, if_pos hprefix]
+      exact congrArg some (rawSet_preserves_prefix8 memory.raw address value haddress)
+    · rw [if_neg hprefix, if_neg hprefix]
+  · contradiction
+
+/-- A checked little-endian word write preserves the descriptor prefix when its actual natural
+    effective address starts after that prefix. -/
+theorem write32_preserves_prefix8 (memory : WasmMemory) (address : Nat) (value : UInt32)
+    (written : WasmMemory) (haddress : 8 ≤ address)
+    (hwrite : write32 memory address value = some written) :
+    readBytes written 0 8 = readBytes memory 0 8 := by
+  unfold write32 at hwrite
+  split at hwrite
+  · cases hwrite
+    unfold readBytes
+    simp only [ByteArray.size_set!]
+    by_cases hprefix : 8 ≤ memory.raw.size
+    · rw [if_pos hprefix, if_pos hprefix]
+      apply congrArg some
+      let b0 := (value &&& 0xFF).toUInt8
+      let b1 := ((value >>> 8) &&& 0xFF).toUInt8
+      let b2 := ((value >>> 16) &&& 0xFF).toUInt8
+      let b3 := ((value >>> 24) &&& 0xFF).toUInt8
+      let r0 := memory.raw.set! address b0
+      let r1 := r0.set! (address + 1) b1
+      let r2 := r1.set! (address + 2) b2
+      let r3 := r2.set! (address + 3) b3
+      change r3.extract 0 8 = memory.raw.extract 0 8
+      calc
+        r3.extract 0 8 = r2.extract 0 8 := rawSet_preserves_prefix8 _ _ _ (by omega)
+        _ = r1.extract 0 8 := rawSet_preserves_prefix8 _ _ _ (by omega)
+        _ = r0.extract 0 8 := rawSet_preserves_prefix8 _ _ _ (by omega)
+        _ = memory.raw.extract 0 8 := rawSet_preserves_prefix8 _ _ _ haddress
+    · rw [if_neg hprefix, if_neg hprefix]
+  · contradiction
+
+private theorem rawFoldSet_preserves_prefix8 (address : Nat) (payload : ByteArray)
+    (indices : List Nat) (bytes : ByteArray) (haddress : 8 ≤ address) :
+    (indices.foldl (fun current index =>
+      current.set! (address + index) (payload.get! index)) bytes).extract 0 8 =
+      bytes.extract 0 8 := by
+  induction indices generalizing bytes with
+  | nil => rfl
+  | cons index rest ih =>
+    simp only [List.foldl_cons]
+    calc
+      (rest.foldl (fun current index =>
+        current.set! (address + index) (payload.get! index))
+        (bytes.set! (address + index) (payload.get! index))).extract 0 8 =
+          (bytes.set! (address + index) (payload.get! index)).extract 0 8 := ih _
+      _ = bytes.extract 0 8 := rawSet_preserves_prefix8 _ _ _ (by omega)
+
+private theorem rawFoldSet_size (address : Nat) (payload : ByteArray)
+    (indices : List Nat) (bytes : ByteArray) :
+    (indices.foldl (fun current index =>
+      current.set! (address + index) (payload.get! index)) bytes).size = bytes.size := by
+  induction indices generalizing bytes with
+  | nil => rfl
+  | cons index rest ih =>
+    simp only [List.foldl_cons]
+    calc
+      (rest.foldl (fun current index =>
+        current.set! (address + index) (payload.get! index))
+        (bytes.set! (address + index) (payload.get! index))).size =
+          (bytes.set! (address + index) (payload.get! index)).size := ih _
+      _ = bytes.size := ByteArray.size_set! _ _ _
+
+/-- A checked bulk write beginning after the input-iovec cell preserves that cell. -/
+theorem writeBytes_preserves_prefix8 (memory : WasmMemory) (address : Nat) (payload : ByteArray)
+    (written : WasmMemory) (haddress : 8 ≤ address)
+    (hwrite : writeBytes memory address payload = some written) :
+    readBytes written 0 8 = readBytes memory 0 8 := by
+  unfold writeBytes at hwrite
+  split at hwrite
+  · cases hwrite
+    unfold readBytes
+    rw [rawFoldSet_size]
+    by_cases hprefix : 8 ≤ memory.raw.size
+    · rw [if_pos hprefix, if_pos hprefix]
+      exact congrArg some
+        (rawFoldSet_preserves_prefix8 address payload (List.range payload.size)
+          memory.raw haddress)
+    · rw [if_neg hprefix, if_neg hprefix]
+  · contradiction
+
+/-- Appending pages leaves an existing eight-byte descriptor prefix unchanged. -/
+theorem grow_preserves_prefix8 (memory : WasmMemory) (padding : ByteArray)
+    (hprefix : 8 ≤ memory.raw.size) :
+    readBytes (grow memory padding) 0 8 = readBytes memory 0 8 := by
+  unfold grow readBytes
+  simp only [ByteArray.size_append]
+  rw [if_pos (Nat.le_trans hprefix (Nat.le_add_right _ _)), if_pos hprefix]
+  apply congrArg some
+  simp [ByteArray.extract_append, Nat.sub_eq_zero_of_le hprefix]
 
 end WasmMem
 

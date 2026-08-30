@@ -555,6 +555,167 @@ def evalLeafInstr (instr : WasmInstr) (s : WasmMachineState)
     evalLeafInstr (.call index) state hostCall = hostCall index state := by
   rfl
 
+/-- Exact successful i32-store reduction through the checked memory cell. -/
+theorem evalLeafInstr_i32_store
+    (align offset : Nat) (state : WasmMachineState) (value address : UInt32) (rest : List WasmVal)
+    (written : WasmMemory)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hwrite : WasmMem.write32 state.memory (address.toNat + offset) value = some written) :
+    evalLeafInstr (.i32_store align offset)
+      { state with stack := [.i32 value, .i32 address] ++ rest } hostCall =
+      ({ state with stack := rest, memory := written }, .next) := by
+  simp [evalLeafInstr, evalLeafInstrRaw, popI32, WasmMachineState.withExternalInputs, hwrite]
+
+/-- A failing i32 store traps after popping its operands but leaves linear memory unchanged. -/
+theorem evalLeafInstr_i32_store_fault
+    (align offset : Nat) (state : WasmMachineState) (value address : UInt32) (rest : List WasmVal)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hwrite : WasmMem.write32 state.memory (address.toNat + offset) value = none) :
+    evalLeafInstr (.i32_store align offset)
+      { state with stack := [.i32 value, .i32 address] ++ rest } hostCall =
+      ({ state with stack := rest, trapped := true }, .next) := by
+  simp [evalLeafInstr, evalLeafInstrRaw, popI32, WasmMachineState.withExternalInputs, hwrite]
+
+/-- Exact successful byte-store reduction through the checked memory cell. -/
+theorem evalLeafInstr_i32_store8
+    (align offset : Nat) (state : WasmMachineState) (value address : UInt32) (rest : List WasmVal)
+    (written : WasmMemory)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hwrite : WasmMem.write8 state.memory (address.toNat + offset) value.toUInt8 = some written) :
+    evalLeafInstr (.i32_store8 align offset)
+      { state with stack := [.i32 value, .i32 address] ++ rest } hostCall =
+      ({ state with stack := rest, memory := written }, .next) := by
+  simp [evalLeafInstr, evalLeafInstrRaw, popI32, WasmMachineState.withExternalInputs, hwrite]
+
+/-- A failing byte store traps without changing linear memory. -/
+theorem evalLeafInstr_i32_store8_fault
+    (align offset : Nat) (state : WasmMachineState) (value address : UInt32) (rest : List WasmVal)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hwrite : WasmMem.write8 state.memory (address.toNat + offset) value.toUInt8 = none) :
+    evalLeafInstr (.i32_store8 align offset)
+      { state with stack := [.i32 value, .i32 address] ++ rest } hostCall =
+      ({ state with stack := rest, trapped := true }, .next) := by
+  simp [evalLeafInstr, evalLeafInstrRaw, popI32, WasmMachineState.withExternalInputs, hwrite]
+
+/-- Successful guest word stores preserve the first eight bytes when their actual natural
+    effective address starts at or after byte eight. -/
+theorem evalLeafInstr_i32_store_preserves_prefix8
+    (align offset : Nat) (state : WasmMachineState) (value address : UInt32) (rest : List WasmVal)
+    (written : WasmMemory)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (haddress : 8 ≤ address.toNat + offset)
+    (hwrite : WasmMem.write32 state.memory (address.toNat + offset) value = some written) :
+    WasmMem.readBytes
+      (evalLeafInstr (.i32_store align offset)
+        { state with stack := [.i32 value, .i32 address] ++ rest } hostCall).1.memory 0 8 =
+      WasmMem.readBytes state.memory 0 8 := by
+  rw [evalLeafInstr_i32_store align offset state value address rest written hostCall hwrite]
+  exact WasmMem.write32_preserves_prefix8 _ _ _ _ haddress hwrite
+
+/-- The faulting word-store path preserves the prefix because it preserves all memory. -/
+theorem evalLeafInstr_i32_store_fault_preserves_prefix8
+    (align offset : Nat) (state : WasmMachineState) (value address : UInt32) (rest : List WasmVal)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hwrite : WasmMem.write32 state.memory (address.toNat + offset) value = none) :
+    WasmMem.readBytes
+      (evalLeafInstr (.i32_store align offset)
+        { state with stack := [.i32 value, .i32 address] ++ rest } hostCall).1.memory 0 8 =
+      WasmMem.readBytes state.memory 0 8 := by
+  rw [evalLeafInstr_i32_store_fault align offset state value address rest hostCall hwrite]
+
+/-- Byte-store companion to the word-store prefix frame. -/
+theorem evalLeafInstr_i32_store8_preserves_prefix8
+    (align offset : Nat) (state : WasmMachineState) (value address : UInt32) (rest : List WasmVal)
+    (written : WasmMemory)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (haddress : 8 ≤ address.toNat + offset)
+    (hwrite : WasmMem.write8 state.memory (address.toNat + offset) value.toUInt8 = some written) :
+    WasmMem.readBytes
+      (evalLeafInstr (.i32_store8 align offset)
+        { state with stack := [.i32 value, .i32 address] ++ rest } hostCall).1.memory 0 8 =
+      WasmMem.readBytes state.memory 0 8 := by
+  rw [evalLeafInstr_i32_store8 align offset state value address rest written hostCall hwrite]
+  exact WasmMem.write8_preserves_prefix8 _ _ _ _ haddress hwrite
+
+/-- A faulting byte store leaves the descriptor prefix unchanged. -/
+theorem evalLeafInstr_i32_store8_fault_preserves_prefix8
+    (align offset : Nat) (state : WasmMachineState) (value address : UInt32) (rest : List WasmVal)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hwrite : WasmMem.write8 state.memory (address.toNat + offset) value.toUInt8 = none) :
+    WasmMem.readBytes
+      (evalLeafInstr (.i32_store8 align offset)
+        { state with stack := [.i32 value, .i32 address] ++ rest } hostCall).1.memory 0 8 =
+      WasmMem.readBytes state.memory 0 8 := by
+  rw [evalLeafInstr_i32_store8_fault align offset state value address rest hostCall hwrite]
+
+/-- Exact successful `memory.grow` reduction.  The admission premise is the evaluator's own
+    declared-max and Wasm32 ceiling test; the padding is therefore the real newly allocated page
+    sequence, not an abstract memory replacement. -/
+theorem evalLeafInstr_memory_grow_success
+    (state : WasmMachineState) (delta : UInt32) (rest : List WasmVal)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hallowed :
+      ((match state.memMax with
+        | some maxP => decide (((WasmMem.size state.memory + 65535) / 65536 + delta.toNat) > maxP.toNat)
+        | none => false) ||
+      decide (((WasmMem.size state.memory + 65535) / 65536 + delta.toNat) > 65536)) = false) :
+    evalLeafInstr .memory_grow { state with stack := [.i32 delta] ++ rest } hostCall =
+      (pushVal (.i32 (((WasmMem.size state.memory + 65535) / 65536).toUInt32))
+        ({ state with stack := rest, memory := (WasmMem.grow state.memory
+             (ByteArray.mk (Array.mk (List.replicate (delta.toNat * 65536) (0 : UInt8))))) }), .next) := by
+  simp [evalLeafInstr, evalLeafInstrRaw, popI32, WasmMachineState.withExternalInputs, hallowed]
+  rfl
+
+/-- The successful `memory.grow` path retains the descriptor prefix. -/
+theorem evalLeafInstr_memory_grow_success_preserves_prefix8
+    (state : WasmMachineState) (delta : UInt32) (rest : List WasmVal)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hallowed :
+      ((match state.memMax with
+        | some maxP => decide (((WasmMem.size state.memory + 65535) / 65536 + delta.toNat) > maxP.toNat)
+        | none => false) ||
+      decide (((WasmMem.size state.memory + 65535) / 65536 + delta.toNat) > 65536)) = false)
+    (hprefix : 8 ≤ WasmMem.size state.memory) :
+    WasmMem.readBytes
+      (evalLeafInstr .memory_grow { state with stack := [.i32 delta] ++ rest } hostCall).1.memory 0 8 =
+      WasmMem.readBytes state.memory 0 8 := by
+  rw [evalLeafInstr_memory_grow_success state delta rest hostCall hallowed]
+  exact WasmMem.grow_preserves_prefix8 _ _ hprefix
+
+/-- Failed `memory.grow` returns Wasm's `-1` sentinel and leaves memory unchanged. -/
+theorem evalLeafInstr_memory_grow_failure
+    (state : WasmMachineState) (delta : UInt32) (rest : List WasmVal)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hdenied :
+      ((match state.memMax with
+        | some maxP => decide (((WasmMem.size state.memory + 65535) / 65536 + delta.toNat) > maxP.toNat)
+        | none => false) ||
+      decide (((WasmMem.size state.memory + 65535) / 65536 + delta.toNat) > 65536)) = true) :
+    evalLeafInstr .memory_grow { state with stack := [.i32 delta] ++ rest } hostCall =
+      (pushVal (.i32 (0xFFFFFFFF : UInt32))
+        ({ state with stack := rest, resourceFailure := some (.memoryPages
+             ((WasmMem.size state.memory + 65535) / 65536 + delta.toNat)
+             (match state.memMax with
+             | some maxP => Nat.min maxP.toNat 65536
+             | none => 65536)) }), .next) := by
+  simp [evalLeafInstr, evalLeafInstrRaw, popI32, WasmMachineState.withExternalInputs, hdenied]
+  rfl
+
+/-- The failed-growth branch leaves the descriptor prefix exactly unchanged. -/
+theorem evalLeafInstr_memory_grow_failure_preserves_prefix8
+    (state : WasmMachineState) (delta : UInt32) (rest : List WasmVal)
+    (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal)
+    (hdenied :
+      ((match state.memMax with
+        | some maxP => decide (((WasmMem.size state.memory + 65535) / 65536 + delta.toNat) > maxP.toNat)
+        | none => false) ||
+      decide (((WasmMem.size state.memory + 65535) / 65536 + delta.toNat) > 65536)) = true) :
+    WasmMem.readBytes
+      (evalLeafInstr .memory_grow { state with stack := [.i32 delta] ++ rest } hostCall).1.memory 0 8 =
+      WasmMem.readBytes state.memory 0 8 := by
+  rw [evalLeafInstr_memory_grow_failure state delta rest hostCall hdenied]
+  rfl
+
 def WasmHostPreservesExternalInputFrame
     (hostCall : Nat → WasmMachineState → WasmMachineState × ControlSignal) : Prop :=
   ∀ index state stdin requests,

@@ -57,6 +57,7 @@ import Spikes.Spike3SortLines.Linux.Equivalence
 import Spikes.Spike3SortLines.NativeRuntime
 import Spikes.Spike3SortLines.NativeOutcome
 import Spikes.Spike3SortLines.Wasm.Program
+import Spikes.Spike3SortLines.Wasm.Fuel
 import Spikes.Spike3SortLines.Wasm.Equivalence
 
 import Spikes.Spike4HttpServer.Spec

@@ -241,6 +241,13 @@ theorem readCiovec_encode (memory : WasmMemory) (address : Nat) (ptr len : UInt3
     rw [BitVec.extractLsb'_append_extractLsb'_eq_extractLsb' (by omega)] <;>
     simp
 
+/-- A typed ciovec at zero depends only on its eight-byte ABI cell. -/
+theorem readCiovec_preserved_of_prefix8 (before after : WasmMemory)
+    (hprefix : WasmMem.readBytes after 0 8 = WasmMem.readBytes before 0 8) :
+    readCiovec after 0 = readCiovec before 0 := by
+  unfold readCiovec
+  rw [hprefix]
+
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Raw operational host-call dispatcher.  The public dispatcher below applies the target-owned
     external-input boundary around calls that do not consume either input channel. -/
@@ -449,6 +456,27 @@ theorem wasiHostCall_fd_read_single
   simp [wasiHostCall, wasiImportUsesExternalInputs, wasiHostCallRaw, popI32, hciovec, hpos, hwrite, hnread,
     pushVal]
 
+/-- The actual single-iovec positive read preserves its authorizing descriptor when the count is
+    written at or after byte eight. -/
+theorem wasiHostCall_fd_read_single_preserves_iovec
+    (state : WasmMachineState) (nreadPtr : UInt32) (pos : Nat)
+    (memoryAfterRead memoryAfter : WasmMemory)
+    (hciovec : readCiovec state.memory 0 = some (0x100, 512))
+    (hwrite : WasmMem.writeBytes state.memory 0x100
+      (state.stdin.extract pos (pos + Nat.min 512 (state.stdin.size - pos))) = some memoryAfterRead)
+    (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat
+      (Nat.min 512 (state.stdin.size - pos)).toUInt32 = some memoryAfter)
+    (hnreadPtr : 8 ≤ nreadPtr.toNat) :
+    readCiovec memoryAfter 0 = some (0x100, 512) := by
+  calc
+    readCiovec memoryAfter 0 = readCiovec memoryAfterRead 0 :=
+      readCiovec_preserved_of_prefix8 _ _
+        (WasmMem.write32_preserves_prefix8 _ _ _ _ hnreadPtr hnread)
+    _ = readCiovec state.memory 0 :=
+      readCiovec_preserved_of_prefix8 _ _
+        (WasmMem.writeBytes_preserves_prefix8 _ _ _ _ (by decide) hwrite)
+    _ = some (0x100, 512) := hciovec
+
 /- REF: docs/TARGETS/WASI.md#20-fdread -/
 /-- The EOF companion to `wasiHostCall_fd_read_single`.  Once the concrete
     cursor is at or beyond the finite input, the same fixed iovec reports zero
@@ -466,6 +494,24 @@ theorem wasiHostCall_fd_read_single_eof
       (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos, stack := [] }), .next) := by
   simp [wasiHostCall, wasiImportUsesExternalInputs, wasiHostCallRaw, popI32, hciovec, heof,
     hwrite, hnread, pushVal]
+
+/-- EOF follows the same two checked writes, so it preserves the next-read descriptor as well. -/
+theorem wasiHostCall_fd_read_single_eof_preserves_iovec
+    (state : WasmMachineState) (nreadPtr : UInt32) (_pos : Nat)
+    (memoryAfterRead memoryAfter : WasmMemory)
+    (hciovec : readCiovec state.memory 0 = some (0x100, 512))
+    (hwrite : WasmMem.writeBytes state.memory 0x100 ByteArray.empty = some memoryAfterRead)
+    (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat 0 = some memoryAfter)
+    (hnreadPtr : 8 ≤ nreadPtr.toNat) :
+    readCiovec memoryAfter 0 = some (0x100, 512) := by
+  calc
+    readCiovec memoryAfter 0 = readCiovec memoryAfterRead 0 :=
+      readCiovec_preserved_of_prefix8 _ _
+        (WasmMem.write32_preserves_prefix8 _ _ _ _ hnreadPtr hnread)
+    _ = readCiovec state.memory 0 :=
+      readCiovec_preserved_of_prefix8 _ _
+        (WasmMem.writeBytes_preserves_prefix8 _ _ _ _ (by decide) hwrite)
+    _ = some (0x100, 512) := hciovec
 
 /- REF: docs/TARGETS/WASI.md#22-procexit -/
 /-- Typed clean `proc_exit(0)` boundary contract. -/

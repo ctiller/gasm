@@ -98,6 +98,58 @@ theorem spike3InitialMemory_input_iovec :
     readCiovec (initWasmMemory spike3DataSegments) 0 = some (0x100, 512) :=
   readCiovec_encode _ _ _ _ spike3InitialMemory_input_iovec_bytes
 
+/-- The descriptor clause carried at the outer ingestion-loop re-entry. -/
+def Spike3IngestionIovec (state : WasmMachineState) : Prop :=
+  readCiovec state.memory 0 = some (0x100, 512)
+
+theorem spike3InitialMemory_has_ingestion_iovec :
+    Spike3IngestionIovec { memory := initWasmMemory spike3DataSegments } :=
+  spike3InitialMemory_input_iovec
+
+/-- The fixed `nread` cell is exactly byte eight, and its guest `i32` address is represented
+    without an arithmetic wrap before the interpreter forms the natural effective address. -/
+theorem spike3_nreadPtr_address : (8 : UInt32).toNat = 8 := by decide
+
+theorem spike3_nreadPtr_after_iovec : 8 ≤ (8 : UInt32).toNat := by decide
+
+/-- The concrete fixed-offset word stores used to prepare stdout ciovecs are after the stdin
+    descriptor; these closed facts discharge the effective-address side condition at those two
+    literal call sites. -/
+theorem spike3_stdout_ciovec_store0_after_iovec : 8 ≤ (0x10 : UInt32).toNat + 0 := by decide
+
+theorem spike3_stdout_ciovec_store4_after_iovec : 8 ≤ (0x14 : UInt32).toNat + 0 := by decide
+
+/-- The first real stdout-ciovec setup store has a closed guest-i32 address proof: `0x10` is
+    represented as natural 16 before the interpreter adds its zero offset. -/
+theorem spike3_stdout_ciovec_store0_preserves_ingestion_iovec
+    (state : WasmMachineState) (value : UInt32) (rest : List WasmVal) (written : WasmMemory)
+    (hciovec : Spike3IngestionIovec state)
+    (hwrite : WasmMem.write32 state.memory (0x10 : UInt32).toNat value = some written) :
+    Spike3IngestionIovec
+      (evalLeafInstr (.i32_store 2 0)
+        { state with stack := [.i32 value, .i32 0x10] ++ rest }
+        (wasiHostCall ["fd_read", "fd_write", "proc_exit"])).1 := by
+  unfold Spike3IngestionIovec
+  rw [readCiovec_preserved_of_prefix8 _ _
+    (evalLeafInstr_i32_store_preserves_prefix8 2 0 state value 0x10 rest written
+      _ spike3_stdout_ciovec_store0_after_iovec hwrite)]
+  exact hciovec
+
+/-- The second real stdout-ciovec setup store is likewise outside the fixed stdin descriptor. -/
+theorem spike3_stdout_ciovec_store4_preserves_ingestion_iovec
+    (state : WasmMachineState) (value : UInt32) (rest : List WasmVal) (written : WasmMemory)
+    (hciovec : Spike3IngestionIovec state)
+    (hwrite : WasmMem.write32 state.memory (0x14 : UInt32).toNat value = some written) :
+    Spike3IngestionIovec
+      (evalLeafInstr (.i32_store 2 0)
+        { state with stack := [.i32 value, .i32 0x14] ++ rest }
+        (wasiHostCall ["fd_read", "fd_write", "proc_exit"])).1 := by
+  unfold Spike3IngestionIovec
+  rw [readCiovec_preserved_of_prefix8 _ _
+    (evalLeafInstr_i32_store_preserves_prefix8 2 0 state value 0x14 rest written
+      _ spike3_stdout_ciovec_store4_after_iovec hwrite)]
+  exact hciovec
+
 /-- One production `fd_read` with Spike 3's statically installed single
     512-byte iovec consumes exactly the available prefix, advances `stdinPos`
     by that amount, and writes the corresponding `nread`.  The memory facts
@@ -117,6 +169,18 @@ theorem spike3_fdRead_single_iovec
       (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos + Nat.min 512 (state.stdin.size - pos), stack := [] }), .next) := by
   exact wasiHostCall_fd_read_single state nreadPtr pos memoryAfterRead memoryAfter
     hpos hciovec hwrite hnread
+
+/-- A positive fixed-site read at `nread = 8` preserves the ingestion descriptor. -/
+theorem spike3_fdRead_at_nread_cell_preserves_ingestion_iovec
+    (state : WasmMachineState) (pos : Nat) (memoryAfterRead memoryAfter : WasmMemory)
+    (hciovec : Spike3IngestionIovec state)
+    (hwrite : WasmMem.writeBytes state.memory 0x100
+      (state.stdin.extract pos (pos + Nat.min 512 (state.stdin.size - pos))) = some memoryAfterRead)
+    (hnread : WasmMem.write32 memoryAfterRead 8
+      (Nat.min 512 (state.stdin.size - pos)).toUInt32 = some memoryAfter) :
+    Spike3IngestionIovec { state with memory := memoryAfter } := by
+  exact wasiHostCall_fd_read_single_preserves_iovec state 8 pos memoryAfterRead memoryAfter
+    hciovec hwrite hnread spike3_nreadPtr_after_iovec
 
 /-- The `call 0` instruction used at the head of every Spike 3 ingestion
     iteration consumes a fixed two-unit interpreter prefix and hands the exact
@@ -143,6 +207,31 @@ theorem spike3_step_fdRead
   · simpa [evalInstrMatch, evalLeafInstr] using
       (spike3_fdRead_single_iovec state nreadPtr pos memoryAfterRead memoryAfter
       hpos hciovec hwrite hnread)
+
+/-- The real `call 0` prefix in the production ingestion body uses the fixed `nread` cell and
+    carries the descriptor into the remaining instructions after a positive read. -/
+theorem spike3_step_fdRead_at_nread_cell
+    (fuel : Nat) (rest : List WasmInstr) (state : WasmMachineState)
+    (pos : Nat) (memoryAfterRead memoryAfter : WasmMemory)
+    (hbefore : state.trapped = false) (hexit : state.exitCode = none)
+    (hpos : pos < state.stdin.size) (hciovec : Spike3IngestionIovec state)
+    (hwrite : WasmMem.writeBytes state.memory 0x100
+      (state.stdin.extract pos (pos + Nat.min 512 (state.stdin.size - pos))) = some memoryAfterRead)
+    (hnread : WasmMem.write32 memoryAfterRead 8
+      (Nat.min 512 (state.stdin.size - pos)).toUInt32 = some memoryAfter) :
+    Spike3IngestionIovec (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos + Nat.min 512 (state.stdin.size - pos), stack := [] })) ∧
+    evalInstrs (fuel + 2) (.call 0 :: rest)
+      { state with stack := [.i32 8, .i32 1, .i32 0, .i32 0], stdinPos := pos }
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) =
+    evalInstrs (fuel + 1) rest
+      (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos + Nat.min 512 (state.stdin.size - pos), stack := [] }))
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) := by
+  constructor
+  · simpa [Spike3IngestionIovec, pushVal] using
+      spike3_fdRead_at_nread_cell_preserves_ingestion_iovec state pos memoryAfterRead memoryAfter
+        hciovec hwrite hnread
+  · exact spike3_step_fdRead fuel rest state 8 pos memoryAfterRead memoryAfter
+      hbefore hexit hpos hciovec hwrite hnread
 
 /-- The positive-read branch strictly decreases the remaining-input variant
     used by the outer ingestion loop. -/
@@ -172,5 +261,42 @@ theorem spike3_fdRead_single_iovec_eof
       (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos, stack := [] }), .next) :=
   wasiHostCall_fd_read_single_eof state nreadPtr pos memoryAfterRead memoryAfter
     heof hciovec hwrite hnread
+
+/-- EOF at Spike 3's fixed count cell preserves the same descriptor. -/
+theorem spike3_fdRead_eof_at_nread_cell_preserves_ingestion_iovec
+    (state : WasmMachineState) (pos : Nat) (memoryAfterRead memoryAfter : WasmMemory)
+    (hciovec : Spike3IngestionIovec state)
+    (hwrite : WasmMem.writeBytes state.memory 0x100 ByteArray.empty = some memoryAfterRead)
+    (hnread : WasmMem.write32 memoryAfterRead 8 0 = some memoryAfter) :
+    Spike3IngestionIovec { state with memory := memoryAfter } := by
+  exact wasiHostCall_fd_read_single_eof_preserves_iovec state 8 pos memoryAfterRead memoryAfter
+    hciovec hwrite hnread spike3_nreadPtr_after_iovec
+
+/-- EOF carries the descriptor into the production continuation just as the positive read does. -/
+theorem spike3_step_fdRead_eof_at_nread_cell
+    (fuel : Nat) (rest : List WasmInstr) (state : WasmMachineState)
+    (pos : Nat) (memoryAfterRead memoryAfter : WasmMemory)
+    (hbefore : state.trapped = false) (hexit : state.exitCode = none)
+    (heof : state.stdin.size ≤ pos) (hciovec : Spike3IngestionIovec state)
+    (hwrite : WasmMem.writeBytes state.memory 0x100 ByteArray.empty = some memoryAfterRead)
+    (hnread : WasmMem.write32 memoryAfterRead 8 0 = some memoryAfter) :
+    Spike3IngestionIovec
+      (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos, stack := [] })) ∧
+    evalInstrs (fuel + 2) (.call 0 :: rest)
+      { state with stack := [.i32 8, .i32 1, .i32 0, .i32 0], stdinPos := pos }
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) =
+    evalInstrs (fuel + 1) rest
+      (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos, stack := [] }))
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) := by
+  constructor
+  · simpa [Spike3IngestionIovec, pushVal] using
+      spike3_fdRead_eof_at_nread_cell_preserves_ingestion_iovec state pos memoryAfterRead memoryAfter
+        hciovec hwrite hnread
+  · apply spike3_evalInstrs_step
+    · simpa using hbefore
+    · simpa using hexit
+    · simpa [evalInstrMatch, evalLeafInstr] using
+        (spike3_fdRead_single_iovec_eof state 8 pos memoryAfterRead memoryAfter
+          heof hciovec hwrite hnread)
 
 end Spikes.Spike3SortLines.Wasm
