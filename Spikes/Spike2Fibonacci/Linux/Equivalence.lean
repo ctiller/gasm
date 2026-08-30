@@ -28,6 +28,7 @@ import Spikes.Spike2Fibonacci.Spec
 import Spikes.Spike2Fibonacci.Linux.Program
 import Spikes.Spike2Fibonacci.Linux.Row1
 import Spikes.Spike2Fibonacci.Linux.DecimalLayout
+import Spikes.Spike2Fibonacci.Linux.DecimalRuntime
 
 namespace Spikes.Spike2Fibonacci.Linux
 
