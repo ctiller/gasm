@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -/
 
-import Spikes.Spike2Fibonacci.Linux.DecimalRuntime
+import Spikes.Spike2Fibonacci.Linux.DecimalPhases
 import Spikes.Spike2Fibonacci.Linux.Row1
 
 /-!
@@ -32,6 +32,7 @@ open Gasm.Targets
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.DecimalSegments
+open Gasm.Targets.X86_64.DecimalSchedule
 
 set_option maxRecDepth 200000
 set_option maxHeartbeats 5000000
@@ -76,5 +77,88 @@ theorem spike2_row1_write_selected_prefix_via_layout :
       simp only [X86BranchCondition.holds]
       decide))
   exact pass.selectedPrefix
+
+private theorem spike2_row1_completed_zero (completed : Nat)
+    (within : completed < Stdlib.Fmt.decimalDigitCount (1 : UInt64)) : completed = 0 := by
+  have digits : Stdlib.Fmt.decimalDigitCount (1 : UInt64) = 1 := by
+    rw [Stdlib.Fmt.decimalDigitCount_eq_digits_length]
+    change (Stdlib.Fmt.digits 1).length = 1
+    rw [Stdlib.Fmt.digits_single 1 (by omega)]
+    rfl
+  omega
+
+/-- The one-digit row-one extraction frame validates the phase witness at its only pass. -/
+private theorem spike2_row1_extraction_loop_witness :
+    Spike2ExtractionLoopWitness 1 0 spike2Row1AfterValueSetup ([] : List AnyEvent) := by
+  constructor
+  · intro completed within
+    have hzero := spike2_row1_completed_zero completed within
+    subst completed
+    rfl
+  · intro completed within
+    have hzero := spike2_row1_completed_zero completed within
+    subst completed
+    refine ⟨rfl, ?_, by decide, rfl⟩
+    change 8 ≤ 140737488289656
+    omega
+  · intro completed within
+    have hzero := spike2_row1_completed_zero completed within
+    subst completed
+    constructor <;> decide
+  · intro completed within
+    have hzero := spike2_row1_completed_zero completed within
+    subst completed
+    exact spike2_row1_extraction_ordinary
+  · intro completed within
+    have hzero := spike2_row1_completed_zero completed within
+    subst completed
+    exact Or.inr (by
+      simp only [X86BranchCondition.holds]
+      decide)
+
+/-- The one-digit row-one write frame validates the phase witness at its only pass. -/
+private theorem spike2_row1_write_loop_witness :
+    Spike2WriteLoopWitness 1 18446744073709551615 18446744073709551615
+      spike2Row1AfterExtraction ([] : List AnyEvent) := by
+  constructor
+  · intro completed within
+    have hzero := spike2_row1_completed_zero completed within
+    subst completed
+    rfl
+  · intro completed within
+    have hzero := spike2_row1_completed_zero completed within
+    subst completed
+    refine ⟨?_, ?_, by decide, rfl⟩
+    · change 140737488289648 + 8 ≤ 18446744073709551615
+      omega
+    · change 140737488289729 < 18446744073709551615
+      omega
+  · intro completed within
+    have hzero := spike2_row1_completed_zero completed within
+    subst completed
+    constructor <;> decide
+  · intro completed within
+    have hzero := spike2_row1_completed_zero completed within
+    subst completed
+    exact spike2_row1_write_ordinary
+  · intro completed within
+    have hzero := spike2_row1_completed_zero completed within
+    subst completed
+    exact Or.inr (by
+      simp only [X86BranchCondition.holds]
+      decide)
+
+/-- The generic extraction phase is realized by the actual one-digit Linux row-one frame. -/
+theorem spike2_row1_extraction_phase :
+    DecimalExtractionPhase selectedNonInputPlatformCall spike2Indexed 1
+      (spike2ExtractionInvariant spike2Row1AfterValueSetup ([] : List AnyEvent)) :=
+  spike2ExtractionPhase 1 0 spike2Row1AfterValueSetup [] spike2_row1_extraction_loop_witness
+
+/-- The generic reverse-write phase is realized by the actual one-digit Linux row-one frame. -/
+theorem spike2_row1_write_phase :
+    DecimalWritePhase selectedNonInputPlatformCall spike2Indexed 1
+      (spike2WriteInvariant spike2Row1AfterExtraction ([] : List AnyEvent)) :=
+  spike2WritePhase 1 18446744073709551615 18446744073709551615
+    spike2Row1AfterExtraction [] spike2_row1_write_loop_witness
 
 end Spikes.Spike2Fibonacci.Linux
