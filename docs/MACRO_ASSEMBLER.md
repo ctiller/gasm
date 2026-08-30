@@ -636,6 +636,28 @@ artifact, or `VerifiedProgram` property. Generated and hand-optimized blocks rem
 replaceable through `Assignment` and `Realizes`; changing an implementation does not require
 reconstructing the generated source topology.
 
+## Structured straight-line plans
+
+`Gasm.Compiler.Word.StructuredStraightLine` is the first bulk leaf compiler for the structured
+source. It accepts exactly Word variables and constants, wrapping add/subtract/bitwise-and, and
+Word-valued structural lets. Boolean bindings, comparisons, conditionals, effects, and recursion
+are rejected rather than normalized into a misleading straight-line leaf.
+
+The generated portable code is intrinsically temporary-safe. Operands are one of the four inputs,
+an exact constant, or a structurally scoped temporary already introduced by an earlier `emit`; a forward or
+dangling temporary reference cannot be constructed. Each operand, instruction, and result is
+indexed by its exact `Args -> UInt64` denotation. The total local interpreter executes the explicit
+temporary plan, and `compile_correct` proves for every input that its result equals the original
+`Structured.Expr.eval`. Structural lets share their generated result instead of duplicating the
+right-hand-side computation. `compileFunction_correct` then composes that theorem with the existing
+reifier's `WordFunction.implements` proof, tying the plan to the exact named Lean declaration.
+
+These semantic indices are portable logical identities, not registers or SPIR-V physical IDs. The
+plan chooses no ISA, register allocation, spills, flags, ABI, CFG block, layout, artifact, or
+`VerifiedProgram` evidence. Later x86-64, AArch64, and SPIR-V selectors may realize the same plan;
+handwritten optimized leaves may instead prove the same source/result and selected frame contracts.
+Target realization and differential replacement remain separate proof-producing layers.
+
 ## Differential certificate transport
 
 Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,

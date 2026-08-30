@@ -119,6 +119,7 @@ import Gasm.Compiler.Word.Structured
 import Gasm.Compiler.Word.StructuredCFG
 import Gasm.Compiler.Word.StructuredLeanReify
 import Gasm.Compiler.Word.StructuredPlanCompiler
+import Gasm.Compiler.Word.StructuredStraightLine
 import Gasm.Compiler.Word.Examples
 import Gasm.Compiler.TypedCFG
 

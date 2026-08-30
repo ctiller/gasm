@@ -21,6 +21,7 @@ import Gasm.Compiler.Word.Structured
 import Gasm.Compiler.Word.StructuredCFG
 import Gasm.Compiler.Word.StructuredLeanReify
 import Gasm.Compiler.Word.StructuredPlanCompilerControls
+import Gasm.Compiler.Word.StructuredStraightLineControls
 
 namespace Gasm.Compiler.Word.Examples
 
