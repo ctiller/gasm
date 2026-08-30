@@ -34,6 +34,7 @@ import Gasm.Proof.LocalExecution
 
 import Gasm.MemoryModel.CpuGraph
 import Gasm.MemoryModel.ProgramOrder
+import Gasm.MemoryModel.ProgramOrderPremiseControls
 import Gasm.MemoryModel.FiniteSearch
 import Gasm.MemoryModel.CpuGraphNegativeControls
 import Gasm.MemoryModel.FiniteSearchNegativeControls

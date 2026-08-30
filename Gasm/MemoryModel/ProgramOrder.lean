@@ -40,7 +40,6 @@ namespace Graph
 
 variable {EventId : Type u} {Location : Type v} {Value : Type w} {AtomicObject : Type x}
 variable {Agent : Type y}
-variable [DecidableEq EventId]
 variable {g : Graph EventId Location Value AtomicObject}
 
 /- REF: docs/MEMORY_MODEL.md#4-common-dynamic-memory-event-vocabulary -/
