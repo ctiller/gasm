@@ -33,6 +33,13 @@ and final artifact connection.  Give each layer a small contract and a frame law
 systems, prove chunk composition independently of chunk boundaries.  For sorting, keep immutable
 line contents separate from the mutable permutation and algorithm-specific ordered region.
 
+## Keep finite search subordinate to the model
+
+At the memory-model presentation layer, prove that every enumerated seed and successor belongs to
+the normative relation; `Gasm.MemoryModel.FiniteSearch` then lifts those facts to bounded-search
+soundness.  Reverse completeness is a separate obligation, required only when a concrete tool
+advertises complete enumeration for its stated finite scope.
+
 ## Lift target steps through small generic algebras
 
 When two targets repeat only the list induction around their own one-step facts, keep those semantic
@@ -50,10 +57,18 @@ this extraction the direct proof reduced the focused rebuild from about 97 secon
 
 ## Make control-flow obligations local
 
-Use typed block-entry contracts as invariant transfer points.  Prove straight-line production
-prefixes once, require only the dynamically selected conditional edge at runtime, and compose loops
-with an explicit measure or bound.  Do not replace a production-runner proof with replay of a second
-evaluator.
+At the core CFG layer, use typed block-entry contracts as invariant transfer points and close every
+possible successor statically, while charging path-local entry facts only to the edge selected at
+runtime; `Gasm.Core.CFG` demonstrates this split with `targetsInGraph` and `SelectedEdge`.  Prove
+straight-line production prefixes once and compose loops with an explicit measure or bound.  Do not
+replace a production-runner proof with replay of a second evaluator.
+
+## Preserve exact dependent CFG definitions
+
+At the CFG authoring and lowering layer, composition or nominal-ID remapping must preserve the whole
+dependent block definition, not merely its name or entry.  `Gasm.Compiler.TypedCFG` proves exact
+same-index lowered definitions and remapping commutation; a matching name or entry alone is not
+evidence that one block may substitute for another.
 
 ## Try independent decompositions for hard proofs
 
@@ -69,6 +84,10 @@ For an optimized or relaid-out implementation, identify the exact semantic delta
 that observe it.  Retain source, CFG, frame, or layout proofs that are unaffected; re-prove only the
 selected contracts changed by the replacement.  Final certificates must still identify the exact
 implementation and artifact being emitted.
+
+At the compiler-frontend lowering layer, `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock` is the
+accepted differential pattern: retain source entry and topology properties, and re-prove only the
+dimensions changed by structural terminator replacement.
 
 ## Charge proofs where the risk appears
 
