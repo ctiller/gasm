@@ -122,6 +122,85 @@ inductive ProductionPrefix {Event : Type} [interceptor : ExternalCallInterceptor
 namespace ProductionPrefix
 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Selector evidence attached structurally to an already-certified production prefix.  It adds
+only the selector checks at the exact pure successor of each instruction; all lookup,
+classification, branch-polarity, interceptor, safety, state, and event facts remain in the
+underlying prefix. -/
+inductive SelectionEvidence {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    {indexed : List (UInt64 × X86_64Instr)} :
+    {fuel : Nat} → {initial final : X86_64MachineState} →
+    {initialEventsRev finalEventsRev emitted : List Event} →
+    ProductionPrefix indexed fuel initial initialEventsRev final finalEventsRev emitted → Prop
+  | nil (state : X86_64MachineState) (eventsRev : List Event) :
+      SelectionEvidence selected (.nil state eventsRev)
+  | ordinary {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      (encoding : SequentialInstruction instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (silent : interceptor.interceptCall (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : ProductionPrefix indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (tailEvidence : SelectionEvidence selected tail) :
+      SelectionEvidence selected (.ordinary encoding lookup silent safe tail)
+  | directBranch {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      (encoding : DirectJumpEncoding instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (silent : interceptor.interceptCall (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : ProductionPrefix indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (tailEvidence : SelectionEvidence selected tail) :
+      SelectionEvidence selected (.directBranch encoding lookup silent safe tail)
+  | conditionalTaken {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr} {kind : X86BranchCondition}
+      (encoding : ConditionalJumpEncoding instruction kind) (chosen : kind.holds state)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (silent : interceptor.interceptCall (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : ProductionPrefix indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (tailEvidence : SelectionEvidence selected tail) :
+      SelectionEvidence selected (.conditionalTaken encoding chosen lookup silent safe tail)
+  | conditionalFallthrough {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr} {kind : X86BranchCondition}
+      (encoding : ConditionalJumpEncoding instruction kind) (notChosen : ¬ kind.holds state)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (silent : interceptor.interceptCall (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : ProductionPrefix indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (tailEvidence : SelectionEvidence selected tail) :
+      SelectionEvidence selected (.conditionalFallthrough encoding notChosen lookup silent safe tail)
+  | hostIntercept {fuel : Nat} {state hooked final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr} {event : Option Event}
+      (encoding : HostInterceptEncoding instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (intercept : interceptor.interceptCall (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = some (hooked, event))
+      (safe : hooked.fault = none)
+      (tail : ProductionPrefix indexed fuel hooked (accumulateEvent eventsRev event)
+        final finalEventsRev emitted)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (tailEvidence : SelectionEvidence selected tail) :
+      SelectionEvidence selected (.hostIntercept encoding lookup intercept safe tail)
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 /-- Compose two exact production prefixes into one certificate.  This is proof composition over
     the original indexed runner: no intermediate trace or evaluator is introduced. -/
 theorem append {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
@@ -471,6 +550,28 @@ theorem selectedExecutionTerminates_of_processExit_with_slack {Event : Type}
 end SelectedPrefix
 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Upgrade a production prefix to a selected prefix without re-proving any transition fact. -/
+theorem toSelected {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {fuel : Nat}
+    {initial final : X86_64MachineState} {initialEventsRev finalEventsRev emitted : List Event}
+    (certificate : ProductionPrefix indexed fuel initial initialEventsRev final finalEventsRev emitted)
+    (evidence : SelectionEvidence selected certificate) :
+    SelectedPrefix selected indexed fuel initial initialEventsRev final finalEventsRev emitted := by
+  induction evidence with
+  | nil => exact .nil _ _
+  | ordinary encoding lookup silent safe tail selectedAt tailEvidence ih =>
+      exact .ordinary encoding lookup selectedAt silent safe ih
+  | directBranch encoding lookup silent safe tail selectedAt tailEvidence ih =>
+      exact .directBranch encoding lookup selectedAt silent safe ih
+  | conditionalTaken encoding chosen lookup silent safe tail selectedAt tailEvidence ih =>
+      exact .conditionalTaken encoding chosen lookup selectedAt silent safe ih
+  | conditionalFallthrough encoding notChosen lookup silent safe tail selectedAt tailEvidence ih =>
+      exact .conditionalFallthrough encoding notChosen lookup selectedAt silent safe ih
+  | hostIntercept encoding lookup intercept safe tail selectedAt tailEvidence ih =>
+      exact .hostIntercept encoding lookup selectedAt intercept safe ih
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 /-- Composing certified prefixes preserves the exact final machine state, reverse accumulator,
     and every native stop reason supplied by the continuation. -/
 theorem run_compose {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
@@ -562,6 +663,86 @@ structure BoundedInvariantLoopStep {Event : Type} [interceptor : ExternalCallInt
       ∃ fuel final finalEventsRev emitted,
         ProductionPrefix indexed fuel state eventsRev final finalEventsRev emitted ∧
         invariant (completed + 1) final finalEventsRev
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- A bounded loop step which retains the platform-call selector on every certified pass.
+    Forgetting this evidence is available through `toBoundedInvariantLoopStep`, but selected
+    iterations themselves are composed only by `SelectedPrefix.append`. -/
+structure SelectedBoundedInvariantLoopStep {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr)) (bound : Nat)
+    (invariant : Nat → X86_64MachineState → List Event → Prop) where
+  run : ∀ completed state eventsRev,
+    completed < bound → invariant completed state eventsRev →
+      ∃ fuel final finalEventsRev emitted,
+        0 < fuel ∧
+        ProductionPrefix.SelectedPrefix selected indexed fuel state eventsRev final finalEventsRev emitted ∧
+        invariant (completed + 1) final finalEventsRev
+
+namespace SelectedBoundedInvariantLoopStep
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- The unselected production-loop view of a selected step.  This is a one-way adapter: the
+    selected proof remains available on the source value for universal termination arguments. -/
+theorem toBoundedInvariantLoopStep {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {bound : Nat}
+    {invariant : Nat → X86_64MachineState → List Event → Prop}
+    (step : SelectedBoundedInvariantLoopStep selected indexed bound invariant) :
+    BoundedInvariantLoopStep indexed bound invariant where
+  run completed state eventsRev within holds := by
+    rcases step.run completed state eventsRev within holds with
+      ⟨fuel, final, finalEventsRev, emitted, _positive, certificate, next⟩
+    exact ⟨fuel, final, finalEventsRev, emitted, certificate.toProductionPrefix, next⟩
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Iterate selected variable-fuel passes structurally.  The total certificate is itself a
+    `SelectedPrefix`, so selector evidence cannot be lost between passes or recreated from an
+    unselected runner equation. -/
+theorem iterateFrom {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {bound : Nat}
+    {invariant : Nat → X86_64MachineState → List Event → Prop}
+    (step : SelectedBoundedInvariantLoopStep selected indexed bound invariant) :
+    ∀ start iterations state eventsRev, start + iterations ≤ bound → invariant start state eventsRev →
+      ∃ final finalEventsRev emitted totalFuel,
+        ProductionPrefix.SelectedPrefix selected indexed totalFuel state eventsRev
+          final finalEventsRev emitted ∧
+        invariant (start + iterations) final finalEventsRev := by
+  intro start iterations
+  induction iterations generalizing start with
+  | zero =>
+      intro state eventsRev _ holds
+      exact ⟨state, eventsRev, [], 0, .nil _ _, holds⟩
+  | succ iterations ih =>
+      intro state eventsRev hbound holds
+      rcases step.run start state eventsRev (by omega) holds with
+        ⟨firstFuel, middle, middleEventsRev, firstEvents, _positive, first, middleHolds⟩
+      rcases ih (start + 1) middle middleEventsRev (by omega) middleHolds with
+        ⟨final, finalEventsRev, secondEvents, secondFuel, second, finalHolds⟩
+      refine ⟨final, finalEventsRev, firstEvents ++ secondEvents, firstFuel + secondFuel,
+        first.append second, ?_⟩
+      rw [show start + (iterations + 1) = start + 1 + iterations by omega]
+      exact finalHolds
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Zero-based selected bounded-loop iteration. -/
+theorem iterate {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {bound : Nat}
+    {invariant : Nat → X86_64MachineState → List Event → Prop}
+    (step : SelectedBoundedInvariantLoopStep selected indexed bound invariant)
+    (state : X86_64MachineState) (eventsRev : List Event)
+    (holds : invariant 0 state eventsRev) :
+    ∃ final finalEventsRev emitted totalFuel,
+      ProductionPrefix.SelectedPrefix selected indexed totalFuel state eventsRev
+        final finalEventsRev emitted ∧
+      invariant bound final finalEventsRev := by
+  simpa using step.iterateFrom 0 bound state eventsRev (by omega) holds
+
+end SelectedBoundedInvariantLoopStep
 
 namespace BoundedInvariantLoopStep
 

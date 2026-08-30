@@ -268,4 +268,283 @@ theorem WritePassEffect.preservesMemoryAt {backDisp : UInt8}
   rw [effect.memory]
   exact X86_64Mem.readByte_write_disjoint .w8 _ _ _ _ noWrap outside
 
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- The byte observation made by a decimal caller.  This is intentionally a finite list, rather
+than an equality of whole memories: the formatter owns its scratch words and the requested
+output interval, while callers retain their own frame relation for everything else. -/
+def decimalBytesAt (memory : X86_64Memory) (start : UInt64) (count : Nat) : List UInt8 :=
+  (List.range count).map fun offset => X86_64Mem.readByte memory (start + UInt64.ofNat offset)
+
+/-- A caller-chosen relation over the entry and return machine states.  The realization records
+one of these relations exactly; it does not guess that a whole memory equality is a usable frame
+when its selected output and scratch intervals are intentionally modified. -/
+abbrev CallerFrame := X86_64MachineState → X86_64MachineState → Prop
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- The decimal schedule itself supplies the non-wrapping `RCX` increment side condition.  A
+reachable extraction pass records the completed digit count, and a UInt64 has at most twenty
+decimal digits; no target adapter may instead accept an independently asserted per-pass bound. -/
+theorem countCanIncrement_of_decimalBound (value : UInt64) (completed : Nat)
+    (state : X86_64MachineState) (counter : state.gprs .rcx = UInt64.ofNat completed)
+    (within : completed < decimalDigitCount value) :
+    (state.gprs .rcx).toNat < 0xFFFFFFFFFFFFFFFF := by
+  rw [counter]
+  have digitsBound := decimalDigitCount_le_twenty value
+  have completedBound : completed ≤ 20 := by omega
+  change completed % (2 ^ 64) < 0xFFFFFFFFFFFFFFFF
+  rw [Nat.mod_eq_of_lt (by omega)]
+  omega
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- Assemble an extraction safety certificate without making the target restate the `RCX`
+non-wrap fact for every pass.  The completed schedule index and the shared UInt64 bound supply
+that component. -/
+theorem extractionSafety_of_decimalBound (value : UInt64) (completed : Nat)
+    (stackLower : UInt64) (state : X86_64MachineState)
+    (divisorTen : state.gprs .r10 = 10)
+    (stack : StackPushCapacity stackLower state) (initialFault : state.fault = none)
+    (counter : state.gprs .rcx = UInt64.ofNat completed)
+    (within : completed < decimalDigitCount value) :
+    ExtractionSafety stackLower state :=
+  ⟨divisorTen, stack,
+    countCanIncrement_of_decimalBound value completed state counter within, initialFault⟩
+
+/-- One selected extraction pass is tied to the literal seven-instruction adapter, its indexed
+placement/silence facts, and the architectural pass effect. -/
+structure SelectedExtractionPass {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr)) (backDisp : UInt8) (stackLower : UInt64)
+    (initial : X86_64MachineState) : Prop where
+  placement : ExtractionSelectedPlacement (Event := Event) selected indexed backDisp initial
+  safety : ExtractionSafety stackLower initial
+  executionSafety : ExtractionExecutionSafety backDisp initial
+  branch : X86BranchCondition.notEqual.holds (extractionStates initial).2.2.2.2.2 ∨
+    ¬ X86BranchCondition.notEqual.holds (extractionStates initial).2.2.2.2.2
+  effect : ExtractionPassEffect backDisp initial (extractionFinal backDisp initial)
+
+namespace SelectedExtractionPass
+
+theorem selectedPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {backDisp : UInt8} {stackLower : UInt64}
+    {initial : X86_64MachineState} {eventsRev : List Event}
+    (pass : SelectedExtractionPass (Event := Event) selected indexed backDisp stackLower initial) :
+    ProductionPrefix.SelectedPrefix selected indexed 7 initial eventsRev (extractionFinal backDisp initial)
+      eventsRev [] := by
+  rcases pass.branch with taken | fallthrough
+  · exact extractionSelectedPrefixTaken pass.placement pass.safety pass.executionSafety taken
+  · exact extractionSelectedPrefixFallthrough pass.placement pass.safety pass.executionSafety fallthrough
+
+end SelectedExtractionPass
+
+/-- One selected write pass is tied to the literal five-instruction adapter and exact output,
+stack, selector, and silence evidence. -/
+structure SelectedWritePass {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr)) (backDisp : UInt8)
+    (stackUpper outputLimit : UInt64) (initial : X86_64MachineState) : Prop where
+  placement : WriteSelectedPlacement (Event := Event) selected indexed backDisp initial
+  safety : WriteSafety stackUpper outputLimit initial
+  executionSafety : WriteExecutionSafety backDisp initial
+  branch : X86BranchCondition.notEqual.holds (writeStates initial).2.2.2 ∨
+    ¬ X86BranchCondition.notEqual.holds (writeStates initial).2.2.2
+  effect : WritePassEffect backDisp initial (writeFinal backDisp initial)
+
+namespace SelectedWritePass
+
+theorem selectedPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {backDisp : UInt8} {stackUpper outputLimit : UInt64}
+    {initial : X86_64MachineState} {eventsRev : List Event}
+    (pass : SelectedWritePass (Event := Event) selected indexed backDisp stackUpper outputLimit initial) :
+    ProductionPrefix.SelectedPrefix selected indexed 5 initial eventsRev
+      (writeFinal backDisp initial) eventsRev [] := by
+  rcases pass.branch with taken | fallthrough
+  · exact writeSelectedPrefixTaken pass.placement pass.safety pass.executionSafety taken
+  · exact writeSelectedPrefixFallthrough pass.placement pass.safety pass.executionSafety fallthrough
+
+end SelectedWritePass
+
+/-- The extraction half of a decimal schedule advances only through an exact selected seven-step
+pass.  Its bound is the portable digit count, so it cannot introduce a logical zero-fuel pass. -/
+structure DecimalExtractionPhase {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr)) (value : UInt64)
+    (invariant : Nat → X86_64MachineState → List Event → Prop) : Prop where
+  run : ∀ completed state eventsRev,
+    completed < decimalDigitCount value → invariant completed state eventsRev →
+      ∃ backDisp stackLower,
+        SelectedExtractionPass (Event := Event) selected indexed backDisp stackLower state ∧
+        invariant (completed + 1) (extractionFinal backDisp state) eventsRev
+
+namespace DecimalExtractionPhase
+
+theorem toSelectedBoundedInvariantLoopStep {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {value : UInt64}
+    {invariant : Nat → X86_64MachineState → List Event → Prop}
+    (phase : DecimalExtractionPhase selected indexed value invariant) :
+    SelectedBoundedInvariantLoopStep selected indexed (decimalDigitCount value) invariant where
+  run completed state eventsRev within holds := by
+    rcases phase.run completed state eventsRev within holds with ⟨backDisp, stackLower, pass, next⟩
+    exact ⟨7, extractionFinal backDisp state, eventsRev, [], by decide, pass.selectedPrefix, next⟩
+
+end DecimalExtractionPhase
+
+/-- The reverse-write half advances only through an exact selected five-step pop/write pass. -/
+structure DecimalWritePhase {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr)) (value : UInt64)
+    (invariant : Nat → X86_64MachineState → List Event → Prop) : Prop where
+  run : ∀ completed state eventsRev,
+    completed < decimalDigitCount value → invariant completed state eventsRev →
+      ∃ backDisp stackUpper outputLimit,
+        SelectedWritePass (Event := Event) selected indexed backDisp stackUpper outputLimit state ∧
+        invariant (completed + 1) (writeFinal backDisp state) eventsRev
+
+namespace DecimalWritePhase
+
+theorem toSelectedBoundedInvariantLoopStep {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {value : UInt64}
+    {invariant : Nat → X86_64MachineState → List Event → Prop}
+    (phase : DecimalWritePhase selected indexed value invariant) :
+    SelectedBoundedInvariantLoopStep selected indexed (decimalDigitCount value) invariant where
+  run completed state eventsRev within holds := by
+    rcases phase.run completed state eventsRev within holds with
+      ⟨backDisp, stackUpper, outputLimit, pass, next⟩
+    exact ⟨5, writeFinal backDisp state, eventsRev, [], by decide, pass.selectedPrefix, next⟩
+
+end DecimalWritePhase
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- A target realization of the shared bounded UInt64 decimal schedule.
+
+The only constructor is the exact two-phase schedule: each portable digit is extracted by a
+selected seven-instruction pass, then written by a selected five-instruction pass.  Consequently
+no arbitrary selected prefix or final-state predicate can be packaged as a realization. -/
+inductive UInt64DecimalScheduleRealization {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr)) (capacity : Nat) (value : UInt64)
+    (initial : X86_64MachineState) (initialEventsRev : List Event)
+    (callerFrame : CallerFrame) : Prop where
+  | ofPhases
+      {extractInvariant writeInvariant : Nat → X86_64MachineState → List Event → Prop}
+      (extraction : DecimalExtractionPhase selected indexed value extractInvariant)
+      (write : DecimalWritePhase selected indexed value writeInvariant)
+      (extractInitial : extractInvariant 0 initial initialEventsRev)
+      (startWrite : ∀ middle eventsRev,
+        extractInvariant (decimalDigitCount value) middle eventsRev →
+          writeInvariant 0 middle eventsRev)
+      (capacityFits : decimalDigitCount value ≤ capacity)
+      (outputAddressNoWrap : (initial.gprs .rdi).toNat + decimalDigitCount value ≤ 2 ^ 64)
+      (completed : ∀ final finalEventsRev,
+        writeInvariant (decimalDigitCount value) final finalEventsRev →
+          final.rsp = initial.rsp ∧
+          final.gprs .rdi = initial.gprs .rdi + UInt64.ofNat (decimalDigitCount value) ∧
+          final.gprs .rcx = 0 ∧
+          decimalBytesAt final.memory (initial.gprs .rdi) (decimalDigitCount value) =
+            formatDecimal value.toNat ∧
+          final.gprs .r12 = initial.gprs .r12 ∧ final.gprs .r13 = initial.gprs .r13 ∧
+          final.gprs .r14 = initial.gprs .r14 ∧ final.gprs .r15 = initial.gprs .r15 ∧
+          callerFrame initial final) :
+      UInt64DecimalScheduleRealization selected indexed capacity value initial initialEventsRev
+        callerFrame
+
+namespace UInt64DecimalScheduleRealization
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- Success capacity is part of the realization certificate, rather than a phantom parameter. -/
+theorem capacityFits {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {capacity : Nat} {value : UInt64}
+    {initial : X86_64MachineState} {initialEventsRev : List Event} {callerFrame : CallerFrame}
+    (realization : UInt64DecimalScheduleRealization selected indexed capacity value initial
+      initialEventsRev callerFrame) : decimalDigitCount value ≤ capacity := by
+  rcases realization with ⟨_, _, _, _, capacityFits, _, _⟩
+  exact capacityFits
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- The successful write range is certified not to wrap the output address. -/
+theorem outputAddressNoWrap {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {capacity : Nat} {value : UInt64}
+    {initial : X86_64MachineState} {initialEventsRev : List Event} {callerFrame : CallerFrame}
+    (realization : UInt64DecimalScheduleRealization selected indexed capacity value initial
+      initialEventsRev callerFrame) :
+    (initial.gprs .rdi).toNat + decimalDigitCount value ≤ 2 ^ 64 := by
+  rcases realization with ⟨_, _, _, _, _, outputAddressNoWrap, _⟩
+  exact outputAddressNoWrap
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- The sole realization constructor exposes its exact selected execution prefix here.  Extraction
+and reverse-write each run once per portable digit, and the phases join only with
+`SelectedPrefix.append`. -/
+theorem selectedPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {capacity : Nat} {value : UInt64}
+    {initial : X86_64MachineState} {initialEventsRev : List Event} {callerFrame : CallerFrame}
+    (realization : UInt64DecimalScheduleRealization selected indexed capacity value initial
+      initialEventsRev callerFrame) :
+    ∃ requiredFuel final finalEventsRev emitted,
+      ProductionPrefix.SelectedPrefix selected indexed requiredFuel initial initialEventsRev
+        final finalEventsRev emitted ∧
+      final.rsp = initial.rsp ∧
+      final.gprs .rdi = initial.gprs .rdi + UInt64.ofNat (decimalDigitCount value) ∧
+      final.gprs .rcx = 0 ∧
+      decimalBytesAt final.memory (initial.gprs .rdi) (decimalDigitCount value) =
+        formatDecimal value.toNat ∧
+      final.gprs .r12 = initial.gprs .r12 ∧ final.gprs .r13 = initial.gprs .r13 ∧
+      final.gprs .r14 = initial.gprs .r14 ∧ final.gprs .r15 = initial.gprs .r15 ∧
+      callerFrame initial final := by
+  rcases realization with ⟨extraction, write, extractInitial, startWrite, capacityFits,
+      outputAddressNoWrap, completed⟩
+  let extractStep := extraction.toSelectedBoundedInvariantLoopStep
+  rcases extractStep.iterate initial initialEventsRev extractInitial with
+    ⟨middle, middleEventsRev, extractionEvents, extractionFuel, extractionPrefix, middleInvariant⟩
+  let writeStep := write.toSelectedBoundedInvariantLoopStep
+  rcases writeStep.iterate middle middleEventsRev (startWrite middle middleEventsRev middleInvariant) with
+    ⟨final, finalEventsRev, writeEvents, writeFuel, writePrefix, finalInvariant⟩
+  rcases completed final finalEventsRev finalInvariant with
+    ⟨restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
+      preservesR14, preservesR15, callerFramePreserved⟩
+  exact ⟨extractionFuel + writeFuel, final, finalEventsRev,
+    extractionEvents ++ writeEvents, extractionPrefix.append writePrefix,
+    restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
+    preservesR14, preservesR15, callerFramePreserved⟩
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- The selected prefix can be forgotten only at a consumer that explicitly needs the ordinary
+production runner. -/
+theorem toProductionPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {capacity : Nat} {value : UInt64}
+    {initial : X86_64MachineState} {initialEventsRev : List Event} {callerFrame : CallerFrame}
+    (realization : UInt64DecimalScheduleRealization selected indexed capacity value initial
+      initialEventsRev callerFrame) :
+    ∃ requiredFuel final finalEventsRev emitted,
+      ProductionPrefix indexed requiredFuel initial initialEventsRev final finalEventsRev emitted ∧
+      final.rsp = initial.rsp ∧
+      final.gprs .rdi = initial.gprs .rdi + UInt64.ofNat (decimalDigitCount value) ∧
+      final.gprs .rcx = 0 ∧
+      decimalBytesAt final.memory (initial.gprs .rdi) (decimalDigitCount value) =
+        formatDecimal value.toNat ∧
+      final.gprs .r12 = initial.gprs .r12 ∧
+      final.gprs .r13 = initial.gprs .r13 ∧
+      final.gprs .r14 = initial.gprs .r14 ∧
+      final.gprs .r15 = initial.gprs .r15 ∧
+      callerFrame initial final := by
+  rcases realization.selectedPrefix with
+    ⟨requiredFuel, final, finalEventsRev, emitted, selectedPrefix, restoredRsp, advancedCursor,
+      clearedCount, formatBytes, preservesR12, preservesR13, preservesR14, preservesR15,
+      callerFramePreserved⟩
+  exact ⟨requiredFuel, final, finalEventsRev, emitted, selectedPrefix.toProductionPrefix,
+    restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
+    preservesR14, preservesR15, callerFramePreserved⟩
+
+end UInt64DecimalScheduleRealization
+
 end Gasm.Targets.X86_64.DecimalSchedule

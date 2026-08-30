@@ -97,12 +97,13 @@ def StackPopCapacity (upper : UInt64) (state : X86_64MachineState) : Prop :=
 def BufferWriteCapacity (limit : UInt64) (state : X86_64MachineState) : Prop :=
   (state.gprs .rdi).toNat < limit.toNat
 
-/-- Exact safety premises for the selected DIV and PUSH pass. The quotient bound is explicit:
-`DIV` faults both on zero divisors and on quotient overflow. -/
+/-- Exact safety premises for the selected DIV and PUSH pass.  A UInt64 dividend divided by ten
+always has a UInt64 quotient, so target callers need only provide the actual divisor, selected
+stack capacity, and non-wrapping digit-count resource. -/
 structure ExtractionSafety (stackLower : UInt64) (state : X86_64MachineState) : Prop where
   divisorTen : state.gprs .r10 = 10
-  quotientFits : (state.gprs .rax).toNat / 10 ≤ 0xFFFFFFFFFFFFFFFF
   stack : StackPushCapacity stackLower state
+  countCanIncrement : (state.gprs .rcx).toNat < 0xFFFFFFFFFFFFFFFF
   initialFault : state.fault = none
 
 /-- Exact selected frame premises for the POP/store pass. -/
@@ -170,6 +171,40 @@ structure WritePlacement {Event : Type}
     (X86_64Instruction.step (jne_rel8 backDisp) (writeStates initial).2.2.2).rip
     (X86_64Instruction.step (jne_rel8 backDisp) (writeStates initial).2.2.2) = none
   backTarget : (writeStates initial).2.2.2.rip + 2 + signExtend8To64 backDisp = initial.rip
+
+/-- Selector evidence for every actual successor of an extraction pass.  This is bundled with
+the artifact placement so a platform adapter cannot certify a silent seven-step trace and then
+reconstruct selected-call authority separately. -/
+structure ExtractionSelectedPlacement {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr)) (backDisp : UInt8)
+    (initial : X86_64MachineState) extends ExtractionPlacement (Event := Event) indexed backDisp initial where
+  selectedXor : selected (extractionStates initial).1.rip (extractionStates initial).1 = true
+  selectedDiv : selected (extractionStates initial).2.1.rip (extractionStates initial).2.1 = true
+  selectedAscii : selected (extractionStates initial).2.2.1.rip (extractionStates initial).2.2.1 = true
+  selectedPush : selected (extractionStates initial).2.2.2.1.rip
+    (extractionStates initial).2.2.2.1 = true
+  selectedCount : selected (extractionStates initial).2.2.2.2.1.rip
+    (extractionStates initial).2.2.2.2.1 = true
+  selectedCmp : selected (extractionStates initial).2.2.2.2.2.rip
+    (extractionStates initial).2.2.2.2.2 = true
+  selectedBranch : selected (X86_64Instruction.step (jne_rel8 backDisp)
+    (extractionStates initial).2.2.2.2.2).rip
+    (X86_64Instruction.step (jne_rel8 backDisp) (extractionStates initial).2.2.2.2.2) = true
+
+/-- Selector evidence for every actual successor of a pop/write pass. -/
+structure WriteSelectedPlacement {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr)) (backDisp : UInt8)
+    (initial : X86_64MachineState) extends WritePlacement (Event := Event) indexed backDisp initial where
+  selectedPop : selected (writeStates initial).1.rip (writeStates initial).1 = true
+  selectedStore : selected (writeStates initial).2.1.rip (writeStates initial).2.1 = true
+  selectedCursor : selected (writeStates initial).2.2.1.rip (writeStates initial).2.2.1 = true
+  selectedCount : selected (writeStates initial).2.2.2.rip (writeStates initial).2.2.2 = true
+  selectedBranch : selected (X86_64Instruction.step (jne_rel8 backDisp) (writeStates initial).2.2.2).rip
+    (X86_64Instruction.step (jne_rel8 backDisp) (writeStates initial).2.2.2) = true
 
 /-- Exact nonfaulting facts for the concrete extraction trace. These are deliberately separate
 from placement: a linked instruction can still be unsafe in a particular machine state. -/
@@ -284,6 +319,34 @@ theorem extractionPrefixTaken {Event : Type}
     placement.silentBranch safe.branchSafe ?_
   exact .nil _ _
 
+/-- Selected-call version of the literal seven-step continuing extraction pass. -/
+theorem extractionSelectedPrefixTaken {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {backDisp : UInt8}
+    {initial : X86_64MachineState} {eventsRev : List Event} {stackLower : UInt64}
+    (placement : ExtractionSelectedPlacement (Event := Event) selected indexed backDisp initial)
+    (_pre : ExtractionSafety stackLower initial)
+    (safe : ExtractionExecutionSafety backDisp initial)
+    (taken : X86BranchCondition.notEqual.holds (extractionStates initial).2.2.2.2.2) :
+    ProductionPrefix.SelectedPrefix selected indexed 7 initial eventsRev (extractionFinal backDisp initial)
+      eventsRev [] := by
+  refine .ordinary sequentialXorEdx placement.toExtractionPlacement.lookupXor placement.selectedXor
+    placement.toExtractionPlacement.silentXor safe.xorSafe ?_
+  refine .ordinary sequentialDivR10 placement.toExtractionPlacement.lookupDiv placement.selectedDiv
+    placement.toExtractionPlacement.silentDiv safe.divSafe ?_
+  refine .ordinary sequentialAddRdxAscii placement.toExtractionPlacement.lookupAscii placement.selectedAscii
+    placement.toExtractionPlacement.silentAscii safe.asciiSafe ?_
+  refine .ordinary sequentialPushRdx placement.toExtractionPlacement.lookupPush placement.selectedPush
+    placement.toExtractionPlacement.silentPush safe.pushSafe ?_
+  refine .ordinary sequentialAddRcx placement.toExtractionPlacement.lookupCount placement.selectedCount
+    placement.toExtractionPlacement.silentCount safe.countSafe ?_
+  refine .ordinary sequentialCmpRax placement.toExtractionPlacement.lookupCmp placement.selectedCmp
+    placement.toExtractionPlacement.silentCmp safe.cmpSafe ?_
+  refine .conditionalTaken (.jne8 backDisp) taken placement.toExtractionPlacement.lookupBranch
+    placement.selectedBranch placement.toExtractionPlacement.silentBranch safe.branchSafe ?_
+  exact .nil _ _
+
 /-- One terminating extraction pass is the same exact production trace with JNE fallthrough. -/
 theorem extractionPrefixFallthrough {Event : Type}
     [interceptor : ExternalCallInterceptor X86_64 Event]
@@ -304,6 +367,34 @@ theorem extractionPrefixFallthrough {Event : Type}
   refine .ordinary sequentialCmpRax placement.lookupCmp placement.silentCmp safe.cmpSafe ?_
   refine .conditionalFallthrough (.jne8 backDisp) fallthrough placement.lookupBranch
     placement.silentBranch safe.branchSafe ?_
+  exact .nil _ _
+
+/-- Selected-call version of the literal seven-step terminating extraction pass. -/
+theorem extractionSelectedPrefixFallthrough {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {backDisp : UInt8}
+    {initial : X86_64MachineState} {eventsRev : List Event} {stackLower : UInt64}
+    (placement : ExtractionSelectedPlacement (Event := Event) selected indexed backDisp initial)
+    (_pre : ExtractionSafety stackLower initial)
+    (safe : ExtractionExecutionSafety backDisp initial)
+    (fallthrough : ¬ X86BranchCondition.notEqual.holds (extractionStates initial).2.2.2.2.2) :
+    ProductionPrefix.SelectedPrefix selected indexed 7 initial eventsRev (extractionFinal backDisp initial)
+      eventsRev [] := by
+  refine .ordinary sequentialXorEdx placement.toExtractionPlacement.lookupXor placement.selectedXor
+    placement.toExtractionPlacement.silentXor safe.xorSafe ?_
+  refine .ordinary sequentialDivR10 placement.toExtractionPlacement.lookupDiv placement.selectedDiv
+    placement.toExtractionPlacement.silentDiv safe.divSafe ?_
+  refine .ordinary sequentialAddRdxAscii placement.toExtractionPlacement.lookupAscii placement.selectedAscii
+    placement.toExtractionPlacement.silentAscii safe.asciiSafe ?_
+  refine .ordinary sequentialPushRdx placement.toExtractionPlacement.lookupPush placement.selectedPush
+    placement.toExtractionPlacement.silentPush safe.pushSafe ?_
+  refine .ordinary sequentialAddRcx placement.toExtractionPlacement.lookupCount placement.selectedCount
+    placement.toExtractionPlacement.silentCount safe.countSafe ?_
+  refine .ordinary sequentialCmpRax placement.toExtractionPlacement.lookupCmp placement.selectedCmp
+    placement.toExtractionPlacement.silentCmp safe.cmpSafe ?_
+  refine .conditionalFallthrough (.jne8 backDisp) fallthrough placement.toExtractionPlacement.lookupBranch
+    placement.selectedBranch placement.toExtractionPlacement.silentBranch safe.branchSafe ?_
   exact .nil _ _
 
 /-- One continuing pop/write pass is five literal steps of the production runner. -/
@@ -327,6 +418,30 @@ theorem writePrefixTaken {Event : Type}
     placement.silentBranch safe.branchSafe ?_
   exact .nil _ _
 
+/-- Selected-call version of the literal five-step continuing pop/write pass. -/
+theorem writeSelectedPrefixTaken {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {backDisp : UInt8}
+    {initial : X86_64MachineState} {eventsRev : List Event} {stackUpper bufferLimit : UInt64}
+    (placement : WriteSelectedPlacement (Event := Event) selected indexed backDisp initial)
+    (_pre : WriteSafety stackUpper bufferLimit initial)
+    (safe : WriteExecutionSafety backDisp initial)
+    (taken : X86BranchCondition.notEqual.holds (writeStates initial).2.2.2) :
+    ProductionPrefix.SelectedPrefix selected indexed 5 initial eventsRev (writeFinal backDisp initial)
+      eventsRev [] := by
+  refine .ordinary sequentialPopRdx placement.toWritePlacement.lookupPop placement.selectedPop
+    placement.toWritePlacement.silentPop safe.popSafe ?_
+  refine .ordinary sequentialStoreDigit placement.toWritePlacement.lookupStore placement.selectedStore
+    placement.toWritePlacement.silentStore safe.storeSafe ?_
+  refine .ordinary sequentialAddRdi placement.toWritePlacement.lookupCursor placement.selectedCursor
+    placement.toWritePlacement.silentCursor safe.cursorSafe ?_
+  refine .ordinary sequentialSubRcx placement.toWritePlacement.lookupCount placement.selectedCount
+    placement.toWritePlacement.silentCount safe.countSafe ?_
+  refine .conditionalTaken (.jne8 backDisp) taken placement.toWritePlacement.lookupBranch
+    placement.selectedBranch placement.toWritePlacement.silentBranch safe.branchSafe ?_
+  exact .nil _ _
+
 /-- One terminating pop/write pass is the same exact production trace with JNE fallthrough. -/
 theorem writePrefixFallthrough {Event : Type}
     [interceptor : ExternalCallInterceptor X86_64 Event]
@@ -346,6 +461,30 @@ theorem writePrefixFallthrough {Event : Type}
   refine .ordinary sequentialSubRcx placement.lookupCount placement.silentCount safe.countSafe ?_
   refine .conditionalFallthrough (.jne8 backDisp) fallthrough placement.lookupBranch
     placement.silentBranch safe.branchSafe ?_
+  exact .nil _ _
+
+/-- Selected-call version of the literal five-step terminating pop/write pass. -/
+theorem writeSelectedPrefixFallthrough {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {backDisp : UInt8}
+    {initial : X86_64MachineState} {eventsRev : List Event} {stackUpper bufferLimit : UInt64}
+    (placement : WriteSelectedPlacement (Event := Event) selected indexed backDisp initial)
+    (_pre : WriteSafety stackUpper bufferLimit initial)
+    (safe : WriteExecutionSafety backDisp initial)
+    (fallthrough : ¬ X86BranchCondition.notEqual.holds (writeStates initial).2.2.2) :
+    ProductionPrefix.SelectedPrefix selected indexed 5 initial eventsRev (writeFinal backDisp initial)
+      eventsRev [] := by
+  refine .ordinary sequentialPopRdx placement.toWritePlacement.lookupPop placement.selectedPop
+    placement.toWritePlacement.silentPop safe.popSafe ?_
+  refine .ordinary sequentialStoreDigit placement.toWritePlacement.lookupStore placement.selectedStore
+    placement.toWritePlacement.silentStore safe.storeSafe ?_
+  refine .ordinary sequentialAddRdi placement.toWritePlacement.lookupCursor placement.selectedCursor
+    placement.toWritePlacement.silentCursor safe.cursorSafe ?_
+  refine .ordinary sequentialSubRcx placement.toWritePlacement.lookupCount placement.selectedCount
+    placement.toWritePlacement.silentCount safe.countSafe ?_
+  refine .conditionalFallthrough (.jne8 backDisp) fallthrough placement.toWritePlacement.lookupBranch
+    placement.selectedBranch placement.toWritePlacement.silentBranch safe.branchSafe ?_
   exact .nil _ _
 
 /-- A too-small stack interval cannot satisfy a push-capacity premise. -/
@@ -405,9 +544,9 @@ def extractionIndexed : List (UInt64 × X86_64Instr) :=
 theorem extractionSafetyFixture : ExtractionSafety 0 extractionInitial := by
   constructor
   · rfl
-  · decide
   · change 8 ≤ 4096
     omega
+  · decide
   · rfl
 
 theorem extractionExecutionSafetyFixture : ExtractionExecutionSafety 0xEC extractionInitial := by
