@@ -119,7 +119,7 @@ for illustration; the real registration step fixes it against the fetched PDF's 
 | `distribution` | enum | yes | One of `unmodified-copy-only`, `no-restriction`, `attribution-required`, `unclear`. Derived from `license` at registration time by a human, not inferred by the tool — this is a judgment call the audit already made per corpus in `docs/THIRD_PARTY_LICENSES.md` §1, carried into the schema so it travels with the citation instead of living only in a standalone audit document. `unclear` is a legitimate value (mirrors the audit's own `UNCLEAR` verdicts) and forces manual sign-off before an entry may ship — it is not a default. |
 | `anchor_mode` | enum | yes | One of `heading` (markdown/html — GitHub-style anchor, checkable), `pdf-locator` (well-formedness-checkable only, §2.3), `json-pointer` (checkable), `rfc-section` (checkable against cached plain text, §2.5), `c-symbol` (checkable, §2.6). |
 | `last_reviewed` | string (ISO-8601 date) | yes | Date a human last confirmed this entry's hash/URL/license fields are correct — set at registration, updated only by the re-pin workflow (§4), never by `--refresh` alone. |
-| `reviewer` | string | yes | Who performed the last review (an email recorded as durable attribution). |
+| `reviewer` | string | yes | Who performed the last review under the pinned durable-attribution grammar below. |
 | `review_note` | string | yes | Free text, non-empty. What the last review found (or, at registration, "initial registration"). |
 
 Every field is required except `archive_url` and `size_bytes`, with `edition`/`page_count`
@@ -127,6 +127,36 @@ additionally required whenever `anchor_mode` is `pdf-locator` (both are load-bea
 grammar specifically — see §2.3, §4). A missing required field, an unrecognized
 `media_type`/`distribution`/`anchor_mode` token, or an unrecognized `license` token is a hard
 parse failure for the validator: malformed records are never silently skipped.
+
+#### Reviewer attribution grammar and normalization
+
+Reviewer attribution uses a deliberately smaller profile than general Internet email. The local
+part is 1–64 ASCII characters in the unquoted dot-atom subset; empty atoms, quoted strings, comments,
+and internationalized local parts are rejected. The domain may contain Unicode, but validation uses
+Python 3.12's built-in `idna` codec to produce lowercase ASCII before policy checks. One trailing DNS
+root separator is accepted and removed after IDNA normalization; multiple trailing dots are rejected. Every DNS
+label must then be 1–63 lowercase ASCII letters, digits, or interior hyphens, and the complete domain
+must be at most 253 characters. This canonicalized domain is the durable stored representation:
+registry validation rejects noncanonical case, Unicode, or root-dot spellings, and the re-pin writer
+stores the canonical form rather than merely using it transiently for validation. The complete
+canonical email is checked again against the 254-character limit after IDNA expansion and root-dot
+removal, before the writer may mutate the registry.
+
+Control, format, surrogate, private-use, unassigned, and explicitly enumerated Unicode
+default-ignorable code points are rejected before IDNA conversion. This prevents invisible-character
+and request-variant spellings from bypassing the normalized-domain policy. Single-label and `.local`
+names, `.invalid`/`.test`/`.example`/`.localhost`, the RFC example domains and all their subdomains,
+bracketed address literals, every numeric IPv4/IPv6 domain, and any domain with an all-numeric final
+label are outside the accepted profile. The numeric-final-label rule also rejects legacy mixed-base
+dotted-address spellings such as `0x7f.0.0.1`. In addition, any one-to-four-component hostname made
+entirely from decimal, zero-prefixed/octal-like, or `0x` hexadecimal numeric tokens (including bare
+`0x`, which legacy URL parsing treats as zero) is rejected,
+covering variants such as `0x7f.0.0.0x1` without relying on one resolver's interpretation. Ordinary
+named labels such as `0x7f.organization.dev` remain admissible.
+Rejecting all address literals is intentional, including non-loopback addresses. The validator does
+not claim that a syntactically plausible public-domain address belongs to a human; it only makes the
+known synthetic/reserved class unrepresentable. `--self-test` is the cache- and network-free
+positive/negative schema control, and the CI linter job invokes it on every push and pull request.
 
 ### 1.3 License vocabulary
 

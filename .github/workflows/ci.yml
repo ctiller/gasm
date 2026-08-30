@@ -78,6 +78,7 @@ jobs:
             --gate check_no_ignored_lean_sources \
             --gate check_verification_authority \
             --gate check_gates \
+            --gate check_reference_reviewer_attribution \
             --gate check_publishable \
             --gate check_licenses \
             --gate check_doc_facade \

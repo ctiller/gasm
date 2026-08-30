@@ -52,6 +52,10 @@ Two modes:
       --reviewer and --review-note: there is no way to bump a hash without
       leaving an attributed trail.
 
+  --self-test
+      Network- and cache-free positive/negative controls for durable reviewer
+      attribution, including a planted registry entry using a reserved domain.
+
 Exit codes (every distinct failure class gets its own, checked in this
 priority order when several apply in one run):
 
@@ -89,10 +93,13 @@ loud failure (exit 3), never a silent fetch-on-demand.
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import re
 import subprocess
 import sys
+import tempfile
+import unicodedata
 import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -183,6 +190,11 @@ LICENSE_VOCAB = {
 }
 DISTRIBUTION_VOCAB = {"unmodified-copy-only", "no-restriction", "attribution-required", "unclear"}
 ANCHOR_MODES = {"heading", "pdf-locator", "json-pointer", "rfc-section", "c-symbol"}
+RESERVED_REVIEWER_DOMAINS = {"example.com", "example.net", "example.org", "localhost"}
+RESERVED_REVIEWER_TLDS = {"example", "invalid", "local", "localhost", "test"}
+REVIEWER_LOCAL_ATOM_RE = re.compile(r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+")
+REVIEWER_DNS_LABEL_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+REVIEWER_LEGACY_NUMERIC_TOKEN_RE = re.compile(r"(?:[0-9]+|0x[0-9a-f]*)")
 
 
 class ValidationFailure(Exception):
@@ -190,6 +202,78 @@ class ValidationFailure(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+def _default_ignorable(codepoint: int) -> bool:
+    return (codepoint == 0x034F or 0x115F <= codepoint <= 0x1160
+            or 0x17B4 <= codepoint <= 0x17B5 or 0x180B <= codepoint <= 0x180F
+            or 0x200B <= codepoint <= 0x200F or 0x202A <= codepoint <= 0x202E
+            or 0x2060 <= codepoint <= 0x206F or codepoint == 0x3164
+            or 0xFE00 <= codepoint <= 0xFE0F or codepoint == 0xFEFF
+            or codepoint == 0xFFA0 or 0xFFF0 <= codepoint <= 0xFFF8
+            or 0x1BCA0 <= codepoint <= 0x1BCA3 or 0x1D173 <= codepoint <= 0x1D17A
+            or 0xE0000 <= codepoint <= 0xE0FFF)
+
+
+def normalize_reviewer_attribution(reviewer: object) -> Tuple[Optional[str], Optional[str]]:
+    """Validates the pinned reviewer-email subset and returns domain-canonicalized attribution."""
+    if not isinstance(reviewer, str):
+        return None, "must be a string email address"
+    if len(reviewer) > 254:
+        return None, "exceeds the 254-character accepted limit"
+    for character in reviewer:
+        codepoint = ord(character)
+        if (unicodedata.category(character) in {"Cc", "Cf", "Cs", "Co", "Cn"}
+                or _default_ignorable(codepoint)):
+            return None, f"contains prohibited control/default-ignorable U+{codepoint:04X}"
+    if reviewer.count("@") != 1:
+        return None, "must contain exactly one ASCII '@' separator"
+    local, domain_input = reviewer.split("@", 1)
+    if not local or len(local) > 64:
+        return None, "local part must contain 1..64 ASCII characters"
+    atoms = local.split(".")
+    if any(not atom or REVIEWER_LOCAL_ATOM_RE.fullmatch(atom) is None for atom in atoms):
+        return None, "local part must use the unquoted ASCII dot-atom subset"
+    if domain_input.startswith("[") or domain_input.endswith("]"):
+        return None, "address-literal domains are outside the accepted attribution profile"
+    try:
+        domain = domain_input.encode("idna").decode("ascii").lower()
+    except (UnicodeError, ValueError):
+        return None, "domain is not valid under Python 3.12 built-in IDNA normalization"
+    if domain.endswith(".."):
+        return None, "normalized domain may have at most one trailing root dot"
+    domain = domain[:-1] if domain.endswith(".") else domain
+    try:
+        ipaddress.ip_address(domain)
+        return None, "numeric IP domains are outside the accepted attribution profile"
+    except ValueError:
+        pass
+    if "." not in domain:
+        return None, f"uses non-public single-label domain '{domain}'"
+    if len(domain) > 253:
+        return None, "normalized domain exceeds 253 ASCII characters"
+    labels = domain.split(".")
+    if any(REVIEWER_DNS_LABEL_RE.fullmatch(label) is None for label in labels):
+        return None, f"normalized domain '{domain}' has a malformed DNS label"
+    if 1 <= len(labels) <= 4 and all(
+            REVIEWER_LEGACY_NUMERIC_TOKEN_RE.fullmatch(label) is not None for label in labels):
+        return None, "legacy numeric host domains are outside the accepted attribution profile"
+    if labels[-1].isdigit():
+        return None, "numeric final DNS labels are outside the accepted attribution profile"
+    if (any(domain == reserved or domain.endswith("." + reserved)
+            for reserved in RESERVED_REVIEWER_DOMAINS)
+            or domain.rsplit(".", 1)[-1] in RESERVED_REVIEWER_TLDS):
+        return None, f"uses reserved/synthetic domain '{domain}'"
+    canonical = f"{local}@{domain}"
+    if len(canonical) > 254:
+        return None, "canonical email exceeds the 254-character accepted limit"
+    return canonical, None
+
+
+def reviewer_attribution_error(reviewer: object) -> Optional[str]:
+    """Returns why a reviewer email is unusable as durable attribution, if anything."""
+    _, error = normalize_reviewer_attribution(reviewer)
+    return error
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +304,14 @@ def load_registry() -> Dict[str, dict]:
         slug = entry["slug"]
         if slug in by_slug:
             raise ValidationFailure(EXIT_SCHEMA_ERROR, f"references.json: duplicate slug '{slug}'.")
+        normalized_reviewer, reviewer_error = normalize_reviewer_attribution(entry["reviewer"])
+        if reviewer_error:
+            raise ValidationFailure(EXIT_SCHEMA_ERROR,
+                f"references.json[{i}] ({slug}): reviewer {reviewer_error}.")
+        if entry["reviewer"] != normalized_reviewer:
+            raise ValidationFailure(EXIT_SCHEMA_ERROR,
+                f"references.json[{i}] ({slug}): reviewer must use canonical stored form "
+                f"'{normalized_reviewer}'.")
         if entry["media_type"] not in MEDIA_TYPE_EXT:
             raise ValidationFailure(EXIT_SCHEMA_ERROR, f"references.json[{i}] ({slug}): unrecognized media_type '{entry['media_type']}'.")
         if entry["anchor_mode"] not in ANCHOR_MODES:
@@ -610,12 +702,32 @@ def run_refresh(args) -> int:
     return worst
 
 
+def _set_repin_metadata(raw: list, slug: str, actual: str, today: str,
+                        reviewer: object, review_note: str) -> str:
+    """Updates re-pin metadata and returns the canonical reviewer written to the registry."""
+    normalized_reviewer, reviewer_error = normalize_reviewer_attribution(reviewer)
+    if reviewer_error or normalized_reviewer is None:
+        raise ValueError(reviewer_error or "reviewer normalization failed")
+    for entry in raw:
+        if entry["slug"] == slug:
+            entry["sha256"] = actual
+            entry["fetched_date"] = today
+            entry["last_reviewed"] = today
+            entry["reviewer"] = normalized_reviewer
+            entry["review_note"] = review_note
+    return normalized_reviewer
+
+
 def run_acknowledge_drift(args) -> int:
     if not args.reviewer or not args.review_note:
         print("[!] --acknowledge-drift requires --reviewer and --review-note.")
         return EXIT_BAD_ARGS
     if not args.slug:
         print("[!] --acknowledge-drift requires --slug.")
+        return EXIT_BAD_ARGS
+    normalized_reviewer, reviewer_error = normalize_reviewer_attribution(args.reviewer)
+    if reviewer_error:
+        print(f"[!] --acknowledge-drift reviewer {reviewer_error}.")
         return EXIT_BAD_ARGS
     try:
         registry = load_registry()
@@ -640,17 +752,113 @@ def run_acknowledge_drift(args) -> int:
     import datetime
     today = datetime.date.today().isoformat()
     raw = json.loads(REFERENCES_JSON.read_text(encoding="utf-8"))
-    for e in raw:
-        if e["slug"] == args.slug:
-            e["sha256"] = actual
-            e["fetched_date"] = today
-            e["last_reviewed"] = today
-            e["reviewer"] = args.reviewer
-            e["review_note"] = args.review_note
+    _set_repin_metadata(raw, args.slug, actual, today, normalized_reviewer, args.review_note)
     REFERENCES_JSON.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cache_path_for(entry).write_bytes(data)
-    print(f"[+] Re-pinned '{args.slug}': sha256={actual}, reviewer={args.reviewer}. references.json and cache updated.")
+    print(f"[+] Re-pinned '{args.slug}': sha256={actual}, reviewer={normalized_reviewer}. references.json and cache updated.")
+    return EXIT_OK
+
+
+def run_self_test() -> int:
+    global REFERENCES_JSON
+    idna_expanding_overlong = "a" * 64 + "@" + ".".join(["ü" * 57] * 3)
+    positive = {
+        "craig.tiller@gmail.com": "craig.tiller@gmail.com",
+        "Person+refs@Team.Company.": "Person+refs@team.company",
+        "person@bücher.de": "person@xn--bcher-kva.de",
+        "person@bücher.de。": "person@xn--bcher-kva.de",
+        "person@0x7f.organization.dev": "person@0x7f.organization.dev",
+    }
+    negative = {
+        "codex.graphics@local.invalid": "reserved/synthetic domain",
+        "reviewer@project.test": "reserved/synthetic domain",
+        "reviewer@example.com": "reserved/synthetic domain",
+        "person@sub.example.com": "reserved/synthetic domain",
+        "person@ｅｘａｍｐｌｅ.com": "reserved/synthetic domain",
+        "person@exam\u200bple.com": "control/default-ignorable",
+        "reviewer@machine": "single-label domain",
+        "reviewer@workstation.local": "reserved/synthetic domain",
+        "person@127.0.0.1": "numeric IP domains",
+        "person@127.000.000.001": "legacy numeric host domains",
+        "person@foo.123": "numeric final DNS labels",
+        "person@0x7f.0.0.1": "legacy numeric host domains",
+        "person@0x7f.0.0.01": "legacy numeric host domains",
+        "person@0x7f.0.0.0x1": "legacy numeric host domains",
+        "person@0x7f.0x0.0x0.0x1": "legacy numeric host domains",
+        "person@127.0.0x1": "legacy numeric host domains",
+        "person@0x7f.0x1": "legacy numeric host domains",
+        "person@0x.0.0.0x1": "legacy numeric host domains",
+        "person@0.0.0.0x": "legacy numeric host domains",
+        "person@0x.0x.0x.0x": "legacy numeric host domains",
+        "person@0x7f.0.0.0x": "legacy numeric host domains",
+        "person@[127.0.0.1]": "address-literal domains",
+        "person@[::1]": "address-literal domains",
+        "person@192.0.2.1": "numeric IP domains",
+        "person@-bad.example.dev": "malformed DNS label",
+        "person@bad-.example.dev": "malformed DNS label",
+        "person@bad..example.dev": "IDNA normalization",
+        '"person"@organization.dev': "unquoted ASCII dot-atom",
+        "pérson@organization.dev": "unquoted ASCII dot-atom",
+        "a..b@organization.dev": "unquoted ASCII dot-atom",
+        "not-an-email": "exactly one ASCII '@'",
+        17: "string email address",
+        idna_expanding_overlong: "canonical email exceeds",
+    }
+    failures = []
+    for reviewer, expected in positive.items():
+        normalized, error = normalize_reviewer_attribution(reviewer)
+        if error is not None or normalized != expected:
+            failures.append(f"positive {reviewer!r}: normalized={normalized!r}, error={error!r}")
+    for reviewer, expected_fragment in negative.items():
+        error = reviewer_attribution_error(reviewer)
+        if error is None or expected_fragment not in error:
+            failures.append(f"negative {reviewer!r}: error={error!r}, expected {expected_fragment!r}")
+    writer_control = [{"slug": "writer-control", "reviewer": "old@example.dev"}]
+    written = _set_repin_metadata(
+        writer_control, "writer-control", "a" * 64, "2026-08-30",
+        "Person+refs@BÜCHER.DE。", "writer canonicalization control")
+    if written != "Person+refs@xn--bcher-kva.de" or writer_control[0]["reviewer"] != written:
+        failures.append(
+            f"production writer failed to persist canonical reviewer: {writer_control!r}, {written!r}")
+    rejected_writer_control = [{"slug": "writer-control", "reviewer": "unchanged@organization.dev"}]
+    try:
+        _set_repin_metadata(
+            rejected_writer_control, "writer-control", "b" * 64, "2026-08-30",
+            idna_expanding_overlong, "writer overlength control")
+        failures.append("production writer accepted an IDNA-expanded reviewer over 254 characters")
+    except ValueError as error:
+        if "canonical email exceeds" not in str(error):
+            failures.append(f"production writer rejected overlength reviewer for wrong reason: {error}")
+        if rejected_writer_control[0]["reviewer"] != "unchanged@organization.dev":
+            failures.append("production writer mutated registry before rejecting overlength reviewer")
+    original_path = REFERENCES_JSON
+    try:
+        # Positive integration control: the repository's real registry reaches the new schema check.
+        load_registry()
+        with tempfile.TemporaryDirectory(prefix="gasm-reference-reviewer-") as directory:
+            planted_path = Path(directory) / "references.json"
+            planted_controls = list(negative.items())
+            for planted_reviewer, expected_fragment in planted_controls:
+                planted = json.loads(original_path.read_text(encoding="utf-8"))
+                planted[0]["reviewer"] = planted_reviewer
+                planted_path.write_text(json.dumps(planted), encoding="utf-8")
+                REFERENCES_JSON = planted_path
+                try:
+                    load_registry()
+                    failures.append(f"planted reviewer {planted_reviewer!r} passed full registry validation")
+                except ValidationFailure as failure:
+                    if failure.code != EXIT_SCHEMA_ERROR or expected_fragment not in failure.message:
+                        failures.append(f"planted reviewer failed for wrong reason: {failure.message}")
+    except (OSError, ValueError, ValidationFailure) as failure:
+        failures.append(f"positive registry control failed: {failure}")
+    finally:
+        REFERENCES_JSON = original_path
+    if failures:
+        for failure in failures:
+            print(f"[!] reviewer-attribution self-test: {failure}")
+        return EXIT_SCHEMA_ERROR
+    print("[+] reviewer-attribution self-test: positive and negative controls passed.")
     return EXIT_OK
 
 
@@ -664,8 +872,12 @@ def main() -> int:
     parser.add_argument("--all", action="store_true", help="Target every registered slug (--refresh).")
     parser.add_argument("--reviewer", help="Reviewer email (--acknowledge-drift).")
     parser.add_argument("--review-note", help="Free-text review note (--acknowledge-drift).")
+    parser.add_argument("--self-test", action="store_true",
+                        help="Run positive/negative reviewer-attribution controls without network or cache.")
     args = parser.parse_args()
 
+    if args.self_test:
+        return run_self_test()
     if args.acknowledge_drift:
         return run_acknowledge_drift(args)
     if args.refresh:

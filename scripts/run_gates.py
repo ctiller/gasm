@@ -577,6 +577,13 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "the recorded pin, and its anchor resolves. Network-free; requires a warm local "
                  "cache at .cache/references/ (populate first with --refresh --slug/--corpus/--all).",
          "cmd": [py, "scripts/check_references.py", "--offline"], "slow": False, "tools": ["python"], "depends_on": []},
+        {"key": "check_reference_reviewer_attribution",
+         "desc": "python scripts/check_references.py --self-test",
+         "group": "linters",
+         "long": "Law 13 cache/network-free positive and planted-negative schema controls for the "
+                 "pinned durable reviewer-attribution grammar and normalization policy",
+         "cmd": [py, "scripts/check_references.py", "--self-test"], "slow": False,
+         "tools": ["python"], "depends_on": []},
         {"key": "check_publishable", "desc": "python scripts/check_publishable.py",
          "group": "linters",
          "long": "Pre-flatten publishability gate: zero third-party prose under references/ (owner "
