@@ -299,25 +299,27 @@ theorem refines
     {exitKind : target.ExitKind}
     {physicalAfter : target.PhysicalState}
     (runs : target.runs
-      call.boundary.realization.artifact
+      exports.artifact
       call.boundary.realization.implementation
       call.boundary.realization.signature
       call.boundary.realization.entryKind
-      (loadCallState call.boundary.realization.artifact site)
+      (loadCallState exports.artifact site)
       execution exitKind physicalAfter) :
     ∃ result outcome logicalAfter,
       call.boundary.realization.relatesExit
-        (loadCallState call.boundary.realization.artifact site)
+        (loadCallState exports.artifact site)
         execution exitKind physicalAfter result outcome logicalAfter ∧
       spec.transitions call.boundary.key
         (call.established.args site)
         (call.established.binding site)
         result outcome
-        (call.established.world site) logicalAfter :=
-  call.boundary.realization.refinesContract
-    (call.established.related site)
-    (call.established.requirementsHeld site)
-    runs
+        (call.established.world site) logicalAfter := by
+  have artifactEq := realization_artifact_eq call
+  have related := call.established.related site
+  have refined := call.boundary.realization.refinesContract
+    related (call.established.requirementsHeld site)
+    (by simpa [artifactEq] using runs)
+  simpa [artifactEq] using refined
 
 end VerifiedBoundaryCall
 
