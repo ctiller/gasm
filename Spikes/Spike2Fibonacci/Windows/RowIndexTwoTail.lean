@@ -20,6 +20,11 @@ opaque spike2_two_digit_tail_slice (state : X86_64MachineState)
     certificate := tailPrefix
     registers := tailFrame
     lowMemory := tailLow
+    rip := by
+      unfold spike2AfterTwoDigitIndex
+      change state.rip + 5 + 5 + 5 + 5 + 5 = 5368713409
+      rw [hrip]
+      rfl
     cursorAboveStack := by
       rw [tailFrame.rsp, spike2_two_digit_cursor, rsp, spike2_after_prologue_rsp_eq]
       decide

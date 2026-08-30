@@ -19,6 +19,7 @@ structure Spike2CursorSliceResult (initial : X86_64MachineState)
     initial eventsRev final eventsRev []
   registers : Spike2RowRegisterFrame initial final
   lowMemory : Spike2RowLowMemory final
+  rip : final.rip = 5368713409
   cursorAboveStack : final.rsp.toNat ≤ (final.gprs .rdi).toNat
   cursorAbove : spike2RowLowMemoryTop ≤ (final.gprs .rdi).toNat
   cursorRoom : (final.gprs .rdi).toNat + 22 < 2 ^ 64
@@ -69,6 +70,12 @@ opaque spike2_one_digit_slice (completed : Nat) (state : X86_64MachineState)
     certificate := headerPrefix.append indexPrefix
     registers := headerFrame.trans indexFrame
     lowMemory := indexLow
+    rip := by
+      unfold spike2AfterOneDigitIndex
+      change header.rip + 3 + 4 + 5 + 2 + 5 + 5 + 5 + 5 + 5 + 2 +
+        signExtend8To64 65 = 5368713409
+      rw [headerRip]
+      rfl
     cursorAboveStack := by
       rw [indexFrame.rsp, spike2_one_digit_cursor, headerRsp,
         spike2_after_prologue_rsp_eq]
