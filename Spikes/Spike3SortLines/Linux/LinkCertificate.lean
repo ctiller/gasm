@@ -37,22 +37,27 @@ open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.MacroAssembler
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- The rejected reservation still asks the OS for the normal 64 KiB arena.  Zero is the caller's
+    grant, not the emitted request length: using a zero-length `mmap` artifact here would prove a
+    different (and invalid) failure path from the one selected by `noNativeArenaGrant`. -/
+def spike3NoGrantReservationBytes : UInt32 := 65536
+
 /-- The source prefix preceding the dedicated resource-failure label.  The fixed list boundary is
     checked by `spike3_no_grant_source_resource_decomposition`, so source edits cannot silently
     retarget this certificate. -/
 def spike3NoGrantSourceBeforeResource : List SymbolicInstr :=
-  (spike3SymbolicProgramWithArena 0).take 326
+  (spike3SymbolicProgramWithArena spike3NoGrantReservationBytes).take 326
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- The source suffix following the labelled resource-failure fragment. -/
 def spike3NoGrantSourceAfterResource : List SymbolicInstr :=
-  (spike3SymbolicProgramWithArena 0).drop 330
+  (spike3SymbolicProgramWithArena spike3NoGrantReservationBytes).drop 330
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- The actual source program has the resource fragment at this exact structural splice.  Changes
     to source order fail this theorem rather than silently retargeting the failure proof. -/
 theorem spike3_no_grant_source_resource_decomposition :
-    spike3SymbolicProgramWithArena 0 =
+    spike3SymbolicProgramWithArena spike3NoGrantReservationBytes =
       spike3NoGrantSourceBeforeResource ++ spike3ResourceExhaustedSegment ++
         spike3NoGrantSourceAfterResource := by
   rfl
@@ -69,16 +74,17 @@ def spike3ResourceFailureInstructions : List X86_64Instr := [
 /-- The exact static link invocation used by the certificate.  The data-symbol list is included so
     this cannot be mistaken for a certificate for the same source under another link environment. -/
 theorem spike3_no_grant_resource_link_invocation :
-    spike3LinkedWithArena 0 =
-      linkLinuxProgramStatic (spike3SymbolicProgramWithArena 0) [("crlfBytes", crlfBytes)] :=
+    spike3LinkedWithArena spike3NoGrantReservationBytes =
+      linkLinuxProgramStatic (spike3SymbolicProgramWithArena spike3NoGrantReservationBytes)
+        [("crlfBytes", crlfBytes)] :=
   rfl
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- The selected final artifact's text is exactly the serialization of the instruction list used
     by the production evaluator.  This is by construction of this specific static-link operation. -/
 theorem spike3_no_grant_resource_exact_text :
-    (spike3ExecutableWithArena 0).textBytes =
-      serializeInstructions (spike3InstructionsWithArena 0) := by
+    (spike3ExecutableWithArena spike3NoGrantReservationBytes).textBytes =
+      serializeInstructions (spike3InstructionsWithArena spike3NoGrantReservationBytes) := by
   rfl
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
@@ -86,7 +92,7 @@ theorem spike3_no_grant_resource_exact_text :
     Its fixed value is a checked consequence of the complete symbolic source decomposition, not a
     hand-maintained native address. -/
 def spike3NoGrantResourceFailureBase : UInt64 :=
-  let program := spike3SymbolicProgramWithArena 0
+  let program := spike3SymbolicProgramWithArena spike3NoGrantReservationBytes
   let estTextSize := (program.map estimatedSize).foldl (· + ·) 0
   let (_, rodataBytesEst) := layoutDataSection 0 [("crlfBytes", crlfBytes)]
   let shstrtabSize := (buildShStrTab [".text", ".rodata", ".shstrtab"]).1.size
@@ -104,7 +110,7 @@ theorem spike3_no_grant_resource_failure_base :
     to the computed prefix offset.  This makes the source-level splice and the concrete address
     meet at the same linker symbol, rather than merely sharing a hand-written number. -/
 theorem spike3_no_grant_resource_label_resolves :
-    let program := spike3SymbolicProgramWithArena 0
+    let program := spike3SymbolicProgramWithArena spike3NoGrantReservationBytes
     let estTextSize := (program.map estimatedSize).foldl (· + ·) 0
     let (_, rodataBytesEst) := layoutDataSection 0 [("crlfBytes", crlfBytes)]
     let shstrtabSize := (buildShStrTab [".text", ".rodata", ".shstrtab"]).1.size
@@ -116,16 +122,16 @@ theorem spike3_no_grant_resource_label_resolves :
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- The exact production index of the artifact from the selected link invocation. -/
 def spike3NoGrantResourceArtifactIndex : List (UInt64 × X86_64Instr) :=
-  indexInstructions (spike3ExecutableWithArena 0).load.rip
-    (spike3InstructionsWithArena 0)
+  indexInstructions (spike3ExecutableWithArena spike3NoGrantReservationBytes).load.rip
+    (spike3InstructionsWithArena spike3NoGrantReservationBytes)
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- The complete encoded instruction span remains within the UInt64 address space from the exact
     loader entry point.  The separate address-uniqueness theorem below is therefore not silently
     relying on modular wraparound. -/
 theorem spike3_no_grant_resource_index_no_wrap :
-    (spike3ExecutableWithArena 0).load.rip.toNat +
-      ((spike3InstructionsWithArena 0).map
+    (spike3ExecutableWithArena spike3NoGrantReservationBytes).load.rip.toNat +
+      ((spike3InstructionsWithArena spike3NoGrantReservationBytes).map
         (fun instruction => (X86_64Instruction.encode instruction).size)).sum < 2 ^ 64 := by
   decide
 
