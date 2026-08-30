@@ -73,6 +73,7 @@ import Gasm.Targets.X86_64.CFGLinker
 import Gasm.Targets.X86_64.EventfulSegment
 import Gasm.Targets.X86_64.DecimalSegments
 import Gasm.Targets.X86_64.DecimalSchedule
+import Gasm.Targets.X86_64.DecimalMacro
 import Gasm.Targets.X86_64.VerifiedProgramCFG
 import Gasm.Targets.X86_64.HardwareHarness
 import Gasm.Targets.X86_64.SemanticsFuzzer

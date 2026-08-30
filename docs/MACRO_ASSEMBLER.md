@@ -168,6 +168,21 @@ branch-target facts without changing the selected pass relation. The module is n
 execution, export, or `VerifiedProgram` certificate. Portable decimal-schedule correctness and
 bounded multi-pass composition remain separate layers.
 
+`Gasm.Targets.X86_64.DecimalMacro` moves the stable decimal invariant one step farther away from
+layout. `MachineData` omits RIP, while `ExtractionPoint` and `WritePoint` give every local
+instruction and fallthrough boundary a nominal coordinate. `LinkedLayout` is the single final-link
+refinement: it assigns injective addresses and proves exact production lookup, serialized bytes,
+whole-text coverage/non-wrapping, and every ordinary successor address. The extraction/write
+specializations additionally prove the selected rel8 JNE's taken target and false fallthrough.
+Relayout replaces only this refinement. Runtime-only selector/interceptor facts remain indexed by
+the reachable state; `toSelectedPass` combines those facts with the linked layout and existing
+safety laws to construct the accepted `DecimalSchedule` pass rather than a parallel execution API.
+
+This first symbolic-PC slice deliberately selects no RIP-as-data instruction, CALL/return-address
+behavior, external call, or syscall. Selecting one later requires its own semantic, ABI/return,
+interceptor/event, and obligation-transfer evidence. The relative branch is selected now, so its
+two address refinements are mandatory rather than inferred from a coincidental dynamic RIP.
+
 ## Microsoft x64 staged platform adapter
 
 `MicrosoftX64StraightLinePlacement` indexes the compiler's `LocalCertificate` by an exact Windows
