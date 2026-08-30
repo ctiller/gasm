@@ -360,6 +360,29 @@ theorem selectedExecutionTerminates_of_processExit {Event : Type}
   rw [certificate.selectedExecutionTerminates_run 1]
   simp [selectedExecutionTerminates, lookup, selectedAt, exits]
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- A selected typed process exit remains terminal when the caller supplies unused fuel after the
+    exit transition.  This lets a structurally composed prefix discharge a production artifact's
+    fixed fuel budget without padding the certified instruction stream. -/
+theorem selectedExecutionTerminates_of_processExit_with_slack {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {allowHalted : Bool} {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {fuel : Nat}
+    {initial final : X86_64MachineState} {initialEventsRev finalEventsRev emitted : List Event}
+    (certificate : SelectedPrefix selected indexed fuel initial initialEventsRev final finalEventsRev emitted)
+    {instruction : X86_64Instr} {code : UInt32}
+    (lookup : instructionAtRipIndexed indexed final.rip = some instruction)
+    (selectedAt : selected (X86_64Instruction.step instruction final).rip
+      (X86_64Instruction.step instruction final) = true)
+    (exits : (nativeOutcomeTransition (Event := Event) instruction final []).1.fault =
+      some (.processExit code))
+    (slack : Nat) :
+    selectedExecutionTerminates (Event := Event) allowHalted selected indexed
+      (fuel + 1 + slack) initial = true := by
+  rw [show fuel + 1 + slack = fuel + (slack + 1) by omega]
+  rw [certificate.selectedExecutionTerminates_run (slack + 1)]
+  simp [selectedExecutionTerminates, lookup, selectedAt, exits]
+
 end SelectedPrefix
 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
