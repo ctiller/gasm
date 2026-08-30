@@ -190,6 +190,11 @@ def NativeRunOutcome.observable : NativeRunOutcome Event → NativeObservable Ev
   | .faulted _ emitted => .faulted emitted
   | .fuelExhausted _ emitted => .fuelExhausted emitted
 
+/-- The event payload remains available for diagnostics, but its stop classification is never
+    discarded by this projection. -/
+def NativeObservable.events : NativeObservable Event → List Event
+  | .returned emitted | .halted emitted | .faulted emitted | .fuelExhausted emitted => emitted
+
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- One production native transition, including selected host interception and event accumulation. -/
 def nativeOutcomeTransition {Event : Type}
@@ -407,6 +412,11 @@ def NativeRunOutcome.withExternalInputs (stdin : ByteArray) (requests : List Byt
 @[simp] theorem NativeRunOutcome.withExternalInputs_events
     (outcome : NativeRunOutcome Event) (stdin : ByteArray) (requests : List ByteArray) :
     (outcome.withExternalInputs stdin requests).events = outcome.events := by
+  cases outcome <;> rfl
+
+@[simp] theorem NativeRunOutcome.withExternalInputs_observable
+    (outcome : NativeRunOutcome Event) (stdin : ByteArray) (requests : List ByteArray) :
+    (outcome.withExternalInputs stdin requests).observable = outcome.observable := by
   cases outcome <;> rfl
 
 @[simp] theorem NativeRunOutcome.withExternalInputs_isAdmissible
