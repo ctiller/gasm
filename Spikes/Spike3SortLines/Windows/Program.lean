@@ -156,10 +156,9 @@ def spike3SymbolicProgramWithArena (arenaBytes : UInt32) : List SymbolicInstr :=
   instr (movzx_r64_mem8 .rax .rsi 0),
   instr (cmp_r64_imm8 .rax 0x0A), -- '\n'
   je_near_label "handle_newline",
-  instr (cmp_r64_imm8 .rax 0x0D), -- '\r'
-  je_near_label "handle_cr",
 
-  -- Regular character: check if lineBuf needs dynamic growth
+  -- Every non-LF byte, including CR, is line data.  The LF path below removes
+  -- one immediately preceding CR, matching the shared byte-stream contract.
   instr (mov_reg64_mem64_disp .rcx .rsp 0x60), -- lineBufLen
   instr (mov_reg64_mem64_disp .rdx .rsp 0x68), -- lineBufCap
   instr (cmp_r64 .rcx .rdx),
@@ -208,65 +207,22 @@ def spike3SymbolicProgramWithArena (arenaBytes : UInt32) : List SymbolicInstr :=
   instr (add_r64_imm8 .rsi 1),
   jmp_near_label "chunk_scan_loop",
 
-  label "handle_cr",
-  instr (add_r64_imm8 .rsi 1), -- advance past '\r'
-  -- Allocate string: smol_malloc(lineBufLen + 1)
-  instr (mov_reg64_mem64_disp .rdx .rsp 0x60), -- rdx = lineBufLen
-  instr (mov_r64 .rcx .rdx),
-  instr (add_r64_imm8 .rcx 1),
-  instr (mov_mem64_disp .rsp 0x28 .rdx),       -- save len at [rsp + 0x28]
-  call_label "smol_malloc",
-  instr (cmp_r64_imm8 .rax 0),
-  je_near_label "resource_exhausted",
-  instr (mov_reg64_mem64_disp .rdx .rsp 0x28), -- rdx = lineLen
-  instr (mov_reg64_mem64_disp .rbx .rsp 0x58), -- rbx = lineBufPtr
-  -- Copy bytes:
-  instr (xor_r32 .ecx .ecx),
-  label "copy_cr_loop",
-  instr (cmp_r64 .rcx .rdx),
-  jge_near_label "copy_cr_done",
-  instr (mov_r64 .r8 .rbx),
-  instr (add_r64 .r8 .rcx),
-  instr (movzx_r64_mem8 .r8 .r8 0),
-  instr (mov_r64 .r9 .rax),
-  instr (add_r64 .r9 .rcx),
-  instr (mov_mem8 .r9 .r8),
-  instr (add_r64_imm8 .rcx 1),
-  jmp_near_label "copy_cr_loop",
-
-  label "copy_cr_done",
-  -- Allocate LineNode (24 bytes):
-  instr (mov_mem64_disp .rsp 0x28 .rax), -- save strPtr
-  instr (mov_r32 .ecx 24),
-  call_label "smol_malloc",
-  instr (cmp_r64_imm8 .rax 0),
-  je_near_label "resource_exhausted",
-  instr (mov_reg64_mem64_disp .r8 .rsp 0x28),  -- r8 = strPtr
-  instr (mov_reg64_mem64_disp .rdx .rsp 0x60), -- rdx = lineLen
-  instr (mov_mem64_disp .rax 0 .r8),           -- [node + 0] = strPtr
-  instr (mov_mem64_disp .rax 8 .rdx),          -- [node + 8] = lineLen
-  instr (mov_reg64_mem64_disp .r9 .rsp 0x38),  -- r9 = old headNode
-  instr (mov_mem64_disp .rax 16 .r9),          -- [node + 16] = nextNode
-  instr (mov_mem64_disp .rsp 0x38 .rax),       -- headNode = node
-
-  -- Increment lineCount:
-  instr (mov_reg64_mem64_disp .rax .rsp 0x30),
-  instr (add_r64_imm8 .rax 1),
-  instr (mov_mem64_disp .rsp 0x30 .rax),
-  -- Reset lineBufLen:
-  instr (mov_mem64_disp_imm .rsp 0x60 0),
-
-  -- If next byte in chunk is '\n', skip it:
-  instr (cmp_r64 .rsi .rdi),
-  jge_near_label "chunk_scan_loop",
-  instr (movzx_r64_mem8 .rax .rsi 0),
-  instr (cmp_r64_imm8 .rax 0x0A),
-  jne_near_label "chunk_scan_loop",
-  instr (add_r64_imm8 .rsi 1),
-  jmp_near_label "chunk_scan_loop",
-
   label "handle_newline",
   instr (add_r64_imm8 .rsi 1), -- advance past '\n'
+  -- CR is removed only at the CRLF boundary.  A lone or interior CR was
+  -- appended above and remains part of the record.
+  instr (mov_reg64_mem64_disp .rdx .rsp 0x60),
+  instr (cmp_r64_imm8 .rdx 0),
+  je_near_label "newline_trim_done",
+  instr (mov_reg64_mem64_disp .r8 .rsp 0x58),
+  instr (add_r64 .r8 .rdx),
+  instr (sub_r64_imm8 .r8 1),
+  instr (movzx_r64_mem8 .rax .r8 0),
+  instr (cmp_r64_imm8 .rax 0x0D),
+  jne_near_label "newline_trim_done",
+  instr (sub_r64_imm8 .rdx 1),
+  instr (mov_mem64_disp .rsp 0x60 .rdx),
+  label "newline_trim_done",
   -- Allocate string: smol_malloc(lineBufLen + 1)
   instr (mov_reg64_mem64_disp .rdx .rsp 0x60), -- rdx = lineBufLen
   instr (mov_r64 .rcx .rdx),

@@ -24,15 +24,29 @@ namespace Spikes.Spike3SortLines
 
 open Gasm.Effects
 
+/-- An interior CR is data; only a CR immediately followed by LF is trimmed.  This regression
+    prevents the native streamers from reintroducing their former standalone-CR delimiter path. -/
+def nativeInteriorCrInput : ByteArray := "a\rb\n".toUTF8
+
+def nativeInteriorCrExpected : List AnyEvent :=
+  [AnyEvent.of (ConsoleEvent.out "a\rb"),
+   AnyEvent.of (ConsoleEvent.out "\r\n"),
+   AnyEvent.of (ProcessEvent.exit 0)]
+
 /-- Literal operational probes remain outside the proof surface.  They exercise rejected and
-    sufficient reservations with the same empty stdin on both native targets. -/
+    sufficient reservations with the same empty stdin on both native targets, plus the shared
+    arbitrary-byte CRLF boundary contract. -/
 def nativeResourceRegressionPassed : Bool :=
   emittedSpike3ResourceFailure (runSpike3LinuxWithGrant noNativeArenaGrant ByteArray.empty 30) &&
   ((runSpike3LinuxWithGrant spike3NativeReservationGrant ByteArray.empty 200).events ==
     [AnyEvent.of (ProcessEvent.exit 0)]) &&
   emittedSpike3ResourceFailure (runSpike3WindowsWithGrant noNativeArenaGrant ByteArray.empty 30) &&
   ((runSpike3WindowsWithGrant spike3NativeReservationGrant ByteArray.empty 220).events ==
-    [AnyEvent.of (ProcessEvent.exit 0)])
+    [AnyEvent.of (ProcessEvent.exit 0)]) &&
+  ((runSpike3LinuxWithGrant spike3NativeReservationGrant nativeInteriorCrInput 5000).events ==
+    nativeInteriorCrExpected) &&
+  ((runSpike3WindowsWithGrant spike3NativeReservationGrant nativeInteriorCrInput 5000).events ==
+    nativeInteriorCrExpected)
 
 end Spikes.Spike3SortLines
 
