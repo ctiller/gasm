@@ -52,6 +52,25 @@ private theorem decimalAuthority_afterMovMem8 (state : X86_64MachineState)
     writeNoWrap above
   exact written.transportRead64 _ _ (by intro; rfl)
 
+private theorem rowCodeAuthority_afterMovRax (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state) (value : UInt64) :
+    Spike2RowCodeAuthority (X86_64Instruction.step (mov_r64_imm64 .rax value) state) :=
+  authority.transportRead64 state _ (by intro; rfl)
+
+private theorem rowCodeAuthority_afterAddRdi (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state) (value : UInt8) :
+    Spike2RowCodeAuthority (X86_64Instruction.step (add_r64_imm8 .rdi value) state) :=
+  authority.transportRead64 state _ (by intro; rfl)
+
+private theorem rowCodeAuthority_afterMovMem8 (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state)
+    (writeNoWrap : (state.gprs .rdi).toNat + 1 ≤ 2 ^ 64)
+    (above : spike2RowLinkedTextUpper ≤ (state.gprs .rdi).toNat) :
+    Spike2RowCodeAuthority (X86_64Instruction.step (mov_mem8 .rdi .rax) state) := by
+  have written := authority.afterWrite8 state (state.gprs .rdi) (state.gprs .rax).toUInt8
+    writeNoWrap above
+  exact written.transportRead64 _ _ (by intro; rfl)
+
 /-- The first tail byte write preserves decimal text authority. -/
 theorem decimalAuthority_afterCarriageReturn {predecessor : X86_64MachineState}
     (authority : Spike2DecimalTextAuthority (afterWrite predecessor))
@@ -75,6 +94,20 @@ theorem decimalAuthority_afterLineTerminator {predecessor : X86_64MachineState}
   have feed := decimalAuthority_afterMovMem8 _ beforeFeed physical.lineFeedNoWrap
     (decimalTextBelowRowText physical.lineFeedAbove)
   exact decimalAuthority_afterAddRdi _ feed 1
+
+/-- CR/LF preserves every bounded linked row-code observation. -/
+theorem rowCodeAuthority_afterLineTerminator {predecessor : X86_64MachineState}
+    (authority : Spike2RowCodeAuthority (afterWrite predecessor))
+    (physical : TailAuthorityFrame predecessor) :
+    Spike2RowCodeAuthority (afterLineTerminator predecessor) := by
+  have loaded := rowCodeAuthority_afterMovRax (afterWrite predecessor) authority 13
+  have carriage := rowCodeAuthority_afterMovMem8 _ loaded physical.carriageNoWrap
+    physical.carriageAbove
+  have beforeFeed := rowCodeAuthority_afterMovRax _
+    (rowCodeAuthority_afterAddRdi _ carriage 1) 10
+  have feed := rowCodeAuthority_afterMovMem8 _ beforeFeed physical.lineFeedNoWrap
+    physical.lineFeedAbove
+  exact rowCodeAuthority_afterAddRdi _ feed 1
 
 end Row8Parametric
 

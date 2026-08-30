@@ -43,6 +43,40 @@ private theorem decimalTextBelowRowText {address : Nat}
   unfold spike2RowLinkedTextUpper at above
   omega
 
+private theorem Spike2RowCodeAuthority.afterExtractionPass {Event : Type}
+    [ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {backDisp : UInt8} {stackLower : UInt64}
+    {initial : X86_64MachineState}
+    (authority : Spike2RowCodeAuthority initial)
+    (pass : SelectedExtractionPass (Event := Event) selected indexed backDisp stackLower initial)
+    (writeNoWrap : (initial.rsp - 8).toNat + 8 ≤ 2 ^ 64)
+    (above : spike2RowLinkedTextUpper ≤ (initial.rsp - 8).toNat) :
+    Spike2RowCodeAuthority (extractionFinal backDisp initial) := by
+  constructor
+  intro address within
+  rw [spike2_extraction_pass_preserves_text_read64 pass address writeNoWrap]
+  · exact authority.ordinary address within
+  · unfold spike2RowLinkedTextUpper at within above
+    omega
+
+private theorem Spike2RowCodeAuthority.afterWritePass {Event : Type}
+    [ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {backDisp : UInt8}
+    {stackUpper outputLimit : UInt64} {initial : X86_64MachineState}
+    (authority : Spike2RowCodeAuthority initial)
+    (pass : SelectedWritePass (Event := Event) selected indexed backDisp stackUpper outputLimit initial)
+    (writeNoWrap : (initial.gprs .rdi).toNat + 1 ≤ 2 ^ 64)
+    (above : spike2RowLinkedTextUpper ≤ (initial.gprs .rdi).toNat) :
+    Spike2RowCodeAuthority (writeFinal backDisp initial) := by
+  constructor
+  intro address within
+  rw [spike2_write_pass_preserves_text_read64 pass address writeNoWrap]
+  · exact authority.ordinary address within
+  · unfold spike2RowLinkedTextUpper at within above
+    omega
+
 /-- The accepted `Spike2DecimalTextAuthority` advances across the first extraction pass. -/
 theorem decimalAuthority_afterExtractionFirst {predecessor : X86_64MachineState}
     (formatter : FormatterFrame predecessor)
@@ -91,6 +125,50 @@ theorem decimalAuthority_afterFormatter {predecessor : X86_64MachineState}
     formatter.writeSecondExecution formatter.writeSecondOrdinary formatter.writeSecondBranch
   exact first.afterWrite pass physical.writeSecondNoWrap
     (decimalTextBelowRowText physical.writeSecondAbove)
+
+theorem rowCodeAuthority_afterExtractionFirst {predecessor : X86_64MachineState}
+    (formatter : FormatterFrame predecessor)
+    (physical : FormatterAuthorityFrame predecessor) :
+    Spike2RowCodeAuthority (afterExtractionFirst predecessor) := by
+  have pass := spike2ExtractionLinkedLayout_selectedPass
+    (afterValueSetup predecessor) formatter.extractionFirstEntry
+    formatter.extractionFirstSafety formatter.extractionFirstExecution
+    formatter.extractionFirstOrdinary formatter.extractionFirstBranch
+  exact physical.rowCodeEntry.afterExtractionPass pass physical.extractionFirstNoWrap
+    physical.extractionFirstAbove
+
+theorem rowCodeAuthority_afterExtraction {predecessor : X86_64MachineState}
+    (formatter : FormatterFrame predecessor)
+    (physical : FormatterAuthorityFrame predecessor) :
+    Spike2RowCodeAuthority (afterExtraction predecessor) := by
+  have first := rowCodeAuthority_afterExtractionFirst formatter physical
+  have pass := spike2ExtractionLinkedLayout_selectedPass
+    (afterExtractionFirst predecessor) formatter.extractionSecondEntry
+    formatter.extractionSecondSafety formatter.extractionSecondExecution
+    formatter.extractionSecondOrdinary formatter.extractionSecondBranch
+  exact first.afterExtractionPass pass physical.extractionSecondNoWrap
+    physical.extractionSecondAbove
+
+theorem rowCodeAuthority_afterWriteFirst {predecessor : X86_64MachineState}
+    (formatter : FormatterFrame predecessor)
+    (physical : FormatterAuthorityFrame predecessor) :
+    Spike2RowCodeAuthority (afterWriteFirst predecessor) := by
+  have extracted := rowCodeAuthority_afterExtraction formatter physical
+  have pass := spike2WriteLinkedLayout_selectedPass
+    (afterExtraction predecessor) formatter.writeFirstEntry formatter.writeFirstSafety
+    formatter.writeFirstExecution formatter.writeFirstOrdinary formatter.writeFirstBranch
+  exact extracted.afterWritePass pass physical.writeFirstNoWrap physical.writeFirstAbove
+
+/-- The same four selected passes preserve the bounded linked row-code observations. -/
+theorem rowCodeAuthority_afterFormatter {predecessor : X86_64MachineState}
+    (formatter : FormatterFrame predecessor)
+    (physical : FormatterAuthorityFrame predecessor) :
+    Spike2RowCodeAuthority (afterWrite predecessor) := by
+  have first := rowCodeAuthority_afterWriteFirst formatter physical
+  have pass := spike2WriteLinkedLayout_selectedPass
+    (afterWriteFirst predecessor) formatter.writeSecondEntry formatter.writeSecondSafety
+    formatter.writeSecondExecution formatter.writeSecondOrdinary formatter.writeSecondBranch
+  exact first.afterWritePass pass physical.writeSecondNoWrap physical.writeSecondAbove
 
 end Row8Parametric
 

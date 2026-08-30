@@ -46,10 +46,43 @@ namespace Row8Parametric
 writes must begin at or above this boundary before row-code observations can be immutable. -/
 def spike2RowLinkedTextUpper : Nat := 4198709
 
+/-- Immutable selector authority for linked row text.  The authority exposes only the exact
+`read64 address ≠ address` observations needed by ordinary-code dispatch below the linked-text
+boundary; it is neither a memory equality nor an equality of machine states. -/
+structure Spike2RowCodeAuthority (state : X86_64MachineState) : Prop where
+  ordinary : ∀ address : UInt64,
+    address.toNat + 8 ≤ spike2RowLinkedTextUpper → state.read64 address ≠ address
+
+/-- Transport row-code authority across a projection-wise read frame. -/
+theorem Spike2RowCodeAuthority.transportRead64 (before after : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority before)
+    (preserved : ∀ address, after.read64 address = before.read64 address) :
+    Spike2RowCodeAuthority after where
+  ordinary address within := by
+    rw [preserved]
+    exact authority.ordinary address within
+
+/-- A byte write beginning beyond linked row text preserves every bounded row-code observation. -/
+theorem Spike2RowCodeAuthority.afterWrite8 (initial : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority initial) (writeAddress : UInt64) (value : UInt8)
+    (writeNoWrap : writeAddress.toNat + 1 ≤ 2 ^ 64)
+    (above : spike2RowLinkedTextUpper ≤ writeAddress.toNat) :
+    Spike2RowCodeAuthority (initial.write8 writeAddress value) := by
+  constructor
+  intro address within
+  change X86_64Mem.read .w64 address
+    (X86_64Mem.write .w8 writeAddress value.toUInt64 initial.memory) ≠ address
+  rw [X86_64Mem.read64_write_below .w8 initial.memory writeAddress address value.toUInt64
+    writeNoWrap]
+  · exact authority.ordinary address within
+  · unfold spike2RowLinkedTextUpper at within above
+    omega
+
 /-- Projection-only physical bounds which advance the accepted decimal text authority through
 the concrete two extraction and two reverse-write passes. -/
 structure FormatterAuthorityFrame (predecessor : X86_64MachineState) : Prop where
   entry : Spike2DecimalTextAuthority (afterValueSetup predecessor)
+  rowCodeEntry : Spike2RowCodeAuthority (afterValueSetup predecessor)
   extractionFirstNoWrap : ((afterValueSetup predecessor).rsp - 8).toNat + 8 ≤ 2 ^ 64
   extractionFirstAbove : spike2RowLinkedTextUpper ≤ ((afterValueSetup predecessor).rsp - 8).toNat
   extractionSecondNoWrap : ((afterExtractionFirst predecessor).rsp - 8).toNat + 8 ≤ 2 ^ 64
