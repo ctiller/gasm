@@ -31,6 +31,7 @@ import Spikes.Spike1Hello.AArch64Linux.Program
 import Spikes.Spike1Hello.AArch64Linux.Equivalence
 
 import Spikes.Spike2Fibonacci.Spec
+import Spikes.Spike2Fibonacci.NativeLoop
 import Spikes.Spike2Fibonacci.Windows.Program
 import Spikes.Spike2Fibonacci.Windows.Equivalence
 import Spikes.Spike2Fibonacci.Windows.IATLemmas
