@@ -3414,6 +3414,31 @@ theorem linuxFirstReadConsumerCertificate_projection (environment : Environment)
   · simp [spike3ConcreteLinuxArena]
   · simp [spike3ConcreteLinuxArena]
 
+/-- The first read payload begins at or above the concrete arena base. -/
+theorem linuxFirstReadConsumerCertificate_lowerArena (environment : Environment) :
+    spike3ConcreteLinuxArena.base.toNat ≤
+      (linuxFirstReadConsumerCertificate environment).bufferPointer.toNat := by
+  simp [linuxFirstReadConsumerCertificate, spike3ConcreteLinuxArena]
+
+/-- The complete first read range lies below the allocator's current bump after the second
+    successful fresh allocation. -/
+theorem linuxFirstReadConsumerCertificate_withinSecondBump (environment : Environment) :
+    let consumer := linuxFirstReadConsumerCertificate environment
+    consumer.bufferPointer.toNat + consumer.capacity ≤
+      (linuxSecondFreshMallocCertificate environment).finalFrame.bump.toNat := by
+  simp [linuxFirstReadConsumerCertificate, linuxSecondFreshMallocCertificate,
+    spike3ConcreteLinuxArena]
+
+/-- The complete first read range ends before the second allocation's payload begins, so the
+    host write authorized by the consumer token cannot overlap that payload. -/
+theorem linuxFirstReadConsumerCertificate_disjointSecondPayload (environment : Environment) :
+    let consumer := linuxFirstReadConsumerCertificate environment
+    DisjointRanges consumer.bufferPointer consumer.capacity
+      (linuxSecondFreshMallocCertificate environment).resultPointer 256 := by
+  left
+  simp [linuxFirstReadConsumerCertificate, linuxSecondFreshMallocCertificate,
+    spike3ConcreteLinuxArena]
+
 private theorem linuxFirstReadSelected (environment : Environment) :
     nativePreparationSelected .linux (linuxFirstReadBoundary environment).rip
       (linuxFirstReadBoundary environment) = true := by

@@ -34,7 +34,7 @@ open Gasm.Core.Platform
 proof-relevant argument rather than a sample input selector. -/
 def boundedChunkedLineSortOutcome (storageCapacity : Nat) (chunks : List (List UInt8))
     (output : Spike3OutputOutcome) : Spike3ByteSortOutcome :=
-  boundedLineSortOutcome storageCapacity (({} : ByteLineStream).feedChunks chunks).completedLines output
+  boundedLineSortOutcome storageCapacity (({} : ByteLineStream).feedChunks chunks).finalizedLines output
 
 /- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
 /-- Every valid finite sequence of bounded reads decodes to precisely the canonical environment
@@ -42,9 +42,9 @@ input lines.  In particular this does not choose a read count, chunk partition, 
 theorem chunkedLines_eq_environmentInputLines (environment : Environment)
     {readCapacity : Nat} {chunks : List (List UInt8)}
     (reads : Gasm.Effects.ChunksOf environment.stdin.toList readCapacity chunks) :
-    (({} : ByteLineStream).feedChunks chunks).completedLines = environmentInputLines environment := by
+    (({} : ByteLineStream).feedChunks chunks).finalizedLines = environmentInputLines environment := by
   simpa [environmentInputLines, decodeStdinLines] using
-    ByteLineStream.completedLines_of_chunksOf ({} : ByteLineStream) reads
+    ByteLineStream.finalizedLines_of_chunksOf ({} : ByteLineStream) reads
 
 /- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
 /-- Read fragmentation is observationally irrelevant to the classified pure sorter. -/
