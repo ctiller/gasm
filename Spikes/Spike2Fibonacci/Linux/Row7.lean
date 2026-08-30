@@ -84,7 +84,7 @@ def spike2Row7AfterIndexHeader : X86_64MachineState :=
             (X86_64Instruction.step (mov_rsp_byte 0x40 0x46)
               (spike2AfterMainHeader spike2Row6AfterRecurrence))))))
 
-/-- The real joined value-format entry reached by the row-one one-digit branch. -/
+/-- The real joined value-format entry reached by Row 7's one-digit index branch. -/
 def spike2Row7AfterIndex : X86_64MachineState :=
   X86_64Instruction.step (jmp_rel8 65)
     (X86_64Instruction.step (lea_rsp .rdi 0x49)
@@ -104,7 +104,7 @@ def spike2Row7AfterValueSetup : X86_64MachineState :=
     (X86_64Instruction.step (mov_r64_imm64 .r10 10)
       (X86_64Instruction.step (mov_r64 .rax .r14) spike2Row7AfterIndex))
 
-/-- The terminating single extraction pass for row one's value. -/
+/-- The first decimal extraction pass for Row 7's two-digit value. -/
 def spike2Row7AfterExtractionFirst : X86_64MachineState :=
   X86_64Instruction.step (jne_rel8 236)
     (X86_64Instruction.step (cmp_r64_imm8 .rax 0)
@@ -124,7 +124,7 @@ def spike2Row7AfterExtraction : X86_64MachineState :=
             (X86_64Instruction.step (div_r64 .r10)
               (X86_64Instruction.step (xor_r32 .edx .edx) spike2Row7AfterExtractionFirst))))))
 
-/-- The terminating pop/write pass which materializes row one's sole decimal digit. -/
+/-- The first decimal pop/write pass for Row 7's two digits. -/
 def spike2Row7AfterWriteFirst : X86_64MachineState :=
   X86_64Instruction.step (jne_rel8 243)
     (X86_64Instruction.step (sub_r64_imm8 .rcx 1)
@@ -164,12 +164,12 @@ def spike2Row7AfterWriteSyscall : X86_64MachineState :=
   (sysWriteHook (Event := AnyEvent)
     (X86_64Instruction.step syscall_op spike2Row7BeforeWriteSyscall)).1
 
-/-- Reverse event accumulator after row one's selected write boundary. -/
+/-- Reverse event accumulator after Row 7's selected write boundary. -/
 def spike2Row7WriteEventsRev : List AnyEvent :=
   accumulateEvent [] (sysWriteHook (Event := AnyEvent)
     (X86_64Instruction.step syscall_op spike2Row7BeforeWriteSyscall)).2
 
-/-- The actual main-loop-header state reached after row one's recurrence and back edge. -/
+/-- The actual main-loop-header state reached after Row 7's recurrence and back edge. -/
 def spike2Row7AfterRecurrence : X86_64MachineState :=
   X86_64Instruction.step (jmp_rel32 4294967027)
     (X86_64Instruction.step (add_r64_imm8 .r13 1)
@@ -179,8 +179,8 @@ def spike2Row7AfterRecurrence : X86_64MachineState :=
             (X86_64Instruction.step (mov_r64 .r8 .r14) spike2Row7AfterWriteSyscall)))))
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Six literal linked steps establish the first row's one-digit formatting path.  The JGE
-fallthrough is checked at `r13 = 1`; each selected/silent fact is over the production index. -/
+/-- Six literal linked steps establish Row 7's one-digit index formatting path.  The JGE
+fallthrough is checked at `r13 = 7`; each selected/silent fact is over the production index. -/
 theorem spike2_row7_index_header_selected_prefix :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 6
       (spike2AfterMainHeader spike2Row6AfterRecurrence) ([] : List AnyEvent)
@@ -302,7 +302,7 @@ theorem spike2_row7_index_selected_prefix :
                     · rfl
                     · exact .nil _ _
 
-/-- The three instructions that seed the production decimal formatter for row one's value. -/
+/-- The three instructions that seed the production decimal formatter for Row 7's two-digit value. -/
 theorem spike2_row7_value_setup_selected_prefix :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 3
       spike2Row7AfterIndex ([] : List AnyEvent) spike2Row7AfterValueSetup [] [] := by
@@ -327,8 +327,8 @@ theorem spike2_row7_value_setup_selected_prefix :
       · rfl
       · exact .nil _ _
 
-/-- Row one's value is one, so its sole division/push extraction pass takes the real JNE
-fallthrough.  This is the actual seven-instruction production loop body. -/
+/-- Row 7's first decimal extraction pass takes the real JNE edge into the second pass.  This is
+the actual seven-instruction production loop body. -/
 theorem spike2_row7_extraction_first_selected_prefix :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 7
       spike2Row7AfterValueSetup ([] : List AnyEvent) spike2Row7AfterExtractionFirst [] [] := by
@@ -441,7 +441,7 @@ theorem spike2_row7_extraction_selected_prefix :
   have first := spike2_row7_extraction_first_selected_prefix
   have second := spike2_row7_extraction_second_selected_prefix
   simpa using ProductionPrefix.SelectedPrefix.append first second
-/-- Row one's sole pushed digit is written by the actual five-instruction pop loop. -/
+/-- Row 7's first decimal digit is written by the actual five-instruction pop loop. -/
 theorem spike2_row7_write_first_selected_prefix :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 5
       spike2Row7AfterExtraction ([] : List AnyEvent) spike2Row7AfterWriteFirst [] [] := by
@@ -667,7 +667,7 @@ theorem spike2_row7_write_syscall_selected_prefix :
     exact hsafe
   · exact .nil _ _
 
-/-- The real Fibonacci register update and linked `jmp near main_loop` complete row one. -/
+/-- The real Fibonacci register update and linked `jmp near main_loop` complete Row 7. -/
 theorem spike2_row7_recurrence_selected_prefix :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 6
       spike2Row7AfterWriteSyscall spike2Row7WriteEventsRev spike2Row7AfterRecurrence
@@ -712,8 +712,8 @@ theorem spike2_row7_recurrence_selected_prefix :
             · exact .nil _ _
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- The first eighteen actual row transitions compose from the linked main header through the
-one-digit formatting join; no evaluator result is used as a substitute for these instructions. -/
+/-- Eighteen actual Row 7 transitions compose from the linked main header through the one-digit
+index-formatting join; no evaluator result is used as a substitute for these instructions. -/
 theorem spike2_row7_opening_selected_prefix :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 18
       spike2Row6AfterRecurrence ([] : List AnyEvent) spike2Row7AfterIndex [] [] := by
@@ -725,7 +725,7 @@ theorem spike2_row7_opening_selected_prefix :
   simpa using joined
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- A complete finite certificate for the first production Fibonacci row.  Its 52 transitions
+/-- A complete finite certificate for the seventh production Fibonacci row.  Its 64 transitions
 include the linked formatter loops, selected `SYS_write` boundary, recurrence, and main-loop
 back edge; it is composed only from exact production prefixes. -/
 theorem spike2_row7_selected_prefix :

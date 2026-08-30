@@ -1,0 +1,60 @@
+import Spikes.Spike2Fibonacci.Linux.Row8BoundaryData
+
+namespace Spikes.Spike2Fibonacci.Linux
+
+open Gasm.Core
+open Gasm.Effects
+open Gasm.Targets
+open Gasm.Targets.Linux
+open Gasm.Targets.X86_64
+open Gasm.Targets.X86_64.Instructions
+open Gasm.Targets.X86_64.MacroAssembler
+open Spikes.Spike2Fibonacci
+open Spikes.Spike2Fibonacci.Linux.Row8BoundaryData
+
+set_option maxRecDepth 200000
+set_option maxHeartbeats 5000000
+
+theorem spike2_row8_write_second_selected_prefix :
+    ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 5
+      spike2Row8AfterWriteFirst ([] : List AnyEvent) spike2Row8AfterWrite [] [] := by
+  refine ProductionPrefix.SelectedPrefix.ordinary ({
+      encoding := .pop .rdx
+      safeFallthrough := by intro _ _; rfl }) ?_ ?_ ?_ ?_ ?_
+  · exact spike2Row8WriteSecondLookupPop
+  · decide
+  · decide
+  · rfl
+  · refine ProductionPrefix.SelectedPrefix.ordinary ({
+      encoding := .movMem8 .rdi .rdx
+      safeFallthrough := by intro _ _; rfl }) ?_ ?_ ?_ ?_ ?_
+    · exact spike2Row8WriteSecondLookupStore
+    · decide
+    · decide
+    · rfl
+    · refine ProductionPrefix.SelectedPrefix.ordinary ({
+        encoding := .addImm8 .rdi 1
+        safeFallthrough := by intro _ _; rfl }) ?_ ?_ ?_ ?_ ?_
+      · exact spike2Row8WriteSecondLookupCursor
+      · decide
+      · decide
+      · rfl
+      · refine ProductionPrefix.SelectedPrefix.ordinary ({
+          encoding := .subImm8 .rcx 1
+          safeFallthrough := by intro _ _; rfl }) ?_ ?_ ?_ ?_ ?_
+        · exact spike2Row8WriteSecondLookupDecrement
+        · decide
+        · decide
+        · rfl
+        · refine ProductionPrefix.SelectedPrefix.conditionalFallthrough (.jne8 243)
+            (by
+              simp only [X86BranchCondition.holds]
+              decide)
+            ?_ ?_ ?_ ?_ ?_
+          · exact spike2Row8WriteSecondLookupBranch
+          · decide
+          · decide
+          · rfl
+          · exact .nil _ _
+
+end Spikes.Spike2Fibonacci.Linux
