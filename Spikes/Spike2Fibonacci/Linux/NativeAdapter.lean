@@ -35,6 +35,7 @@ open Gasm.Core
 open Gasm.Effects
 open Gasm.Targets
 open Gasm.Targets.Linux
+open Gasm.Targets.Windows
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.MacroAssembler
