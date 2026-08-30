@@ -88,6 +88,10 @@ reservation request), so a larger grant can genuinely select a larger arena. A s
 - `smol_malloc` checks overflow of `size + 7` and aligned-size `+ 32`, as well as the finite
   `R11`/`R15` capacity test, before modifying `R11`, `R10`, or allocator memory.  Failure returns
   null with no allocator-memory mutation.
+- The WASM caller separately guards `lineLen + 1`, `lineCap * 2`, and `lineCount * 8` before
+  performing guest `i32` arithmetic.  Arithmetic overflow therefore takes the same explicit
+  resource-failure exit as allocation refusal; a wrapped request is never presented to SmolAlloc
+  as though it were the intended size.
 - The reusable theorems in `NativeRuntime`/`NativeOutcome` quantify over the reservation state:
   they establish the raw-or-null result, exact process exit boundary for Win32, and memory
   preservation.  Literal empty-input runs are explicit `NativeRegression.lean` probes, not

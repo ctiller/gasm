@@ -44,6 +44,20 @@ def emitSpike3RequireAllocation (localPtr : Nat) : List WasmInstr := [
   ] []
 ]
 
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- Rejects a guest `i32` value before a following size computation could wrap.  This guard is
+    deliberately outside SmolAlloc: once `i32.add` or `i32.mul` has wrapped, the allocator cannot
+    reconstruct the intended request and therefore cannot soundly classify it as exhaustion. -/
+def emitSpike3RequireI32Le (localValue : Nat) (maximum : UInt32) : List WasmInstr := [
+  .local_get localValue,
+  .i32_const maximum,
+  .i32_gt_u,
+  .if_else .empty [
+    .i32_const spike3ResourceFailureExitCode,
+    .call 2
+  ] []
+]
+
 /- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
 /-- Type signatures for WASI Preview 1 imports:
     0: fd_read (i32, i32, i32, i32) -> i32
@@ -206,7 +220,8 @@ def spike3WasmInstructions : List WasmInstr := Id.run do
                   ] []
                 ] [],
 
-                -- Finalize line string payload: allocate exact buffer via smol_malloc(lineLen + 1)
+                -- Finalize line string payload: reject wrap, then allocate lineLen + 1.
+              ] ++ emitSpike3RequireI32Le 7 0xFFFFFFFE ++ [
                 .local_get 7,
                 .i32_const 1,
                 .i32_add
@@ -300,7 +315,7 @@ def spike3WasmInstructions : List WasmInstr := Id.run do
                 .local_get 8,
                 .i32_ge_u,
                 .if_else .empty (
-                  [
+                  emitSpike3RequireI32Le 8 0x7FFFFFFF ++ [
                     .local_get 8,
                     .i32_const 2,
                     .i32_mul,
@@ -372,7 +387,7 @@ def spike3WasmInstructions : List WasmInstr := Id.run do
     .i32_const 0,
     .i32_gt_u,
     .if_else .empty (
-      [
+      emitSpike3RequireI32Le 5 0x1FFFFFFF ++ [
         .local_get 5,
         .i32_const 8,
         .i32_mul

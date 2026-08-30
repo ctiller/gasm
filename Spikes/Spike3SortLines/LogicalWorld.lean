@@ -184,7 +184,19 @@ def initial (source : List LineId) : SortingState LineId source :=
 /-- The local compare/swap decision used by an in-place sorter. It exchanges only nominal IDs;
     bytes remain in the fixed lineUniverse. -/
 def compareSwap (lineUniverse : LineUniverse LineId) (left right : LineId) : List LineId :=
-  if byteLineLe (lineUniverse.bytes right) (lineUniverse.bytes left) then [right, left] else [left, right]
+  if byteLineLe (lineUniverse.bytes left) (lineUniverse.bytes right) then [left, right] else [right, left]
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#3-in-memory-line-tokenization-lexicographical-ordering -/
+theorem compareSwap_of_le (lineUniverse : LineUniverse LineId) (left right : LineId)
+    (ordered : byteLineLe (lineUniverse.bytes left) (lineUniverse.bytes right) = true) :
+    compareSwap lineUniverse left right = [left, right] := by
+  simp [compareSwap, ordered]
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#3-in-memory-line-tokenization-lexicographical-ordering -/
+theorem compareSwap_of_not_le (lineUniverse : LineUniverse LineId) (left right : LineId)
+    (outOfOrder : byteLineLe (lineUniverse.bytes left) (lineUniverse.bytes right) = false) :
+    compareSwap lineUniverse left right = [right, left] := by
+  simp [compareSwap, outOfOrder]
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 theorem compareSwap_perm (lineUniverse : LineUniverse LineId) (left right : LineId) :
