@@ -168,6 +168,16 @@ def computeAuxCarry (a b res : UInt64) : UInt64 :=
   if ((a ^^^ b ^^^ res) &&& 0x10) != 0 then ((1 : UInt64) <<< 4) else 0
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Bitwise AND distributes over OR for the machine word representation.  Keeping this small
+algebraic bridge at the target boundary lets flag proofs expose just the status bit they consume,
+rather than normalizing an entire flag word. -/
+theorem uint64_and_or_distrib_right (x y z : UInt64) :
+    (x ||| y) &&& z = (x &&& z) ||| (y &&& z) := by
+  apply UInt64.toBitVec_inj.mp
+  simpa using (BitVec.and_or_distrib_right
+    (x := x.toBitVec) (y := y.toBitVec) (z := z.toBitVec))
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Updates RFLAGS arithmetic condition codes following a 64-bit comparison (a - b) while preserving system flags. -/
 def X86_64MachineState.setFlagsCmp64 (s : X86_64MachineState) (a b : UInt64) : X86_64MachineState :=
   let diff := a - b
@@ -179,6 +189,52 @@ def X86_64MachineState.setFlagsCmp64 (s : X86_64MachineState) (a b : UInt64) : X
   let af := computeAuxCarry a b diff
   let preserved := s.flags &&& (~~~arithmeticStatusMask)
   { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- `CMP a, b` sets CF exactly when the unsigned subtraction borrows.  This is the target-owned
+semantic fact consumed by unsigned conditional branches such as JAE; it is proved by isolating
+bit zero of the constructed flag word, not by evaluating a program trace. -/
+theorem X86_64MachineState.setFlagsCmp64_cf (s : X86_64MachineState) (a b : UInt64) :
+    (s.setFlagsCmp64 a b).cf = (a < b) := by
+  have hpreserved : (s.flags &&& (~~~arithmeticStatusMask)) &&& 1 = 0 := by
+    rw [UInt64.and_assoc,
+      show (~~~arithmeticStatusMask : UInt64) &&& 1 = 0 by
+        rw [← UInt64.toBitVec_inj]
+        simp [arithmeticStatusMask]]
+    simp
+  have hzf : (if a - b == 0 then ((1 : UInt64) <<< 6) else 0) &&& 1 = 0 := by
+    split
+    · rw [← UInt64.toBitVec_inj]
+      rfl
+    · rfl
+  have hsf : (if ((a - b) >>> 63) == 1 then ((1 : UInt64) <<< 7) else 0) &&& 1 = 0 := by
+    split
+    · rw [← UInt64.toBitVec_inj]
+      rfl
+    · rfl
+  have hof :
+      (if ((a ^^^ b) &&& (a ^^^ (a - b)) &&& ((1 : UInt64) <<< 63)) != 0
+       then ((1 : UInt64) <<< 11) else 0) &&& 1 = 0 := by
+    split
+    · rw [← UInt64.toBitVec_inj]
+      rfl
+    · rfl
+  have hpf : computeParity8 (a - b) &&& 1 = 0 := by
+    simp only [computeParity8]
+    split <;> rfl
+  have haf : computeAuxCarry a b (a - b) &&& 1 = 0 := by
+    unfold computeAuxCarry
+    split <;> rfl
+  unfold X86_64MachineState.setFlagsCmp64 X86_64MachineState.cf
+  dsimp only
+  simp only [UInt64.shiftLeft_zero]
+  repeat rw [uint64_and_or_distrib_right]
+  rw [hpreserved, hzf, hsf]
+  by_cases hcarry : a < b
+  · rw [if_pos hcarry, hof, hpf, haf]
+    simp [hcarry]
+  · rw [if_neg hcarry, hof, hpf, haf]
+    simp [hcarry]
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Updates RFLAGS arithmetic condition codes following a 64-bit addition (a + b) while preserving system flags. -/
