@@ -39,6 +39,7 @@ set_option maxHeartbeats 5000000
 
 /-- The exact linked text consumed by the Spike 2 native runner.  Its index is definitionally
 the production `spike2Indexed`; it is not a duplicate instruction list. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 def spike2DecimalText : LinkedText where
   base := spike2Executable.load.rip
   instructions := spike2Instructions
@@ -47,6 +48,7 @@ def spike2DecimalText : LinkedText where
 
 /-- The seven extraction coordinates in the final Linux text.  `exit` is the first pop/write
 instruction and is a boundary rather than an extraction instruction. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 def spike2ExtractionAddress : ExtractionPoint → UInt64
   | .clearHigh => 4198594
   | .divide => 4198596
@@ -59,6 +61,7 @@ def spike2ExtractionAddress : ExtractionPoint → UInt64
 
 /-- The five reverse-write coordinates in the final Linux text.  `exit` is the first CR store
 setup instruction and is a boundary rather than a write instruction. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 def spike2WriteAddress : WritePoint → UInt64
   | .pop => 4198614
   | .store => 4198615
@@ -68,6 +71,7 @@ def spike2WriteAddress : WritePoint → UInt64
   | .exit => 4198627
 
 /-- Exact final-link realization of the decimal extraction loop in `spike2Indexed`. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 def spike2ExtractionLinkedLayout :
     ExtractionLinkedLayout spike2DecimalText spike2Indexed 236 where
   address := spike2ExtractionAddress
@@ -102,6 +106,7 @@ def spike2ExtractionLinkedLayout :
   falseFallthrough := by decide
 
 /-- Exact final-link realization of the decimal reverse-write loop in `spike2Indexed`. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 def spike2WriteLinkedLayout :
     WriteLinkedLayout spike2DecimalText spike2Indexed 243 where
   address := spike2WriteAddress

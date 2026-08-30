@@ -39,11 +39,13 @@ set_option maxRecDepth 200000
 set_option maxHeartbeats 5000000
 
 /-- Exact state after `completed` actual seven-instruction extraction passes. -/
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
 def spike2ExtractionIter (initial : X86_64MachineState) : Nat → X86_64MachineState
   | 0 => initial
   | completed + 1 => extractionFinal 236 (spike2ExtractionIter initial completed)
 
 /-- Exact state after `completed` actual five-instruction reverse-write passes. -/
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
 def spike2WriteIter (initial : X86_64MachineState) : Nat → X86_64MachineState
   | 0 => initial
   | completed + 1 => writeFinal 243 (spike2WriteIter initial completed)
@@ -51,6 +53,7 @@ def spike2WriteIter (initial : X86_64MachineState) : Nat → X86_64MachineState
 /-- A closed, stateful extraction witness for one production decimal formatting invocation.
 `ordinary` is the explicitly stateful Linux/Win32 dispatcher frame; it cannot be replaced by a
 RIP-only claim. -/
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
 structure Spike2ExtractionLoopWitness (value : UInt64) (stackLower : UInt64)
     (initial : X86_64MachineState) (initialEventsRev : List AnyEvent) : Prop where
   entry : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
@@ -70,6 +73,7 @@ structure Spike2ExtractionLoopWitness (value : UInt64) (stackLower : UInt64)
 /-- Extraction invariant: the state and event accumulator are exactly the concrete production
 prefix after the stated number of passes.  Physical safety and dispatcher facts remain in the
 associated witness and are consumed at each `run` use. -/
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
 def spike2ExtractionInvariant (initial : X86_64MachineState) (initialEventsRev : List AnyEvent) :
     Nat → X86_64MachineState → List AnyEvent → Prop :=
   fun completed state eventsRev =>
@@ -78,6 +82,7 @@ def spike2ExtractionInvariant (initial : X86_64MachineState) (initialEventsRev :
 /-- Instantiate the existing bounded decimal extraction phase with exact Linux execution states.
 No generic control-chain abstraction is introduced: every iteration is one `spike2Indexed`
 selected pass supplied by the concrete layout/runtime bridge. -/
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
 theorem spike2ExtractionPhase (value : UInt64) (stackLower : UInt64)
     (initial : X86_64MachineState) (initialEventsRev : List AnyEvent)
     (witness : Spike2ExtractionLoopWitness value stackLower initial initialEventsRev) :
@@ -93,6 +98,7 @@ theorem spike2ExtractionPhase (value : UInt64) (stackLower : UInt64)
     · exact ⟨rfl, rfl⟩
 
 /-- A closed, stateful reverse-write witness for one production decimal formatting invocation. -/
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
 structure Spike2WriteLoopWitness (value : UInt64) (stackUpper outputLimit : UInt64)
     (initial : X86_64MachineState) (initialEventsRev : List AnyEvent) : Prop where
   entry : ∀ completed, completed < Stdlib.Fmt.decimalDigitCount value →
@@ -108,12 +114,14 @@ structure Spike2WriteLoopWitness (value : UInt64) (stackUpper outputLimit : UInt
       ¬ X86BranchCondition.notEqual.holds (writeStates (spike2WriteIter initial completed)).2.2.2
 
 /-- Exact reverse-write production-state invariant. -/
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
 def spike2WriteInvariant (initial : X86_64MachineState) (initialEventsRev : List AnyEvent) :
     Nat → X86_64MachineState → List AnyEvent → Prop :=
   fun completed state eventsRev =>
     state = spike2WriteIter initial completed ∧ eventsRev = initialEventsRev
 
 /-- Instantiate the existing bounded decimal write phase with exact Linux execution states. -/
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
 theorem spike2WritePhase (value : UInt64) (stackUpper outputLimit : UInt64)
     (initial : X86_64MachineState) (initialEventsRev : List AnyEvent)
     (witness : Spike2WriteLoopWitness value stackUpper outputLimit initial initialEventsRev) :

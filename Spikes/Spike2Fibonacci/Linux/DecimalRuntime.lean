@@ -42,10 +42,12 @@ set_option maxHeartbeats 5000000
 /-- Program-owned proof that a reached Linux instruction state is neither the Linux syscall
 entry nor a dynamically-discovered Win32 IAT slot.  It is intentionally stateful: final RIP
 placement alone cannot establish either dispatcher fact. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 structure Spike2OrdinaryCode (state : X86_64MachineState) : Prop where
   notLinuxEntry : state.rip ≠ linuxSyscallEntry
   notWin32Iat : state.read64 state.rip ≠ state.rip
 
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 private theorem spike2OrdinaryCode_selected (state : X86_64MachineState)
     (ordinary : Spike2OrdinaryCode state) :
     selectedNonInputPlatformCall state.rip state = true := by
@@ -53,6 +55,7 @@ private theorem spike2OrdinaryCode_selected (state : X86_64MachineState)
     Gasm.Targets.Windows.selectedNonInputWin32Call,
     Gasm.Targets.Windows.findIatIndex, ordinary.notWin32Iat]
 
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 private theorem spike2OrdinaryCode_silent (state : X86_64MachineState)
     (ordinary : Spike2OrdinaryCode state) :
     ExternalCallInterceptor.interceptCall X86_64 (Event := AnyEvent) state.rip state = none := by
@@ -62,6 +65,7 @@ private theorem spike2OrdinaryCode_silent (state : X86_64MachineState)
     Gasm.Targets.Windows.findIatIndex, ordinary.notWin32Iat]
 
 /-- All actual post-step states whose selection/silence facts make up one extraction pass. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 structure Spike2ExtractionOrdinary (backDisp : UInt8) (initial : X86_64MachineState) : Prop where
   xor : Spike2OrdinaryCode (extractionStates initial).1
   divide : Spike2OrdinaryCode (extractionStates initial).2.1
@@ -73,6 +77,7 @@ structure Spike2ExtractionOrdinary (backDisp : UInt8) (initial : X86_64MachineSt
     (extractionStates initial).2.2.2.2.2)
 
 /-- All actual post-step states whose selection/silence facts make up one write pass. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 structure Spike2WriteOrdinary (backDisp : UInt8) (initial : X86_64MachineState) : Prop where
   pop : Spike2OrdinaryCode (writeStates initial).1
   store : Spike2OrdinaryCode (writeStates initial).2.1
@@ -82,6 +87,7 @@ structure Spike2WriteOrdinary (backDisp : UInt8) (initial : X86_64MachineState) 
     (writeStates initial).2.2.2)
 
 /-- Derive the exact dispatcher runtime witness required by the linked extraction bridge. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 theorem Spike2ExtractionOrdinary.runtimeEvidence (backDisp : UInt8)
     (initial : X86_64MachineState) (ordinary : Spike2ExtractionOrdinary backDisp initial) :
     ExtractionRuntimeEvidence (Event := AnyEvent) selectedNonInputPlatformCall backDisp initial where
@@ -101,6 +107,7 @@ theorem Spike2ExtractionOrdinary.runtimeEvidence (backDisp : UInt8)
   selectedBranch := spike2OrdinaryCode_selected _ ordinary.branch
 
 /-- Derive the exact dispatcher runtime witness required by the linked write bridge. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 theorem Spike2WriteOrdinary.runtimeEvidence (backDisp : UInt8)
     (initial : X86_64MachineState) (ordinary : Spike2WriteOrdinary backDisp initial) :
     WriteRuntimeEvidence (Event := AnyEvent) selectedNonInputPlatformCall backDisp initial where
@@ -117,6 +124,7 @@ theorem Spike2WriteOrdinary.runtimeEvidence (backDisp : UInt8)
 
 /-- Construct an actual-index selected extraction pass once the program invariant supplies its
 stateful stack/counter/fault and ordinary-code facts. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 theorem spike2ExtractionLinkedLayout_selectedPass {stackLower : UInt64}
     (initial : X86_64MachineState)
     (entry : initial.rip = spike2ExtractionLinkedLayout.address .clearHigh)
@@ -133,6 +141,7 @@ theorem spike2ExtractionLinkedLayout_selectedPass {stackLower : UInt64}
 
 /-- Construct an actual-index selected write pass once the program invariant supplies its
 stateful stack/output/fault and ordinary-code facts. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 theorem spike2WriteLinkedLayout_selectedPass {stackUpper outputLimit : UInt64}
     (initial : X86_64MachineState)
     (entry : initial.rip = spike2WriteLinkedLayout.address .pop)
