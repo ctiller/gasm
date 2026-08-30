@@ -125,6 +125,30 @@ certificates instead of this straight-line bridge. Native platform profiles stil
 boundary semantics, so publication as a real `PublishedBoundary` remains staged on target-owned
 callable export manifests and entry semantics.
 
+## Eventful production segments
+
+`Gasm.Targets.X86_64.ProductionPrefix` is a deliberately narrow, target-owned certificate for a
+safe prefix of the existing `runProgramOutcomeLoop`; it is not a second evaluator. Every
+constructor carries an exact `instructionAtRipIndexed` fetch. Ordinary steps require the existing
+constructor-derived `SequentialInstruction`, explicit runtime silence, and an explicit nonfaulting
+step. Direct and conditional branches retain the closed `DirectJumpEncoding` or
+`ConditionalJumpEncoding` evidence; the two JCC constructors separately retain whether the
+target-owned condition was selected, so a taken and fallthrough path cannot be swapped silently.
+
+Selected host transitions are restricted to the closed x86 CALL and SYSCALL encodings. They require
+the exact `ExternalCallInterceptor.interceptCall` result after the pure instruction step and an
+explicit nonfaulting hooked state. An interceptor event is accumulated using the production reverse
+accumulator. `ProductionPrefix.run`, its composition theorem, and its event-delta theorem therefore
+state exact production-runner continuation, total consumed fuel, final machine state, final reverse
+accumulator, and chronological event append. `InvariantLoopStep.iterate` exposes the same relation
+for a caller-proved loop invariant without creating a graph, artifact, ABI, or authority layer.
+
+This is a prefix/continuation law, not an artifact certificate or a termination claim. It does not
+prove that the indexed stream is a final artifact, that a function returns, or that a native outcome
+is admissible. Return, halt, fault, and fuel exhaustion remain the unchanged production runner's
+explicit continuation outcomes. Unselected instruction forms, unselected host boundaries, and
+ordinary paths do not acquire interceptor or loop obligations.
+
 ## Microsoft x64 staged platform adapter
 
 `MicrosoftX64StraightLinePlacement` indexes the compiler's `LocalCertificate` by an exact Windows

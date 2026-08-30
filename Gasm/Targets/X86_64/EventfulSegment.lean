@@ -280,33 +280,43 @@ end ProductionPrefix
     not a synthetic relation with no production lookup or host transition. -/
 namespace EventfulSegmentFixture
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 inductive Event where
   | syscall
   deriving DecidableEq, Repr
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 def initial : X86_64MachineState :=
   { rip := 0, gprs := fun _ => 0, flags := 0, memory := X86_64Mem.zero }
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 def hooked (state : X86_64MachineState) : X86_64MachineState := { state with rip := 4 }
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 @[instance_reducible] def fixtureInterceptor : ExternalCallInterceptor X86_64 Event where
   interceptCall address state :=
     if address == linuxSyscallEntry then some (hooked state, some .syscall) else none
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 local instance : ExternalCallInterceptor X86_64 Event := fixtureInterceptor
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 def indexed : List (UInt64 × X86_64Instr) :=
   indexInstructions 0 [je_rel8 0, syscall_op]
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 def afterBranch : X86_64MachineState := { initial with rip := 2 }
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 theorem je_step : X86_64Instruction.step (je_rel8 0) initial = afterBranch := by
   rfl
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 theorem je_lookup : instructionAtRipIndexed indexed initial.rip = some (je_rel8 0) := by
   unfold indexed indexInstructions indexInstructions.loop instructionAtRipIndexed initial
   simp
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 theorem je_silent : @ExternalCallInterceptor.interceptCall X86_64 Event fixtureInterceptor
     (X86_64Instruction.step (je_rel8 0) initial).rip
     (X86_64Instruction.step (je_rel8 0) initial) = none := by
@@ -315,14 +325,17 @@ theorem je_silent : @ExternalCallInterceptor.interceptCall X86_64 Event fixtureI
   unfold fixtureInterceptor
   simp [linuxSyscallEntry]
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 def fixtureFinal : X86_64MachineState :=
   hooked (X86_64Instruction.step syscall_op
     (X86_64Instruction.step (je_rel8 0) initial))
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 theorem syscall_lookup : instructionAtRipIndexed indexed afterBranch.rip = some syscall_op := by
   change instructionAtRipIndexed [(0, je_rel8 0), (2, syscall_op)] 2 = some syscall_op
   simp [instructionAtRipIndexed]
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 theorem syscall_intercept : @ExternalCallInterceptor.interceptCall X86_64 Event fixtureInterceptor
     (X86_64Instruction.step syscall_op afterBranch).rip
     (X86_64Instruction.step syscall_op afterBranch) = some (fixtureFinal, some Event.syscall) := by
@@ -332,6 +345,7 @@ theorem syscall_intercept : @ExternalCallInterceptor.interceptCall X86_64 Event 
   unfold fixtureInterceptor
   rfl
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 theorem eventful_branch_prefix :
     ProductionPrefix indexed 2 initial [] fixtureFinal [Event.syscall] [Event.syscall] := by
   apply ProductionPrefix.conditionalFallthrough
@@ -350,10 +364,12 @@ theorem eventful_branch_prefix :
     · rfl
     · exact .nil _ _
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 theorem eventful_branch_prefix_events :
     [Event.syscall].reverse = ([] : List Event).reverse ++ [Event.syscall] := by
   exact eventful_branch_prefix.events_reverse_append
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 theorem eventful_branch_runs_to_fuel_boundary :
     runProgramOutcomeLoop indexed 2 initial [] = .fuelExhausted fixtureFinal [Event.syscall] := by
   simpa [runProgramOutcomeLoop] using eventful_branch_prefix.run 0
