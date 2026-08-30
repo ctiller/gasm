@@ -522,4 +522,33 @@ private theorem spike2_write_reached_addresses (initial : X86_64MachineState)
     decide
   exact ⟨h1, h2, h3, h4⟩
 
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_write_pop_ordinary (initial : X86_64MachineState)
+    (entry : initial.rip = spike2WriteAddress .pop)
+    (authority : Spike2DecimalTextAuthority initial) :
+    Spike2OrdinaryCode (writeStates initial).1 := by
+  obtain ⟨rip, _, _, _⟩ := spike2_write_reached_addresses initial entry
+  apply spike2_ordinary_from_initial_memory initial _ (spike2WriteAddress .store) rip
+  · rfl
+  · decide
+  · exact authority.writeStore
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+private theorem spike2_write_store_ordinary {stackUpper outputLimit : UInt64}
+    (initial : X86_64MachineState) (entry : initial.rip = spike2WriteAddress .pop)
+    (authority : Spike2DecimalTextAuthority initial) (safety : WriteSafety stackUpper outputLimit initial)
+    (safe : WriteExecutionSafety 243 initial)
+    (writeNoWrap : (initial.gprs .rdi).toNat + 1 ≤ 2 ^ 64)
+    (above : 4198635 ≤ (initial.gprs .rdi).toNat) :
+    Spike2OrdinaryCode (writeStates initial).2.1 := by
+  obtain ⟨_, rip, _, _⟩ := spike2_write_reached_addresses initial entry
+  apply spike2_ordinary_from_output_write initial _ (spike2WriteAddress .advance)
+    (initial.gprs .rdi) (initial.read64 initial.rsp).toUInt8.toUInt64 rip
+  · rw [show (writeStates initial).2.1.memory = (writeFinal 243 initial).memory by rfl,
+      (writePassEffect 243 stackUpper outputLimit initial safety safe).memory]
+  · exact writeNoWrap
+  · exact spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress])
+  · decide
+  · exact authority.writeAdvance
+
 end Spikes.Spike2Fibonacci.Linux
