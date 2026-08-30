@@ -66,6 +66,13 @@ def spike2AfterMainHeader (state : X86_64MachineState) : X86_64MachineState :=
   X86_64Instruction.step (jge_rel32 259)
     (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state)
 
+/-- Exact state at the terminal syscall after taking the main-loop exit and setting
+    `SYS_exit (0)`.  The syscall itself is deliberately excluded: its process-exit outcome is
+    discharged by `SelectedPrefix.selectedExecutionTerminates_of_processExit`. -/
+def spike2BeforeExitSyscall (state : X86_64MachineState) : X86_64MachineState :=
+  X86_64Instruction.step (mov_r32 .eax 60)
+    (X86_64Instruction.step (xor_r32 .edi .edi) (spike2AfterMainHeader state))
+
 private theorem sequentialSubRsp (imm : UInt32) : SequentialInstruction (sub_rsp32 imm) where
   encoding := .subRsp32 imm
   safeFallthrough := by intro state _; rfl
@@ -77,6 +84,14 @@ private theorem sequentialMovImm (dst : Reg64) (imm : UInt64) :
 
 private theorem sequentialCmpCounter : SequentialInstruction (cmp_r64_imm8 .r13 91) where
   encoding := .compareImm8 .r13 91
+  safeFallthrough := by intro _ _; rfl
+
+private theorem sequentialXorExitCode : SequentialInstruction (xor_r32 .edi .edi) where
+  encoding := .xor32 .edi .edi
+  safeFallthrough := by intro _ _; rfl
+
+private theorem sequentialMovExitNumber : SequentialInstruction (mov_r32 .eax 60) where
+  encoding := .mov32 .eax 60
   safeFallthrough := by intro _ _; rfl
 
 /- The driver uses signed JGE with nonnegative counters below 128.  The following local facts
@@ -91,6 +106,50 @@ private theorem stepJge32 (disp : Int32) (state : X86_64MachineState) :
     X86_64Instruction.step (jge_rel32 disp) state =
       { state with rip := if state.sf == state.of_ then
           state.rip + 6 + signExtend32To64 disp else state.rip + 6 } := rfl
+
+private theorem stepMovR32Rip (dst : Reg32) (imm : UInt32)
+    (state : X86_64MachineState) :
+    (X86_64Instruction.step (mov_r32 dst imm) state).rip =
+      state.rip + (if (reg32Code dst).2 then 6 else 5) := rfl
+
+private theorem stepMovExitNumber (state : X86_64MachineState) :
+    X86_64Instruction.step (mov_r32 .eax 60) state =
+      { state.setGpr32 .eax 60 with rip := state.rip + 5 } := rfl
+
+private theorem stepXorExitCode (state : X86_64MachineState) :
+    X86_64Instruction.step (xor_r32 .edi .edi) state =
+      { (state.setGpr32 .edi
+          ((state.gprs .rdi).toUInt32 ^^^ (state.gprs .rdi).toUInt32)).setFlagsLogic 32
+            (((state.gprs .rdi).toUInt32 ^^^ (state.gprs .rdi).toUInt32).toUInt64) with
+        rip := state.rip + 2 } := rfl
+
+private theorem stepSyscall (state : X86_64MachineState) :
+    X86_64Instruction.step syscall_op state =
+      { (state.setGpr64 .rcx (state.rip + 2)).setGpr64 .r11 state.flags with
+        rip := linuxSyscallEntry } := rfl
+
+private theorem beforeExitRax (state : X86_64MachineState) :
+    (spike2BeforeExitSyscall state).gprs .rax = SYS_exit := by
+  rw [spike2BeforeExitSyscall, stepMovExitNumber]
+  simp [X86_64MachineState.setGpr32, reg32To64, SYS_exit]
+
+private theorem beforeExitRdi (state : X86_64MachineState) :
+    (spike2BeforeExitSyscall state).gprs .rdi = 0 := by
+  rw [spike2BeforeExitSyscall, stepMovExitNumber, stepXorExitCode]
+  simp [X86_64MachineState.setGpr32, X86_64MachineState.setFlagsLogic, reg32To64]
+
+private theorem syscallStepRip (state : X86_64MachineState) :
+    (X86_64Instruction.step syscall_op state).rip = linuxSyscallEntry := rfl
+
+private theorem syscallStepRax (state : X86_64MachineState) :
+    (X86_64Instruction.step syscall_op state).gprs .rax = state.gprs .rax := by
+  rw [stepSyscall]
+  simp [X86_64MachineState.setGpr64]
+
+private theorem syscallStepRdi (state : X86_64MachineState) :
+    (X86_64Instruction.step syscall_op state).gprs .rdi = state.gprs .rdi := by
+  rw [stepSyscall]
+  simp [X86_64MachineState.setGpr64]
 
 private theorem andOrDistributes (x y z : UInt64) :
     (x ||| y) &&& z = (x &&& z) ||| (y &&& z) := by
@@ -252,6 +311,20 @@ private theorem mainLoopContinues (state : X86_64MachineState) (n : Nat) (hn : n
   rw [hsf, hof]
   decide
 
+/-- At the unique post-loop counter value, the same signed comparison selects the linked exit
+    edge.  This is the terminal counterpart of `mainLoopContinues`; it is not a 91st body pass. -/
+private theorem mainLoopExits (state : X86_64MachineState)
+    (hcounter : state.gprs .r13 = (91 : UInt64)) :
+    X86BranchCondition.greaterEqual.holds
+      (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state) := by
+  simp only [X86BranchCondition.holds]
+  rw [stepCmpImm8]
+  change (state.setFlagsCmp64 (state.gprs .r13) (signExtend8To64 91)).sf =
+    (state.setFlagsCmp64 (state.gprs .r13) (signExtend8To64 91)).of_
+  rw [hcounter, show signExtend8To64 91 = (91 : UInt64) by decide,
+    cmpSignFlag, cmpOverflowFlag]
+  decide
+
 private theorem indexOneDigit (state : X86_64MachineState) (n : Nat) (hn : n < 10)
     (hcounter : state.gprs .r13 = n.toUInt64) :
     ¬ X86BranchCondition.greaterEqual.holds
@@ -354,6 +427,175 @@ theorem spike2_main_header_selected_prefix (completed : Nat) (state : X86_64Mach
     · change state.fault = none
       exact hsafe
     · exact .nil _ _
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The header after exactly ninety completed rows takes the real linked `JGE` edge to the exit
+    setup.  Its final state is the same concrete two-step state function used by continuing
+    headers, with branch selection determined from `r13 = 91`. -/
+theorem spike2_exit_header_selected_prefix (state : X86_64MachineState)
+    (eventsRev : List AnyEvent)
+    (hrip : state.rip = spike2MainLoopRip)
+    (hcounter : state.gprs .r13 = (91 : UInt64))
+    (hsafe : state.fault = none) :
+    ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 2 state eventsRev
+      (spike2AfterMainHeader state) eventsRev [] := by
+  change ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed (1 + 1) state
+    eventsRev (spike2AfterMainHeader state) eventsRev []
+  have hexits := mainLoopExits state hcounter
+  have hcmpRip : (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip = 4198441 := by
+    rw [stepCmpImm8, hrip]
+    rfl
+  have hexitRip : (spike2AfterMainHeader state).rip = 4198706 := by
+    unfold spike2AfterMainHeader
+    simp only [X86BranchCondition.holds] at hexits
+    rw [stepJge32]
+    simp [hexits, hcmpRip]
+    decide
+  refine ProductionPrefix.SelectedPrefix.ordinary
+    (Event := AnyEvent) (selected := selectedNonInputPlatformCall) (indexed := spike2Indexed)
+    sequentialCmpCounter ?_ ?_ ?_ ?_ ?_
+  · rw [hrip]
+    rfl
+  · simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
+      Gasm.Targets.Windows.findIatIndex, hcmpRip, linuxSyscallEntry]
+  · change (if (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip ==
+        linuxSyscallEntry then
+        linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+    rw [hcmpRip]
+    simp [linuxSyscallEntry, Gasm.Targets.Windows.win32Intercept,
+      Gasm.Targets.Windows.findIatIndex]
+  · rw [stepCmpImm8]
+    exact hsafe
+  · refine ProductionPrefix.SelectedPrefix.conditionalTaken
+      (Event := AnyEvent) (selected := selectedNonInputPlatformCall) (indexed := spike2Indexed)
+      (.jge32 259) hexits ?_ ?_ ?_ ?_ ?_
+    · rw [hcmpRip]
+      rfl
+    · change selectedNonInputPlatformCall (spike2AfterMainHeader state).rip
+        (spike2AfterMainHeader state) = true
+      simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
+        Gasm.Targets.Windows.findIatIndex, hexitRip, linuxSyscallEntry]
+    · change ExternalCallInterceptor.interceptCall X86_64 (spike2AfterMainHeader state).rip
+        (spike2AfterMainHeader state) = none
+      change (if (spike2AfterMainHeader state).rip == linuxSyscallEntry then
+          linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+      rw [hexitRip]
+      simp [linuxSyscallEntry, Gasm.Targets.Windows.win32Intercept,
+        Gasm.Targets.Windows.findIatIndex]
+    · change state.fault = none
+      exact hsafe
+    · exact .nil _ _
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The selected exit setup clears the concrete exit-code register and loads Linux syscall 60.
+    The certificate stops at the linked `SYSCALL`, allowing the typed process-exit theorem to
+    terminate the unchanged production runner without pretending that exit is a safe prefix. -/
+theorem spike2_exit_setup_selected_prefix (state : X86_64MachineState)
+    (eventsRev : List AnyEvent)
+    (hrip : (spike2AfterMainHeader state).rip = 4198706)
+    (hsafe : state.fault = none) :
+    ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 2
+      (spike2AfterMainHeader state) eventsRev (spike2BeforeExitSyscall state) eventsRev [] := by
+  have hxorRip : (X86_64Instruction.step (xor_r32 .edi .edi)
+      (spike2AfterMainHeader state)).rip = 4198708 := by
+    calc
+      _ = (spike2AfterMainHeader state).rip + 2 := by rw [stepXorExitCode]
+      _ = 4198708 := by rw [hrip]; decide
+  have hmovRip : (spike2BeforeExitSyscall state).rip = 4198713 := by
+    unfold spike2BeforeExitSyscall
+    rw [stepMovR32Rip, hxorRip]
+    decide
+  change ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed (1 + 1)
+    (spike2AfterMainHeader state) eventsRev (spike2BeforeExitSyscall state) eventsRev []
+  refine ProductionPrefix.SelectedPrefix.ordinary
+    (Event := AnyEvent) (selected := selectedNonInputPlatformCall) (indexed := spike2Indexed)
+    sequentialXorExitCode ?_ ?_ ?_ ?_ ?_
+  · rw [hrip]
+    rfl
+  · rw [hxorRip]
+    simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
+      Gasm.Targets.Windows.findIatIndex, linuxSyscallEntry]
+  · change (if (X86_64Instruction.step (xor_r32 .edi .edi)
+        (spike2AfterMainHeader state)).rip == linuxSyscallEntry then
+        linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+    rw [hxorRip]
+    simp [linuxSyscallEntry, Gasm.Targets.Windows.win32Intercept,
+      Gasm.Targets.Windows.findIatIndex]
+  · change state.fault = none
+    exact hsafe
+  · refine ProductionPrefix.SelectedPrefix.ordinary
+      (Event := AnyEvent) (selected := selectedNonInputPlatformCall) (indexed := spike2Indexed)
+      sequentialMovExitNumber ?_ ?_ ?_ ?_ ?_
+    · rw [hxorRip]
+      rfl
+    · change selectedNonInputPlatformCall (spike2BeforeExitSyscall state).rip
+        (spike2BeforeExitSyscall state) = true
+      rw [hmovRip]
+      simp [selectedNonInputPlatformCall, selectedNonInputLinuxCall,
+        selectedNonInputWin32Call, Gasm.Targets.Windows.findIatIndex, SYS_exit,
+        linuxSyscallEntry]
+    · change ExternalCallInterceptor.interceptCall X86_64
+        (spike2BeforeExitSyscall state).rip (spike2BeforeExitSyscall state) = none
+      change (if (spike2BeforeExitSyscall state).rip == linuxSyscallEntry then
+          linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+      rw [hmovRip]
+      simp [linuxSyscallEntry,
+        Gasm.Targets.Windows.win32Intercept, Gasm.Targets.Windows.findIatIndex]
+    · change state.fault = none
+      exact hsafe
+    · exact .nil _ _
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The linked Linux `SYSCALL` is the exact classified terminal step after the
+    selected exit setup.  Its raw CPU step is fault-free; only the real Linux
+    interceptor supplies the typed process-exit state and event. -/
+def spike2_exit_syscall_selected_step (state : X86_64MachineState)
+    (hrip : (spike2AfterMainHeader state).rip = 4198706)
+    (hsafe : state.fault = none) :
+    ProductionPrefix.SelectedPrefix.SelectedProcessExitStep (Event := AnyEvent)
+      selectedNonInputPlatformCall spike2Indexed (spike2BeforeExitSyscall state) 0 where
+  instruction := syscall_op
+  hooked := (sysExitHook (Event := AnyEvent)
+    (X86_64Instruction.step syscall_op (spike2BeforeExitSyscall state))).1
+  event := (sysExitHook (Event := AnyEvent)
+    (X86_64Instruction.step syscall_op (spike2BeforeExitSyscall state))).2
+  encoding := .syscall
+  lookup := by
+    have hxorRip : (X86_64Instruction.step (xor_r32 .edi .edi)
+        (spike2AfterMainHeader state)).rip = 4198708 := by
+      calc
+        _ = (spike2AfterMainHeader state).rip + 2 := by rw [stepXorExitCode]
+        _ = 4198708 := by rw [hrip]; decide
+    have hmovRip : (spike2BeforeExitSyscall state).rip = 4198713 := by
+      unfold spike2BeforeExitSyscall
+      rw [stepMovR32Rip, hxorRip]
+      decide
+    rw [hmovRip]
+    rfl
+  selectedAt := by
+    change (if (X86_64Instruction.step syscall_op
+          (spike2BeforeExitSyscall state)).rip == linuxSyscallEntry then
+        selectedNonInputLinuxCall _ _ else selectedNonInputWin32Call _ _) = true
+    rw [syscallStepRip]
+    simp only [beq_self_eq_true, ↓reduceIte]
+    unfold selectedNonInputLinuxCall
+    rw [syscallStepRax, beforeExitRax]
+    simp [SYS_exit]
+  steppedSafe := by
+    change state.fault = none
+    exact hsafe
+  intercept := by
+    change (if (X86_64Instruction.step syscall_op
+          (spike2BeforeExitSyscall state)).rip == linuxSyscallEntry then
+        linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = _
+    rw [syscallStepRip]
+    simp only [beq_self_eq_true, ↓reduceIte]
+    unfold linuxSyscallIntercept
+    simp only [beq_self_eq_true, ↓reduceIte]
+    rw [syscallStepRax, beforeExitRax]
+    simp [SYS_exit]
+  exits := by
+    simp [sysExitHook, syscallStepRdi, beforeExitRdi]
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- The actual four instruction setup prefix is a safe, silent production prefix.  Each lookup is
