@@ -73,8 +73,10 @@ repository's planned provenance model:
 
 ### 4.1 Native finite-arena failure boundary
 
-The native Linux and Win32 variants take an explicit `Spike3NativeArenaGrant`; neither receives an
-implicit allocator budget.  A successful reservation materializes a `NativeArenaCapability` whose
+The native Linux and Win32 variants take an explicit bounded `Spike3NativeArenaGrant`; neither receives an
+implicit allocator budget.  Resource-aware execution constructs the emitted artifact with the
+grant's `UInt32` reservation immediate (with a 64 KiB minimum so failure still exercises a valid
+reservation request), so a larger grant can genuinely select a larger arena. A successful reservation materializes a `NativeArenaCapability` whose
 `base` and `endExclusive` are the same values the lowered entry sequence installs in `RAX` and
 `R15`.  The entry sequence rejects an unrepresentable `base + 65536` before initializing `R11`.
 
@@ -92,8 +94,9 @@ implicit allocator budget.  A successful reservation materializes a `NativeArena
   preservation.  Literal empty-input runs are explicit `NativeRegression.lean` probes, not
   evidence of a universal sorting theorem.
 
-Retry is a new invocation with the same stdin and a fresh sufficient grant.  It reaches the
-concrete platform reservation base; it is not a mutation of the failed invocation's arena state.
+Retry is a new invocation with the same stdin and a fresh sufficient grant. It rebuilds the
+bounded native artifact with that larger reservation amount and reaches the concrete platform
+reservation base; it is not a mutation of the failed invocation's arena state.
 
 - **Specification reader**: `readAllLinesFueled` is structurally recursive with an explicit
   `specMaxStdinLines` bound; it is not an unbounded termination proof.

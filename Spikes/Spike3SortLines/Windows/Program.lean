@@ -73,7 +73,7 @@ def defaultSampleInput : ByteArray :=
     8. Discharges all memory obligations via smol_free for every allocated string, node, and table.
     9. Retains the backing arena under the legacy exit-marker convention and terminates with
        ExitProcess(0); this program does not call VirtualFree. -/
-def spike3SymbolicProgram : List SymbolicInstr := [
+def spike3SymbolicProgramWithArena (arenaBytes : UInt32) : List SymbolicInstr := [
   -- 1. Setup 120-byte stack frame to maintain (RSP - 120) % 16 == 0 before Win32 calls
   instr (sub_rsp 120),
 
@@ -84,14 +84,14 @@ def spike3SymbolicProgram : List SymbolicInstr := [
 
   -- 3. Initialize SmolAlloc Arena: VirtualAlloc(NULL, 65536, MEM_COMMIT | MEM_RESERVE = 0x3000, PAGE_READWRITE = 0x04)
   instr (xor_r32 .ecx .ecx),
-  instr (mov_r32 .edx 65536),
+  instr (mov_r32 .edx arenaBytes),
   instr (mov_r32 .r8d 0x3000),
   instr (mov_r32 .r9d 0x04),
   call_import "VirtualAlloc",
   instr (cmp_r64_imm8 .rax 0),
   je_near_label "resource_exhausted",
   instr (mov_r64 .r15 .rax), -- r15 = exclusive finite arena end
-  instr (add_r64_imm32 .r15 65536),
+  instr (add_r64_imm32 .r15 arenaBytes),
   jb_near_label "resource_exhausted", -- reject non-representable arena end
   instr (mov_r64 .r11 .rax), -- r11 = smolalloc arena bump pointer
   instr (xor_r32 .r10d .r10d), -- r10 = smolalloc freelist head = NULL
@@ -560,20 +560,34 @@ def spike3SymbolicProgram : List SymbolicInstr := [
 ] ++ smolFreeSymbolicProgram
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
-/-- Linked binary program artifact for Spike 3. -/
-def spike3Linked : LinkedWindowsProgram :=
-  linkWindowsProgram spike3SymbolicProgram [
+/-- The historical 64 KiB artifact remains the default published program. -/
+def spike3SymbolicProgram : List SymbolicInstr :=
+  spike3SymbolicProgramWithArena 65536
+
+/-- Linked Win32 artifact whose reservation length is selected from a bounded caller grant. -/
+def spike3LinkedWithArena (arenaBytes : UInt32) : LinkedWindowsProgram :=
+  linkWindowsProgram (spike3SymbolicProgramWithArena arenaBytes) [
     ("crlfBytes", crlfBytes)
   ]
+
+/-- Linked binary program artifact for Spike 3. -/
+def spike3Linked : LinkedWindowsProgram :=
+  spike3LinkedWithArena 65536
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
 /-- Lowered concrete machine instruction sequence for Spike 3. -/
 def spike3Instructions : List X86_64Instr :=
   spike3Linked.instructions
 
+def spike3InstructionsWithArena (arenaBytes : UInt32) : List X86_64Instr :=
+  (spike3LinkedWithArena arenaBytes).instructions
+
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
 /-- Standard executable layout descriptor for Spike 3. -/
 def spike3Executable : WindowsExecutable :=
   spike3Linked.executable
+
+def spike3ExecutableWithArena (arenaBytes : UInt32) : WindowsExecutable :=
+  (spike3LinkedWithArena arenaBytes).executable
 
 end Spikes.Spike3SortLines.Windows

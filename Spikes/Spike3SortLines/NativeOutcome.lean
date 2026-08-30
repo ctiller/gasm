@@ -32,17 +32,21 @@ open Gasm.Targets.X86_64
     trace helper. -/
 def runSpike3LinuxWithGrant (grant : Spike3NativeArenaGrant) (stdin : ByteArray) (fuel : Nat) :
     NativeRunOutcome AnyEvent :=
-  let initial := Linux.spike3Executable.loadWithStdin stdin
+  let requested := grant.requestedBytes
+  let executable := Linux.spike3ExecutableWithArena requested
+  let initial := executable.loadWithStdin stdin
   letI := spike3LinuxRuntime AnyEvent grant
-  runProgramOutcomeWithLoops initial.rip Linux.spike3Instructions fuel initial
+  runProgramOutcomeWithLoops initial.rip (Linux.spike3InstructionsWithArena requested) fuel initial
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- Runs the actual lowered Win32 Spike 3 artifact under a caller-selected finite native grant. -/
 def runSpike3WindowsWithGrant (grant : Spike3NativeArenaGrant) (stdin : ByteArray) (fuel : Nat) :
     NativeRunOutcome AnyEvent :=
-  let initial := Windows.spike3Executable.loadWithStdin stdin
+  let requested := grant.requestedBytes
+  let executable := Windows.spike3ExecutableWithArena requested
+  let initial := executable.loadWithStdin stdin
   letI := spike3WindowsRuntime AnyEvent grant
-  runProgramOutcomeWithLoops initial.rip Windows.spike3Instructions fuel initial
+  runProgramOutcomeWithLoops initial.rip (Windows.spike3InstructionsWithArena requested) fuel initial
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
 /-- Whether a finite native run emitted Spike 3's dedicated resource-exhaustion process result. -/
@@ -54,6 +58,10 @@ def noNativeArenaGrant : Spike3NativeArenaGrant := ⟨0⟩
 
 /-- The smallest grant that covers the native artifact's one 64 KiB reservation request. -/
 def spike3NativeReservationGrant : Spike3NativeArenaGrant := ⟨65536⟩
+
+/-- A larger bounded caller choice used to recover an execution that exhausts the default
+    64 KiB arena.  It changes the emitted reservation immediate as well as the runtime grant. -/
+def spike3LargerNativeReservationGrant : Spike3NativeArenaGrant := ⟨131072⟩
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- The Linux resource boundary is exact and input-independent: a rejected reservation carries

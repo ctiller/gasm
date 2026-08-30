@@ -46,16 +46,22 @@ open Stdlib.SmolAlloc
     must select either an insufficient grant (for its explicit resource outcome) or a grant known
     to cover the requested mapping. -/
 structure Spike3NativeArenaGrant where
-  bytes : UInt64
+  bytes : UInt32
   deriving Repr, DecidableEq
+
+/-- The emitted artifact asks for the grant's bounded amount, with a 64 KiB minimum so even an
+    empty/insufficient grant follows the ordinary reservation-and-failure path rather than issuing
+    an invalid zero-length OS request. -/
+def Spike3NativeArenaGrant.requestedBytes (grant : Spike3NativeArenaGrant) : UInt32 :=
+  if grant.bytes < 65536 then 65536 else grant.bytes
 
 /-- Exact admission check for a native virtual-memory reservation.  Zero-sized grants never
     satisfy a nonzero request, and requests cannot exceed the caller's capability. -/
 def Spike3NativeArenaGrant.admits (grant : Spike3NativeArenaGrant) (requested : UInt64) : Bool :=
-  requested != 0 && requested <= grant.bytes
+  requested != 0 && requested <= grant.bytes.toUInt64
 
 theorem Spike3NativeArenaGrant.admits_of_le (grant : Spike3NativeArenaGrant)
-    {requested : UInt64} (hrequested : requested != 0) (hcapacity : requested <= grant.bytes) :
+    {requested : UInt64} (hrequested : requested != 0) (hcapacity : requested <= grant.bytes.toUInt64) :
     grant.admits requested = true := by
   simp [Spike3NativeArenaGrant.admits, hrequested, hcapacity]
 

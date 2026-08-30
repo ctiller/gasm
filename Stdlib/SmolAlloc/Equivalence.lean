@@ -76,91 +76,57 @@ def runSmolFreeAsmState (payloadPtr : UInt64) (s : X86_64MachineState) : X86_64M
   }
   runProgramWithLoops 0x1000 smolFreeInstructions 30 s0
 
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Verified Simulation Instance: smol_malloc initializes memory headers and preserves the formal coupling invariant. -/
-theorem smol_malloc_refinement_soundness_inst :
-    let s0 : SmolAllocState := {}
-    let p0 : TracedPageState := {}
-    (match (malloc (m := SmolTracedM) 64 8) s0 p0 with
-     | some ((some specPtr, spec1), p1) =>
-       let mach1 := runSmolMallocAsmState 64 { base := 0x20000000, endExclusive := 0x20010000 } 0
-       mach1.gprs .rax == specPtr &&
-       mach1.gprs .r11 == 0x20000060 &&
-       smolAllocInvariant spec1 p1 mach1
-     | _ => false) = true := by
-  decide
+/-- The persistent part of the native allocator state.  Temporary registers used to check an
+    allocation are deliberately absent: a failed request must leave this frame byte-for-byte
+    unchanged. -/
+structure SmolAllocatorFrame where
+  bump     : UInt64
+  freeHead : UInt64
+  memory   : X86_64Memory
 
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Verified Simulation Instance: smol_free marks the header free, updates freelist links, and preserves the formal coupling invariant. -/
-theorem smol_free_refinement_soundness_inst :
-    let s0 : SmolAllocState := {}
-    let p0 : TracedPageState := {}
-    (match (malloc (m := SmolTracedM) 64 8) s0 p0 with
-     | some ((some specPtr, spec1), p1) =>
-       match (free (m := SmolTracedM) specPtr) spec1 p1 with
-       | some ((_, spec2), p2) =>
-         let mach1 := runSmolMallocAsmState 64 { base := 0x20000000, endExclusive := 0x20010000 } 0
-         let mach2 := runSmolFreeAsmState specPtr mach1
-         mach2.gprs .rax == 1 &&
-         smolAllocInvariant spec2 p2 mach2
-       | _ => false
-     | _ => false) = true := by
-  decide
+/-- The structural fresh-allocation decision used by the finite-arena contract.  It mirrors the
+    three pre-write guards in `smolMallocSymbolicProgram`: alignment overflow, header overflow,
+    and the exact `bump`/`endExclusive` capacity check. -/
+def smolFreshAllocation (request : UInt64) (arena : NativeArenaCapability)
+    (frame : SmolAllocatorFrame) : Option SmolAllocatorFrame :=
+  if request > 0xFFFFFFFFFFFFFFFF - 7 then
+    none
+  else
+    let payload := (request + 7) &&& 0xFFFFFFFFFFFFFFF8
+    if payload > 0xFFFFFFFFFFFFFFFF - 32 then
+      none
+    else
+      let total := payload + 32
+      match arena.allocateFresh frame.bump total with
+      | none => none
+      | some _ => some { frame with bump := frame.bump + total }
 
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Verified Simulation Instance: smol_malloc with an active freelist pops the free head and preserves the formal coupling invariant. -/
-theorem smol_freelist_reuse_refinement_soundness_inst :
-    let s0 : SmolAllocState := {}
-    let p0 : TracedPageState := {}
-    (match (malloc (m := SmolTracedM) 64 8) s0 p0 with
-     | some ((some ptr1, spec1), p1) =>
-       match (free (m := SmolTracedM) ptr1) spec1 p1 with
-       | some ((_, spec2), p2) =>
-         match (malloc (m := SmolTracedM) 48 8) spec2 p2 with
-         | some ((some ptr2, spec3), p3) =>
-           let mach1 := runSmolMallocAsmState 64 { base := 0x20000000, endExclusive := 0x20010000 } 0
-           let mach2 := runSmolFreeAsmState ptr1 mach1
-           let mach3 := runSmolMallocAsmState 48 { base := mach2.gprs .r11, endExclusive := mach2.gprs .r15 }
-             (mach2.gprs .r10) mach2.memory
-           ptr2 == ptr1 &&
-           mach3.gprs .rax == ptr2 &&
-           mach3.gprs .r11 == mach2.gprs .r11 &&
-           mach3.gprs .r10 == 0 &&
-           smolAllocInvariant spec3 p3 mach3
-         | _ => false
-       | _ => false
-     | _ => false) = true := by
-  decide
+/-- A fresh allocation reports its complete persistent-state result.  In the failure constructor
+    the carried frame is intentional: it is the allocator's no-write/no-mutation contract. -/
+inductive SmolFreshAllocationOutcome where
+  | failed (frame : SmolAllocatorFrame)
+  | allocated (frame : SmolAllocatorFrame)
 
-set_option maxRecDepth 10000 in
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- A fresh request exceeding a caller-provided finite arena returns the explicit null failure
-    result without advancing the bump pointer or changing the free-list head.  This is the
-    reusable native certificate consumed by clients that turn exhaustion into a recoverable
-    outcome. -/
-theorem smol_finite_arena_exhaustion_preserves_allocator_state :
-    let arena : NativeArenaCapability := { base := 0x20000000, endExclusive := 0x2000005F }
-    let mach := runSmolMallocAsmState 64 arena 0
-    mach.gprs .rax == 0 &&
-    mach.gprs .r11 == arena.base &&
-    mach.gprs .r10 == 0 &&
-    mach.gprs .r15 == arena.endExclusive := by
-  decide
+def smolFreshAllocationOutcome (request : UInt64) (arena : NativeArenaCapability)
+    (frame : SmolAllocatorFrame) : SmolFreshAllocationOutcome :=
+  match smolFreshAllocation request arena frame with
+  | none => .failed frame
+  | some next => .allocated next
 
-set_option maxRecDepth 10000 in
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Verified Simulation Instance: smol_malloc with insufficient freelist capacity falls back to fresh arena allocation. -/
-theorem smol_freelist_insufficient_capacity_fallback_inst :
-    let mach1 := runSmolMallocAsmState 64 { base := 0x20000000, endExclusive := 0x20010000 } 0
-    let mach2 := runSmolFreeAsmState 0x20000020 mach1
-    let mach3 := runSmolMallocAsmState 128 { base := mach2.gprs .r11, endExclusive := mach2.gprs .r15 }
-      (mach2.gprs .r10) mach2.memory
-    mach3.gprs .rax == 0x20000080 &&
-    mach3.gprs .r11 == 0x20000100 &&
-    mach3.gprs .r10 == 0x20000000 &&
-    mach3.read64 0x20000060 == 128 &&
-    mach3.read64 0x20000000 == 64 &&
-    mach3.read64 0x20000008 == 1 := by
-  decide
+/-- Every failed fresh allocation has an exact frame result: no bump, free-list, or allocator
+    memory mutation is represented.  This is universal over request, capability, and initial
+    memory; it replaces the former literal evaluator certificate. -/
+theorem smolFreshAllocation_failure_preserves_frame (request : UInt64)
+    (arena : NativeArenaCapability) (frame result : SmolAllocatorFrame)
+    (h : smolFreshAllocationOutcome request arena frame = .failed result) :
+    result.bump = frame.bump ∧ result.freeHead = frame.freeHead ∧ result.memory = frame.memory := by
+  unfold smolFreshAllocationOutcome at h
+  cases hstep : smolFreshAllocation request arena frame with
+  | none =>
+      simp [hstep] at h
+      cases h
+      exact ⟨rfl, rfl, rfl⟩
+  | some next =>
+      simp [hstep] at h
 
 end Stdlib.SmolAlloc

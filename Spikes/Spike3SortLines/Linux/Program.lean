@@ -72,14 +72,14 @@ def defaultSampleInput : ByteArray :=
     7. Discharges all memory obligations via smol_free for every allocated string, node, and table.
     8. Retains the backing arena under the legacy exit-marker convention and terminates with
        sys_exit(0); this program does not call sys_munmap. -/
-def spike3SymbolicProgram : List SymbolicInstr := [
+def spike3SymbolicProgramWithArena (arenaBytes : UInt32) : List SymbolicInstr := [
   -- 1. Setup 120-byte stack frame to maintain (RSP - 120) % 16 == 0
   instr (sub_rsp 120),
 
   -- 2. Initialize SmolAlloc Arena via sys_mmap(0, 65536, PROT_READ|PROT_WRITE (3), MAP_PRIVATE|MAP_ANONYMOUS (0x22), -1, 0)
   instr (mov_r32 .eax 9),
   instr (xor_r32 .edi .edi),
-  instr (mov_r32 .esi 65536),
+  instr (mov_r32 .esi arenaBytes),
   instr (mov_r32 .edx 3),
   instr (mov_r32 .r10d 0x22),
   instr (mov_r64_imm64 .r8 0xFFFFFFFFFFFFFFFF),
@@ -89,7 +89,7 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (cmp_r64_imm32 .rax 0xFFFFF001),
   jae_near_label "resource_exhausted",
   instr (mov_r64 .r15 .rax), -- r15 = exclusive finite arena end
-  instr (add_r64_imm32 .r15 65536),
+  instr (add_r64_imm32 .r15 arenaBytes),
   jb_near_label "resource_exhausted", -- reject non-representable arena end
   instr (mov_r64 .r11 .rax), -- r11 = smolalloc arena bump pointer
   instr (xor_r32 .r10d .r10d), -- r10 = smolalloc freelist head = NULL
@@ -551,20 +551,36 @@ def spike3SymbolicProgram : List SymbolicInstr := [
 ] ++ smolFreeSymbolicProgram
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
-/-- Linked binary program artifact for Linux Spike 3. -/
-def spike3Linked : LinkedLinuxProgram :=
-  linkLinuxProgramStatic spike3SymbolicProgram [
+/-- The historical 64 KiB artifact remains the default published program.  Resource-aware runs
+    choose `spike3LinkedWithArena` with the caller's bounded grant instead. -/
+def spike3SymbolicProgram : List SymbolicInstr :=
+  spike3SymbolicProgramWithArena 65536
+
+/-- Linked Linux artifact whose requested mapping length is selected from the caller's finite
+    grant at construction time. -/
+def spike3LinkedWithArena (arenaBytes : UInt32) : LinkedLinuxProgram :=
+  linkLinuxProgramStatic (spike3SymbolicProgramWithArena arenaBytes) [
     ("crlfBytes", crlfBytes)
   ]
+
+/-- Linked binary program artifact for Linux Spike 3. -/
+def spike3Linked : LinkedLinuxProgram :=
+  spike3LinkedWithArena 65536
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
 /-- Lowered concrete machine instruction sequence for Linux Spike 3. -/
 def spike3Instructions : List X86_64Instr :=
   spike3Linked.instructions
 
+def spike3InstructionsWithArena (arenaBytes : UInt32) : List X86_64Instr :=
+  (spike3LinkedWithArena arenaBytes).instructions
+
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
 /-- Standard executable layout descriptor for Linux Spike 3. -/
 def spike3Executable : LinuxExecutable :=
   spike3Linked.executable
+
+def spike3ExecutableWithArena (arenaBytes : UInt32) : LinuxExecutable :=
+  (spike3LinkedWithArena arenaBytes).executable
 
 end Spikes.Spike3SortLines.Linux
