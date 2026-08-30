@@ -258,10 +258,12 @@ non-wrapping `[base, base + encoded span)` interval. A boundary-to-byte extracti
 modular instruction address to its exact serialized bytes, so below-base truncating subtraction or
 wrapped aliases cannot justify relocation.
 
-`checkedRel32` is explicitly fallible. It rejects zero or violated target-block alignment, next-instruction
-address wrap, and every mathematical displacement outside the signed 32-bit interval before
-conversion. These are link-time errors, not runtime faults or outcomes. A selected direct symbolic
-JMP alone adds `DirectJumpRelocation`: exact target-definition membership, the checked displacement,
+`checkedRel32ForSize` is explicitly fallible and measures displacement from the exact
+`source + instructionSize` next RIP. It rejects zero or violated target-block alignment,
+next-instruction address wrap, and every mathematical displacement outside the signed 32-bit interval
+before conversion. `checkedRel32` preserves the direct-JMP API as the five-byte specialization. These
+are link-time errors, not runtime faults or outcomes. A selected direct symbolic JMP alone adds
+`DirectJumpRelocation`: exact target-definition membership, the checked displacement,
 exact five emitted bytes, production decoding and source/target lookup, and the concrete destination.
 `DirectJumpRelocation.connect` carries the existing typed edge's destination contract and ghost-world
 transfer into a layout-indexed connection which retains the source-terminator placement,
@@ -284,6 +286,25 @@ JMP, RET, exit, or halt acquire no conditional-branch premise.
 This frontend step does not yet choose a concrete JCC encoding. The narrow x86 linker form uses one
 near-JCC rel32 target and one proved fallthrough target; arbitrary placement requires a later proved
 JCC-plus-JMP terminator sequence rather than pretending a single JCC has two displacements.
+
+### Typed conditional-branch linking
+
+`ConditionalJumpRelocation` realizes that narrow x86 shape against the same non-wrapping
+`ClosedCFGLayout`: the true block is the one checked rel32 destination and the false block must begin
+at exactly `sourceAddress + 6`. `checkedNearJccRel32` is the six-byte specialization of the
+size-aware checker, so a successful relocation both computes the taken displacement from that next
+RIP and proves that the source-plus-six fallthrough address does not wrap. `nearJccInstruction` is
+partial over the existing sealed
+`ConditionalJumpEncoding` kinds; conditions for which only a short encoding is currently admitted
+are rejected rather than silently narrowed. The connection retains the exact source terminator,
+both target definitions and starts, the condition-kind agreement, exact linked bytes, production
+decode and all three lookups, and state-parametric taken/fallthrough destination laws.
+
+`ConditionalJumpRelocation.toTerminatorRealization` contributes only those static facts to the
+existing one-step `TerminatorRealization.conditional`. Runtime silence, the actual host-aware
+transition and event result, nonfaulting state, and the dynamic condition relation remain explicit
+operational/profile premises. This proves neither a whole branch execution nor termination. Blocks
+without a selected JCC acquire no conditional relocation obligation.
 
 ## Differential certificate transport
 
