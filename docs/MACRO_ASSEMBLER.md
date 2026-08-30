@@ -143,6 +143,12 @@ state exact production-runner continuation, total consumed fuel, final machine s
 accumulator, and chronological event append. `InvariantLoopStep.iterate` exposes the same relation
 for a caller-proved loop invariant without creating a graph, artifact, ABI, or authority layer.
 
+A terminal selected host transition uses `SelectedProcessExitStep`. It retains the closed
+CALL/SYSCALL classification, exact fetch and selection, a fault-free raw CPU step, the exact
+interceptor result, and the resulting typed process-exit state. Consequently an ordinary
+instruction which merely reaches an address watched by an interceptor, or an interceptor which
+overwrites an existing CPU fault, cannot supply process-exit authority.
+
 This is a prefix/continuation law, not an artifact certificate or a termination claim. It does not
 prove that the indexed stream is a final artifact, that a function returns, or that a native outcome
 is admissible. Return, halt, fault, and fuel exhaustion remain the unchanged production runner's

@@ -404,23 +404,47 @@ theorem selectedExecutionTerminates_run {Event : Type}
       simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, intercept, safe]
       exact ih continuationFuel
 
-/-- Appending one selected typed process-exit transition turns a structural selected prefix into
-    the executable termination certificate required by universal artifact verification. -/
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Exact classified evidence for one selected host transition which terminates
+    the process.  The raw CPU step must be fault-free before the selected host
+    interceptor acts; an interceptor cannot turn an unrelated instruction or
+    overwrite an existing architectural fault into exit authority. -/
+structure SelectedProcessExitStep {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (selected : Gasm.Core.Address → X86_64MachineState → Bool)
+    (indexed : List (UInt64 × X86_64Instr))
+    (state : X86_64MachineState) (code : UInt32) where
+  instruction : X86_64Instr
+  hooked : X86_64MachineState
+  event : Option Event
+  encoding : HostInterceptEncoding instruction
+  lookup : instructionAtRipIndexed indexed state.rip = some instruction
+  selectedAt : selected (X86_64Instruction.step instruction state).rip
+    (X86_64Instruction.step instruction state) = true
+  steppedSafe : (X86_64Instruction.step instruction state).fault = none
+  intercept : interceptor.interceptCall
+    (X86_64Instruction.step instruction state).rip
+    (X86_64Instruction.step instruction state) = some (hooked, event)
+  exits : hooked.fault = some (.processExit code)
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Appending one exact selected typed process-exit transition turns a
+    structural selected prefix into the executable termination certificate
+    required by universal artifact verification. -/
 theorem selectedExecutionTerminates_of_processExit {Event : Type}
     [interceptor : ExternalCallInterceptor X86_64 Event]
     {allowHalted : Bool} {selected : Gasm.Core.Address → X86_64MachineState → Bool}
     {indexed : List (UInt64 × X86_64Instr)} {fuel : Nat}
     {initial final : X86_64MachineState} {initialEventsRev finalEventsRev emitted : List Event}
     (certificate : SelectedPrefix selected indexed fuel initial initialEventsRev final finalEventsRev emitted)
-    {instruction : X86_64Instr} {code : UInt32}
-    (lookup : instructionAtRipIndexed indexed final.rip = some instruction)
-    (selectedAt : selected (X86_64Instruction.step instruction final).rip
-      (X86_64Instruction.step instruction final) = true)
-    (exits : (nativeOutcomeTransition (Event := Event) instruction final []).1.fault =
-      some (.processExit code)) :
+    {code : UInt32}
+    (exitStep : SelectedProcessExitStep (Event := Event) selected indexed final code) :
     selectedExecutionTerminates (Event := Event) allowHalted selected indexed (fuel + 1) initial = true := by
   rw [certificate.selectedExecutionTerminates_run 1]
-  simp [selectedExecutionTerminates, lookup, selectedAt, exits]
+  rcases exitStep with ⟨instruction, hooked, event, encoding, lookup,
+    selectedAt, steppedSafe, intercept, exits⟩
+  simp [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition,
+    intercept, exits]
 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 /-- A selected typed process exit remains terminal when the caller supplies unused fuel after the
@@ -432,18 +456,17 @@ theorem selectedExecutionTerminates_of_processExit_with_slack {Event : Type}
     {indexed : List (UInt64 × X86_64Instr)} {fuel : Nat}
     {initial final : X86_64MachineState} {initialEventsRev finalEventsRev emitted : List Event}
     (certificate : SelectedPrefix selected indexed fuel initial initialEventsRev final finalEventsRev emitted)
-    {instruction : X86_64Instr} {code : UInt32}
-    (lookup : instructionAtRipIndexed indexed final.rip = some instruction)
-    (selectedAt : selected (X86_64Instruction.step instruction final).rip
-      (X86_64Instruction.step instruction final) = true)
-    (exits : (nativeOutcomeTransition (Event := Event) instruction final []).1.fault =
-      some (.processExit code))
+    {code : UInt32}
+    (exitStep : SelectedProcessExitStep (Event := Event) selected indexed final code)
     (slack : Nat) :
     selectedExecutionTerminates (Event := Event) allowHalted selected indexed
       (fuel + 1 + slack) initial = true := by
   rw [show fuel + 1 + slack = fuel + (slack + 1) by omega]
   rw [certificate.selectedExecutionTerminates_run (slack + 1)]
-  simp [selectedExecutionTerminates, lookup, selectedAt, exits]
+  rcases exitStep with ⟨instruction, hooked, event, encoding, lookup,
+    selectedAt, steppedSafe, intercept, exits⟩
+  simp [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition,
+    intercept, exits]
 
 end SelectedPrefix
 
