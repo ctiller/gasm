@@ -80,6 +80,7 @@ import Gasm.Targets.X86_64.CFGBridge
 import Gasm.Targets.X86_64.CFGLinker
 import Gasm.Targets.X86_64.EventfulSegment
 import Gasm.Targets.X86_64.ExecutionCutpoint
+import Gasm.Targets.X86_64.LocalBlockDischarge
 import Gasm.Targets.X86_64.SelectedLoopTermination
 import Gasm.Targets.X86_64.DecimalSegments
 import Gasm.Targets.X86_64.DecimalSchedule

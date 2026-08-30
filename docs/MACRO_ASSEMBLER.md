@@ -604,3 +604,38 @@ The baseline-to-transformed block mapping must preserve nominal identity and sta
 is shared or cloned. Symbolic CFG proofs can then survive layout changes while displacement and exact
 byte proofs are regenerated. Differential transport derives ordinary certificates only; it is neither
 an emission path nor an authority parallel to `VerifiedExportSet` and `VerifiedProgram`.
+
+## Proof-directed local blocks
+
+`Gasm.Targets.X86_64.LocalBlockDischarge` packages reusable local contracts over the canonical exact
+`SelectedPrefix.Cutpoint` evidence. A contract explicitly names its entry predicate and its exit relation
+over the initial and final machine states, reverse event accumulators, ghost state, chronological
+event delta, and a caller-selected logical result. That result and the ghost transition classify a
+proof phase only; they do not claim a native success, failure, cancellation, or terminal outcome.
+Such a claim additionally requires the applicable production outcome/terminator evidence. Contracts
+are explicit and are not inferred through typeclass search.
+
+A `LocalBlockRun` is indexed by the selection policy and exact artifact instruction index. Its
+operational field is the shared `ExecutionCutpoint`, retaining the real selected prefix and therefore every instruction lookup,
+classification, interceptor transition, safety premise, fuel count, final state, and event delta.
+The reverse-accumulator law retains the event observation even when that emitted delta is empty; no
+pilot may erase an explicit empty-event observation merely because it carries no payload.
+Its continuation theorem rewrites the production runner to the unchanged caller continuation; it
+does not claim termination or admissibility. Changing the placed instruction index cannot reuse the
+certificate, so differential code replacement must regenerate placement/execution evidence.
+Symbolic body identity remains in the typed CFG; this operational wrapper does not introduce a
+forgeable phantom body tag.
+
+`LocalBlockDischarge` proves the same fixed contract for every admitted entry. Contract refinement
+can strengthen entry requirements or project/weaken exit properties without changing the selected
+artifact index. `LocalBlockRun.then` applies a second discharge to the first run's exact final
+machine/event/ghost state. `SequentialLocalBlockRuns` retains both witnesses and composes their
+selected prefixes and fuel, preventing an existentially reselected middle state from satisfying an
+unrelated continuation contract.
+
+This is the implementation-hole layer for bidirectional proof construction: forward analysis
+derives the strongest useful abstract and ghost facts, backward analysis derives the weakest target
+requirements, and their explicit meet at named block/join/loop contracts admits a generated or
+handwritten local body. Iteration may tighten either side without changing abstract instruction
+positions; linker placement remains later. CFG closure, link placement, artifact identity,
+exports, and the sole `VerifiedProgram` authority remain separate.
