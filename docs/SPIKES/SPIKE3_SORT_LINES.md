@@ -3,8 +3,9 @@
 **Status (2026-08-29): implemented vertical slice with narrow verification coverage.** The
 native and Wasm lowerings retain concrete checked trace-equality facts only for literal inputs;
 these are not proofs over arbitrary `ByteArray` input. The source-level streaming decoder and
-the ghost line-world establish reusable universal logical facts, but no theorem yet connects a
-lowered tokenizer, descriptor table, sort loop, or writer to those facts. The precise remaining
+the ghost line-world establish reusable universal logical facts, including a sealed-preparation
+resource boundary, but no theorem yet connects a lowered tokenizer, descriptor table, sort loop,
+or writer to those facts. The precise remaining
 bridge is recorded in §6.
 
 ## 1. Overview & High-Level Architecture
@@ -96,6 +97,32 @@ Retry is a new invocation with the same stdin and a fresh sufficient grant. It r
 bounded native artifact with that larger reservation amount and reaches the concrete platform
 reservation base; it is not a mutation of the failed invocation's arena state.
 
+### 4.2 Sealed preparation and total post-preparation work
+
+The logical contract makes one deliberate phase cut. Ingestion/preparation reads arbitrary input,
+materializes line storage, and allocates/materializes the post-EOF sort table. It either aborts
+with explicit preparation/resource failure or seals `ReadyToSort`, carrying the exact completed
+line identities and initial table order. There is no `resourceFailureSorting` or
+`resourceFailureEmitting` outcome: after this seal sorting is finite, total, allocation-free, and
+creates no new resource obligation. Emission is likewise allocation-free; it either completes the
+exact sorted output or stops at an explicit host output refusal/error, retaining any emitted prefix.
+
+`ReadyToSortCertificate` and `TargetBridge.ReadyState` are staging interfaces, not claims that
+the current native or WASI lowerings establish allocation/accounting facts. Construction requires
+an explicit target-owned relation over the active world, exact physical storage/table evidence,
+and equality to the actual reader state. The future link gate must establish that relation from
+canonical obligations/capabilities and actual allocation calls; the current `ObligationLedger` is
+legacy and is not used as a fake governor instance.
+
+The common cursor records byte-exact short writes, including a split inside a line or CRLF, and
+requires an explicit refused write result *and* a target-owned concrete-write observation before
+the output-refusal terminal can be formed.
+However, no current Linux/Win32/WASI lowered program is connected to that terminal: the stock
+WASI `fd_write` host model always returns success and the current native writers do not branch on
+short/error results. Thus this is a required bridge shape, not a claim that current artifacts
+recover from output refusal. API-specific output errors (`write`, `WriteFile`, `fd_write`) must be
+modeled and linked before that claim may be made.
+
 - **Specification reader**: `readAllLinesFueled` is structurally recursive with an explicit
   `specMaxStdinLines` bound; it is not an unbounded termination proof.
 - **Lowered buffers**: the Windows and Wasm programs use concrete bounded buffers and fixed read
@@ -127,16 +154,20 @@ are unique, and erasing them recovers the exact completed byte-line sequence.
 
 `StorageCertificate` is indexed by that same input-derived reader, line universe, and source
 order. It requires each resident ID to carry both its exact generation and immutable bytes, and
-rejects stale storage entries outside the source. The sorting state retains an exact nominal
-permutation. Entering emission now requires an ordered sorting state; each emission transition
-retains both orderedness and the source permutation, and completion proves a sorted emitted order
-with the exact source multiset (also after erasing IDs to bytes).
+rejects stale storage entries outside the source. `ReadyToSortCertificate` additionally ties the
+physical sort table to the sealed initial order. The sorting state retains an exact nominal
+permutation. Entering emission requires an ordered sorting state; each emission transition retains
+both orderedness and the source permutation, and completion proves a sorted emitted order with the
+exact source multiset (also after erasing IDs to bytes). A target terminal may additionally carry
+an explicit byte-cursor output refusal retaining its prefix; it is not a free line-world
+transition.
 
 The logical layer intentionally contains no resource frame or purported linearity law. Its
-`ResourceGovernorSeam` is only a relation slot for the active obligation/governor work: a target
-bridge must separately establish allocation, retry, cleanup, and discharge. This is a reusable
-logical staging point, not evidence that native/WASI code realizes the states, block contracts,
-allocation failure handling, or arbitrary-input termination.
+`PreparationAuthority` is an explicit, target-supplied relation indexed by the one active world:
+a target bridge must separately establish allocation, retry, cleanup, and discharge through the
+future obligation/capability link gate. This is a reusable logical staging point, not evidence
+that native/WASI code realizes the states, block contracts, allocation failure handling, or
+arbitrary-input termination.
 
 ---
 
@@ -153,11 +184,14 @@ a proved logical-to-native simulation bridge, so this work does not replace any 
 because the ghost facts are available.
 
 The exact remaining target lemma is a platform bridge for each lowered implementation: for every
-finite `stdin`, every legal `Gasm.Effects.ChunksOf stdin capacity chunks` schedule, and every
-successful concrete run whose storage is related by `StorageCertificate`, the concrete tokenizer
-reaches its certificate state, the concrete descriptor/sort loop reaches a `SortedCertificate`,
-and its concrete writes realize `EmissionState.completed_sorted_permutation`. Coupled with the
-existing `ByteLineStream.feedChunks_of_chunksOf`, this yields the actual target trace equal to
-`spike3ByteSortSpec` for that exact `Environment.stdin`. Proving this requires block/loop
-simulation for each target and the external resource-governor premises; it cannot be discharged
-by a literal evaluator or a finite selector.
+finite `stdin` and every legal `Gasm.Effects.ChunksOf stdin capacity chunks` schedule, concrete
+ingestion/preparation either reaches its checked abort path or seals a `ReadyToSortCertificate`
+with a link-gate-established world relation. From that seal, the concrete descriptor/sort loop
+must reach a `SortedCertificate` without further allocation. A later writer bridge must either
+realize `EmissionState.completed_sorted_permutation` or a byte-cursor-preserving refused write;
+current lowerings have not implemented that latter branch. Coupled with the existing
+`ByteLineStream.feedChunks_of_chunksOf`, successful accepted output yields the actual target trace
+equal to `spike3ByteSortSpec` for that exact `Environment.stdin`. Proving this requires block/loop
+simulation for each target, an obligation-world link gate, and dynamically justified fuel where a
+platform exposes fuel exhaustion; it cannot be discharged by a literal evaluator or a finite
+selector.

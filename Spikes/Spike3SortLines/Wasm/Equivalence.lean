@@ -108,21 +108,36 @@ def spike3WasmInputFor (environment : Environment) : List (List UInt8) :=
   environmentInputLines environment
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
-/-- The success arm of the one finite-resource byte specification, retained as a named WASI
-    observation for the target bridge.  A universal certificate must additionally classify the
-    real WASI resource outcome as `.available` or `.exhausted`; it cannot use this arm to erase
-    memory/fuel exhaustion. -/
+/-- The accepted-output arm of the one preparation/output byte specification, retained as a named
+    WASI observation for the target bridge.  A universal certificate must additionally classify
+    real WASI resource outcomes as sealed preparation or exhaustion, and `fd_write` as accepted
+    or refused; it cannot use this arm to erase either failure. -/
 def spike3WasmSuccessSpec (environment : Environment) : WasiObservable AnyEvent :=
   .exited 0 (byteSortOutput (sortByteLines (environmentInputLines environment)))
 
-/-- The independent, byte-total finite-resource specification attached to the canonical
-    environment.  This is the shape a completed universal WASI bridge must classify against.
-    The platform's detailed memory/fuel outcomes remain distinct in `WasiObservable`, so a bridge
-    must prove their relationship to this source-level resource result rather than project them
-    to a trace. -/
-def spike3WasmFiniteSpec (environment : Environment) (resource : Spike3ResourceOutcome) :
-    Spike3ByteSortOutcome :=
-  spike3ByteSortSpec environment resource
+/-- Complete target-observable classification for the current WASI runtime.  It is derived only
+    from `WasiObservable`, so fuel exhaustion, memory exhaustion, and traps cannot be silently
+    classified as successful source output.  The stock `fd_write` host model currently has no
+    refusal constructor; a later host/profile that adds one must extend this type and connect it
+    to `LogicalWorld.OutputCursor.WriteResult` before it can claim the shared output-refusal arm. -/
+inductive Spike3WasmObservedOutcome where
+  | completed (events : List AnyEvent)
+  | exited (code : UInt32) (events : List AnyEvent)
+  | trapped (events : List AnyEvent)
+  | fuelExhausted
+  | memoryExhausted (requestedPages availablePages : Nat)
+
+def Spike3WasmObservedOutcome.ofObservable : WasiObservable AnyEvent → Spike3WasmObservedOutcome
+  | .completed events => .completed events
+  | .exited code events => .exited code events
+  | .trapped events => .trapped events
+  | .fuelExhausted => .fuelExhausted
+  | .memoryExhausted requested available => .memoryExhausted requested available
+
+/-- The finite WASI observation is computed from the actual platform outcome, not from free
+    preparation/output classifiers. -/
+def spike3WasmFiniteSpec (environment : Environment) : Spike3WasmObservedOutcome :=
+  .ofObservable (spike3WasmTraceFor environment)
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
 /-- The Spike 3 WASI profile preserves the environment verbatim at the platform boundary. This
@@ -133,10 +148,20 @@ theorem spike3_wasi_platform_loads_environment
     Platform.load (P := Spike3WasiPreview1Platform) artifact environment = environment := rfl
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
-/-- The sole admitted shape for the remaining semantic work: a caller must supply the actual
-    universal simulation theorem, over arbitrary bytes, before an emitted Spike 3 artifact can be
-    classified as verified.  This is a constructor, not a compatibility escape hatch: its only
-    proof input is precisely the `VerifiedProgram` trace obligation. -/
+/-- The sole admitted shape for the remaining semantic work.  The behavior proof ranges over the
+    actual complete WASI observation—not a success-only resource classifier—and separately proves
+    that every successful exit has the source-specified byte trace.  Fuel exhaustion and traps
+    remain explicit observations until a preparation-indexed dynamic fuel proof closes them. -/
+structure Spike3WasmBehavior (environment : Environment) where
+  observation : WasiObservable AnyEvent
+  derivesFromRun : spike3WasmTraceFor environment = observation
+  successfulExitIsSorted : ∀ events,
+    observation = .exited 0 events →
+      events = byteSortOutput (sortByteLines (environmentInputLines environment))
+
+/-- A `VerifiedProgram` is constructible only from the full behavior proof above.  In particular,
+    a caller cannot supply the old success-only `spike3WasmSuccessSpec` equality and erase a
+    post-preparation fuel/trap outcome. -/
 def spike3WasiArtifact : WasiArtifact where
   module := spike3WasmModule
   typeSignatures := spike3TypeSignatures
@@ -158,8 +183,7 @@ def spike3WasiExports : VerifiedExportSet Unit Unit WasiPlatform
     (by rfl)
 
 def spike3VerifiedWasmProgram
-    (traceEquivalence : ∀ environment : Environment,
-      spike3WasmTraceFor environment = spike3WasmSuccessSpec environment) :
+    (behavior : ∀ environment : Environment, Spike3WasmBehavior environment) :
     VerifiedProgram Spike3WasiPreview1Platform spike3WasiCapabilities := {
   name := "Spike 3: Byte-stream line sorter (WebAssembly / WASI Preview 1)"
   artifact := spike3WasiArtifact
@@ -174,7 +198,7 @@ def spike3VerifiedWasmProgram
     constructor
     · rfl
     constructor <;> rfl
-  spec := spike3WasmSuccessSpec
+  spec := fun environment => (behavior environment).observation
   importsCovered := by
     intro imported himported
     change imported ∈ ["fd_read", "fd_write", "proc_exit"] at himported
@@ -205,7 +229,7 @@ def spike3VerifiedWasmProgram
     exact ⟨spike3EncodedWasmBytes, spike3WasmEncoderOk⟩
   traceEquivalence := by
     intro environment
-    exact traceEquivalence environment
+    exact (behavior environment).derivesFromRun
 }
 
 end Spikes.Spike3SortLines.Wasm

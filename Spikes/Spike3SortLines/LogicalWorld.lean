@@ -333,6 +333,70 @@ theorem StorageCertificate.source_nodup
   rw [certificate.source_eq_completed]
   exact certificate.reading.completed_nodup
 
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- The sealed logical hand-off from ingestion/preparation to sorting.  `tableOrder` is the
+    initially materialized sort table, before the sorter mutates it.  It is deliberately kept
+    separate from the physical table representation: a target bridge must show that its table
+    realizes this exact order, alongside storage and governor/obligation facts.
+
+    This is the phase boundary for finite resources.  Reaching this value means all allocations
+    needed by the sorter (including the post-EOF table) have already succeeded. -/
+structure ReadyToSort (LineId : Type) where
+  source : List LineId
+  tableOrder : List LineId
+  table_exact : tableOrder = source
+
+namespace ReadyToSort
+
+/-- The sealed table starts the allocation-free sorting phase with exactly the tokenizer source.
+    Later compare/swap steps change only the `SortingState` order. -/
+def initialSorting (ready : ReadyToSort LineId) : SortingState LineId ready.source :=
+  { order := ready.tableOrder
+    permutation := by simp [ready.table_exact] }
+
+end ReadyToSort
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- A target-facing preparation certificate ties physical line storage and a physical sort table
+    to the one sealed logical hand-off.  Allocation/accounting obligations are intentionally not
+    recreated here; `TargetBridge.ReadyState` carries the active governor seam beside this
+    certificate. -/
+structure ReadyToSortCertificate (Storage Table LineId : Type) (lineUniverse : LineUniverse LineId)
+    (stdin : List UInt8) (capacity : Nat) (chunks : List (List UInt8)) where
+  storage : StorageCertificate Storage LineId lineUniverse stdin capacity chunks
+  table : Table
+  tableOrder : Table → List LineId
+  ready : ReadyToSort LineId
+  source_exact : ready.source = storage.source
+  table_exact : tableOrder table = ready.tableOrder
+
+/- REF: docs/ABI_CONTEXT.md#7-finite-allocation-and-request-accounting -/
+/-- The target-owned proposition which connects the repository's one active obligation/capability
+    world to a successfully prepared sorter.  This is deliberately an *input* to the bridge,
+    rather than a locally-defined governor predicate: the eventual link gate must establish it
+    from the canonical world, concrete allocation calls, and their resource outcomes.
+
+    The current repository does not yet contain the sound-v2 obligation world needed to define a
+    canonical instance.  Keeping this parameter explicit prevents this staging layer from
+    manufacturing one with `True`. -/
+abbrev PreparationAuthority (World Concrete Storage Table LineId : Type)
+    (lineUniverse : LineUniverse LineId) (stdin : List UInt8) (capacity : Nat)
+    (chunks : List (List UInt8)) : Type :=
+  World → Concrete → ReadyToSortCertificate Storage Table LineId lineUniverse stdin capacity chunks → Prop
+
+/- REF: docs/ABI_CONTEXT.md#7-finite-allocation-and-request-accounting -/
+/-- The only way this logical layer records a sealed preparation.  It retains both the exact
+    physical storage/table certificate and a proof from a caller-supplied authority relation over
+    the sole target world. -/
+structure EstablishedPreparation (World Concrete Storage Table LineId : Type)
+    (lineUniverse : LineUniverse LineId) (stdin : List UInt8) (capacity : Nat)
+    (chunks : List (List UInt8))
+    (authority : PreparationAuthority World Concrete Storage Table LineId lineUniverse stdin capacity chunks) where
+  world : World
+  concrete : Concrete
+  certificate : ReadyToSortCertificate Storage Table LineId lineUniverse stdin capacity chunks
+  established : authority world concrete certificate
+
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 /-- A terminal sorting certificate layers orderedness over the permutation frame already carried
     by `SortingState`; sorting implementations need prove orderedness only at their selected exit. -/
@@ -395,6 +459,53 @@ theorem completed_bytes_permutation (state : EmissionState LineId lineUniverse s
 
 end EmissionState
 
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- The exact byte representation of one emitted line.  The logical output protocol is bytes even
+    when a concrete host adapter later renders them as a string event. -/
+def renderedLineBytes (lineUniverse : LineUniverse LineId) (line : LineId) : List UInt8 :=
+  lineUniverse.bytes line ++ [13, 10]
+
+/-- The byte stream selected by a sorted line order. -/
+def renderedOrderBytes (lineUniverse : LineUniverse LineId) (order : List LineId) : List UInt8 :=
+  order.flatMap (renderedLineBytes lineUniverse)
+
+/-- Constructive list-prefix relation, kept local because the output bridge needs the exact
+    residual bytes after a short write. -/
+def BytePrefix (leading whole : List UInt8) : Prop := ∃ suffix, whole = leading ++ suffix
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- A byte-level output cursor.  Unlike the older line-at-a-time emission state, this records the
+    exact split at which a host write can refuse, including inside a line or its CRLF suffix. -/
+structure OutputCursor (LineId : Type) (lineUniverse : LineUniverse LineId) (order : List LineId) where
+  emitted : List UInt8 := []
+  remaining : List UInt8 := renderedOrderBytes lineUniverse order
+  partition : emitted ++ remaining = renderedOrderBytes lineUniverse order
+
+namespace OutputCursor
+
+def initial (lineUniverse : LineUniverse LineId) (order : List LineId) :
+    OutputCursor LineId lineUniverse order :=
+  { partition := rfl }
+
+/-- A target-reported host write result.  A successful write may consume any nonempty prefix,
+    which models short writes without silently rounding them to line boundaries. -/
+inductive WriteResult (OutputError : Type) (before : OutputCursor LineId lineUniverse order) where
+  | accepted (after : OutputCursor LineId lineUniverse order) (written : List UInt8)
+      (nonempty : written ≠ [])
+      (remaining_exact : before.remaining = written ++ after.remaining)
+      (emitted_exact : after.emitted = before.emitted ++ written) :
+      WriteResult OutputError before
+  | refused (error : OutputError) : WriteResult OutputError before
+
+/-- The bytes already emitted by the line-level state must be an exact prefix of an output cursor
+    attached to that same sorted order.  The remainder may be a partial current line/CRLF. -/
+def extendsEmission (lineUniverse : LineUniverse LineId)
+    (emission : EmissionState LineId lineUniverse source)
+    (cursor : OutputCursor LineId lineUniverse emission.sorting.order) : Prop :=
+  BytePrefix (renderedOrderBytes lineUniverse emission.emitting.emitted) cursor.emitted
+
+end OutputCursor
+
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 /-- The small cross-phase composition law: a completed emission of a sorted order preserves the
     original nominal line multiset. Orderedness and byte serialization remain independent facts. -/
@@ -406,79 +517,91 @@ theorem completed_emission_permutation {lineUniverse : LineUniverse LineId}
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 inductive Phase where
-  | reading | sorting | emitting | resourceFailed | completed
-
-/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
-inductive FailedPhase where
-  | reading | sorting | emitting
+  | reading | readyToSort | sorting | emitting | resourceFailed | completed
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
-/-- Phase-indexed states for the line-content proof only.  This deliberately has no cleanup or
-    governor field: ownership transfer and discharge are supplied by the active obligation track,
-    which must prove its own laws when it connects a concrete target state to this ghost state. -/
-inductive PhaseState (LineId : Type) (lineUniverse : LineUniverse LineId) :
+/-- Phase-indexed states.  The ready state carries the exact physical preparation certificate and
+    an establishment proof over the caller's one target world.  The canonical sound-v2 obligation
+    algebra is not integrated yet, so its relation is an explicit parameter rather than a local
+    governor model. -/
+inductive PhaseState (World Concrete Storage Table LineId : Type) (lineUniverse : LineUniverse LineId)
+    (stdin : List UInt8) (capacity : Nat) (chunks : List (List UInt8))
+    (authority : PreparationAuthority World Concrete Storage Table LineId lineUniverse stdin capacity chunks) :
     Phase → Type where
   | reading (state : ReadingState LineId) :
-      PhaseState LineId lineUniverse .reading
+      PhaseState World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority .reading
+  | readyToSort
+      (prepared : EstablishedPreparation World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority) :
+      PhaseState World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority .readyToSort
   | sorting (source : List LineId)
       (state : SortingState LineId source) :
-      PhaseState LineId lineUniverse .sorting
+      PhaseState World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority .sorting
   | emitting (source : List LineId) (state : EmissionState LineId lineUniverse source) :
-      PhaseState LineId lineUniverse .emitting
-  | resourceFailed (origin : FailedPhase) :
-      PhaseState LineId lineUniverse .resourceFailed
+      PhaseState World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority .emitting
+  /-- Resource failure can occur only before `ReadyToSort` is sealed. -/
+  | resourceFailed :
+      PhaseState World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority .resourceFailed
   | completed (source : List LineId) (emitted : EmissionState LineId lineUniverse source)
       (done : emitted.emitting.remaining = []) :
-      PhaseState LineId lineUniverse .completed
-
-/- REF: docs/ABI_CONTEXT.md#7-finite-allocation-and-request-accounting -/
-/-- Honest integration seam for the separate obligation/governor proof.  This file imposes no
-    resource law on it; a native or WASI bridge must provide a concrete relation and establish
-    allocation, retry, and cleanup/discharge obligations in the obligation track. -/
-structure ResourceGovernorSeam (Concrete : Type) (LineId : Type) where
-  relates : Concrete → List LineId → Prop
+      PhaseState World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority .completed
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
-/-- Typed line-content transitions.  Reads, comparison swaps, and emission retain their local
-    evidence; phase changes are the only cross-layer coupling.  Resource failure is only a phase
-    marker here: its authority accounting is intentionally outside this logical layer. -/
-inductive PhaseTransition (lineUniverse : LineUniverse LineId) :
-    {origin to : Phase} → PhaseState LineId lineUniverse origin →
-      PhaseState LineId lineUniverse to → Prop where
+/-- Typed line-content transitions.  Ingestion/preparation is the only resource-fallible phase:
+    it reads the input and seals `ReadyToSort` only after the sort table is available.  Sorting
+    and emission therefore have no resource-failure constructor.  Output refusal is modeled only
+    by the target terminal bridge, where it must carry an exact byte cursor and write result.
+    Authority accounting remains in the active obligation layer. -/
+inductive PhaseTransition (lineUniverse : LineUniverse LineId)
+    (authority : PreparationAuthority World Concrete Storage Table LineId lineUniverse stdin capacity chunks) :
+    {origin to : Phase} →
+      PhaseState World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority origin →
+      PhaseState World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority to → Prop where
   | read {before after}
       (step : ReadingState.Step lineUniverse before after) :
-      PhaseTransition lineUniverse (.reading before) (.reading after)
-  | beginSorting {state} :
-      PhaseTransition lineUniverse (.reading state)
-        (.sorting state.completed (SortingState.initial state.completed))
+      PhaseTransition lineUniverse authority (.reading before) (.reading after)
+  | prepared {state prepared}
+      (reading_exact : prepared.certificate.storage.reading.state = state) :
+      PhaseTransition lineUniverse authority (.reading state)
+        (.readyToSort prepared)
+  | beginSorting {prepared} :
+      PhaseTransition lineUniverse authority (.readyToSort prepared)
+        (.sorting prepared.certificate.ready.source prepared.certificate.ready.initialSorting)
   | compareSwap {source before after}
       (step : SortingState.Step lineUniverse source before after) :
-      PhaseTransition lineUniverse (.sorting source before) (.sorting source after)
+      PhaseTransition lineUniverse authority (.sorting source before) (.sorting source after)
   | beginEmitting {source state}
       (ordered : SortingState.Ordered lineUniverse state.order) :
-      PhaseTransition lineUniverse (.sorting source state)
+      PhaseTransition lineUniverse authority (.sorting source state)
         (.emitting source
           { sorting := state, ordered := ordered, emitting := EmittingState.initial state.order })
   | emit {source before after}
       (step : EmissionState.Step lineUniverse source before after) :
-      PhaseTransition lineUniverse (.emitting source before) (.emitting source after)
+      PhaseTransition lineUniverse authority (.emitting source before) (.emitting source after)
   | finish {source state} (done : state.emitting.remaining = []) :
-      PhaseTransition lineUniverse (.emitting source state) (.completed source state done)
-  | resourceFailureReading {state} :
-      PhaseTransition lineUniverse (.reading state) (.resourceFailed .reading)
-  | resourceFailureSorting {source state} :
-      PhaseTransition lineUniverse (.sorting source state) (.resourceFailed .sorting)
-  | resourceFailureEmitting {source state} :
-      PhaseTransition lineUniverse (.emitting source state) (.resourceFailed .emitting)
+      PhaseTransition lineUniverse authority (.emitting source state) (.completed source state done)
+  | resourceFailurePreparation {state} :
+      PhaseTransition lineUniverse authority (.reading state) .resourceFailed
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
-/-- Starting the sorting phase carries exactly the tokenizer's completed nominal IDs as the source
-    permutation. This is the sole reading-to-sorting coupling; byte fragmentation and storage
-    layout do not reappear in compare/swap proofs. -/
-theorem PhaseTransition.beginSorting_source {lineUniverse : LineUniverse LineId}
-    {state : ReadingState LineId} :
-    PhaseTransition lineUniverse (.reading state)
-      (.sorting state.completed (SortingState.initial state.completed)) :=
+/-- Preparation is the sole reading-to-sorting coupling.  It requires an exact input/storage/table
+    certificate whose reader state is the current phase state, plus an establishment proof over
+    the caller's target world. -/
+theorem PhaseTransition.prepared_source
+    {lineUniverse : LineUniverse LineId}
+    {authority : PreparationAuthority World Concrete Storage Table LineId lineUniverse stdin capacity chunks}
+    {state : ReadingState LineId}
+    {prepared : EstablishedPreparation World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority}
+    (reading_exact : prepared.certificate.storage.reading.state = state) :
+    PhaseTransition lineUniverse authority (.reading state) (.readyToSort prepared) :=
+  .prepared reading_exact
+
+/-- Once `ReadyToSort` exists, beginning sort needs no allocator premise: all finite resource
+    acquisition was discharged by preparation. -/
+theorem PhaseTransition.ready_begins_sorting {lineUniverse : LineUniverse LineId}
+    {authority : PreparationAuthority World Concrete Storage Table LineId lineUniverse stdin capacity chunks}
+    (prepared : EstablishedPreparation World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority) :
+    PhaseTransition lineUniverse authority (.readyToSort prepared)
+      (.sorting prepared.certificate.ready.source prepared.certificate.ready.initialSorting) :=
   .beginSorting
 
 end Spikes.Spike3SortLines.LogicalWorld

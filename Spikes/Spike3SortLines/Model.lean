@@ -68,44 +68,66 @@ def byteSortOutput : List (List UInt8) → List AnyEvent
       Inject.inject (ConsoleEvent.out "\r\n") :: byteSortOutput rest
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
-/-- The finite-resource outcome that a target bridge must classify before it may state a whole
-    program behavior.  It is intentionally not a second obligation ledger: it is the observable
-    result of the already-selected target resource capability. -/
-inductive Spike3ResourceOutcome where
-  | available
+/-- Source-level result vocabulary for ingestion/preparation.  This is the only
+    allocation-fallible stage: it covers both streamed line storage and the post-EOF sort-table
+    allocation.  It is intentionally not a second obligation ledger.  A target bridge must derive
+    this vocabulary from its actual outcome; in particular, the WASI `VerifiedProgram` does not
+    use it as a free classifier. -/
+inductive Spike3PreparationOutcome where
+  | ready
   | exhausted
   deriving DecidableEq, BEq
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
-/-- Byte-total behavior of one sorter invocation.  A successful run has the independent sorted
-    byte trace; an exhausted finite arena/budget has no partial successful trace.  Retrying is a
-    new invocation with `.available` after its target-owned resource governor has supplied a
+/-- Source-level result vocabulary for allocation-free emission.  `.refused` covers an OS
+    write refusal/error; target bridges retain any already-emitted prefix separately rather than
+    pretending it is a successful whole-output trace.  It is not evidence that a current platform
+    API has inspected such a result. -/
+inductive Spike3OutputOutcome where
+  | accepted
+  | refused
+  deriving DecidableEq, BEq
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- Byte-total behavior of one sorter invocation.  A successful preparation makes sorting total
+    and allocation-free.  It then either emits the complete sorted byte trace or reports an
+    explicit host-output refusal.  Exhaustion has no fabricated line/table/output witness.
+    Retrying is a new invocation with `.ready` after its target-owned governor supplies a
     sufficient fresh capability. -/
 inductive Spike3ByteSortOutcome where
   | completed (trace : List AnyEvent)
-  | resourceFailure
+  | preparationFailure
+  | outputRefused
   deriving DecidableEq, BEq
 
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- Independent byte-total whole-program specification. Every `Environment.stdin` byte string
     has a meaning: only LF-completed records participate in the sort, exactly as the streaming
-    decoder specifies.  The selected target resource result decides whether that sort can be
-    observed in this invocation or the caller receives the explicit retryable failure outcome. -/
-def spike3ByteSortSpec (environment : Environment) : Spike3ResourceOutcome → Spike3ByteSortOutcome
-  | .available => .completed (byteSortOutput (sortByteLines (environmentInputLines environment)))
-  | .exhausted => .resourceFailure
+    decoder specifies.  Preparation selects either an explicit retryable failure or a sealed
+    allocation-free sorter; only the latter reaches the independent output API outcome. -/
+def spike3ByteSortSpec (environment : Environment) :
+    Spike3PreparationOutcome → Spike3OutputOutcome → Spike3ByteSortOutcome
+  | .ready, .accepted =>
+      .completed (byteSortOutput (sortByteLines (environmentInputLines environment)))
+  | .ready, .refused => .outputRefused
+  | .exhausted, _ => .preparationFailure
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
-/-- The success arm used by a fresh retry once a target bridge has established an available
-    resource result.  This is merely the `.available` branch of the one specification, not a
-    legacy success-only alternate specification. -/
-theorem spike3ByteSortSpec_recovers (environment : Environment) :
-    spike3ByteSortSpec environment .available =
+/-- The success arm used by a fresh retry once a target bridge has established a ready
+    preparation result and the output API accepts all writes.  This is merely one branch of the
+    one specification, not a legacy success-only alternate specification. -/
+theorem spike3ByteSortSpec_ready_accepts (environment : Environment) :
+    spike3ByteSortSpec environment .ready .accepted =
       .completed (byteSortOutput (sortByteLines (environmentInputLines environment))) := rfl
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
-/-- An exhausted finite resource never masquerades as a successful trace. -/
-theorem spike3ByteSortSpec_exhausted (environment : Environment) :
-    spike3ByteSortSpec environment .exhausted = .resourceFailure := rfl
+/-- An exhausted finite preparation resource never masquerades as a successful trace. -/
+theorem spike3ByteSortSpec_exhausted (environment : Environment) (output : Spike3OutputOutcome) :
+    spike3ByteSortSpec environment .exhausted output = .preparationFailure := rfl
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
+/-- An OS output refusal is distinct from preparation failure and never claims a complete trace. -/
+theorem spike3ByteSortSpec_output_refused (environment : Environment) :
+    spike3ByteSortSpec environment .ready .refused = .outputRefused := rfl
 
 end Spikes.Spike3SortLines
