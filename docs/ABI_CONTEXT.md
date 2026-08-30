@@ -297,6 +297,14 @@ if it demands a fact on a path where the corresponding feature is absent. Proof 
 permits omitting a necessary boundary fact; it determines where that fact is established and how it
 is reused.
 
+`VerifiedBoundaryCall` is the implemented closed logical gate for that last caller-owned step. It
+requires exact membership in the final artifact's `VerifiedExportSet` and an
+`EstablishedBoundaryEntry` for the complete dependent entry tuple. Its `refines` theorem turns an
+execution of that exact realization into the contract's result/outcome-indexed world transition.
+Code with no selected call constructs no such certificate. A target CFG/artifact bridge still owns
+the separate proof that the emitted call instruction reaches the certificate's physical entry;
+membership or a matching name cannot manufacture that connection.
+
 The current whole-program API composes a fixed set of named artifact, provider, entry,
 admissibility and behavior certificates, and carries an exact `VerifiedExportSet`. Its dependent
 indices force agreement on the final artifact, platform and capability selection. It does **not**

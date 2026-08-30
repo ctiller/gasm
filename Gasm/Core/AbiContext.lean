@@ -245,6 +245,82 @@ def withoutCallableEntries
 
 end VerifiedExportSet
 
+/- REF: docs/ABI_CONTEXT.md#10-whole-program-connection-obligations -/
+/--
+The closed logical gate for one selected call to one published boundary.  The
+boundary must be an exact member of the final artifact's callable export set,
+and the caller must establish the realization's complete dependent entry
+tuple.  Code which contains no such call constructs no certificate and pays
+no context proof burden.
+
+This certificate does not identify a machine call instruction by itself.  A
+target CFG/artifact bridge must connect the selected call edge to
+`boundary.physicalEntry`; after that connection, `refines` below supplies the
+logical transition without reopening export-layout or ABI-realization proofs.
+-/
+structure VerifiedBoundaryCall
+    (World Key Target Call : Type)
+    (spec : BoundaryContextSpec World Key)
+    (target : TargetBoundarySemantics Target)
+    (exports : VerifiedExportSet World Key Target spec target)
+    (loadCallState : target.Artifact → Call → target.PhysicalState) where
+  boundary : PublishedBoundary World Key Target spec target
+  member : boundary ∈ exports.entries
+  established : @EstablishedBoundaryEntry
+    World Key Target Call spec target boundary.key boundary.realization loadCallState
+
+namespace VerifiedBoundaryCall
+
+/- REF: docs/ABI_CONTEXT.md#10-whole-program-connection-obligations -/
+/-- Membership in the final export set fixes the realization to the exact
+    final boundary artifact. -/
+theorem realization_artifact_eq
+    {World Key Target Call : Type}
+    {spec : BoundaryContextSpec World Key}
+    {target : TargetBoundarySemantics Target}
+    {exports : VerifiedExportSet World Key Target spec target}
+    {loadCallState : target.Artifact → Call → target.PhysicalState}
+    (call : VerifiedBoundaryCall World Key Target Call spec target exports loadCallState) :
+    call.boundary.realization.artifact = exports.artifact :=
+  exports.sameArtifact call.boundary call.member
+
+/- REF: docs/ABI_CONTEXT.md#10-whole-program-connection-obligations -/
+/-- Every physical execution reached through an established selected call has
+    the boundary's exact result/outcome-indexed logical transition. -/
+theorem refines
+    {World Key Target Call : Type}
+    {spec : BoundaryContextSpec World Key}
+    {target : TargetBoundarySemantics Target}
+    {exports : VerifiedExportSet World Key Target spec target}
+    {loadCallState : target.Artifact → Call → target.PhysicalState}
+    (call : VerifiedBoundaryCall World Key Target Call spec target exports loadCallState)
+    (site : Call)
+    {execution : target.Execution}
+    {exitKind : target.ExitKind}
+    {physicalAfter : target.PhysicalState}
+    (runs : target.runs
+      call.boundary.realization.artifact
+      call.boundary.realization.implementation
+      call.boundary.realization.signature
+      call.boundary.realization.entryKind
+      (loadCallState call.boundary.realization.artifact site)
+      execution exitKind physicalAfter) :
+    ∃ result outcome logicalAfter,
+      call.boundary.realization.relatesExit
+        (loadCallState call.boundary.realization.artifact site)
+        execution exitKind physicalAfter result outcome logicalAfter ∧
+      spec.transitions call.boundary.key
+        (call.established.args site)
+        (call.established.binding site)
+        result outcome
+        (call.established.world site) logicalAfter :=
+  call.boundary.realization.refinesContract
+    (call.established.related site)
+    (call.established.requirementsHeld site)
+    runs
+
+end VerifiedBoundaryCall
+
 /- REF: docs/ABI_CONTEXT.md#11-non-total-components-and-exported-boundaries -/
 /-- Target-owned final-link semantics are separate from boundary semantics so
     targets which never link components incur no proof burden.  A plan denotes
