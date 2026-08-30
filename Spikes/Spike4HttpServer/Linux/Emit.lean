@@ -20,12 +20,13 @@ import Spikes.Spike4HttpServer.Linux.Program
 import Spikes.Spike4HttpServer.Equivalence
 
 open Gasm.Core.Verification
+open Gasm.Core.Platform
 open Spikes.Spike4HttpServer
 
 /- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#1-high-level-architecture-protocol-state-machine -/
 /-- CLI Emitter Target: Serializes and writes spike4_http_linux to disk strictly from the verified program contract. -/
 def main : IO UInt32 := do
-  let exeBytes := emitVerifiedLinuxExecutable spike4LinuxVerifiedProgram
+  let exeBytes ← IO.ofExcept (emitVerifiedProgram spike4VerifiedLinuxProgram)
   let outputPath := "spike4_http_linux"
   IO.println s!"[*] Emitting {exeBytes.size} bytes to {outputPath}..."
   IO.FS.writeBinFile outputPath exeBytes

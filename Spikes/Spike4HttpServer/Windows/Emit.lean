@@ -20,12 +20,13 @@ import Spikes.Spike4HttpServer.Windows.Program
 import Spikes.Spike4HttpServer.Equivalence
 
 open Gasm.Core.Verification
+open Gasm.Core.Platform
 open Spikes.Spike4HttpServer
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#whole-program-certificates -/
 /-- CLI Emitter Target: Serializes and writes spike4_http.exe to disk strictly from the verified program contract. -/
 def main : IO UInt32 := do
-  let exeBytes := emitVerifiedExecutable spike4WindowsVerifiedProgram
+  let exeBytes ← IO.ofExcept (emitVerifiedProgram spike4VerifiedWindowsProgram)
   let outputPath := "spike4_http.exe"
   IO.println s!"[*] Emitting {exeBytes.size} bytes to {outputPath}..."
   IO.FS.writeBinFile outputPath exeBytes

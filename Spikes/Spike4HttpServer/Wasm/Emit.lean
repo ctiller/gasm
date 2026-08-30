@@ -21,26 +21,19 @@ import Spikes.Spike4HttpServer.Wasm.Program
 import Spikes.Spike4HttpServer.Equivalence
 
 open Gasm.Core.Verification
+open Gasm.Core.Platform
 open Gasm.Targets.WASI
 open Spikes.Spike4HttpServer
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#32-webassembly-wasm -/
-/-- CLI Emitter Target for WebAssembly Spike 4:
-    Serializes and writes spike4_http.wasm binary and spike4_http.wat text to disk strictly through
-    the verified program contract (`VerifiedWasmProgram`). -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#whole-program-certificates -/
+/- CLI emitter for the final verified WebAssembly binary. -/
 def main : IO UInt32 := do
-  let wasmBinary ← IO.ofExcept (emitVerifiedWasmBinary spike4WasmVerifiedProgram)
-  let wasmText := emitVerifiedWasmText spike4WasmVerifiedProgram
+  let wasmBinary ← IO.ofExcept (emitVerifiedProgram spike4VerifiedWasiProgram)
 
   let binPath := "spike4_http.wasm"
-  let watPath := "spike4_http.wat"
 
   IO.println s!"[*] Emitting {wasmBinary.size} bytes to {binPath}..."
   IO.FS.writeBinFile binPath wasmBinary
   IO.println s!"[+] Generated WebAssembly binary: {binPath}"
-
-  IO.println s!"[*] Emitting WAT text to {watPath}..."
-  IO.FS.writeFile watPath wasmText
-  IO.println s!"[+] Generated WebAssembly text: {watPath}"
 
   return 0

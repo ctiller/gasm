@@ -15,100 +15,24 @@ limitations under the License.
 -/
 
 import Lean
-import Gasm.Core.Verification
-import Gasm.Targets.WASI.ABI
-import Spikes.Spike4HttpServer.Spec
-import Spikes.Spike4HttpServer.Windows.Program
-import Spikes.Spike4HttpServer.Wasm.Program
 import Spikes.Spike4HttpServer.Equivalence
 
-open Gasm.Core.Verification
-open Gasm.Targets.WASI
+open Gasm.Core.Platform
 open Spikes.Spike4HttpServer
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract -/
-/-- CLI Test Target for Dual-Target Spike 4 HTTP 1.1 Server (x86_64 Windows & WebAssembly). -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#whole-program-certificates -/
+/- Smoke-test final serialization through the sole universal authority. The load-bearing
+   arbitrary-environment proofs live in `Equivalence`; the closed probes here are supplemental. -/
 def main : IO UInt32 := do
-  IO.println "[*] ==================================================================="
-  IO.println "[*] SPIKE 4: Dual-Target HTTP 1.1 Server Verification Suite"
-  IO.println "[*] ==================================================================="
-
-  -- 1. Verify VerifiedProgram Windows Contract & Binary Emission
-  IO.println "[*] [1/4] Verifying x86_64 Windows VerifiedProgram Contract..."
-  let winExeBytes := emitVerifiedExecutable spike4WindowsVerifiedProgram
-  let winExePath := "spike4_http.exe"
-  IO.FS.writeBinFile winExePath winExeBytes
-  IO.println s!"[+] Windows PE32+ binary generated: {winExePath} ({winExeBytes.size} bytes)"
-
-  -- 2. Verify VerifiedLinuxProgram Contract & Binary Emission
-  IO.println "[*] [2/5] Verifying x86_64 Linux VerifiedLinuxProgram Contract..."
-  let linuxExeBytes := emitVerifiedLinuxExecutable spike4LinuxVerifiedProgram
-  let linuxExePath := "spike4_http_linux"
-  IO.FS.writeBinFile linuxExePath linuxExeBytes
-  IO.println s!"[+] Linux ELF64 binary generated: {linuxExePath} ({linuxExeBytes.size} bytes)"
-
-  -- 3. Verify VerifiedWasmProgram Contract & Binary Emission
-  IO.println "[*] [3/5] Verifying WebAssembly VerifiedWasmProgram Contract..."
-  let wasmBytes ← IO.ofExcept (emitVerifiedWasmBinary spike4WasmVerifiedProgram)
-  let wasmText := emitVerifiedWasmText spike4WasmVerifiedProgram
-  let wasmPath := "spike4_http.wasm"
-  let watPath := "spike4_http.wat"
-  IO.FS.writeBinFile wasmPath wasmBytes
-  IO.FS.writeFile watPath wasmText
-  IO.println s!"[+] WebAssembly binary generated: {wasmPath} ({wasmBytes.size} bytes)"
-  IO.println s!"[+] WebAssembly WAT text generated: {watPath}"
-
-  -- 4. Verify Constructive Multi-Route Equivalence Theorems across Windows, Linux & WASM
-  IO.println "[*] [4/5] Verifying Constructive Multi-Route Trace Equivalence Theorems..."
-  if windowsTraceRoot == modelTraceRoot && wasmTraceRoot == modelTraceRoot && linuxTraceRoot == modelTraceRoot then
-    IO.println "[+] Route [/] (Root 200 OK): Windows, Linux, and WASM traces 100% equivalent to Spec."
+  let windows ← IO.ofExcept (emitVerifiedProgram spike4VerifiedWindowsProgram)
+  let linux ← IO.ofExcept (emitVerifiedProgram spike4VerifiedLinuxProgram)
+  let wasi ← IO.ofExcept (emitVerifiedProgram spike4VerifiedWasiProgram)
+  IO.FS.writeBinFile "spike4_http.exe" windows
+  IO.FS.writeBinFile "spike4_http_linux" linux
+  IO.FS.writeBinFile "spike4_http.wasm" wasi
+  if spike4RuntimeRegressionRequests.all spike4RuntimeAgreementOnAllTargets then
+    IO.println "[+] Spike 4 verified artifacts emitted; supplemental request probes agree."
+    return 0
   else
-    IO.println "[!] FAIL: Route [/] trace mismatch!"
+    IO.println "[!] Spike 4 supplemental request probe failed."
     return 1
-
-  if windowsTraceStatus == modelTraceStatus && wasmTraceStatus == modelTraceStatus && linuxTraceStatus == modelTraceStatus then
-    IO.println "[+] Route [/status] (Status JSON 200 OK): Windows, Linux, and WASM traces 100% equivalent to Spec."
-  else
-    IO.println "[!] FAIL: Route [/status] trace mismatch!"
-    return 1
-
-  if windowsTrace404 == modelTrace404 && wasmTrace404 == modelTrace404 && linuxTrace404 == modelTrace404 then
-    IO.println "[+] Route [/unknown] (404 Not Found): Windows, Linux, and WASM traces 100% equivalent to Spec."
-  else
-    IO.println "[!] FAIL: Route [/unknown] 404 trace mismatch!"
-    return 1
-
-  -- 4. Verify HTTP Response Routing Logic
-  IO.println "[*] [4/4] Verifying HTTP Routing & Serialization Invariants..."
-  let rootReq := req "GET / HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
-  let statusReq := req "GET /status HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
-  let notFoundReq := req "GET /unknown HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
-
-  let rootResp := handleRawRequest rootReq
-  let statusResp := handleRawRequest statusReq
-  let notFoundResp := handleRawRequest notFoundReq
-
-  let expectedRoot := formatResponse (routeRequest { method := "GET", path := "/", version := "HTTP/1.1" })
-  let expectedStatus := formatResponse (routeRequest { method := "GET", path := "/status", version := "HTTP/1.1" })
-  let expected404 := formatResponse { statusCode := 404, statusText := "Not Found", contentType := "text/plain", body := "404 Not Found\r\n" }
-
-  if rootResp != expectedRoot then
-    IO.println s!"[!] FAIL: Root endpoint response malformed:\n{rootResp}"
-    return 1
-
-  if statusResp != expectedStatus then
-    IO.println s!"[!] FAIL: Status endpoint response malformed:\n{statusResp}"
-    return 1
-
-  if notFoundResp != expected404 then
-    IO.println s!"[!] FAIL: 404 endpoint response malformed:\n{notFoundResp}"
-    return 1
-
-  IO.println "[+] HTTP / 200 OK text/plain verified."
-  IO.println "[+] HTTP /status 200 OK application/json verified."
-  IO.println "[+] HTTP /unknown 404 Not Found verified."
-
-  IO.println "[*] ==================================================================="
-  IO.println "[+] ALL SPIKE 4 DUAL-TARGET HTTP SERVER VERIFICATION CHECKS PASSED!"
-  IO.println "[*] ==================================================================="
-  return 0

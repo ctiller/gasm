@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Core.AbiContext
+import Spikes.Spike4HttpServer.Runtime
 import Spikes.Spike4HttpServer.StreamingRequestLine
 
 namespace Spikes.Spike4HttpServer
@@ -191,7 +192,56 @@ structure StreamingParserComponentConnection where
     (inferInstance : TargetBoundarySemantics StreamingParserTarget)
   exactComponent : component = verifiedStreamingParserComponent
 
+def requestParserArgs (request : ByteArray) : StreamingParserArgs :=
+  { budget := requestLineBudget, bytes := Gasm.Effects.toByteList request }
+
+def requestParserExecution (request : ByteArray) : StreamingRequestLineResult :=
+  streamRequestLineChunk requestLineBudget default (Gasm.Effects.toByteList request)
+
+/-- One request-driver invocation is an established execution of the exact published parser
+    realization.  The proof consumes `parserRealization.refinesContract`; it is not a second
+    restatement of the parser implementation. -/
+theorem request_driver_consumes_parser_realization (request : ByteArray) :
+    ∃ result outcome logicalAfter,
+      parserRealization.relatesExit
+        (requestParserArgs request)
+        (requestParserExecution request)
+        (parserOutcome (requestParserExecution request))
+        (requestParserArgs request)
+        result outcome logicalAfter ∧
+      (inferInstance : BoundaryContextSpec ParserWorld StreamingParserKey).transitions
+        .parseChunk (requestParserArgs request) () result outcome
+        { requestOpen := true, retainedBytes := 0 } logicalAfter := by
+  apply parserRealization.refinesContract
+  · exact ⟨rfl, rfl, rfl⟩
+  · rfl
+  · exact ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+/-- Reusable library-owned connection from the arbitrary-finite request driver to the exact
+    verified parser component. Target adapters consume this once; ordinary programs do not replay
+    parser or ABI proofs. -/
+structure StreamingParserDriverConnection extends StreamingParserComponentConnection where
+  routeConnected : ∀ request : ByteArray,
+    (driveRequest request).1 = routeParserResult (requestParserExecution request)
+  boundaryConnected : ∀ request : ByteArray,
+    ∃ result outcome logicalAfter,
+      parserRealization.relatesExit
+        (requestParserArgs request)
+        (requestParserExecution request)
+        (parserOutcome (requestParserExecution request))
+        (requestParserArgs request)
+        result outcome logicalAfter ∧
+      (inferInstance : BoundaryContextSpec ParserWorld StreamingParserKey).transitions
+        .parseChunk (requestParserArgs request) () result outcome
+        { requestOpen := true, retainedBytes := 0 } logicalAfter
+
+def streamingParserDriverConnection : StreamingParserDriverConnection where
+  component := verifiedStreamingParserComponent
+  exactComponent := rfl
+  routeConnected := driveRequest_route_refines_parser
+  boundaryConnected := request_driver_consumes_parser_realization
+
 def streamingParserComponentConnection : StreamingParserComponentConnection :=
-  ⟨verifiedStreamingParserComponent, rfl⟩
+  streamingParserDriverConnection.toStreamingParserComponentConnection
 
 end Spikes.Spike4HttpServer

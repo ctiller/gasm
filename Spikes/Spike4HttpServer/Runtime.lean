@@ -86,6 +86,13 @@ def flushCurrent (drive : RequestDrive) : RequestDrive :=
       currentRev := []
       chunksRev := ByteArray.mk drive.currentRev.reverse.toArray :: drive.chunksRev }
 
+/-- Logical route selected from the verified streaming-parser boundary result.  EOF is an explicit
+    completion action for a finite request; budget exhaustion remains a recoverable request result. -/
+def routeParserResult : StreamingRequestLineResult → RuntimeRoute
+  | .needMore state => routeParsed (finishStreamingRequestLine state)
+  | .complete parsed => routeParsed parsed
+  | .resourceExhausted _ => .resourceExhausted
+
 /-- One byte of the runtime implementation.  Bytes after completion or exhaustion are ignored;
 closing the request scope releases the unread connection data before the next accept. -/
 def driveByte (drive : RequestDrive) (byte : UInt8) : RequestDrive :=
@@ -105,12 +112,17 @@ def driveByte (drive : RequestDrive) (byte : UInt8) : RequestDrive :=
 finite, each retained parser state is bounded by `requestLineBudget`, and every transfer recorded
 in `chunks` is bounded by `requestReadChunk`. -/
 def driveRequest (request : ByteArray) : RuntimeRoute × List ByteArray :=
-  let driven := (Gasm.Effects.toByteList request).foldl driveByte default
+  let bytes := Gasm.Effects.toByteList request
+  let parsed := streamRequestLineChunk requestLineBudget default bytes
+  let driven := bytes.foldl driveByte default
   let finished := flushCurrent driven
-  let route := match finished.result with
-    | some route => route
-    | none => routeParsed (finishStreamingRequestLine finished.parser)
-  (route, finished.chunksRev.reverse)
+  (routeParserResult parsed, finished.chunksRev.reverse)
+
+/-- The request driver obtains its route from the exact verified parser-boundary execution.  This
+    is the reusable logical bridge consumed by all target ABI adapters. -/
+theorem driveRequest_route_refines_parser (request : ByteArray) :
+    (driveRequest request).1 = routeParserResult
+      (streamRequestLineChunk requestLineBudget default (Gasm.Effects.toByteList request)) := rfl
 
 def observedRequest (request : ByteArray) : ByteArray :=
   (driveRequest request).2.foldl (init := ByteArray.empty) (fun bytes chunk => bytes ++ chunk)

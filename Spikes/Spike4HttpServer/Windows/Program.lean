@@ -86,11 +86,11 @@ def resp400Offset : Nat := resp404Offset + resp404Bytes.size
 
 def resp414Offset : Nat := resp400Offset + resp400Bytes.size
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x86-64-windows-gasmrtdll -/
 def rdataPayload : ByteArray :=
   respRootBytes ++ respStatusBytes ++ resp404Bytes ++ resp400Bytes ++ resp414Bytes
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x86-64-windows-gasmrtdll -/
 /-- Symbolic Windows x86-64 entry point for the proof-connected Spike 4 runtime ABI.
     It reserves the mandatory 32-byte Windows x64 shadow space and invokes the one imported
     verified request component once for each lifecycle phase (listen, accept, receive, respond,
@@ -108,25 +108,25 @@ def spike4SymbolicProgram : List SymbolicInstr := [
   instr (mov_r32 .r9d 4), call_import gasmHttpParserSymbol
 ]
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x86-64-windows-gasmrtdll -/
 def spike4DllImports : List (String × List String) := [
   (gasmHttpRuntimeDll, [gasmHttpParserSymbol])
 ]
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x86-64-windows-gasmrtdll -/
 def spike4DataItems : List (String × ByteArray) := [
   ("rdata_base", ByteArray.empty)
 ]
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x86-64-windows-gasmrtdll -/
 def spike4LinkedProgram : LinkedWindowsProgram :=
   linkWindowsProgramMultiDll spike4SymbolicProgram spike4DataItems spike4DllImports
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x86-64-windows-gasmrtdll -/
 def spike4Executable : WindowsExecutable :=
   spike4LinkedProgram.executable
 
-/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x8664-windows-ws232dll -/
+/- REF: docs/SPIKES/SPIKE4_HTTP_SERVER.md#31-x86-64-windows-gasmrtdll -/
 def spike4Instructions : List X86_64Instr :=
   spike4LinkedProgram.instructions
 

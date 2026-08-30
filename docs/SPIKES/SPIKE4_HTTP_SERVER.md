@@ -1,164 +1,109 @@
-# Spike 4: Cross-Target HTTP 1.1 Server (x86_64 Windows/Linux & WebAssembly)
+# Spike 4: verified streaming HTTP request lifecycle
 
-Spike 4 establishes checked lowerings and executions of an **HTTP 1.1 Server** across three target profiles:
-1. **x86_64 Windows (`.exe`)**: Native PE32+ binary linking with `ws2_32.dll` (WinSock2) and `kernel32.dll`.
-2. **x86_64 Linux (ELF)**: Native Linux executable using the modeled socket/syscall surface.
-3. **WebAssembly (`.wasm`)**: Standard WebAssembly MVP binary module operating over linear memory with WASI socket / host socket imports.
+Spike 4 is a universal, arbitrary-finite-input example for the sole
+`Gasm.Core.Platform.VerifiedProgram`. It verifies the same logical request lifecycle on three
+profiles:
 
-The exact proof scope is the narrow, pointwise contract recorded in §4; it is not a universal HTTP-server equivalence claim.
+- Windows x86-64 plus the Gasm verified-component runtime;
+- Linux x86-64 plus the Gasm verified-component runtime; and
+- WASI plus the Gasm verified-component runtime.
 
----
+These profiles intentionally do **not** claim that the artifacts run on a stock OS without that
+runtime. Windows links `GASMRT.dll`, Linux uses a reserved Gasm runtime call, and Wasm imports
+`gasm:verified/http-parser`. The capability composition names those requirements and the final
+artifact/provider certificates prove their exact linkage.
 
 ## 1. High-Level Architecture & Protocol State Machine
 
-```mermaid
-graph TD
-    Client["HTTP Client (curl / browser)"] -->|TCP Connection| Server["HTTP 1.1 Server"]
-    Server -->|1. Accept Socket| Conn["Active Client Connection<br/>(ClientConnToken)"]
-    Conn -->|2. Ingest Request Stream| Parser["HTTP Request Parser<br/>(Method, Path, Headers)"]
-    Parser -->|3. Route Dispatch| Router["Router (/ -> 200 OK, /status -> JSON, * -> 404)"]
-    Router -->|4. Format Response| Formatter["Response Generator<br/>(Status Line + Headers + Body)"]
-    Formatter -->|5. Send TCP Stream| Conn
-    Conn -->|6. Close Socket| Discharged["Connection Discharged<br/>(0 Resource Leaks)"]
-```
-
 ### 1.1 Supported HTTP 1.1 Specification Subset
-- **Request Line Parsing** — the model (`Spikes/Spike4HttpServer/Spec.lean`'s `parseRequestLine`)
-  delegates to `Stdlib.Http11.parseRequestLine`, so the accepted grammar is that library's:
-  - Methods: the nine `Stdlib.Http11.Method` tokens — `GET`, `HEAD`, `POST`, `PUT`, `DELETE`,
-    `CONNECT`, `OPTIONS`, `TRACE`, `PATCH`. Any other token is 400 Bad Request. Routing itself is
-    by target only, so all nine methods reach the same three responses.
-  - URI Path: origin-form targets — `/`, `/status`, and arbitrary other paths (404).
-  - Protocol Version: `HTTP/1.1` only. `HTTP/1.0` is 400 Bad Request.
-  - Exactly three SP-separated fields; any other shape is 400 Bad Request.
-- **What the three lowerings implement of that grammar**: the method-token check and the
-  target-based routing (`Spikes/Spike4HttpServer/MethodDispatch.lean` for the x86-64 targets and
-  `Wasm/Program.lean`'s `wasmMethodValidationInstrs` for WASI, both generated from
-  `Spec.allHttpMethods`). The field-count, origin-form-target and version obligations are **not**
-  implemented in the assembly, so the lowerings and the model genuinely disagree on request lines
-  that violate only those. Each such class is a checked counterexample in
-  `Spikes/Spike4HttpServer/Equivalence.lean`'s `spike4GeneralClaimCounterexamples` rather than a
-  silent gap.
-- **Headers**:
-  - `Host: <hostname>`
-  - `Connection: close` (default server mode for Spike 4 to simplify connection lifecycle)
-  - `Content-Length: <len>`
-  - `Content-Type: text/plain`, `text/html`, or `application/json`.
-- **Response Format**:
-  ```http
-  HTTP/1.1 200 OK\r\n
-  Content-Type: text/plain\r\n
-  Content-Length: 13\r\n
-  Connection: close\r\n
-  \r\n
-  Hello, World!
-  ```
 
----
+The streaming request-line parser accepts the `Stdlib.Http11` request-line grammar and routes `/`,
+`/status`, and other valid targets to 200, status JSON, and 404 responses respectively. Malformed
+request lines produce 400; over-budget request lines produce 414. Header/body handling and a
+persistent multi-request accept loop are future extensions, not claims of this spike.
 
 ## 2. Linear Socket Obligations & Resource Discipline
 
-Sockets are operating system and runtime capability handles that must be strictly conserved without leaks:
-
-```lean
-structure SocketObligation where
-  sockId            : Nat
-  isServerListening : Bool
-  deriving DecidableEq, Repr, Inhabited
-
-structure ClientConnObligation where
-  connId     : Nat
-  serverSock : Nat
-  deriving DecidableEq, Repr, Inhabited
-```
-
 ### 2.1 Socket Lifecycle Rules
-1. `bind` + `listen` creates a `SocketObligation` representing the listening server socket.
-2. `accept` generates an ephemeral `ClientConnObligation` representing the active TCP client stream.
-3. Every client request processing loop **must** execute `closesocket` / `sock_close` along all termination paths (success, error, 404, or client disconnect), strictly discharging the `ClientConnObligation`.
-4. Upon server shutdown, the listening socket is closed. Forced process exit may cause the selected
-   platform to close local descriptors, but that is a resource-specific failure disposition—not
-   proof that ordinary close obligations were discharged or that shared/remote effects vanished.
 
----
+Each request scope accepts, receives, sends, and closes. Completion, malformed input, and resource
+exhaustion all reach the close edge; resource failure cannot silently abandon the request scope.
+
+### Streaming and finite resources
+
+`Spikes/Spike4HttpServer/Runtime.lean` accepts every finite `ByteArray`; it has no `HttpRoute`
+proxy, literal-request allowlist, or caller-selected input domain. The request-line component:
+
+- reads in chunks of at most 256 bytes;
+- retains at most 1024 request-line bytes;
+- returns `resourceExhausted` when that request scope exceeds its budget;
+- maps exhaustion to an explicit `414 URI Too Long` response; and
+- closes the request connection, permitting the next logical request scope to start cleanly.
+
+Thus the proof does not assume infinite memory. Allocation/retention failure is an ordinary,
+recoverable result. `resource_failure_does_not_poison_next` proves the logical recovery property.
+The current emitted executables process one request and terminate; `serverEnvironmentSpec` therefore
+observes the first request in an arbitrary environment. The reusable logical runtime is defined over
+request lists so a later accept loop can reuse the same request-scope recovery theorem.
+
+## Verified parser component and ABI boundary
+
+`Spikes/Spike4HttpServer/ParserCapability.lean` publishes the streaming parser as a nominal
+`.parseChunk` boundary. Its result-dependent contract consumes one open-request obligation and:
+
+- preserves it when more input is needed;
+- discharges it on completion; or
+- discharges it on resource exhaustion.
+
+The `ContextBoundaryRealization` ties the exact parser implementation and artifact identities to
+physical executions, entry/exit relations, physical admissibility, and the obligation transition.
+`StreamingParserDriverConnection` then proves once that `driveRequest` obtains its route from that
+realization. Target adapters consume this reusable connection; ordinary callers do not replay the
+parser or ABI proof.
 
 ## 3. Cross-Target Architectural Realization
 
-### 3.1 x86_64 Windows (`ws2_32.dll`)
-- Multi-DLL PE/COFF `.idata` generation importing from both `KERNEL32.dll` and `WS2_32.dll`.
-- WinSock2 initialization via `WSAStartup(wVersionRequired = 0x0202, &wsaData)`.
-- Socket creation: `socket(AF_INET = 2, SOCK_STREAM = 1, IPPROTO_TCP = 6)`.
-- Socket binding to `127.0.0.1:8080` via `sockaddr_in` struct (16 bytes: `sin_family=AF_INET`, `sin_port=htons(8080)=0x901F`, `sin_addr=INADDR_ANY=0`).
-- Streaming request reception via `recv`, parsing in heap memory via `SmolAlloc`, generating response, transmitting via `send`, and discharging socket with `closesocket`.
+### 3.1 x86-64 Windows (`GASMRT.dll`)
+
+The final PE imports the verified parser runtime at its exact IAT slot.
 
 ### 3.2 WebAssembly (`.wasm`)
-- WebAssembly module binary encoding with WASI socket imports (`sock_accept`, `sock_recv`, `sock_send`, `sock_close`).
-- Execution in WASM linear memory with `SmolAlloc` managing buffer allocations.
-- Direct invocation of HTTP parser and response generator using WASM integer load/store instructions.
 
-### 3.3 x86_64 Linux (ELF)
+The final Wasm module imports the verified parser component and exports no extra callable function
+boundary.
 
-- Native ELF lowering over the Linux x86-64 socket/syscall profile.
-- The same generated method dispatch and full `"/status "` comparison used by the Windows path.
-- Linux trace and `VerifiedLinuxProgram` declarations remain subject to the same narrow-domain caveat
-  as the Windows and WebAssembly declarations.
+### 3.3 x86-64 Linux (ELF)
 
----
+The final ELF uses five exact reserved Gasm runtime call sites; this is not a stock kernel syscall.
+
+### Typed lifecycle realization
+
+Each target program performs five typed lifecycle calls: listen, accept, receive/parse, send, and
+close. `Spikes/Spike4HttpServer/Equivalence.lean` proves reusable edge lemmas and composes them into
+exact lifecycle certificates rather than evaluating a closed interpreter oracle.
+
+The Windows capability is linked to the exact PE import/IAT entry, Linux to five exact runtime-call
+sites, and WASI to the exact import and module body. Adapter connection records prove that all three
+physical hooks return the route produced by the verified parser component.
 
 ## 4. Semantic Trace Equivalence & VerifiedProgram Contract
 
-The high-level server model produces system effect events in the `Network`, `Console`, and `Process` domains:
-- `Net.Listen(port = 8080)`
-- `Net.Accept(clientAddr)`
-- `Net.Recv(requestBytes)`
-- `Net.Send(responseBytes)`
-- `Net.Close(clientConn)`
+### Whole-program certificates
 
-**Status:** this paragraph previously read "the lowering theorems for both
-Windows x86_64 (`spike4_windows_canonical_trace_equivalence`) and WebAssembly
-(`spike4_wasm_canonical_trace_equivalence`) prove constructive trace equivalence via
-`native_decide`, establishing that both distinct physical binaries execute identical verified
-protocol semantics." **Neither of those two theorem names has ever existed in the tree**, and the
-property the sentence asserted is not established. The theorem comments, checked malformed-request
-counterexamples, and `scripts/gate_allowlist.txt` entries record the narrower domain and why it cannot
-currently be widened to arbitrary request bytes. What follows is what is actually proved.
+The module constructs ownership-scoped certificates for:
 
-What exists, in `Spikes/Spike4HttpServer/Equivalence.lean`:
+1. final artifact serialization and exact callable exports;
+2. provider coverage and linkage;
+3. entry-context establishment;
+4. target termination/admissibility; and
+5. universal observable behavior.
 
-- **Nine pointwise trace-equivalence theorems**, `spike4_{windows,wasm,linux}_{root,status,404}_trace_equivalence`
-  — three per target. Each
-  is a single `native_decide` check against **one literal request string**, not a statement about
-  arbitrary requests.
-- **Three route-indexed compositions**, `spike4_{windows,wasm,linux}_route_equivalence (r : HttpRoute)`.
-  The `∀ (r : HttpRoute)` binder is genuinely exhaustive, but `HttpRoute`
-  is a **three-element proxy** for the three literal request strings `routeRequestStr` maps it to —
-  it is not the `∀ (request : ByteArray)` domain a server-correctness claim needs.
-- **Three honest restatements**, `spike4_{windows,wasm,linux}_trace_equivalence_for_request`, which
-  make that narrow domain an explicit hypothesis (`h : req = routeRequestStr r`)
-  instead of hiding it behind the `HttpRoute` case split — the shape
-  the domain-honesty review requires.
-- **`spike4WindowsVerifiedProgram` / `spike4LinuxVerifiedProgram` / `spike4WasmVerifiedProgram`**
-  each carries the same `NOTE (PA17 domain-honesty finding)` recording in the
-  source that this is **not** a Law-9-compliant universal claim despite `VerifiedProgram`'s type
-  signature.
+`VerifiedProgram.compose` combines them into:
 
-**Why the universal claim is false, not merely unproven.** A counterexample class exists and is
-recorded in the tree. Historically it was route-prefix confusion: the x86-64 lowering matched a
-5-byte `"/stat"` prefix and the WASI lowering a single byte after `"/"`, so `"/static"`,
-`"/status_check"`, `"/search"` and others were misrouted relative to `Spec.lean`'s
-`parseRequestLine`/`routeRequest`. **That bug is fixed** — the stack-buffer audit
-made all three targets compare the full 8 bytes `"/status "`, and `spike4RouteFixedOnAllTargets`
-re-checks every witness the former "KNOWN DIVERGENCE" note named. The allowlist entries
-now cite the surviving malformed-request mismatch rather than that retired bug.
+- `spike4VerifiedWindowsProgram`;
+- `spike4VerifiedLinuxProgram`; and
+- `spike4VerifiedWasiProgram`.
 
-The falsity survives the fix for an independent reason, recorded in the same file: `parseRequestLine`
-returns `none` (400 Bad Request) for any request line that is not exactly three space-separated
-tokens, and **no lowering can emit that response class at all**. A fully universal
-`∀ (request : ByteArray)` equivalence is therefore false on malformed request lines regardless of
-routing correctness. Reaching a genuine universal statement needs
-`docs/READ_BINDER_CONTRACT.md`'s read-binder contract and
-`docs/EQUIVALENCE_PROOFS.md`'s reactive-program contract first.
-
-So: three distinct physical binaries are checked to execute identical protocol semantics **on three
-literal requests each**, plus the broader concrete witness set `spike4RouteFixedOnAllTargets`
-exercises. That is a pointwise result, not the universal one the retired sentence claimed.
+All three quantify over the canonical `Environment`. Native outcomes distinguish returned/halted
+execution from fuel exhaustion; WASI preserves its explicit completion/resource outcome. Closed
+regression probes remain supplemental tests and are not used to narrow the verified domain.

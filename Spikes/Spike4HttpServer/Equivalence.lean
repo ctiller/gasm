@@ -33,17 +33,14 @@ set_option maxRecDepth 2000000
 set_option maxHeartbeats 4000000
 
 /-!
-Spike 4 ABI integration boundary
+Spike 4 ABI integration and whole-program certificates
 
-The target entry points now call the staged Gasm HTTP runtime ABI. They must therefore execute with
-the candidate runtime bindings selected by their capability compositions, not the stock host hooks
-used by the former inline socket implementations.
-
-Platform.lean currently proves component identity, import/provider linkage, final-instruction
-selection, and executable dispatch to each candidate adapter. It does not yet prove that the
-machine or Wasm adapter transition refines parserRealization. This file keeps that missing semantic
-bridge explicit. The finite probes below are regression evidence only; they are not presented as a
-universal proof or as authority to emit a verified artifact.
+The three target entry points call the Gasm HTTP runtime ABI selected by their capability
+compositions.  The reusable driver connection consumes the exact verified parser realization;
+target connection records then bind each concrete adapter result to that driver.  Typed lifecycle
+edges prove every finite Environment execution, and the ownership-scoped certificates below compose
+the sole universal `VerifiedProgram` for Windows, Linux, and WASI.  Closed probes remain supplemental
+regression evidence only.
 -/
 
 /-- Windows execution under the runtime selected by the Spike 4 capability composition. -/
@@ -80,7 +77,7 @@ theorem requestRuntimeSchedule_eq (environment : Environment) :
       requestRuntimeEvent, appendRuntimeEvent]
   | cons request rest =>
     simp [requestRuntimeSchedule, serverEnvironmentSpec, runtimeTrace, requestsEq,
-      requestRuntimeEvent, requestTrace, parserInput, appendRuntimeEvent]
+      requestRuntimeEvent, requestTrace, parserInput, currentParserRequest, appendRuntimeEvent]
 
 theorem evalInstrs_boundary_step (fuel : Nat) (instruction : WasmInstr)
     (rest : List WasmInstr) (state after : WasmMachineState)
@@ -156,7 +153,7 @@ theorem spike4_wasi_runtime_trace_equivalence (environment : Environment) :
       .completed (serverEnvironmentSpec environment) := by
   have pages : ¬(WasmMem.size (initWasmMemory Wasm.spike4DataSegments) + 65535) / 65536 >
       ({ fuel := 512, memoryPages := 1 : WasiResourceBudget }.memoryPages.min 65536) := by
-    native_decide
+    decide
   unfold wasiRuntimeObservationFor
   change (runWasiOutcomeWithHost spike4WasiRuntime Wasm.spike4WasmInstructions
     Wasm.spike4DataSegments environment.stdin Wasm.spike4WasmImports
@@ -264,13 +261,14 @@ theorem linux_phase_outcome_edge (phase : Nat) (phaseBound : phase < 5)
   have s2rip : s2.rip = linuxPhaseEntry phase + 11 := by
     simp only [s2, s1]
     rw [entryRip]
-    bv_decide
+    have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
+    rcases cases with h | h | h | h | h <;> subst phase <;> decide
   have notEntry1 : linuxPhaseEntry phase + 6 ≠ Instructions.linuxSyscallEntry := by
     have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
-    rcases cases with h | h | h | h | h <;> subst phase <;> native_decide
+    rcases cases with h | h | h | h | h <;> subst phase <;> decide
   have notEntry2 : linuxPhaseEntry phase + 11 ≠ Instructions.linuxSyscallEntry := by
     have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
-    rcases cases with h | h | h | h | h <;> subst phase <;> native_decide
+    rcases cases with h | h | h | h | h <;> subst phase <;> decide
   have intercept0 : (@ExternalCallInterceptor.interceptCall X86_64 AnyEvent
       spike4LinuxRuntime s1.rip s1) = none := by
     change (if s1.rip = Instructions.linuxSyscallEntry ∧
@@ -513,15 +511,6 @@ theorem spike4_linux_runtime_trace_equivalence (environment : Environment) :
   rw [certificate.outcome]
   exact certificate.eventsSpec
 
-theorem spike4_linux_runtime_admissible (environment : Environment) :
-    let initial := Platform.load (P := LinuxX86_64 AnyEvent) spike4LinuxArtifact environment
-    (@runProgramOutcomeWithLoops AnyEvent spike4LinuxRuntime 4198400
-      Linux.spike4Instructions 50000 initial).isAdmissible true := by
-  let certificate := spike4_linux_lifecycle_certificate environment
-  dsimp only
-  rw [certificate.outcome]
-  trivial
-
 def windowsTextBase : UInt64 := 5368713216
 def windowsParserIat : UInt64 := 5368721408
 def windowsRequestRsp : UInt64 := 140737488289768
@@ -651,7 +640,7 @@ theorem windows_phase_outcome_edge (phase : Nat) (phaseBound : phase < 5)
         Instructions.signExtend32To64 (windowsPhaseDisplacement phase) = windowsParserIat := by
       rw [movedRip]
       have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
-      rcases cases with h | h | h | h | h <;> subst phase <;> native_decide
+      rcases cases with h | h | h | h | h <;> subst phase <;> decide
     change { (moved.push64 (moved.rip + 6)) with
       rip := moved.read64 (moved.rip + 6 +
         Instructions.signExtend32To64 (windowsPhaseDisplacement phase)) } = called
@@ -663,7 +652,7 @@ theorem windows_phase_outcome_edge (phase : Nat) (phaseBound : phase < 5)
     rw [movedRip]
     have unaligned : (windowsPhaseEntry phase + 6) % 8 ≠ 0 := by
       have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
-      rcases cases with h | h | h | h | h <;> subst phase <;> native_decide
+      rcases cases with h | h | h | h | h <;> subst phase <;> decide
     simp [findIatIndex, win32Intercept, unaligned]
   have movedFault : moved.fault = none := by
     change state.fault = none
@@ -675,7 +664,7 @@ theorem windows_phase_outcome_edge (phase : Nat) (phaseBound : phase < 5)
   have findProvider : findIatIndex called windowsParserIat = some 0 := by
     unfold findIatIndex
     rw [calledIat]
-    native_decide
+    decide
   have calledPhase : called.gprs .r9 = phase.toUInt64 := by
     have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
     rcases cases with h | h | h | h | h <;> subst phase <;>
@@ -744,7 +733,7 @@ theorem windowsPhaseComplete_rip (phase : Nat) (phaseBound : phase < 5)
   have movedRip : moved.rip = windowsPhaseEntry phase + 6 := by simp [moved, entryRip]
   rw [movedRip]
   have cases : phase = 0 ∨ phase = 1 ∨ phase = 2 ∨ phase = 3 ∨ phase = 4 := by omega
-  rcases cases with h | h | h | h | h <;> subst phase <;> native_decide
+  rcases cases with h | h | h | h | h <;> subst phase <;> decide
 
 theorem windowsPhaseComplete_rsp (phase : Nat) (state : X86_64MachineState)
     (rsp : state.rsp = windowsRequestRsp) :
@@ -863,7 +852,7 @@ theorem windows_lifecycle_outcome (environment : Environment) :
   have initialRsp : initial.rsp = 140737488289800 := rfl
   have initialIat : initial.read64 windowsParserIat = windowsParserIat := by
     change Windows.spike4Executable.load.read64 windowsParserIat = windowsParserIat
-    native_decide
+    decide
   have initialRequests : initial.incomingRequests = environment.incomingRequests := rfl
   have prologueRip : prologue.rip = windowsPhaseEntry 0 :=
     windowsPrologue_rip initial initialRip
@@ -1098,6 +1087,307 @@ theorem spike4_windows_runtime_admissible (environment : Environment) :
   rw [certificate.outcome]
   trivial
 
+def spike4WindowsExports :=
+  VerifiedExportSet.empty Unit Unit (WindowsX86_64 AnyEvent) emptyBoundarySpec
+    (emptyBoundarySemantics (WindowsX86_64 AnyEvent) X86_64MachineState) () rfl rfl rfl
+
+def spike4LinuxExports :=
+  VerifiedExportSet.empty Unit Unit (LinuxX86_64 AnyEvent) emptyBoundarySpec
+    (emptyBoundarySemantics (LinuxX86_64 AnyEvent) X86_64MachineState) () rfl rfl rfl
+
+def spike4WasiExports :=
+  VerifiedExportSet.withoutCallableEntries Unit Unit WasiPlatform wasiBoundarySpec
+    wasiBoundarySemantics spike4WasiArtifact
+    (by
+      change ((wasiPublicEntries spike4WasiArtifact).map (fun entry => entry.name)).Nodup
+      decide)
+    (by rfl) (by rfl)
+
+def spike4WindowsArtifactCertificate :
+    ProgramArtifactCertificate (WindowsX86_64 AnyEvent) where
+  artifact := spike4WindowsArtifact
+  exports := spike4WindowsExports
+  exportsArtifact := rfl
+  artifactConnection := by rfl
+
+def spike4LinuxArtifactCertificate :
+    ProgramArtifactCertificate (LinuxX86_64 AnyEvent) where
+  artifact := spike4LinuxArtifact
+  exports := spike4LinuxExports
+  exportsArtifact := rfl
+  artifactConnection := by rfl
+
+def spike4WasiArtifactCertificate : ProgramArtifactCertificate WasiPlatform where
+  artifact := spike4WasiArtifact
+  exports := spike4WasiExports
+  exportsArtifact := rfl
+  artifactConnection := by
+    constructor
+    · rfl
+    constructor <;> rfl
+
+theorem spike4WindowsImports :
+    Platform.imports (P := WindowsX86_64 AnyEvent) spike4WindowsArtifact =
+      [windowsParserImport] := rfl
+
+theorem spike4LinuxImports :
+    Platform.imports (P := LinuxX86_64 AnyEvent) spike4LinuxArtifact =
+      [linuxParserImport] := rfl
+
+theorem spike4WasiImports :
+    Platform.imports (P := WasiPlatform) spike4WasiArtifact =
+      [gasmHttpParserSymbol] := rfl
+
+def spike4WindowsProviderCertificate :
+    ProgramProviderCertificate (WindowsX86_64 AnyEvent)
+      spike4WindowsCapabilities spike4WindowsArtifact where
+  importsCovered := by
+    intro imported himported
+    rw [spike4WindowsImports] at himported
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at himported
+    subst imported
+    let provider : WindowsX86_64Provider :=
+      { protocol := parserProtocol, imported := windowsParserImport,
+        importIndex := 0, iatIndex := 0 }
+    refine ⟨provider, ?_, rfl⟩
+    simp [provider, spike4WindowsCapabilities, windowsParserCapability, spike4WindowsProviders]
+  providersLinked := by
+    intro provider hprovider
+    simp [spike4WindowsCapabilities, windowsParserCapability, spike4WindowsProviders] at hprovider
+    rcases hprovider with rfl
+    change Windows.spike4Executable.imports[0]? = some windowsParserImport ∧
+      (let executable := Windows.spike4Executable
+       let layout := computeSectionLayout executable.textBytes.size executable.rdataBytes.size 512
+       let iatBase := executable.imageBase + layout.idataRva.toUInt64
+       match (executable.iatFunctionSlots layout.idataRva)[0]? with
+       | some address => ((address - iatBase) / 8).toNat = 0
+       | none => False)
+    constructor
+    · have imports := spike4WindowsImports
+      change Windows.spike4Executable.imports = [windowsParserImport] at imports
+      rw [imports]
+      rfl
+    · rfl
+
+def spike4LinuxProviderCertificate :
+    ProgramProviderCertificate (LinuxX86_64 AnyEvent)
+      spike4LinuxCapabilities spike4LinuxArtifact where
+  importsCovered := by
+    intro imported himported
+    rw [spike4LinuxImports] at himported
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at himported
+    subst imported
+    refine ⟨linuxParserProvider 0 2, ?_, rfl⟩
+    simp [spike4LinuxCapabilities, linuxParserCapability, spike4LinuxProviders]
+  providersLinked := by
+    intro provider hprovider
+    simp [spike4LinuxCapabilities, linuxParserCapability, spike4LinuxProviders] at hprovider
+    rcases hprovider with rfl | rfl | rfl | rfl | rfl
+    all_goals
+      constructor
+      · exact spike4LinuxParserConnection.imported
+      · decide
+
+def spike4WasiProviderCertificate :
+    ProgramProviderCertificate WasiPlatform spike4WasiCapabilities spike4WasiArtifact where
+  importsCovered := by
+    intro imported himported
+    rw [spike4WasiImports] at himported
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at himported
+    subst imported
+    let provider : WasiProvider :=
+      { protocol := .library parserProtocol, imports := Wasm.spike4WasmImports, importIndex := 0 }
+    refine ⟨provider, ?_, rfl⟩
+    simp [provider, spike4WasiCapabilities, wasiParserCapability, spike4WasiProviders]
+  providersLinked := by
+    intro provider hprovider
+    simp [spike4WasiCapabilities, wasiParserCapability, spike4WasiProviders] at hprovider
+    rcases hprovider with rfl
+    rfl
+
+def spike4WindowsEntryCertificate :
+    ProgramEntryCertificate (WindowsX86_64 AnyEvent)
+      spike4WindowsCapabilities spike4WindowsArtifact where
+  entryContext := fun _ => ()
+  entryEstablished := by
+    intro environment
+    exact ⟨spike4WindowsParserConnection⟩
+
+def spike4LinuxEntryCertificate :
+    ProgramEntryCertificate (LinuxX86_64 AnyEvent)
+      spike4LinuxCapabilities spike4LinuxArtifact where
+  entryContext := fun _ => ()
+  entryEstablished := by
+    intro environment
+    exact ⟨spike4LinuxParserConnection⟩
+
+def spike4WasiEntryCertificate :
+    ProgramEntryCertificate WasiPlatform spike4WasiCapabilities spike4WasiArtifact where
+  entryContext := fun _ => ()
+  entryEstablished := by
+    intro environment
+    exact ⟨spike4WasiParserConnection⟩
+
+def spike4WasiEmittedBytes : ByteArray :=
+  match emitWasmBinary Wasm.spike4WasmModule Wasm.spike4TypeSignatures with
+  | .ok bytes => bytes
+  | .error _ => ByteArray.empty
+
+theorem spike4_wasi_emits :
+    emitWasmBinary Wasm.spike4WasmModule Wasm.spike4TypeSignatures =
+      .ok spike4WasiEmittedBytes := by
+  set_option maxRecDepth 100000 in
+    rfl
+
+@[simp] theorem spike4WindowsLoadedRip (environment : Environment) :
+    (Platform.load (P := WindowsX86_64 AnyEvent) spike4WindowsArtifact environment).rip =
+      windowsTextBase := rfl
+
+@[simp] theorem spike4LinuxLoadedRip (environment : Environment) :
+    (Platform.load (P := LinuxX86_64 AnyEvent) spike4LinuxArtifact environment).rip =
+      4198400 := rfl
+
+@[simp] theorem spike4LinuxRealize (context : Unit) :
+    spike4LinuxCapabilities.realize spike4LinuxArtifact context = spike4LinuxRuntime := rfl
+
+@[simp] theorem spike4LinuxEntryContext (environment : Environment) :
+    spike4LinuxEntryCertificate.entryContext environment = () := rfl
+
+@[simp] theorem spike4LinuxArtifactInstructions :
+    spike4LinuxArtifact.instructions = Linux.spike4Instructions := rfl
+
+theorem linuxAdmissibilityCertificateOfReturned
+    {capabilities : CapabilityComposition (LinuxX86_64 AnyEvent)}
+    {artifact : LinuxX86_64Artifact}
+    {entry : ProgramEntryCertificate (LinuxX86_64 AnyEvent) capabilities artifact}
+    (runtime : Environment → ExternalCallInterceptor X86_64 AnyEvent)
+    (realized : ∀ environment,
+      capabilities.realize artifact (entry.entryContext environment) = runtime environment)
+    (base : UInt64) (instructions : List X86_64Instr)
+    (loadedRip : ∀ environment,
+      (Platform.load (P := LinuxX86_64 AnyEvent) artifact environment).rip = base)
+    (artifactInstructions : artifact.instructions = instructions)
+    (finalState : Environment → X86_64MachineState)
+    (events : Environment → List AnyEvent)
+    (executes : ∀ environment,
+      let initial := Platform.load (P := LinuxX86_64 AnyEvent) artifact environment
+      @runProgramOutcomeWithLoops AnyEvent (runtime environment) base instructions
+        50000 initial = .returned (finalState environment) (events environment)) :
+    ProgramAdmissibilityCertificate (LinuxX86_64 AnyEvent) capabilities artifact entry := by
+  constructor
+  intro environment
+  rw [realized environment]
+  apply linuxX86_64Admissible_of_returned (runtime environment) artifact
+    (Platform.load (P := LinuxX86_64 AnyEvent) artifact environment)
+    (finalState environment) (events environment)
+  let initial := Platform.load (P := LinuxX86_64 AnyEvent) artifact environment
+  have baseRunEq := congrArg
+    (fun actualBase => @runProgramOutcomeWithLoops AnyEvent (runtime environment) actualBase
+      artifact.instructions 50000 initial) (loadedRip environment)
+  have instructionRunEq := congrArg
+    (fun actualInstructions => @runProgramOutcomeWithLoops AnyEvent (runtime environment) base
+      actualInstructions 50000 initial) artifactInstructions
+  exact baseRunEq.trans (instructionRunEq.trans (executes environment))
+
+def spike4WindowsAdmissibilityCertificate :
+    ProgramAdmissibilityCertificate (WindowsX86_64 AnyEvent)
+      spike4WindowsCapabilities spike4WindowsArtifact spike4WindowsEntryCertificate where
+  platformAdmissible := by
+    intro environment
+    change (let initial := (Platform.load (P := WindowsX86_64 AnyEvent)
+      spike4WindowsArtifact environment)
+      (@runProgramOutcomeWithLoops AnyEvent spike4WindowsRuntime initial.rip
+        Windows.spike4Instructions 50000 initial).isAdmissible false)
+    simp only [spike4WindowsLoadedRip]
+    exact spike4_windows_runtime_admissible environment
+
+def spike4WasiAdmissibilityCertificate :
+    ProgramAdmissibilityCertificate WasiPlatform spike4WasiCapabilities
+      spike4WasiArtifact spike4WasiEntryCertificate where
+  platformAdmissible := by
+    intro environment
+    exact ⟨spike4WasiEmittedBytes, spike4_wasi_emits⟩
+
+def spike4LinuxAdmissibilityCertificate :=
+  linuxAdmissibilityCertificateOfReturned
+    (capabilities := spike4LinuxCapabilities) (artifact := spike4LinuxArtifact)
+    (entry := spike4LinuxEntryCertificate) (fun _ => spike4LinuxRuntime)
+    (fun _ => spike4LinuxRealize ()) 4198400 Linux.spike4Instructions
+    spike4LinuxLoadedRip spike4LinuxArtifactInstructions
+    (fun environment => (spike4_linux_lifecycle_certificate environment).finalState)
+    (fun environment => (spike4_linux_lifecycle_certificate environment).events)
+    (fun environment => (spike4_linux_lifecycle_certificate environment).outcome)
+
+theorem spike4WindowsProgramRun_eq (environment : Environment) :
+    Platform.run
+      (spike4WindowsCapabilities.realize spike4WindowsArtifact
+        (spike4WindowsEntryCertificate.entryContext environment))
+      spike4WindowsArtifact
+      (Platform.load (P := WindowsX86_64 AnyEvent) spike4WindowsArtifact environment) =
+        windowsRuntimeTraceFor environment := rfl
+
+theorem spike4LinuxProgramRun_eq (environment : Environment) :
+    Platform.run
+      (spike4LinuxCapabilities.realize spike4LinuxArtifact
+        (spike4LinuxEntryCertificate.entryContext environment))
+      spike4LinuxArtifact
+      (Platform.load (P := LinuxX86_64 AnyEvent) spike4LinuxArtifact environment) =
+        linuxRuntimeTraceFor environment := rfl
+
+theorem spike4WasiProgramRun_eq (environment : Environment) :
+    Platform.run
+      (spike4WasiCapabilities.realize spike4WasiArtifact
+        (spike4WasiEntryCertificate.entryContext environment))
+      spike4WasiArtifact (Platform.load spike4WasiArtifact environment) =
+        wasiRuntimeObservationFor environment := rfl
+
+def spike4WindowsBehaviorCertificate :
+    ProgramBehaviorCertificate (WindowsX86_64 AnyEvent)
+      spike4WindowsCapabilities spike4WindowsArtifact spike4WindowsEntryCertificate where
+  spec := serverEnvironmentSpec
+  traceEquivalence := by
+    intro environment
+    rw [spike4WindowsProgramRun_eq]
+    exact spike4_windows_runtime_trace_equivalence environment
+
+def spike4LinuxBehaviorCertificate :
+    ProgramBehaviorCertificate (LinuxX86_64 AnyEvent)
+      spike4LinuxCapabilities spike4LinuxArtifact spike4LinuxEntryCertificate where
+  spec := serverEnvironmentSpec
+  traceEquivalence := by
+    intro environment
+    rw [spike4LinuxProgramRun_eq]
+    exact spike4_linux_runtime_trace_equivalence environment
+
+def spike4WasiBehaviorCertificate :
+    ProgramBehaviorCertificate WasiPlatform spike4WasiCapabilities
+      spike4WasiArtifact spike4WasiEntryCertificate where
+  spec := fun environment => .completed (serverEnvironmentSpec environment)
+  traceEquivalence := by
+    intro environment
+    rw [spike4WasiProgramRun_eq]
+    exact spike4_wasi_runtime_trace_equivalence environment
+
+def spike4VerifiedWindowsProgram :
+    VerifiedProgram (WindowsX86_64 AnyEvent) spike4WindowsCapabilities :=
+  VerifiedProgram.compose "Spike 4: HTTP server (Windows x86-64 + Gasm runtime)"
+    spike4WindowsArtifactCertificate spike4WindowsProviderCertificate
+    spike4WindowsEntryCertificate spike4WindowsAdmissibilityCertificate
+    spike4WindowsBehaviorCertificate
+
+def spike4VerifiedLinuxProgram :
+    VerifiedProgram (LinuxX86_64 AnyEvent) spike4LinuxCapabilities :=
+  VerifiedProgram.compose "Spike 4: HTTP server (Linux x86-64 + Gasm runtime)"
+    spike4LinuxArtifactCertificate spike4LinuxProviderCertificate
+    spike4LinuxEntryCertificate spike4LinuxAdmissibilityCertificate
+    spike4LinuxBehaviorCertificate
+
+def spike4VerifiedWasiProgram : VerifiedProgram WasiPlatform spike4WasiCapabilities :=
+  VerifiedProgram.compose "Spike 4: HTTP server (WASI + Gasm runtime)"
+    spike4WasiArtifactCertificate spike4WasiProviderCertificate
+    spike4WasiEntryCertificate spike4WasiAdmissibilityCertificate
+    spike4WasiBehaviorCertificate
+
 /-- A closed one-request environment used only for finite regression probes. -/
 def requestEnvironment (request : ByteArray) : Environment :=
   { incomingRequests := [request] }
@@ -1122,29 +1412,7 @@ def spike4RuntimeRegressionRequests : List ByteArray :=
 
 #guard spike4RuntimeRegressionRequests.all spike4RuntimeAgreementOnAllTargets
 
-/-- Exact Windows behavior obligation left by the staged ABI adapter. -/
-def Spike4WindowsRuntimeTraceEquivalence : Prop :=
-  ∀ environment : Environment,
-    windowsRuntimeTraceFor environment = serverEnvironmentSpec environment
-
-/-- Exact Linux behavior obligation left by the staged ABI adapter. -/
-def Spike4LinuxRuntimeTraceEquivalence : Prop :=
-  ∀ environment : Environment,
-    linuxRuntimeTraceFor environment = serverEnvironmentSpec environment
-
-/-- Exact WASI behavior obligation left by the staged ABI adapter. -/
-def Spike4WasiRuntimeTraceEquivalence : Prop :=
-  ∀ environment : Environment,
-    wasiRuntimeObservationFor environment = .completed (serverEnvironmentSpec environment)
-
-/-- No verified whole-program constructor is exposed until all three semantic bridges exist. -/
-structure Spike4RuntimeRefinementObligations : Prop where
-  windows : Spike4WindowsRuntimeTraceEquivalence
-  linux : Spike4LinuxRuntimeTraceEquivalence
-  wasi : Spike4WasiRuntimeTraceEquivalence
-
-/-- Recovery is already proved at the independent logical-runtime layer. Target adapters may cite
-    it only after their refinement obligation above is discharged. -/
+/-- Request-scope recovery remains reusable after all three target refinements are discharged. -/
 theorem spike4_runtime_resource_failure_does_not_poison_next (request next : ByteArray)
     (h : (driveRequest request).1 = .resourceExhausted) :
     (runtimeTrace [request, next]).drop (1 + (requestTrace request).length) = requestTrace next :=
