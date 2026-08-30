@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Targets.WASI.ABI
+import Spikes.Spike3SortLines.Wasm.Program
 
 namespace Spikes.Spike3SortLines.Wasm
 
@@ -73,6 +74,29 @@ theorem spike3_evalLoop_exit
       (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) = .ok (after, .br depth) := by
   rw [show fuel + 1 = Nat.succ fuel by rfl]
   simp [evalLoop, hbody]
+
+/-- The concrete loader starts the production program with its fixed stdin
+    iovec installed at address zero.  Later static segments are outside this
+    eight-byte prefix, so their loader steps preserve it. -/
+theorem spike3InitialMemory_input_iovec_bytes :
+    WasmMem.readBytes (initWasmMemory spike3DataSegments) 0 8 =
+      some (encodeCiovec 0x100 512) := by
+  simp only [initWasmMemory, spike3DataSegments, List.foldl_cons, List.foldl_nil]
+  rw [readBytes_installWasmDataSegment_prefix _ _ 8 (by decide) (by simp)]
+  rw [readBytes_installWasmDataSegment_prefix _ _ 8 (by decide) (by simp)]
+  have hciovecSize : (encodeCiovec 0x100 512).size = 8 := by rfl
+  exact readBytes_installWasmDataSegment_self initialWasmPage
+    { offset := 0x00, data := encodeCiovec 0x100 512 } (by simp) (by
+      change 0 + (encodeCiovec 0x100 512).size ≤ initialWasmPage.size
+      rw [hciovecSize, initialWasmPage_size]
+      decide)
+
+/-- Typed view of the loader fact: the initial production state exposes the
+    fixed 512-byte stdin iovec, rather than an arbitrary host-selected read
+    buffer. -/
+theorem spike3InitialMemory_input_iovec :
+    readCiovec (initWasmMemory spike3DataSegments) 0 = some (0x100, 512) :=
+  readCiovec_encode _ _ _ _ spike3InitialMemory_input_iovec_bytes
 
 /-- One production `fd_read` with Spike 3's statically installed single
     512-byte iovec consumes exactly the available prefix, advances `stdinPos`
