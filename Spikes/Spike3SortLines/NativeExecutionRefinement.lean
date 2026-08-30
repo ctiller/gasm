@@ -667,4 +667,27 @@ def spike3ConcreteLinuxArena : NativeArenaCapability :=
 def spike3ConcreteWindowsArena : NativeArenaCapability :=
   { base := 0x20000000, endExclusive := 0x20010000 }
 
+/- The first positive Linux block is kept private: it is the concrete loaded
+artifact state, not an alternate hand-written fixture.  Subsequent block
+proofs extend this spine through the reservation, read and allocator phases. -/
+private def linux64AfterPrologue (environment : Environment) : X86_64MachineState :=
+  X86_64Instruction.step (sub_rsp 120)
+    (nativePreparationEntry .linux spike3ConcreteExecutionContext environment)
+
+private theorem linux64_prologue_lookup (environment : Environment) :
+    instructionAtRipIndexed
+      (nativePreparationIndex .linux spike3ConcreteExecutionContext environment)
+      (nativePreparationEntry .linux spike3ConcreteExecutionContext environment).rip = some (sub_rsp 120) := by
+  set_option maxRecDepth 2000000 in rfl
+
+theorem linux64_loaded_prologue (environment : Environment) :
+    NativePreparationPrefix .linux spike3ConcreteExecutionContext environment 1
+      (nativePreparationEntry .linux spike3ConcreteExecutionContext environment) []
+      (linux64AfterPrologue environment) [] [] := by
+  apply nativePreparation_ordinaryBlock (sub_rsp_sequential 120)
+  · exact linux64_prologue_lookup environment
+  · set_option maxRecDepth 2000000 in rfl
+  · set_option maxRecDepth 2000000 in rfl
+  · rfl
+
 end Spikes.Spike3SortLines
