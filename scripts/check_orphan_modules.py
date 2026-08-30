@@ -24,7 +24,7 @@ else, so no `.olean` is ever produced for that file: it is committed, reviewed, 
 counted in the tree, but NOTHING COMPILES IT. Every proof in it is unchecked, every
 `sorry` in it is invisible to `lake exe check_gates_axioms` (whose environment walk
 only sees declarations reachable from the umbrella roots), and every declaration in
-it is invisible to `lake exe check_refs_coverage` for the same reason. The file
+it is invisible to the full `scripts/run_full_refs_coverage.py` gate for the same reason. The file
 looks verified and is not.
 
 This has now happened four times, which is what makes it a gate rather than four
@@ -50,7 +50,7 @@ closes the instance and not the class: nothing stopped the next one.
 
 WHY THE EXISTING GATES ARE NOT THIS GATE
 ----------------------------------------
-`lake exe check_gates_axioms` and `lake exe check_refs_coverage` both already go red
+`lake exe check_gates_axioms` and `scripts/run_full_refs_coverage.py` both already go red
 on an orphan -- they enumerate `.lean` files from the FILESYSTEM and then fail to
 open the missing `.olean`. But they report it as a bare exit 1 alongside "0 NOT
 allowlisted" / "0 uncited": zero substantive violations and no named cause. Worse,

@@ -509,12 +509,20 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
          "group": "linters",
          "long": "Law 3: citation validity (no Lean parsing -- see docs/REVIEW.md #4.1.2)",
          "cmd": [py, "scripts/check_refs.py"], "slow": False, "tools": ["python"], "depends_on": []},
-        {"key": "check_refs_coverage", "desc": "lake exe check_refs_coverage",
+        {"key": "check_full_refs_gate_wiring",
+         "desc": "python scripts/check_full_refs_gate_wiring.py",
+         "group": "linters",
+         "long": "prevents tests, runners, and workflows from bypassing the explicit "
+                 "full-repository declaration-coverage launcher",
+         "cmd": [py, "scripts/check_full_refs_gate_wiring.py"], "slow": False,
+         "tools": ["python"], "depends_on": []},
+        {"key": "check_refs_coverage", "desc": "python scripts/run_full_refs_coverage.py --full-repository",
          "group": "proofs",
          "long": "Law 1 LOAD-BEARING declaration-coverage gate -- walks the compiled environment, "
                  "not source text, so no declaration form (anonymous instance, abbrev, initialize, "
                  "...) can hide from it; run from repo root, building it is not running it",
-         "cmd": [lake, "exe", "check_refs_coverage"], "slow": False, "tools": ["lean"], "depends_on": ["lake_build"]},
+         "cmd": [py, "scripts/run_full_refs_coverage.py", "--full-repository"], "slow": False,
+         "tools": ["python", "lean"], "depends_on": ["lake_build"]},
         {"key": "check_gates", "desc": "python scripts/check_gates.py",
          "group": "linters",
          "long": "Law 10 fast source-level pre-check (defense-in-depth, not the load-bearing gate)",
@@ -1096,7 +1104,9 @@ def _self_test_uncited_anonymous_instance(lake: str) -> Dict:
         build_code, _ = _run_capture([lake, "build"], cwd=REPO_ROOT, timeout=600)
         build_ok = build_code == 0
         if build_ok:
-            code, out = _run_capture([lake, "exe", "check_refs_coverage"], cwd=REPO_ROOT, timeout=300)
+            code, out = _run_capture(
+                [sys.executable, "scripts/run_full_refs_coverage.py", "--full-repository"],
+                cwd=REPO_ROOT, timeout=300)
             red = (code != 0 and "instInhabitedTc5SelfTestUncitedFoo" in (out or "")
                    and "_TC5SelfTestUncitedInstance.lean" in (out or ""))
     finally:
@@ -1108,9 +1118,12 @@ def _self_test_uncited_anonymous_instance(lake: str) -> Dict:
     revert_build_code, _ = _run_capture([lake, "build"], cwd=REPO_ROOT, timeout=600)
     green_after = False
     if revert_build_code == 0:
-        revert_code, _ = _run_capture([lake, "exe", "check_refs_coverage"], cwd=REPO_ROOT, timeout=300)
+        revert_code, _ = _run_capture(
+            [sys.executable, "scripts/run_full_refs_coverage.py", "--full-repository"],
+            cwd=REPO_ROOT, timeout=300)
         green_after = revert_code == 0
-    return {"defect": "uncited_anonymous_instance", "gate": "lake exe check_refs_coverage",
+    return {"defect": "uncited_anonymous_instance",
+            "gate": "python scripts/run_full_refs_coverage.py --full-repository",
             "turned_red": build_ok and red, "green_after_revert": green_after,
             "note": None if build_ok else "lake build itself failed with the probe present (unexpected)"}
 

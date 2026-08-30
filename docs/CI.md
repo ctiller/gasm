@@ -26,8 +26,19 @@ The current hosted selection is:
 
 | CI slice | Events | Platform | Commands selected |
 |---|---|---|---|
-| Linters | push, PR, manual | Ubuntu once | `check_refs`, `check_gates`, `check_publishable`, `check_licenses`, `check_doc_facade`, `check_orphan_modules`, `check_instructions_umbrella` |
-| Proofs | push, PR, manual | Windows + Ubuntu | `lake build`, then the complete `proofs` group: `check_refs_coverage`, `check_gates_axioms`, `test_roundtrip`, `check_x86_obligations`, `check_aarch64_obligations` |
+| Linters | push, PR, manual | Ubuntu once | `check_refs`, `check_full_refs_gate_wiring`, `check_gates`, `check_publishable`, `check_licenses`, `check_doc_facade`, `check_orphan_modules`, `check_instructions_umbrella` |
+| Proofs | push, PR, manual | Windows + Ubuntu | `lake build`, then the complete `proofs` group: the explicitly opted-in full-repository `check_refs_coverage` launcher, `check_gates_axioms`, `test_roundtrip`, `check_x86_obligations`, `check_aarch64_obligations` |
+
+The canonical declaration-coverage command is
+`python scripts/run_full_refs_coverage.py --full-repository`. CI may instead set
+`GASM_RUN_FULL_REFS_COVERAGE=1`. The launcher deliberately refuses an unacknowledged local run
+before starting Lake: this authority-preserving gate imports and scans the complete
+Gasm/Stdlib/Spikes compiled environment and can schedule hundreds of modules. In one partially
+warm incident it scheduled 616 targets, exceeded 23 minutes before cancellation, and was observed
+near 28 GiB aggregate memory with one Lean process near 17 GiB. Those observations are diagnostic,
+not fixed requirements; cost depends on tree, cache, machine, and concurrency. Focused commands
+such as `lake exe test_graphics_foundation` remain useful inner-loop checks but do not replace the
+full gate.
 | Fast tests | push | Windows + Ubuntu | `lake build`, then `test_zlib`, `test_png`, `test_smolalloc` |
 | Spike tests | PR, manual | Windows | the three Stdlib tests, Windows Spike 1–5 tests, and Wasm Spike 1–3 tests |
 | Spike tests | PR, manual | Ubuntu | the three Stdlib tests, x86 bare-metal/AArch64 bare-metal/AArch64 Linux Spike 1 tests, and Wasm Spike 1–3 tests |
@@ -38,7 +49,7 @@ The current hosted selection is:
 
 The unfiltered local command, `python scripts/run_gates.py` with no selection flags, is
 intentionally broader than any one hosted job. Its table currently contains one build gate,
-eight linters (including the cache-dependent `check_references_offline`), five proof gates,
+nine linters (including the cache-dependent `check_references_offline`), five proof gates,
 nineteen spike/test gates, and eight fuzzers. Grouped, sharded, or `--gate`-filtered invocations
 return success for their selected subset; they are CI building blocks, not evidence that the
 unfiltered local gate ran. Section 7 records intentional CI omissions separately from wiring

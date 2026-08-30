@@ -72,6 +72,7 @@ jobs:
         run: |
           python scripts/run_gates.py --group linters \
             --gate check_refs \
+            --gate check_full_refs_gate_wiring \
             --gate check_gates \
             --gate check_publishable \
             --gate check_licenses \

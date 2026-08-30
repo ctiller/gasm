@@ -49,7 +49,8 @@ the design each half is now built to:
       full stop. It is not coupled to "the declaration that follows" in any
       way, so no declaration form, however exotic, can make a citation
       invisible to it ever again.
-  (b) `lake exe check_refs_coverage` (Tools/CheckRefsCoverage.lean), Law 1
+  (b) `python scripts/run_full_refs_coverage.py --full-repository`
+      (Tools/CheckRefsCoverage.lean), Law 1
       declaration coverage: walks the COMPILED ENVIRONMENT (Lean's own
       record of what actually exists after elaboration) rather than source
       text, so it cannot have a blind spot for any declaration FORM either
@@ -307,7 +308,7 @@ def collect_inline_doc_references() -> List[Dict]:
 
 def main():
     print("=" * 70)
-    print(" gasm Citation Validity Verifier (Law 3) -- see also `lake exe check_refs_coverage`")
+    print(" gasm Citation Validity Verifier (Law 3) -- see also the full declaration-coverage gate")
     print("=" * 70)
 
     sections = collect_markdown_sections()
@@ -394,7 +395,7 @@ def main():
         print("[+] All explicit internal document anchor links resolve.")
 
     print("\n[i] Un-cited Lean declaration detection (Law 1) is NOT performed by this script --")
-    print("    run `lake exe check_refs_coverage` (Tools/CheckRefsCoverage.lean), which walks the")
+    print("    run `python scripts/run_full_refs_coverage.py --full-repository`, which walks the")
     print("    COMPILED ENVIRONMENT rather than source text so no declaration form can hide from")
     print("    it. See that tool's own module docstring and docs/REVIEW.md #4.1.2 for why the two")
     print("    checks are independent mechanisms rather than one script doing both jobs.")

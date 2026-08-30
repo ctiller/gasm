@@ -568,7 +568,7 @@ def runGate : IO UInt32 := do
   let allowlistPath : System.FilePath := "scripts" / "ref_allowlist.txt"
   if !(← allowlistPath.pathExists) then
     IO.eprintln s!"[!] ERROR: {allowlistPath} not found relative to the current directory."
-    IO.eprintln "    Run this tool from the repo root, e.g.: `lake exe check_refs_coverage`"
+    IO.eprintln "    Run the canonical full gate from the repo root: `python scripts/run_full_refs_coverage.py --full-repository`"
     return 1
   let allowlistText ← IO.FS.readFile allowlistPath
   let (allowlist, parseErrors) := parseRefAllowlist allowlistText
@@ -595,7 +595,7 @@ def runGate : IO UInt32 := do
         {} (trustLevel := 0) (loadExts := false)
     catch e =>
       IO.eprintln s!"[!] ERROR: failed to import Gasm/Stdlib/Spikes: {e.toString}"
-      IO.eprintln "    Run this tool from the repo root, e.g.: `lake exe check_refs_coverage`"
+      IO.eprintln "    Run the canonical full gate from the repo root: `python scripts/run_full_refs_coverage.py --full-repository`"
       IO.Process.exit 1
 
   let ctx : Core.Context := { fileName := "CheckRefsCoverage", fileMap := default }

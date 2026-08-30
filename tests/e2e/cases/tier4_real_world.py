@@ -153,11 +153,14 @@ def get_tier4_tests() -> List[TestCase]:
 
     # T4.11: Scenario 11 - Law 1 & Law 3 Zero-Uncited Declaration Audit
     def t4_11(ctx):
-        code, out, err = ctx.run_lean_target("check_refs_coverage")
+        code, out, err = ctx.run_cmd(
+            [ctx.python_exe, "scripts/run_full_refs_coverage.py", "--full-repository"],
+            timeout=3600.0,
+        )
         if code == 0:
-            return TestStatus.PASS, "Zero-uncited declaration audit passed with 100% citation coverage"
-        return TestStatus.FAIL, f"check_refs_coverage reported uncited declarations: {out or err}"
-    tests.append(make_tier4_test("T4.11", "scenario_zero_uncited_audit", "M1", 4, "Run check_refs_coverage across all compiled declarations in the workspace", t4_11))
+            return TestStatus.PASS, "Full declaration-coverage gate passed with zero uncited declarations"
+        return TestStatus.FAIL, f"Full declaration-coverage gate reported uncited declarations: {out or err}"
+    tests.append(make_tier4_test("T4.11", "scenario_zero_uncited_audit", "M1", 4, "Run the full declaration-coverage gate across all compiled declarations in the workspace", t4_11))
 
     # T4.12: Scenario 12 - Law 10 Zero-Unauthorized-Axiom Soundness Audit
     def t4_12(ctx):

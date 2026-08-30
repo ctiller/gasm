@@ -476,16 +476,19 @@ class TestT1_04_04(BaseTier1Test):
 
 
 class TestT1_04_05(BaseTier1Test):
-    """T1.04.05: Verify check_refs_coverage reports 100% citation coverage on human declarations."""
+    """T1.04.05: Verify the full declaration-coverage gate reports 100% coverage."""
     def __init__(self):
-        super().__init__("T1.04.05", 4, "M1", "check_refs_coverage_100_percent", "Verify check_refs_coverage runs cleanly.")
+        super().__init__("T1.04.05", 4, "M1", "check_refs_coverage_100_percent", "Verify the full declaration-coverage gate runs cleanly.")
 
     def run(self, ctx: ExecutionContext) -> TestResult:
         start = time.monotonic()
-        code, out, err = ctx.run_lean_target("check_refs_coverage")
+        code, out, err = ctx.run_cmd(
+            [ctx.python_exe, "scripts/run_full_refs_coverage.py", "--full-repository"],
+            timeout=3600.0,
+        )
         if code == 0:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "check_refs_coverage verified 100% citation coverage", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"check_refs_coverage failed (exit {code}): {out or err}", time.monotonic() - start)
+            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "Full declaration-coverage gate verified 100% citation coverage", time.monotonic() - start)
+        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Full declaration-coverage gate failed (exit {code}): {out or err}", time.monotonic() - start)
 
 
 # --------------------------------------------------------------------------------------------

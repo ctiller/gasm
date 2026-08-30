@@ -25,7 +25,7 @@ name = "gasm"
 version = "0.1.0"
 defaultTargets = [
   "Gasm", "Spikes", "Stdlib", "GateSubprocess",
-  "X86DispatchExhaustive", "check_gates_axioms", "check_refs_coverage"
+  "X86DispatchExhaustive", "check_gates_axioms", "check_refs_coverage_full"
 ]
 
 [[lean_lib]]
@@ -41,7 +41,7 @@ name = "Stdlib"
 roots = ["Stdlib"]
 
 # Shared per-module standalone-scan subprocess protocol used by both
-# check_gates_axioms and check_refs_coverage's `--scan-module` worker mode.
+# check_gates_axioms and check_refs_coverage_full's `--scan-module` worker mode.
 # See Tools/GateSubprocess.lean's own header for why this much (and no
 # more) is shared between the two gate tools.
 [[lean_lib]]
@@ -70,7 +70,7 @@ root = "Tools.CheckGatesAxioms"
 # for why this, and not scripts/check_refs.py's old regex-based declaration
 # matching, is the load-bearing declaration-coverage gate.
 [[lean_exe]]
-name = "check_refs_coverage"
+name = "check_refs_coverage_full"
 root = "Tools.CheckRefsCoverage"
 
 # P4/P5 unified x86-64 instruction obligation gate: every registered instance must declare a
