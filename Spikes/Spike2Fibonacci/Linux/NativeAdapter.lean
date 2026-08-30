@@ -373,6 +373,23 @@ private theorem indexTwoDigits (state : X86_64MachineState) (n : Nat)
   decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Public projection-only form of the one-digit index branch fact.  Row producers use this
+without unfolding either the predecessor state or its memory. -/
+theorem spike2_index_one_digit (state : X86_64MachineState) (n : Nat) (hn : n < 10)
+    (hcounter : state.gprs .r13 = n.toUInt64) :
+    ¬ X86BranchCondition.greaterEqual.holds
+      (X86_64Instruction.step (cmp_r64_imm8 .r13 10) state) :=
+  indexOneDigit state n hn hcounter
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- Public projection-only form of the two-digit index branch fact. -/
+theorem spike2_index_two_digits (state : X86_64MachineState) (n : Nat)
+    (hge : 10 ≤ n) (hn : n < 91) (hcounter : state.gprs .r13 = n.toUInt64) :
+    X86BranchCondition.greaterEqual.holds
+      (X86_64Instruction.step (cmp_r64_imm8 .r13 10) state) :=
+  indexTwoDigits state n hge hn hcounter
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- The linked main header selects the body for every pass `0..89`.  The proof is parameterized by
     `completed`; the signed comparison facts above, rather than ninety concrete reductions, choose
     the JGE fallthrough. -/

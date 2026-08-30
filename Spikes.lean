@@ -50,6 +50,7 @@ import Spikes.Spike2Fibonacci.Linux.Rows1To6
 import Spikes.Spike2Fibonacci.Linux.Row7
 import Spikes.Spike2Fibonacci.Linux.Row8
 import Spikes.Spike2Fibonacci.Linux.RowScheme
+import Spikes.Spike2Fibonacci.Linux.Row8Parametric
 import Spikes.Spike2Fibonacci.Linux.Equivalence
 import Spikes.Spike2Fibonacci.Wasm.Program
 import Spikes.Spike2Fibonacci.Wasm.Equivalence
