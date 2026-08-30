@@ -23,11 +23,12 @@ open Spikes.Spike2Fibonacci.Linux.Row8BoundaryData
 
 set_option maxRecDepth 200000
 set_option maxHeartbeats 5000000
+set_option autoImplicit false
 
 /-- Six literal stores/comparison steps take Row 8's one-digit index path. -/
 theorem spike2_row8_index_header_selected_prefix :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 6
-      (spike2AfterMainHeader spike2Row7AfterRecurrence) ([] : List AnyEvent)
+      (spike2AfterMainHeader Spikes.Spike2Fibonacci.Linux.Row7BoundaryData.spike2Row7AfterRecurrence) ([] : List AnyEvent)
       spike2Row8AfterIndexHeader [] [] := by
   refine ProductionPrefix.SelectedPrefix.ordinary ({
       encoding := .movRspByte 0x40 0x46
@@ -174,9 +175,10 @@ theorem spike2_row8_value_setup_selected_prefix :
 /-- Header, one-digit index path, and formatter setup compose through opaque Row 7 facts. -/
 theorem spike2_row8_opening_selected_prefix :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 18
-      spike2Row7AfterRecurrence ([] : List AnyEvent) spike2Row8AfterIndex [] [] := by
+      Spikes.Spike2Fibonacci.Linux.Row7BoundaryData.spike2Row7AfterRecurrence ([] : List AnyEvent) spike2Row8AfterIndex [] [] := by
   have predecessor := Spikes.Spike2Fibonacci.Linux.Row7BoundaryFacts.spike2Row7HeaderFacts
-  have header := spike2_main_header_selected_prefix 7 spike2Row7AfterRecurrence ([] : List AnyEvent)
+  have header := spike2_main_header_selected_prefix 7
+    Spikes.Spike2Fibonacci.Linux.Row7BoundaryData.spike2Row7AfterRecurrence ([] : List AnyEvent)
     (by omega) predecessor.1 predecessor.2.1 predecessor.2.2.2.2.2
   have indexed := ProductionPrefix.SelectedPrefix.append header spike2_row8_index_header_selected_prefix
   simpa using ProductionPrefix.SelectedPrefix.append indexed spike2_row8_index_selected_prefix

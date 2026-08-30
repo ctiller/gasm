@@ -17,15 +17,19 @@ open Gasm.Effects
 open Gasm.Targets
 open Gasm.Targets.Linux
 open Gasm.Targets.X86_64
+open Gasm.Targets.X86_64.Instructions
 open Spikes.Spike2Fibonacci
 open Spikes.Spike2Fibonacci.Linux.Row8BoundaryData
+
+set_option maxRecDepth 200000
+set_option autoImplicit false
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Row 8's exact 64-transition production certificate joins the main header, one-digit index,
 two-digit decimal formatter, CR/LF suffix, selected `SYS_write`, and recurrence/back edge. -/
 theorem spike2_row8_selected_prefix :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 64
-      spike2Row7AfterRecurrence ([] : List AnyEvent) spike2Row8AfterRecurrence
+      Spikes.Spike2Fibonacci.Linux.Row7BoundaryData.spike2Row7AfterRecurrence ([] : List AnyEvent) spike2Row8AfterRecurrence
       spike2Row8WriteEventsRev
       (emittedBy (sysWriteHook (Event := AnyEvent)
         (X86_64Instruction.step syscall_op spike2Row8BeforeWriteSyscall)).2) := by
@@ -52,7 +56,7 @@ theorem spike2_row8_after_recurrence_boundary :
     spike2Row8AfterRecurrence.gprs .r13 = 9 ∧
     spike2Row8AfterRecurrence.gprs .r14 = 34 ∧
     spike2Row8AfterRecurrence.gprs .r15 = 55 ∧
-    spike2Row8AfterRecurrence.rsp = spike2Row7AfterRecurrence.rsp ∧
+    spike2Row8AfterRecurrence.rsp = Spikes.Spike2Fibonacci.Linux.Row7BoundaryData.spike2Row7AfterRecurrence.rsp ∧
     spike2Row8AfterRecurrence.fault = none :=
   Spikes.Spike2Fibonacci.Linux.Row8BoundaryFacts.spike2Row8HeaderFacts
 

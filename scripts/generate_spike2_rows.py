@@ -48,6 +48,21 @@ def self_test() -> None:
     required = ("spike2Row7AfterRecurrence", "gprs .r14 = 34", "gprs .r15 = 55")
     if any(item not in rendered for item in required):
         raise SystemExit("Row7→Row8 recurrence substitution self-test failed")
+    boundary = boundary_source(8)
+    typed_header = (
+        "import Spikes.Spike2Fibonacci.Linux.Row7BoundaryFacts",
+        "private theorem spike2Row8BodyRip",
+        "Spikes.Spike2Fibonacci.Linux.Row7BoundaryFacts.spike2Row7HeaderFacts",
+        "theorem spike2Row8IndexHeaderLookupF : instructionAtRipIndexed spike2Indexed "
+        "(spike2AfterMainHeader spike2Row7AfterRecurrence).rip = some "
+        "(mov_rsp_byte 0x40 0x46) := by\n  rw [spike2Row8BodyRip]\n  rfl",
+    )
+    if any(item not in boundary for item in typed_header):
+        raise SystemExit("Row8 typed header lookup self-test failed")
+    if "spike2Row8IndexHeaderLookupF : instructionAtRipIndexed spike2Indexed " \
+            "(spike2AfterMainHeader spike2Row7AfterRecurrence).rip = some " \
+            "(mov_rsp_byte 0x40 0x46) := by rfl" in boundary:
+        raise SystemExit("Row8 header lookup regressed to closed rfl reduction")
     try:
         render_two_digit(8, "MissingTemplate.lean")
     except ValueError:
@@ -76,6 +91,11 @@ def boundary_source(row: int) -> str:
         # Every generated row consumes its predecessor's data-only namespace, including Row8.
         predecessor = f"Linux.Row{row - 1}BoundaryData"
         source = source.replace(f"Linux.Row{row - 1}", predecessor)
+        if row == 8:
+            source = source.replace(
+                "import Spikes.Spike2Fibonacci.Linux.Row7BoundaryData",
+                "import Spikes.Spike2Fibonacci.Linux.Row7BoundaryFacts",
+            )
         source = source.replace("private theorem sequentialCmp", f"theorem spike2Row{row}SequentialCmp")
         source = source.replace("sequentialCmp", f"spike2Row{row}SequentialCmp")
     else:
@@ -108,12 +128,15 @@ def boundary_source(row: int) -> str:
             f"\n\nopen {parent_namespace}.Row{row - 1}BoundaryData"
         ) + source[imports_end:]
     if row >= 8:
-        source = add_lookup_sequence(source, row, "IndexHeader",
-            "(spike2AfterMainHeader spike2Row7AfterRecurrence)", [
-                ("F", "mov_rsp_byte 0x40 0x46"), ("I", "mov_rsp_byte 0x41 0x69"),
-                ("B", "mov_rsp_byte 0x42 0x62"), ("Open", "mov_rsp_byte 0x43 0x28"),
-                ("Cmp", "cmp_r64_imm8 .r13 10"), ("Branch", "jge_rel8 41"),
-            ])
+        if row == 8:
+            source = add_typed_header_lookup_sequence(source, row)
+        else:
+            source = add_lookup_sequence(source, row, "IndexHeader",
+                "(spike2AfterMainHeader spike2Row7AfterRecurrence)", [
+                    ("F", "mov_rsp_byte 0x40 0x46"), ("I", "mov_rsp_byte 0x41 0x69"),
+                    ("B", "mov_rsp_byte 0x42 0x62"), ("Open", "mov_rsp_byte 0x43 0x28"),
+                    ("Cmp", "cmp_r64_imm8 .r13 10"), ("Branch", "jge_rel8 41"),
+                ])
         source = add_lookup_sequence(source, row, "Index", f"spike2Row{row}AfterIndexHeader", [
             ("Move", "mov_r64 .rax .r13"), ("Ascii", "add_r64_imm8 .rax 0x30"),
             ("Cursor", "lea_rsp .rdi 0x44"), ("Store", "mov_mem8 .rdi .rax"),
@@ -155,6 +178,67 @@ def add_lookup_sequence(source: str, row: int, prefix: str, state: str,
         )
         at = f"(X86_64Instruction.step ({instr}) {at})"
     return source[:-len(end)] + "\n" + "".join(body) + end
+
+
+def add_typed_header_lookup_sequence(source: str, row: int) -> str:
+    """Emit Row 8's predecessor-interface lookup proofs without reducing Row 7."""
+    if row != 8:
+        raise ValueError("typed header lookup sequence is currently validated for Row8 only")
+    end = f"end Spikes.Spike2Fibonacci.Linux.Row{row}BoundaryData\n"
+    if not source.endswith(end):
+        raise ValueError("boundary source lacks namespace terminator")
+    body = '''private theorem spike2Row8BodyRip :
+    (spike2AfterMainHeader spike2Row7AfterRecurrence).rip = 4198447 := by
+  obtain ⟨rip, counter, _⟩ :=
+    Spikes.Spike2Fibonacci.Linux.Row7BoundaryFacts.spike2Row7HeaderFacts
+  exact spike2_after_main_header_body_rip 7 spike2Row7AfterRecurrence (by omega) rip counter
+
+private theorem movRspByte40Rip (state : X86_64MachineState) :
+    (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) state).rip = state.rip + 5 := rfl
+
+private theorem movRspByte41Rip (state : X86_64MachineState) :
+    (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) state).rip = state.rip + 5 := rfl
+
+private theorem movRspByte42Rip (state : X86_64MachineState) :
+    (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) state).rip = state.rip + 5 := rfl
+
+private theorem movRspByte43Rip (state : X86_64MachineState) :
+    (X86_64Instruction.step (mov_rsp_byte 0x43 0x28) state).rip = state.rip + 5 := rfl
+
+/- The lookup proofs intentionally rewrite through a typed RIP boundary before reducing the
+   fixed final instruction index.  This prevents every lookup from replaying the closed Row 7
+   execution merely to recover its entry address. -/
+theorem spike2Row8IndexHeaderLookupF : instructionAtRipIndexed spike2Indexed (spike2AfterMainHeader spike2Row7AfterRecurrence).rip = some (mov_rsp_byte 0x40 0x46) := by
+  rw [spike2Row8BodyRip]
+  rfl
+theorem spike2Row8IndexHeaderLookupI : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence)).rip = some (mov_rsp_byte 0x41 0x69) := by
+  rw [movRspByte40Rip, spike2Row8BodyRip]
+  rfl
+theorem spike2Row8IndexHeaderLookupB : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence))).rip = some (mov_rsp_byte 0x42 0x62) := by
+  rw [movRspByte41Rip, movRspByte40Rip, spike2Row8BodyRip]
+  rfl
+theorem spike2Row8IndexHeaderLookupOpen : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence)))).rip = some (mov_rsp_byte 0x43 0x28) := by
+  rw [movRspByte42Rip, movRspByte41Rip, movRspByte40Rip, spike2Row8BodyRip]
+  rfl
+theorem spike2Row8IndexHeaderLookupCmp : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x43 0x28) (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence))))).rip = some (cmp_r64_imm8 .r13 10) := by
+  rw [movRspByte43Rip, movRspByte42Rip, movRspByte41Rip, movRspByte40Rip, spike2Row8BodyRip]
+  rfl
+theorem spike2Row8IndexHeaderLookupBranch : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (cmp_r64_imm8 .r13 10) (X86_64Instruction.step (mov_rsp_byte 0x43 0x28) (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence)))))).rip = some (jge_rel8 41) := by
+  rw [show (X86_64Instruction.step (cmp_r64_imm8 .r13 10)
+      (X86_64Instruction.step (mov_rsp_byte 0x43 0x28)
+        (X86_64Instruction.step (mov_rsp_byte 0x42 0x62)
+          (X86_64Instruction.step (mov_rsp_byte 0x41 0x69)
+            (X86_64Instruction.step (mov_rsp_byte 0x40 0x46)
+              (spike2AfterMainHeader spike2Row7AfterRecurrence)))))).rip =
+      (X86_64Instruction.step (mov_rsp_byte 0x43 0x28)
+        (X86_64Instruction.step (mov_rsp_byte 0x42 0x62)
+          (X86_64Instruction.step (mov_rsp_byte 0x41 0x69)
+            (X86_64Instruction.step (mov_rsp_byte 0x40 0x46)
+              (spike2AfterMainHeader spike2Row7AfterRecurrence))))).rip + 4 by rfl,
+    movRspByte43Rip, movRspByte42Rip, movRspByte41Rip, movRspByte40Rip, spike2Row8BodyRip]
+  rfl
+'''
+    return source[:-len(end)] + "\n" + body + end
 
 
 def add_extraction_observations(source: str, row: int, pass_name: str, state: str) -> str:

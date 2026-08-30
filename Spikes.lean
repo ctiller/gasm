@@ -38,6 +38,14 @@ import Spikes.Spike2Fibonacci.Windows.IATLemmas
 import Spikes.Spike2Fibonacci.Linux.Program
 import Spikes.Spike2Fibonacci.Linux.NativeAdapter
 import Spikes.Spike2Fibonacci.Linux.Row6
+import Spikes.Spike2Fibonacci.Linux.Row1BoundaryFacts
+import Spikes.Spike2Fibonacci.Linux.Row2BoundaryFacts
+import Spikes.Spike2Fibonacci.Linux.Row3BoundaryFacts
+import Spikes.Spike2Fibonacci.Linux.Row4BoundaryFacts
+import Spikes.Spike2Fibonacci.Linux.Row5BoundaryFacts
+import Spikes.Spike2Fibonacci.Linux.Row6BoundaryFacts
+import Spikes.Spike2Fibonacci.Linux.Row7
+import Spikes.Spike2Fibonacci.Linux.Row8
 import Spikes.Spike2Fibonacci.Linux.Equivalence
 import Spikes.Spike2Fibonacci.Wasm.Program
 import Spikes.Spike2Fibonacci.Wasm.Equivalence
@@ -61,6 +69,9 @@ import Spikes.Spike3SortLines.Linux.Equivalence
 import Spikes.Spike3SortLines.Linux.NoGrantFailure
 import Spikes.Spike3SortLines.NativeRuntime
 import Spikes.Spike3SortLines.NativeOutcome
+import Spikes.Spike3SortLines.Ingestion
+import Spikes.Spike3SortLines.VecIngestion
+import Spikes.Spike3SortLines.Composition
 import Spikes.Spike3SortLines.Wasm.Program
 import Spikes.Spike3SortLines.Wasm.Fuel
 import Spikes.Spike3SortLines.Wasm.Equivalence
@@ -81,4 +92,3 @@ import Spikes.Spike5Gzip.StreamingCapability
 import Spikes.Spike5Gzip.Runtime
 import Spikes.Spike5Gzip.NativeProofs
 import Spikes.Spike5Gzip.Equivalence
-

@@ -16,7 +16,7 @@ limitations under the License.
 
 import Gasm.Targets.X86_64.EventfulSegment
 import Gasm.Targets.Linux.OutcomeBridge
-import Spikes.Spike2Fibonacci.Linux.Row7BoundaryData
+import Spikes.Spike2Fibonacci.Linux.Row7BoundaryFacts
 
 open Spikes.Spike2Fibonacci.Linux.Row7BoundaryData
 
@@ -182,12 +182,56 @@ def spike2Row8AfterRecurrence : X86_64MachineState :=
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 
-theorem spike2Row8IndexHeaderLookupF : instructionAtRipIndexed spike2Indexed (spike2AfterMainHeader spike2Row7AfterRecurrence).rip = some (mov_rsp_byte 0x40 0x46) := by rfl
-theorem spike2Row8IndexHeaderLookupI : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence)).rip = some (mov_rsp_byte 0x41 0x69) := by rfl
-theorem spike2Row8IndexHeaderLookupB : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence))).rip = some (mov_rsp_byte 0x42 0x62) := by rfl
-theorem spike2Row8IndexHeaderLookupOpen : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence)))).rip = some (mov_rsp_byte 0x43 0x28) := by rfl
-theorem spike2Row8IndexHeaderLookupCmp : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x43 0x28) (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence))))).rip = some (cmp_r64_imm8 .r13 10) := by rfl
-theorem spike2Row8IndexHeaderLookupBranch : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (cmp_r64_imm8 .r13 10) (X86_64Instruction.step (mov_rsp_byte 0x43 0x28) (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence)))))).rip = some (jge_rel8 41) := by rfl
+private theorem spike2Row8BodyRip :
+    (spike2AfterMainHeader spike2Row7AfterRecurrence).rip = 4198447 := by
+  obtain ⟨rip, counter, _⟩ :=
+    Spikes.Spike2Fibonacci.Linux.Row7BoundaryFacts.spike2Row7HeaderFacts
+  exact spike2_after_main_header_body_rip 7 spike2Row7AfterRecurrence (by omega) rip counter
+
+private theorem movRspByte40Rip (state : X86_64MachineState) :
+    (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) state).rip = state.rip + 5 := rfl
+
+private theorem movRspByte41Rip (state : X86_64MachineState) :
+    (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) state).rip = state.rip + 5 := rfl
+
+private theorem movRspByte42Rip (state : X86_64MachineState) :
+    (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) state).rip = state.rip + 5 := rfl
+
+private theorem movRspByte43Rip (state : X86_64MachineState) :
+    (X86_64Instruction.step (mov_rsp_byte 0x43 0x28) state).rip = state.rip + 5 := rfl
+
+/- The lookup proofs intentionally rewrite through a typed RIP boundary before reducing the
+   fixed final instruction index.  This prevents every lookup from replaying the closed Row 7
+   execution merely to recover its entry address. -/
+theorem spike2Row8IndexHeaderLookupF : instructionAtRipIndexed spike2Indexed (spike2AfterMainHeader spike2Row7AfterRecurrence).rip = some (mov_rsp_byte 0x40 0x46) := by
+  rw [spike2Row8BodyRip]
+  rfl
+theorem spike2Row8IndexHeaderLookupI : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence)).rip = some (mov_rsp_byte 0x41 0x69) := by
+  rw [movRspByte40Rip, spike2Row8BodyRip]
+  rfl
+theorem spike2Row8IndexHeaderLookupB : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence))).rip = some (mov_rsp_byte 0x42 0x62) := by
+  rw [movRspByte41Rip, movRspByte40Rip, spike2Row8BodyRip]
+  rfl
+theorem spike2Row8IndexHeaderLookupOpen : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence)))).rip = some (mov_rsp_byte 0x43 0x28) := by
+  rw [movRspByte42Rip, movRspByte41Rip, movRspByte40Rip, spike2Row8BodyRip]
+  rfl
+theorem spike2Row8IndexHeaderLookupCmp : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_rsp_byte 0x43 0x28) (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence))))).rip = some (cmp_r64_imm8 .r13 10) := by
+  rw [movRspByte43Rip, movRspByte42Rip, movRspByte41Rip, movRspByte40Rip, spike2Row8BodyRip]
+  rfl
+theorem spike2Row8IndexHeaderLookupBranch : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (cmp_r64_imm8 .r13 10) (X86_64Instruction.step (mov_rsp_byte 0x43 0x28) (X86_64Instruction.step (mov_rsp_byte 0x42 0x62) (X86_64Instruction.step (mov_rsp_byte 0x41 0x69) (X86_64Instruction.step (mov_rsp_byte 0x40 0x46) (spike2AfterMainHeader spike2Row7AfterRecurrence)))))).rip = some (jge_rel8 41) := by
+  rw [show (X86_64Instruction.step (cmp_r64_imm8 .r13 10)
+      (X86_64Instruction.step (mov_rsp_byte 0x43 0x28)
+        (X86_64Instruction.step (mov_rsp_byte 0x42 0x62)
+          (X86_64Instruction.step (mov_rsp_byte 0x41 0x69)
+            (X86_64Instruction.step (mov_rsp_byte 0x40 0x46)
+              (spike2AfterMainHeader spike2Row7AfterRecurrence)))))).rip =
+      (X86_64Instruction.step (mov_rsp_byte 0x43 0x28)
+        (X86_64Instruction.step (mov_rsp_byte 0x42 0x62)
+          (X86_64Instruction.step (mov_rsp_byte 0x41 0x69)
+            (X86_64Instruction.step (mov_rsp_byte 0x40 0x46)
+              (spike2AfterMainHeader spike2Row7AfterRecurrence))))).rip + 4 by rfl,
+    movRspByte43Rip, movRspByte42Rip, movRspByte41Rip, movRspByte40Rip, spike2Row8BodyRip]
+  rfl
 
 theorem spike2Row8IndexLookupMove : instructionAtRipIndexed spike2Indexed spike2Row8AfterIndexHeader.rip = some (mov_r64 .rax .r13) := by rfl
 theorem spike2Row8IndexLookupAscii : instructionAtRipIndexed spike2Indexed (X86_64Instruction.step (mov_r64 .rax .r13) spike2Row8AfterIndexHeader).rip = some (add_r64_imm8 .rax 0x30) := by rfl

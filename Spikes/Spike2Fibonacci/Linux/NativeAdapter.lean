@@ -430,6 +430,24 @@ theorem spike2_main_header_selected_prefix (completed : Nat) (state : X86_64Mach
     · exact .nil _ _
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The continuing main header's body entry has its fixed linked RIP.  Row certificates consume
+    this fact through their typed predecessor boundary rather than reducing a closed prior row
+    merely to rediscover the address. -/
+theorem spike2_after_main_header_body_rip (completed : Nat) (state : X86_64MachineState)
+    (hcompleted : completed < 90)
+    (hrip : state.rip = spike2MainLoopRip)
+    (hcounter : state.gprs .r13 = (completed + 1).toUInt64) :
+    (spike2AfterMainHeader state).rip = 4198447 := by
+  have hcontinue := mainLoopContinues state (completed + 1) (by omega) hcounter
+  have hcmpRip : (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip = 4198441 := by
+    rw [stepCmpImm8, hrip]
+    rfl
+  unfold spike2AfterMainHeader
+  simp only [X86BranchCondition.holds] at hcontinue
+  rw [stepJge32]
+  simp [hcontinue, hcmpRip]
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- The header after exactly ninety completed rows takes the real linked `JGE` edge to the exit
     setup.  Its final state is the same concrete two-step state function used by continuing
     headers, with branch selection determined from `r13 = 91`. -/
