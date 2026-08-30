@@ -193,6 +193,17 @@ def add_r64 (dst src : Reg64) : AnyX86_64Instruction :=
 def add_r64_imm8 (dst : Reg64) (imm : UInt8) : AnyX86_64Instruction :=
   ⟨AddR64Imm8.mk dst imm⟩
 
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+/-- The existentially packaged ADD-imm8 step exposes exactly its architectural carry test. -/
+theorem add_r64_imm8_step_cf (dst : Reg64) (imm : UInt8) (s : X86_64MachineState) :
+    ((X86_64Instruction.step (add_r64_imm8 dst imm) s).cf = true) =
+      (s.gprs dst + signExtend8To64 imm < s.gprs dst) := by
+  change (((( { s with stdinBuffer := ByteArray.empty, incomingRequests := [] }.setGpr64 dst
+    (s.gprs dst + signExtend8To64 imm)).setFlagsAdd64
+      (s.gprs dst) (signExtend8To64 imm)).cf = true) : Prop) =
+        (s.gprs dst + signExtend8To64 imm < s.gprs dst)
+  exact X86_64MachineState.setFlagsAdd64_cf _ _ _
+
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- ADD r64, imm32 helper. -/
 def add_r64_imm32 (dst : Reg64) (imm : UInt32) : AnyX86_64Instruction :=

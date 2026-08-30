@@ -88,6 +88,15 @@ instance : X86_64Instruction CmpR64Imm8 where
 def cmp_r64 (dst src : Reg64) : AnyX86_64Instruction :=
   ⟨CmpR64R64.mk dst src⟩
 
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+/-- The existentially packaged register CMP step exposes its unsigned borrow test. -/
+theorem cmp_r64_step_cf (dst src : Reg64) (s : X86_64MachineState) :
+    ((X86_64Instruction.step (cmp_r64 dst src) s).cf = true) =
+      (s.gprs dst < s.gprs src) := by
+  change (((({ s with stdinBuffer := ByteArray.empty, incomingRequests := [] }).setFlagsCmp64
+    (s.gprs dst) (s.gprs src)).cf = true) : Prop) = (s.gprs dst < s.gprs src)
+  exact X86_64MachineState.setFlagsCmp64_cf _ _ _
+
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- CMP r64, imm8 helper. -/
 def cmp_r64_imm8 (dst : Reg64) (imm : UInt8) : AnyX86_64Instruction :=

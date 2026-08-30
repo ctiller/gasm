@@ -125,6 +125,20 @@ def call_rip (disp : Int32) : AnyX86_64Instruction :=
 def call_rel32 (disp : Int32) : AnyX86_64Instruction :=
   ⟨CallRel32.mk disp⟩
 
+/- REF: intel-sdm#vol=2;instr=CALL;part=operation -/
+/-- A packaged direct near call allocates exactly one return-address slot. -/
+theorem call_rel32_step_rsp (disp : Int32) (state : X86_64MachineState) :
+    (X86_64Instruction.step (call_rel32 disp) state).rsp = state.rsp - 8 := by
+  rfl
+
+/- REF: intel-sdm#vol=2;instr=CALL;part=operation -/
+/-- The newly allocated call slot contains the architectural fallthrough address. -/
+theorem call_rel32_step_return_slot (disp : Int32) (state : X86_64MachineState) :
+    (X86_64Instruction.step (call_rel32 disp) state).read64
+      (X86_64Instruction.step (call_rel32 disp) state).rsp = state.rip + 5 := by
+  change (state.push64 (state.rip + 5)).pop64.1 = state.rip + 5
+  exact (Gasm.Targets.X86_64.push64_pop64_roundtrip state (state.rip + 5)).1
+
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the CALL family: `0xE8` (CALL rel32) and `0xFF /2` with the specific
     `0x15` ModR/M byte (indirect `CALL [RIP + disp32]`). Errors for any other byte pattern. -/

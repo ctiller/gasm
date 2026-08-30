@@ -98,18 +98,25 @@ inductive NonControlFlowEncoding : X86_64Instr → Prop where
   | movMem8 (dst src : Reg64) : NonControlFlowEncoding (mov_mem8 dst src)
   | add (dst src : Reg64) : NonControlFlowEncoding (add_r64 dst src)
   | addImm8 (dst : Reg64) (value : UInt8) : NonControlFlowEncoding (add_r64_imm8 dst value)
+  | addImm32 (dst : Reg64) (value : UInt32) : NonControlFlowEncoding (add_r64_imm32 dst value)
   | sub (dst src : Reg64) : NonControlFlowEncoding (sub_r64 dst src)
   | subImm8 (dst : Reg64) (value : UInt8) : NonControlFlowEncoding (sub_r64_imm8 dst value)
   /-- The compact ABI stack-frame subtraction is an ordinary fallthrough instruction. -/
   | subRsp8 (value : UInt8) : NonControlFlowEncoding (sub_rsp value)
   | subRsp32 (value : UInt32) : NonControlFlowEncoding (sub_rsp32 value)
   | bitAnd (dst src : Reg64) : NonControlFlowEncoding (and_r64 dst src)
+  | bitAndImm8 (dst : Reg64) (value : UInt8) : NonControlFlowEncoding (and_r64_imm8 dst value)
   | xor32 (dst src : Reg32) : NonControlFlowEncoding (xor_r32 dst src)
+  | compare (left right : Reg64) : NonControlFlowEncoding (cmp_r64 left right)
   | compareImm8 (dst : Reg64) (value : UInt8) : NonControlFlowEncoding (cmp_r64_imm8 dst value)
   /-- The full-width Linux errno-range comparison is an ordinary instruction.  This admits only
       the selected `CMP r64, imm32` form; it does not classify a following branch. -/
   | compareImm32 (dst : Reg64) (value : UInt32) : NonControlFlowEncoding (cmp_r64_imm32 dst value)
   | leaRsp (dst : Reg64) (disp : UInt8) : NonControlFlowEncoding (lea_rsp dst disp)
+  | movMem64Disp (base : Reg64) (disp : UInt8) (src : Reg64) :
+      NonControlFlowEncoding (mov_mem64_disp base disp src)
+  | movMem64DispImm (base : Reg64) (disp : UInt8) (value : UInt32) :
+      NonControlFlowEncoding (mov_mem64_disp_imm base disp value)
   | push (src : Reg64) : NonControlFlowEncoding (push_r64 src)
   | pop (dst : Reg64) : NonControlFlowEncoding (pop_r64 dst)
   | div (divisor : Reg64) : NonControlFlowEncoding (div_r64 divisor)

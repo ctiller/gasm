@@ -31,7 +31,8 @@ open Gasm.Targets.X86_64.MacroAssembler
 /-- The x86 conditions admitted by the operational CFG bridge. This target-owned datatype keeps a
     logical `ConditionCode` from being attached to an unrelated emitted conditional instruction. -/
 inductive X86BranchCondition where
-  | equal | notEqual | less | lessEqual | greater | greaterEqual | aboveOrEqual
+  | equal | notEqual | less | lessEqual | greater | greaterEqual
+  | below | above | aboveOrEqual
 
 def X86BranchCondition.holds : X86BranchCondition → X86_64MachineState → Prop
   | .equal => (·.zf = true)
@@ -40,6 +41,8 @@ def X86BranchCondition.holds : X86BranchCondition → X86_64MachineState → Pro
   | .lessEqual => (fun state => state.zf = true ∨ state.sf != state.of_)
   | .greater => (fun state => state.zf = false ∧ state.sf = state.of_)
   | .greaterEqual => (fun state => state.sf = state.of_)
+  | .below => (·.cf = true)
+  | .above => (fun state => state.cf = false ∧ state.zf = false)
   | .aboveOrEqual => (·.cf = false)
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
@@ -61,8 +64,42 @@ inductive ConditionalJumpEncoding : X86_64Instr → X86BranchCondition → Prop 
   | jg8 (disp : UInt8) : ConditionalJumpEncoding (jg_rel8 disp) .greater
   | jge8 (disp : UInt8) : ConditionalJumpEncoding (jge_rel8 disp) .greaterEqual
   | jge32 (disp : Int32) : ConditionalJumpEncoding (jge_rel32 disp) .greaterEqual
+  | jb8 (disp : UInt8) : ConditionalJumpEncoding (jb_rel8 disp) .below
+  | jb32 (disp : Int32) : ConditionalJumpEncoding (jb_rel32 disp) .below
+  | ja8 (disp : UInt8) : ConditionalJumpEncoding (ja_rel8 disp) .above
+  | ja32 (disp : Int32) : ConditionalJumpEncoding (ja_rel32 disp) .above
   | jae8 (disp : UInt8) : ConditionalJumpEncoding (jae_rel8 disp) .aboveOrEqual
   | jae32 (disp : Int32) : ConditionalJumpEncoding (jae_rel32 disp) .aboveOrEqual
+
+/- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
+/-- Closed target-owned evidence that an exact instruction is a near return.  Keeping return
+    classification separate from direct jumps makes the caller-owned stack slot explicit at the
+    block proof that establishes the return destination. -/
+inductive ReturnEncoding : X86_64Instr → Prop where
+  | near : ReturnEncoding ret_op
+
+/- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
+theorem ConditionalJumpEncoding.step_fault_eq {instruction : X86_64Instr}
+    {kind : X86BranchCondition} (encoding : ConditionalJumpEncoding instruction kind)
+    (state : X86_64MachineState) :
+    (X86_64Instruction.step instruction state).fault = state.fault := by
+  cases encoding <;> rfl
+
+/- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
+/-- A typed conditional branch whose predicate is false reaches its encoded fallthrough. -/
+theorem ConditionalJumpEncoding.step_rip_eq_fallthrough {instruction : X86_64Instr}
+    {kind : X86BranchCondition} (encoding : ConditionalJumpEncoding instruction kind)
+    (state : X86_64MachineState) (notChosen : ¬ kind.holds state) :
+    (X86_64Instruction.step instruction state).rip =
+      state.rip + (X86_64Instruction.encode instruction).size.toUInt64 := by
+  cases encoding <;> simp [X86BranchCondition.holds] at notChosen
+  all_goals
+    first | change _ = state.rip + 2 | change _ = state.rip + 6
+    change (if _ then _ else _) = _
+    simp_all [X86_64MachineState.zf, X86_64MachineState.sf, X86_64MachineState.cf,
+      X86_64MachineState.of_, je_rel8, je_rel32, jne_rel8, jne_rel32, jl_rel8,
+      jle_rel8, jle_rel32, jg_rel8, jge_rel8, jge_rel32, jb_rel8, jb_rel32,
+      ja_rel8, ja_rel32, jae_rel8, jae_rel32]
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- Conservative pure-block ghost law. Typestate and every ghost/authority component are preserved

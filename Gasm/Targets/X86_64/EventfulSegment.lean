@@ -50,8 +50,9 @@ theorem accumulateEvent_reverse (eventsRev : List Event) (event : Option Event) 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 /-- A target-owned, safe prefix of the production x86 runner.  Each constructor supplies an
     exact indexed fetch and then follows `runProgramOutcomeLoop`'s actual transition.  It admits
-    only the selected ordinary, direct/conditional-branch, and host-intercepted CALL/SYSCALL
-    forms; it does not classify, replay, or grant authority for any other instruction family. -/
+    only the selected ordinary, direct/conditional-branch, near-return, and host-intercepted
+    CALL/SYSCALL forms; it does not classify, replay, or grant authority for any other
+    instruction family. -/
 inductive ProductionPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
     (indexed : List (UInt64 × X86_64Instr)) :
     (fuel : Nat) → (initial : X86_64MachineState) → (initialEventsRev : List Event) →
@@ -98,6 +99,28 @@ inductive ProductionPrefix {Event : Type} [interceptor : ExternalCallInterceptor
       {kind : X86BranchCondition}
       (encoding : ConditionalJumpEncoding instruction kind)
       (notChosen : ¬ kind.holds state)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (silent : interceptor.interceptCall
+        (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : ProductionPrefix indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted) :
+      ProductionPrefix indexed (fuel + 1) state eventsRev final finalEventsRev emitted
+  | nearReturn {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      (encoding : ReturnEncoding instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (silent : interceptor.interceptCall
+        (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : ProductionPrefix indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted) :
+      ProductionPrefix indexed (fuel + 1) state eventsRev final finalEventsRev emitted
+  | internalCall {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      (encoding : HostInterceptEncoding instruction)
       (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
       (silent : interceptor.interceptCall
         (X86_64Instruction.step instruction state).rip
@@ -186,6 +209,32 @@ inductive SelectionEvidence {Event : Type} [interceptor : ExternalCallIntercepto
         (X86_64Instruction.step instruction state) = true)
       (tailEvidence : SelectionEvidence selected tail) :
       SelectionEvidence selected (.conditionalFallthrough encoding notChosen lookup silent safe tail)
+  | nearReturn {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      (encoding : ReturnEncoding instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (silent : interceptor.interceptCall (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : ProductionPrefix indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (tailEvidence : SelectionEvidence selected tail) :
+      SelectionEvidence selected (.nearReturn encoding lookup silent safe tail)
+  | internalCall {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      (encoding : HostInterceptEncoding instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (silent : interceptor.interceptCall (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : ProductionPrefix indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (tailEvidence : SelectionEvidence selected tail) :
+      SelectionEvidence selected (.internalCall encoding lookup silent safe tail)
   | hostIntercept {fuel : Nat} {state hooked final : X86_64MachineState}
       {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr} {event : Option Event}
       (encoding : HostInterceptEncoding instruction)
@@ -227,6 +276,12 @@ theorem append {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Even
   | conditionalFallthrough encoding notChosen lookup silent safe tail ih =>
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
         ProductionPrefix.conditionalFallthrough encoding notChosen lookup silent safe (ih second)
+  | nearReturn encoding lookup silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        ProductionPrefix.nearReturn encoding lookup silent safe (ih second)
+  | internalCall encoding lookup silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        ProductionPrefix.internalCall encoding lookup silent safe (ih second)
   | hostIntercept encoding lookup intercept safe tail ih =>
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, List.append_assoc] using
         ProductionPrefix.hostIntercept encoding lookup intercept safe (ih second)
@@ -284,6 +339,18 @@ theorem run {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
         (localFuel + continuationFuel) + 1 by omega]
       rw [runProgramOutcomeLoop_step_none indexed (localFuel + continuationFuel) _ _ _ lookup silent safe]
       exact ih continuationFuel
+  | @nearReturn localFuel localState localFinal localEvents localFinalEvents localEmitted localInstruction
+      encoding lookup silent safe tail ih =>
+      rw [show (localFuel + 1) + continuationFuel =
+        (localFuel + continuationFuel) + 1 by omega]
+      rw [runProgramOutcomeLoop_step_none indexed (localFuel + continuationFuel) _ _ _ lookup silent safe]
+      exact ih continuationFuel
+  | @internalCall localFuel localState localFinal localEvents localFinalEvents localEmitted localInstruction
+      encoding lookup silent safe tail ih =>
+      rw [show (localFuel + 1) + continuationFuel =
+        (localFuel + continuationFuel) + 1 by omega]
+      rw [runProgramOutcomeLoop_step_none indexed (localFuel + continuationFuel) _ _ _ lookup silent safe]
+      exact ih continuationFuel
   | @hostIntercept localFuel localState localHooked localFinal localEvents localFinalEvents localEmitted localInstruction localEvent
       encoding lookup intercept safe tail ih =>
       rw [show (localFuel + 1) + continuationFuel =
@@ -305,6 +372,8 @@ theorem events_reverse_append {Event : Type} [interceptor : ExternalCallIntercep
   | directBranch _ _ _ _ tail ih => exact ih
   | conditionalTaken _ _ _ _ _ tail ih => exact ih
   | conditionalFallthrough _ _ _ _ _ tail ih => exact ih
+  | nearReturn _ _ _ _ tail ih => exact ih
+  | internalCall _ _ _ _ tail ih => exact ih
   | hostIntercept _ _ _ _ tail ih =>
       rw [ih, accumulateEvent_reverse]
       simp [List.append_assoc]
@@ -378,6 +447,32 @@ inductive SelectedPrefix {Event : Type} [interceptor : ExternalCallInterceptor X
       (tail : SelectedPrefix selected indexed fuel (X86_64Instruction.step instruction state) eventsRev
         final finalEventsRev emitted) :
       SelectedPrefix selected indexed (fuel + 1) state eventsRev final finalEventsRev emitted
+  | nearReturn {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      (encoding : ReturnEncoding instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (silent : interceptor.interceptCall
+        (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : SelectedPrefix selected indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted) :
+      SelectedPrefix selected indexed (fuel + 1) state eventsRev final finalEventsRev emitted
+  | internalCall {fuel : Nat} {state final : X86_64MachineState}
+      {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr}
+      (encoding : HostInterceptEncoding instruction)
+      (lookup : instructionAtRipIndexed indexed state.rip = some instruction)
+      (selectedAt : selected (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = true)
+      (silent : interceptor.interceptCall
+        (X86_64Instruction.step instruction state).rip
+        (X86_64Instruction.step instruction state) = none)
+      (safe : (X86_64Instruction.step instruction state).fault = none)
+      (tail : SelectedPrefix selected indexed fuel (X86_64Instruction.step instruction state) eventsRev
+        final finalEventsRev emitted) :
+      SelectedPrefix selected indexed (fuel + 1) state eventsRev final finalEventsRev emitted
   | hostIntercept {fuel : Nat} {state hooked final : X86_64MachineState}
       {eventsRev finalEventsRev emitted : List Event} {instruction : X86_64Instr} {event : Option Event}
       (encoding : HostInterceptEncoding instruction)
@@ -422,6 +517,12 @@ theorem append {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Even
   | conditionalFallthrough encoding notChosen lookup selectedAt silent safe tail ih =>
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
         SelectedPrefix.conditionalFallthrough encoding notChosen lookup selectedAt silent safe (ih second)
+  | nearReturn encoding lookup selectedAt silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        SelectedPrefix.nearReturn encoding lookup selectedAt silent safe (ih second)
+  | internalCall encoding lookup selectedAt silent safe tail ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        SelectedPrefix.internalCall encoding lookup selectedAt silent safe (ih second)
   | hostIntercept encoding lookup selectedAt intercept safe tail ih =>
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, List.append_assoc] using
         SelectedPrefix.hostIntercept encoding lookup selectedAt intercept safe (ih second)
@@ -443,6 +544,10 @@ theorem toProductionPrefix {Event : Type} [interceptor : ExternalCallInterceptor
       exact .conditionalTaken encoding chosen lookup silent safe ih
   | conditionalFallthrough encoding notChosen lookup _ silent safe tail ih =>
       exact .conditionalFallthrough encoding notChosen lookup silent safe ih
+  | nearReturn encoding lookup _ silent safe tail ih =>
+      exact .nearReturn encoding lookup silent safe ih
+  | internalCall encoding lookup _ silent safe tail ih =>
+      exact .internalCall encoding lookup silent safe ih
   | hostIntercept encoding lookup _ intercept safe tail ih =>
       exact .hostIntercept encoding lookup intercept safe ih
 
@@ -474,6 +579,10 @@ theorem rebaseEvents {Event : Type} [interceptor : ExternalCallInterceptor X86_6
       exact .conditionalTaken encoding chosen lookup selectedAt silent safe ih
   | conditionalFallthrough encoding notChosen lookup selectedAt silent safe tail ih =>
       exact .conditionalFallthrough encoding notChosen lookup selectedAt silent safe ih
+  | nearReturn encoding lookup selectedAt silent safe tail ih =>
+      exact .nearReturn encoding lookup selectedAt silent safe ih
+  | internalCall encoding lookup selectedAt silent safe tail ih =>
+      exact .internalCall encoding lookup selectedAt silent safe ih
   | hostIntercept encoding lookup selectedAt intercept safe tail ih =>
       rename_i event
       cases event <;>
@@ -526,6 +635,14 @@ theorem selectedExecutionTerminates_run {Event : Type}
       simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, silent, safe]
       exact ih continuationFuel
   | conditionalFallthrough encoding notChosen lookup selectedAt silent safe tail ih =>
+      simp only [Nat.add_assoc, Nat.add_comm 1 continuationFuel]
+      simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, silent, safe]
+      exact ih continuationFuel
+  | nearReturn encoding lookup selectedAt silent safe tail ih =>
+      simp only [Nat.add_assoc, Nat.add_comm 1 continuationFuel]
+      simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, silent, safe]
+      exact ih continuationFuel
+  | internalCall encoding lookup selectedAt silent safe tail ih =>
       simp only [Nat.add_assoc, Nat.add_comm 1 continuationFuel]
       simp only [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition, silent, safe]
       exact ih continuationFuel
@@ -619,6 +736,10 @@ theorem toSelected {Event : Type} [interceptor : ExternalCallInterceptor X86_64 
       exact .conditionalTaken encoding chosen lookup selectedAt silent safe ih
   | conditionalFallthrough encoding notChosen lookup silent safe tail selectedAt tailEvidence ih =>
       exact .conditionalFallthrough encoding notChosen lookup selectedAt silent safe ih
+  | nearReturn encoding lookup silent safe tail selectedAt tailEvidence ih =>
+      exact .nearReturn encoding lookup selectedAt silent safe ih
+  | internalCall encoding lookup silent safe tail selectedAt tailEvidence ih =>
+      exact .internalCall encoding lookup selectedAt silent safe ih
   | hostIntercept encoding lookup intercept safe tail selectedAt tailEvidence ih =>
       exact .hostIntercept encoding lookup selectedAt intercept safe ih
 

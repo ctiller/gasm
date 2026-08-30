@@ -69,6 +69,23 @@ instance : X86_64Instruction XorR32R32 where
 def xor_r32 (dst src : Reg32) : AnyX86_64Instruction :=
   ⟨XorR32R32.mk dst src⟩
 
+/- REF: intel-sdm#vol=2;instr=XOR;part=operation -/
+/-- The core architectural zeroing idiom clears the full 64-bit register because a 32-bit
+    destination write is zero-extending. -/
+theorem XorR32R32.step_self_gpr (dst : Reg32) (state : X86_64MachineState) :
+    (X86_64Instruction.step (XorR32R32.mk dst dst) state).gprs (reg32To64 dst) = 0 := by
+  cases dst <;>
+    simp only [X86_64Instruction.step] <;>
+    simp [X86_64MachineState.setGpr32, X86_64MachineState.setFlagsLogic, reg32To64]
+
+/-- The packaged architectural zeroing idiom has the same full-register result. -/
+theorem xor_r32_self_step_gpr (dst : Reg32) (state : X86_64MachineState) :
+    (X86_64Instruction.step (xor_r32 dst dst) state).gprs (reg32To64 dst) = 0 := by
+  change (X86_64Instruction.step (XorR32R32.mk dst dst)
+    { state with stdinBuffer := ByteArray.empty, incomingRequests := [] }).gprs
+      (reg32To64 dst) = 0
+  exact XorR32R32.step_self_gpr dst _
+
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the XOR family: `0x31` (XOR r32, r32). Errors for any other byte
     pattern. -/

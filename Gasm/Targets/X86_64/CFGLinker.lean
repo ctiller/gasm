@@ -347,6 +347,8 @@ def nearJccInstruction : X86BranchCondition → Int32 → Option X86_64Instr
   | .lessEqual, displacement => some (jle_rel32 displacement)
   | .greater, _ => none
   | .greaterEqual, displacement => some (jge_rel32 displacement)
+  | .below, displacement => some (jb_rel32 displacement)
+  | .above, displacement => some (ja_rel32 displacement)
   | .aboveOrEqual, displacement => some (jae_rel32 displacement)
 
 example : nearJccInstruction .equal 7 = some (je_rel32 7) := rfl

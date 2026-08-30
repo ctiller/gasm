@@ -66,6 +66,23 @@ instance : X86_64Instruction RetOp where
 def ret_op : AnyX86_64Instruction :=
   ⟨RetOp.mk⟩
 
+/- REF: intel-sdm#vol=2;instr=RET;part=operation -/
+theorem ret_op_step_rsp (state : X86_64MachineState) :
+    (X86_64Instruction.step ret_op state).rsp = state.rsp + 8 := by
+  rfl
+
+/- REF: intel-sdm#vol=2;instr=RET;part=operation -/
+theorem ret_op_step_gpr_other (state : X86_64MachineState) (register : Reg64)
+    (notRsp : register ≠ .rsp) :
+    (X86_64Instruction.step ret_op state).gprs register = state.gprs register := by
+  change (state.setGpr64 .rsp (state.rsp + 8)).gprs register = state.gprs register
+  simp [X86_64MachineState.setGpr64, notRsp]
+
+/- REF: intel-sdm#vol=2;instr=RET;part=operation -/
+theorem ret_op_step_memory (state : X86_64MachineState) :
+    (X86_64Instruction.step ret_op state).memory = state.memory := by
+  rfl
+
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the RET family: `0xC3` (unconditional near RET). Errors for any other
     byte pattern. -/
