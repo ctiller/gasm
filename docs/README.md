@@ -143,4 +143,6 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**Equivalence Proofs**](EQUIVALENCE_PROOFS.md): Split Theorem Principle (`Functional Equivalence`, `Callability & ABI`, `Memory Safety`) and layered function proof composition.
 - [**Practical Proof Tactics**](PROOF_TACTICS.md): concise, evidence-based advice on ghost state,
   bounds, layering, local control-flow proofs, alternative proof decompositions, and proof economy.
+- [**Proof Machinery Index**](PROOF_MACHINERY_INDEX.md): need-oriented routes to accepted reusable
+  lemmas, their demonstrated consumers, ownership boundaries, and indexed extraction candidates.
 - [**Target Specifications**](TARGETS/TARGET_MODEL.md): Target models, calling conventions, and platform specifics.

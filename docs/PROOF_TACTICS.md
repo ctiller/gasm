@@ -3,6 +3,9 @@
 This is a short working guide, not a mandatory proof framework.  It records approaches that have
 made real Gasm proofs smaller or more honest.  Add abstractions only after repeated use.
 
+For a need-oriented map from these tactics to checked declarations, consumers, and deliberate
+negative boundaries, see the [proof machinery index](PROOF_MACHINERY_INDEX.md).
+
 ## Start from the logical boundary
 
 State the caller-visible success, failure, resource, and cancellation outcomes before symbolically
@@ -110,4 +113,3 @@ Callers prove facts that vary at the call site.  Libraries prove their transitio
 targets prove instruction and calling-convention facts; linkers prove layout and joint
 admissibility.  A feature absent from a path imposes no obligation on that path.  Proof economy may
 move and reuse a necessary fact, but never omit it.
-
