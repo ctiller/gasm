@@ -17,6 +17,7 @@ import Spikes.Spike2Fibonacci.Linux.Row8Opening
 import Spikes.Spike2Fibonacci.Linux.Row8Formatting
 import Spikes.Spike2Fibonacci.Linux.Row8Tail
 import Spikes.Spike2Fibonacci.Linux.Row8BoundaryFacts
+import Gasm.Targets.X86_64.ExecutionCutpoint
 
 /-!
 # Complete Row 8 certificate
@@ -62,6 +63,17 @@ theorem spike2_row8_selected_prefix :
   have recurrence := ProductionPrefix.SelectedPrefix.append writeSyscall
     spike2_row8_recurrence_selected_prefix
   simpa [spike2Row8WriteEventsRev] using recurrence
+
+/-- An opaque semantic cache for Row 8.  Consumers retain the exact certified prefix while
+avoiding repeated normalization of the closed row-state expression. -/
+opaque spike2_row8_cutpoint :
+    ProductionPrefix.SelectedPrefix.Cutpoint selectedNonInputPlatformCall spike2Indexed 64
+      Spikes.Spike2Fibonacci.Linux.Row7BoundaryData.spike2Row7AfterRecurrence
+      ([] : List AnyEvent) :=
+  ⟨spike2Row8AfterRecurrence, spike2Row8WriteEventsRev,
+    emittedBy (sysWriteHook (Event := AnyEvent)
+      (X86_64Instruction.step syscall_op spike2Row8BeforeWriteSyscall)).2,
+    spike2_row8_selected_prefix⟩
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- The data-only Row 8 boundary is re-exported as the narrow connector for subsequent rows and
