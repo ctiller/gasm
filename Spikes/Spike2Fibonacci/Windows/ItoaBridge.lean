@@ -67,6 +67,85 @@ open Spikes.Spike2Fibonacci
 set_option maxRecDepth 4000
 set_option maxHeartbeats 4000000
 
+private def instrSize (i : X86_64Instr) : Nat :=
+  (X86_64Instruction.encode i).size
+
+private def cumLen (instrs : List X86_64Instr) : Nat :=
+  (instrs.map instrSize).sum
+
+private theorem instructionAtRip_of_drop (base : Address) (instrs : List X86_64Instr) (k : Nat)
+    (instr : X86_64Instr) (rest : List X86_64Instr)
+    (hdrop : instrs.drop k = instr :: rest)
+    (hbound : base.toNat + cumLen (instrs.take k) < 2 ^ 64)
+    (hpos : ∀ i ∈ instrs.take k, 0 < instrSize i) :
+    instructionAtRip base instrs
+      (base + (cumLen (instrs.take k) : Nat).toUInt64) = some instr := by
+  induction instrs generalizing base k with
+  | nil => simp at hdrop
+  | cons i0 instrs' ih =>
+    cases k with
+    | zero =>
+      simp only [List.drop_zero] at hdrop
+      injection hdrop with h1 h2
+      subst h1
+      subst h2
+      show instructionAtRip base (i0 :: instrs')
+        (base + (cumLen ((i0 :: instrs').take 0) : Nat).toUInt64) = some i0
+      simp only [List.take_zero, cumLen, List.map_nil, List.sum_nil,
+        show (0 : Nat).toUInt64 = 0 from rfl, UInt64.add_zero]
+      simp only [instructionAtRip, instructionAtRip.loop, BEq.rfl, if_true]
+    | succ k =>
+      simp only [List.drop_succ_cons] at hdrop
+      have htake : (i0 :: instrs').take (k + 1) = i0 :: instrs'.take k := by simp
+      have hcumcons : cumLen (i0 :: instrs'.take k) =
+          instrSize i0 + cumLen (instrs'.take k) := by
+        simp [cumLen, instrSize]
+      rw [htake] at hbound hpos
+      rw [hcumcons] at hbound
+      have hbound' : (base + (instrSize i0 : Nat).toUInt64).toNat +
+          cumLen (instrs'.take k) < 2 ^ 64 := by
+        have hb1 : base.toNat + instrSize i0 < 2 ^ 64 := by omega
+        have : (base + (instrSize i0 : Nat).toUInt64).toNat =
+            base.toNat + instrSize i0 := by
+          simp [UInt64.toNat_add, Nat.toUInt64_eq, UInt64.toNat_ofNat',
+            Nat.mod_eq_of_lt (show instrSize i0 < 2 ^ 64 by omega),
+            Nat.mod_eq_of_lt hb1]
+        omega
+      have hpos' : ∀ i ∈ instrs'.take k, 0 < instrSize i :=
+        fun i hi => hpos i (List.mem_cons_of_mem _ hi)
+      have hi0pos : 0 < instrSize i0 := hpos i0 (by simp)
+      have key := ih (base + (instrSize i0 : Nat).toUInt64) k hdrop hbound' hpos'
+      have htarget : base + (cumLen ((i0 :: instrs').take (k + 1)) : Nat).toUInt64 =
+          (base + (instrSize i0 : Nat).toUInt64) +
+            (cumLen (instrs'.take k) : Nat).toUInt64 := by
+        rw [htake, hcumcons, Nat.toUInt64_eq, Nat.toUInt64_eq, Nat.toUInt64_eq,
+          UInt64.ofNat_add, UInt64.add_assoc]
+      have hne : base ≠
+          base + (cumLen ((i0 :: instrs').take (k + 1)) : Nat).toUInt64 := by
+        rw [htake, hcumcons]
+        intro heq
+        have hc : 0 < instrSize i0 + cumLen (instrs'.take k) := by omega
+        have heqn :
+            (base + (instrSize i0 + cumLen (instrs'.take k) : Nat).toUInt64).toNat =
+              base.toNat + (instrSize i0 + cumLen (instrs'.take k)) := by
+          simp [UInt64.toNat_add, Nat.toUInt64_eq, UInt64.toNat_ofNat',
+            Nat.mod_eq_of_lt
+              (show instrSize i0 + cumLen (instrs'.take k) < 2 ^ 64 by omega),
+            Nat.mod_eq_of_lt hbound]
+        rw [← heq] at heqn
+        omega
+      show instructionAtRip base (i0 :: instrs')
+        (base + (cumLen ((i0 :: instrs').take (k + 1)) : Nat).toUInt64) = some instr
+      rw [htarget]
+      have hboolfalse :
+          (base == (base + (instrSize i0 : Nat).toUInt64) +
+            (cumLen (instrs'.take k) : Nat).toUInt64) = false := by
+        rw [← htarget]
+        simpa using hne
+      simp only [instructionAtRip, instructionAtRip.loop, hboolfalse,
+        Bool.false_eq_true, if_false]
+      exact key
+
 /-
 ## Part 0: concrete addresses
 
@@ -119,31 +198,19 @@ theorem step_div_r64_by10 (s : X86_64MachineState) (hrdx : s.gprs .rdx = 0) (hr1
     X86_64Instruction.step (div_r64 .r10) s =
       { (s.setGpr64 .rax (((s.gprs .rax).toNat / 10 : Nat)).toUInt64
           |>.setGpr64 .rdx (((s.gprs .rax).toNat % 10 : Nat)).toUInt64) with rip := s.rip + 3 } := by
-  have hbase : X86_64Instruction.step (div_r64 .r10) s =
-      (if (s.gprs .r10) == 0 then { s with fault := some .divideError }
-       else
-         let dividendNat : Nat := (s.gprs .rdx).toNat * 18446744073709551616 + (s.gprs .rax).toNat
-         let divisorNat : Nat := (s.gprs .r10).toNat
-         let quotNat := dividendNat / divisorNat
-         let remNat := dividendNat % divisorNat
-         if quotNat > 0xFFFFFFFFFFFFFFFF then { s with fault := some .divideError }
-         else
-           let s' := s.setGpr64 .rax (UInt64.ofNat quotNat)
-           let s'' := s'.setGpr64 .rdx (UInt64.ofNat remNat)
-           { s'' with rip := s.rip + 3 }) := rfl
-  rw [hbase]
-  have hne : (s.gprs .r10 == (0 : UInt64)) = false := by rw [hr10]; decide
-  rw [hne]
-  simp only [Bool.false_eq_true, if_false]
-  have hdividend : (s.gprs .rdx).toNat * 18446744073709551616 + (s.gprs .rax).toNat
-      = (s.gprs .rax).toNat := by rw [hrdx]; simp
-  have hdivisor : (s.gprs .r10).toNat = 10 := by rw [hr10]; rfl
-  simp only [hdividend, hdivisor]
-  have hbound : (s.gprs .rax).toNat < 18446744073709551616 := by
-    have h := (s.gprs .rax).toNat_lt_size
-    simpa using h
-  have hdiv : (s.gprs .rax).toNat / 10 ≤ (s.gprs .rax).toNat := Nat.div_le_self _ _
-  rw [if_neg (by omega)]
+  let core : X86_64MachineState :=
+    { s with stdinBuffer := ByteArray.empty, incomingRequests := [] }
+  let stepped := @X86_64Instruction.step DivR64 instX86_64InstructionDivR64
+    { divisor := .r10 } core
+  change { stepped with stdinBuffer := s.stdinBuffer, incomingRequests := s.incomingRequests } = _
+  dsimp only [stepped]
+  simp only [X86_64Instruction.step]
+  rw [show core.gprs .r10 = 10 by exact hr10,
+    show core.gprs .rdx = 0 by exact hrdx]
+  have hbound : (s.gprs .rax).toNat / 10 ≤ 0xFFFFFFFFFFFFFFFF := by
+    have := (s.gprs .rax).toNat_lt
+    omega
+  simp [core, Nat.not_lt_of_ge hbound, X86_64MachineState.setGpr64]
 
 /- REF: intel-sdm#vol=2;instr=ADD;part=operation -/
 theorem step_add_r64_imm8 (dst : Reg64) (imm : UInt8) (s : X86_64MachineState) :
