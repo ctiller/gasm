@@ -502,6 +502,41 @@ certified `Word.Function` payloads, while branches lower through the nominal typ
 when target-owned leaf and condition realizations are supplied. This module itself provides no
 flags, register, instruction, CFG, execution, ABI, artifact, export, or `VerifiedProgram` claim.
 
+## Structured Word CFG plans
+
+`Gasm.Compiler.Word.StructuredCFG` lowers the first selected finite conditional shape through the
+existing acyclic `CFGBuilder`. A stable symbolic `Plan` is indexed by its exact structured source
+expression. Its nominal `NodeId` roles, postorder list, root, child roles, and true/false polarity do
+not contain blocks, instructions, strings, or addresses. The leaf constructor requires a structural
+`NoIte` witness. The branch constructor accounts definitionally for exactly one source `ite` and
+requires a branch-free condition plus recursively complete true and false plans. A branch hidden
+inside `letE` is therefore rejected: supporting it requires a later proved continuation-duplication
+transformation, not silent treatment as a leaf.
+
+Exact implementations are selected separately by a dependent `Assignment` aligned with precisely
+the plan's finite postorder roles. It retains one exact `DirectBlock` per selected role and proves
+nominal block-ID uniqueness only across those blocks; roles outside the plan impose no block, ID, or
+proof obligation. `RealizesLeaf` supplies caller-owned
+evidence, an input/output logical relation to its exact source leaf, and an exhaustive target-free
+law admitting only RET, exit, or halt in the current direct frontend. `RealizesCondition` supplies
+the exact actual JCC, both existing `ConditionalBlockEdge`s and child definitions in true/false
+order, plus a target-owned theorem relating the actual `ConditionCode.holds` predicate to portable
+Bool evaluation. The generic adapter never derives flags, edges, entry/world transfer, or payload
+correctness from portable syntax.
+
+Lowering recursively builds false and true children, appends their collision-free tables, interns
+the exact JCC parent last, and calls only `Builder.finalize`. Symbolic source/root, unique-role,
+postorder, topology, and polarity facts depend only on `Plan`; exact block membership,
+`BuildHistory`, closure, and final graph definitions depend on the chosen finite assignment and
+pointwise realizations. Consequently a later generated or hand-optimized block can replace one
+assignment while the stable source topology remains reusable, provided the replacement proves every
+logical, edge/world, frame, clobber, and footprint property selected by its consumers.
+
+This first plan duplicates continuations into finite leaves and may grow code size. It claims no
+optimization, whole-expression execution, instruction/flag semantics, ABI, layout, artifact,
+export, or `VerifiedProgram` authority. Loops, recursion, CALL, indirect and exceptional edges,
+memory, and pointer representations remain unselected.
+
 ## Differential certificate transport
 
 Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,

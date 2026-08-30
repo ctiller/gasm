@@ -18,6 +18,7 @@ import Gasm.Compiler.Word.MicrosoftX64
 import Gasm.Compiler.Word.AArch64AAPCS64
 import Gasm.Compiler.Word.LeanReify
 import Gasm.Compiler.Word.Structured
+import Gasm.Compiler.Word.StructuredCFG
 
 namespace Gasm.Compiler.Word.Examples
 
@@ -247,5 +248,48 @@ def firstTwoEqual : BoolFunction where
   implements := by intro; rfl
 
 end StructuredExamples
+
+namespace StructuredCFGExamples
+
+open Gasm.Compiler.Word.Structured
+open Gasm.Compiler.Word.StructuredCFG
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-cfg-plans -/
+inductive DecisionRole where
+  | root | trueLeaf | falseLeaf
+  deriving DecidableEq, Repr
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-cfg-plans -/
+def rootRole : NodeId DecisionRole := ⟨.root⟩
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-cfg-plans -/
+def trueRole : NodeId DecisionRole := ⟨.trueLeaf⟩
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-cfg-plans -/
+def falseRole : NodeId DecisionRole := ⟨.falseLeaf⟩
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-cfg-plans -/
+def chooseCondition : Gasm.Compiler.Word.Structured.Expr InputContext .bool :=
+  .ult (.var InputContext.a0) (.var InputContext.a1)
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-cfg-plans -/
+def trueLeafPlan : Plan DecisionRole (.wordLit 1) [trueRole] trueRole :=
+  .leaf trueRole .wordLit
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-cfg-plans -/
+def falseLeafPlan : Plan DecisionRole (.wordLit 2) [falseRole] falseRole :=
+  .leaf falseRole .wordLit
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-cfg-plans -/
+/-- Source expression, stable roles, postorder, and polarity are fixed before blocks are assigned. -/
+def symbolicChoice : Plan DecisionRole
+    (.ite chooseCondition (.wordLit 1) (.wordLit 2))
+    [falseRole, trueRole, rootRole] rootRole :=
+  .branch rootRole (.ult .var .var) trueLeafPlan falseLeafPlan
+    (by simp [falseRole, trueRole])
+    (by simp [rootRole, falseRole, trueRole])
+
+example : [falseRole, trueRole, rootRole].Nodup := symbolicChoice.uniqueRoles
+example : rootRole ∈ [falseRole, trueRole, rootRole] := symbolicChoice.root_mem
+
+end StructuredCFGExamples
 
 end Gasm.Compiler.Word.Examples

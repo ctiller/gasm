@@ -94,6 +94,7 @@ import Gasm.Compiler.Word.MicrosoftX64Platform
 import Gasm.Compiler.Word.AArch64AAPCS64
 import Gasm.Compiler.Word.LeanReify
 import Gasm.Compiler.Word.Structured
+import Gasm.Compiler.Word.StructuredCFG
 import Gasm.Compiler.Word.Examples
 import Gasm.Compiler.TypedCFG
 
