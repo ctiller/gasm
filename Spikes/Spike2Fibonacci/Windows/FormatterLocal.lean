@@ -13,7 +13,7 @@ open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.MacroAssembler
 
-private theorem selected_silent_unaligned (state : X86_64MachineState) (address : UInt64)
+theorem spike2_selected_silent_unaligned (state : X86_64MachineState) (address : UInt64)
     (hrip : state.rip = address) (notLinux : address ≠ linuxSyscallEntry)
     (unaligned : address % 8 ≠ 0) :
     selectedNonInputPlatformCall address state = true ∧
@@ -37,7 +37,7 @@ theorem spike2_selected_local_prefix (instruction : X86_64Instr)
     (safe : (X86_64Instruction.step instruction state).fault = none) :
     ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 1 state eventsRev
       (X86_64Instruction.step instruction state) eventsRev [] := by
-  have hboundary := selected_silent_unaligned (X86_64Instruction.step instruction state) nextAddress
+  have hboundary := spike2_selected_silent_unaligned (X86_64Instruction.step instruction state) nextAddress
     nextRip notLinux unaligned
   refine ProductionPrefix.SelectedPrefix.ordinary sequential fetch ?_ ?_ safe (.nil _ _)
   · rw [nextRip]

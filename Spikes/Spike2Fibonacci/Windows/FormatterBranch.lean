@@ -11,19 +11,6 @@ open Gasm.Targets.Linux
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 
-private theorem selected_silent_unaligned (state : X86_64MachineState) (address : UInt64)
-    (hrip : state.rip = address) (notLinux : address ≠ linuxSyscallEntry)
-    (unaligned : address % 8 ≠ 0) :
-    selectedNonInputPlatformCall address state = true ∧
-      @ExternalCallInterceptor.interceptCall X86_64 AnyEvent _ address state = none := by
-  constructor
-  · simp [selectedNonInputPlatformCall, notLinux, selectedNonInputWin32Call,
-      Gasm.Targets.Windows.findIatIndex, hrip, unaligned]
-  · change (if address == linuxSyscallEntry then linuxSyscallIntercept _ _ else
-      Gasm.Targets.Windows.win32Intercept _ _) = none
-    simp [notLinux, Gasm.Targets.Windows.win32Intercept,
-      Gasm.Targets.Windows.findIatIndex, hrip, unaligned]
-
 /-- Exact selected conditional edge for a formatter branch whose condition has been established
 symbolically.  The caller supplies only the linked fetch, condition, and concrete successor. -/
 theorem spike2_selected_conditional_prefix {instruction : X86_64Instr} {kind : X86BranchCondition}
