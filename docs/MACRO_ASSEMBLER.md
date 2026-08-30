@@ -475,6 +475,33 @@ constructs. In particular, future `let`, Boolean comparison, and conditional for
 the existing typed CFG and nominal target contracts rather than being silently reduced by the
 metaprogram.
 
+## Structured Word source language
+
+`Gasm.Compiler.Word.Structured` is the typed semantic source layer for growing beyond straight-line
+leaf expressions. Its sorts are `word` (`UInt64`) and `bool`; typed de Bruijn membership makes local
+variables intrinsically scoped. Expressions include literals, variables, wrapping word
+addition/subtraction, bitwise AND, word equality, unsigned less-than, Boolean negation, typed
+`letE`, and typed `ite`. A total structural evaluator interprets every well-typed expression in a
+typed environment. The initial environment is fixed to the same four Word arguments used by the
+existing leaf compiler.
+
+The primitive comparison basis is intentionally small: equality, unsigned less-than, and Boolean
+negation. Inequality, unsigned less-than-or-equal, greater-than, and greater-than-or-equal are
+ordinary derived expressions with evaluator equations. Signed comparison requires a future signed
+representation or type. Eager or short-circuit Boolean conjunction/disjunction, recursion, effects,
+memory, pointers, and exceptions are not selected.
+
+`Structured.Function result` connects an ordinary Lean function over `Word.Args` to a typed body by
+a kernel-checked equality for every input. `WordFunction` selects Word results for eventual machine
+lowering. `BoolFunction` is semantic source data useful for conditions but is not callable or
+exportable through the current backends.
+
+This layer does not replace or reinterpret the existing `Word.Expr`: that smaller IR remains the
+current proved straight-line leaf/backend language. Structured leaves may later be related to
+certified `Word.Function` payloads, while branches lower through the nominal typed-CFG frontend only
+when target-owned leaf and condition realizations are supplied. This module itself provides no
+flags, register, instruction, CFG, execution, ABI, artifact, export, or `VerifiedProgram` claim.
+
 ## Differential certificate transport
 
 Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,

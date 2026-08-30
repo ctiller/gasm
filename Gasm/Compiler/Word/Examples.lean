@@ -17,6 +17,7 @@ limitations under the License.
 import Gasm.Compiler.Word.MicrosoftX64
 import Gasm.Compiler.Word.AArch64AAPCS64
 import Gasm.Compiler.Word.LeanReify
+import Gasm.Compiler.Word.Structured
 
 namespace Gasm.Compiler.Word.Examples
 
@@ -205,5 +206,46 @@ def wrongArgumentType (a : UInt32) (_b _c _d : UInt64) : UInt64 := a.toUInt64
 #word_reify wrongArgumentType as wrongArgumentTypeWord
 
 end LeanReify
+
+namespace StructuredExamples
+
+open Gasm.Compiler.Word.Structured
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-source-language -/
+def selectIncrementedOriginal (a b _c _d : UInt64) : UInt64 :=
+  let incremented := a + 1
+  if incremented < b then incremented else b
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-source-language -/
+def selectIncrementedBody : Gasm.Compiler.Word.Structured.Expr InputContext .word :=
+  .letE
+    (.add (.var InputContext.a0) (.wordLit 1))
+    (.ite
+      (.ult (.var .zero) (.var (.succ InputContext.a1)))
+      (.var .zero)
+      (.var (.succ InputContext.a1)))
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-source-language -/
+/-- A typed `let` and `if` body tied extensionally to the original four-argument Lean function. -/
+def selectIncremented : WordFunction where
+  fn := fun args =>
+    selectIncrementedOriginal args.a0 args.a1 args.a2 args.a3
+  body := selectIncrementedBody
+  implements := by
+    intro args
+    by_cases selected : args.a0 + 1 < args.a1 <;>
+      simp [selectIncrementedOriginal, selectIncrementedBody, selected]
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-source-language -/
+def firstTwoEqualOriginal (a b _c _d : UInt64) : Bool := a == b
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-word-source-language -/
+/-- Boolean-result source functions have semantics but no current machine-backend authority. -/
+def firstTwoEqual : BoolFunction where
+  fn := fun args => firstTwoEqualOriginal args.a0 args.a1 args.a2 args.a3
+  body := .eq (.var InputContext.a0) (.var InputContext.a1)
+  implements := by intro; rfl
+
+end StructuredExamples
 
 end Gasm.Compiler.Word.Examples
