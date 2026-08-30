@@ -90,7 +90,7 @@ theorem ByteLineStream.feed_append (state : ByteLineStream) (first second : List
     simp only [List.cons_append, ByteLineStream.feed]
     exact ih (state.step byte)
 
-/- REF: docs/READ_BINDER_CONTRACT.md#3-read-continuations-and-fragmentation -/
+/- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
 /-- Feeds a finite sequence of host reads.  The sequence is deliberately a list of byte lists,
     rather than a sample selector: each member can be any finite read result, including an empty
     short read. -/
@@ -98,7 +98,7 @@ def ByteLineStream.feedChunks (state : ByteLineStream) : List (List UInt8) → B
   | [] => state
   | chunk :: chunks => (state.feed chunk).feedChunks chunks
 
-/- REF: docs/READ_BINDER_CONTRACT.md#3-read-continuations-and-fragmentation -/
+/- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
 /-- Exact finite-read composition.  A decoder fed by any finite sequence of successful reads has
     exactly the same state as one fed the concatenated stdin stream.  This is the reusable
     boundary lemma for 512-byte native/WASI reads; it neither assumes a fixed chunking nor loses
@@ -112,7 +112,7 @@ theorem ByteLineStream.feedChunks_flatten (state : ByteLineStream)
     simp only [ByteLineStream.feedChunks, List.flatten_cons]
     rw [ih, ← ByteLineStream.feed_append]
 
-/- REF: docs/READ_BINDER_CONTRACT.md#3-read-continuations-and-fragmentation -/
+/- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
 /-- The observable line sequence is invariant under arbitrary finite read fragmentation. -/
 theorem ByteLineStream.completedLines_feedChunks_flatten (state : ByteLineStream)
     (chunks : List (List UInt8)) :
@@ -120,7 +120,7 @@ theorem ByteLineStream.completedLines_feedChunks_flatten (state : ByteLineStream
       ((state.feed chunks.flatten).completedLines) := by
   rw [ByteLineStream.feedChunks_flatten]
 
-/- REF: docs/READ_BINDER_CONTRACT.md#3-read-continuations-and-fragmentation -/
+/- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
 /-- A bounded read-binder schedule feeds exactly its source stream to the decoder.  This connects
     the concrete `ChunksOf` continuation contract to the sorter without choosing a sample stdin,
     a read count, or a particular placement of chunk boundaries. -/
@@ -130,7 +130,7 @@ theorem ByteLineStream.feedChunks_of_chunksOf (state : ByteLineStream)
     state.feedChunks chunks = state.feed stdin := by
   rw [ByteLineStream.feedChunks_flatten, hchunks.flatten_eq_total]
 
-/- REF: docs/READ_BINDER_CONTRACT.md#3-read-continuations-and-fragmentation -/
+/- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
 /-- Consequently, a bounded read schedule cannot alter the completed-line observation of any
     finite stdin stream. -/
 theorem ByteLineStream.completedLines_of_chunksOf (state : ByteLineStream)
