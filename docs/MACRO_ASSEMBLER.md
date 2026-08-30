@@ -149,6 +149,19 @@ is admissible. Return, halt, fault, and fuel exhaustion remain the unchanged pro
 explicit continuation outcomes. Unselected instruction forms, unselected host boundaries, and
 ordinary paths do not acquire interceptor or loop obligations.
 
+### Decimal extraction and write passes
+
+`Gasm.Targets.X86_64.DecimalSegments` selects the exact DIV/PUSH and POP/store loop bodies used by
+native decimal formatters. Each taken or fallthrough theorem constructs a `ProductionPrefix` from
+lookups in the caller's final instruction index, the real instruction steps, explicit nonfaulting
+facts, runtime silence, and the encoded JNE back-target equation. Stack and output bounds are
+separate non-wrapping frame premises even though the current machine memory cell is total.
+
+The placement evidence is intentionally replaceable: relayout regenerates indexed lookup and
+branch-target facts without changing the selected pass relation. The module is not an artifact,
+execution, export, or `VerifiedProgram` certificate. Portable decimal-schedule correctness and
+bounded multi-pass composition remain separate layers.
+
 ## Microsoft x64 staged platform adapter
 
 `MicrosoftX64StraightLinePlacement` indexes the compiler's `LocalCertificate` by an exact Windows
