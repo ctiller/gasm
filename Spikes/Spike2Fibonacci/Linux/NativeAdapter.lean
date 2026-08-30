@@ -306,9 +306,9 @@ theorem spike2_main_header_selected_prefix (completed : Nat) (state : X86_64Mach
     (hrip : state.rip = spike2MainLoopRip)
     (hcounter : state.gprs .r13 = (completed + 1).toUInt64)
     (hsafe : state.fault = none) :
-    ProductionPrefix.SelectedPrefix selectedNonInputLinuxCall spike2Indexed 2 state eventsRev
+    ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 2 state eventsRev
       (spike2AfterMainHeader state) eventsRev [] := by
-  change ProductionPrefix.SelectedPrefix selectedNonInputLinuxCall spike2Indexed (1 + 1) state
+  change ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed (1 + 1) state
     eventsRev (spike2AfterMainHeader state) eventsRev []
   have hcontinue := mainLoopContinues state (completed + 1) (by omega) hcounter
   have hcmpRip : (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip = 4198441 := by
@@ -320,11 +320,12 @@ theorem spike2_main_header_selected_prefix (completed : Nat) (state : X86_64Mach
     rw [stepJge32]
     simp [hcontinue, hcmpRip]
   refine ProductionPrefix.SelectedPrefix.ordinary
-    (Event := AnyEvent) (selected := selectedNonInputLinuxCall) (indexed := spike2Indexed)
+    (Event := AnyEvent) (selected := selectedNonInputPlatformCall) (indexed := spike2Indexed)
     sequentialCmpCounter ?_ ?_ ?_ ?_ ?_
   · rw [hrip]
     rfl
-  · simp [selectedNonInputLinuxCall, hcmpRip, linuxSyscallEntry]
+  · simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
+      Gasm.Targets.Windows.findIatIndex, hcmpRip, linuxSyscallEntry]
   · change (if (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip ==
         linuxSyscallEntry then
         linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
@@ -334,13 +335,14 @@ theorem spike2_main_header_selected_prefix (completed : Nat) (state : X86_64Mach
   · rw [stepCmpImm8]
     exact hsafe
   · refine ProductionPrefix.SelectedPrefix.conditionalFallthrough
-      (Event := AnyEvent) (selected := selectedNonInputLinuxCall) (indexed := spike2Indexed)
+      (Event := AnyEvent) (selected := selectedNonInputPlatformCall) (indexed := spike2Indexed)
       (.jge32 259) hcontinue ?_ ?_ ?_ ?_ ?_
     · rw [hcmpRip]
       rfl
-    · change selectedNonInputLinuxCall (spike2AfterMainHeader state).rip
+    · change selectedNonInputPlatformCall (spike2AfterMainHeader state).rip
         (spike2AfterMainHeader state) = true
-      simp [selectedNonInputLinuxCall, hbodyRip, linuxSyscallEntry]
+      simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
+        Gasm.Targets.Windows.findIatIndex, hbodyRip, linuxSyscallEntry]
     · change ExternalCallInterceptor.interceptCall X86_64 (spike2AfterMainHeader state).rip
         (spike2AfterMainHeader state) = none
       change (if (spike2AfterMainHeader state).rip == linuxSyscallEntry then
@@ -381,7 +383,7 @@ theorem spike2_prologue_prefix :
     the universal termination certificate.  All four instructions are ordinary fallthrough
     instructions, so they cannot enter a syscall boundary. -/
 theorem spike2_prologue_selected_prefix :
-    ProductionPrefix.SelectedPrefix selectedNonInputLinuxCall spike2Indexed 4 spike2Executable.load
+    ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 4 spike2Executable.load
       ([] : List AnyEvent) spike2AfterPrologue [] [] := by
   refine ProductionPrefix.SelectedPrefix.ordinary (sequentialSubRsp 136) ?_ ?_ ?_ ?_ ?_
   · rfl
