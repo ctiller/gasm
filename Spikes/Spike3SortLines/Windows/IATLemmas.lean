@@ -54,7 +54,7 @@ The fix has two independent parts, both landed here:
    and `alignUp (max 0x1000 size) 0x1000 ≥ size` holds for *every* `size : Nat` (`alignUp_ge`,
    `omega`, ~1s) -- confirming the premise the prior agent's note banked on: layout disjointness
    never needs `size` reduced to a literal at all. With (1) above giving `exe.textBytes.size`/
-   `.rdataBytes.size` as cheap literals (`1705`, `2`), `computeSectionLayout 1705 2 512` itself
+   `.rdataBytes.size` as cheap literals (`1549`, `2`), `computeSectionLayout 1549 2 512` itself
    reduces to concrete RVAs (`0x1000`/`0x2000`/`0x3000`) by plain arithmetic -- so the four IAT
    facts below use `alignUp_ge`'s *conclusion* (sections never overlap, confirmed against the
    concrete sizes) rather than needing to restate the inequality abstractly a second time.
@@ -110,13 +110,13 @@ theorem foldl_append_size.{u} {α : Type u} (f : α → ByteArray) (l : List α)
     exact ByteArray.size_append
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
-/-- Spike 3's assembled `.text` section is exactly 1705 bytes. Proved via `foldl_append_size`
+/-- Spike 3's assembled `.text` section is exactly 1549 bytes. Proved via `foldl_append_size`
     (never touching `serializeInstructions`'s appended `ByteArray` itself) followed by a `decide`
     over the resulting `Nat` fold, which only ever forces one instruction's `encode` at a time --
     measured at a few seconds, against ~57s for `.size` reduced directly through the naive
     `ByteArray.append` chain. -/
-theorem spike3_textBytes_size : spike3Executable.textBytes.size = 1705 := by
-  show (Assembler.serializeInstructions spike3Instructions).size = 1705
+theorem spike3_textBytes_size : spike3Executable.textBytes.size = 1549 := by
+  show (Assembler.serializeInstructions spike3Instructions).size = 1549
   unfold Assembler.serializeInstructions
   rw [foldl_append_size (fun i => X86_64Instruction.encode i) spike3Instructions ByteArray.empty]
   decide
@@ -183,7 +183,7 @@ theorem loadMemory_excludes_sections (rva1 rva2 idataRva : UInt32) (imageBase : 
   rfl
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
-/-- Spike 3's concrete section layout (`computeSectionLayout 1705 2 512`) places `.text` at RVA
+/-- Spike 3's concrete section layout (`computeSectionLayout 1549 2 512`) places `.text` at RVA
     `0x1000`, `.rdata` at `0x2000`, and the IAT at `0x3000` -- confirmed against
     `spike3_textBytes_size`/`spike3_rdataBytes_size` above, not asserted. Every IAT self-reference
     fact below is stated against these literal RVAs directly (rather than re-deriving them from

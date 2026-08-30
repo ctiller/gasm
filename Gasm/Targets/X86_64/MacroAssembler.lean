@@ -100,6 +100,7 @@ inductive NonControlFlowEncoding : X86_64Instr → Prop where
   | addImm8 (dst : Reg64) (value : UInt8) : NonControlFlowEncoding (add_r64_imm8 dst value)
   | sub (dst src : Reg64) : NonControlFlowEncoding (sub_r64 dst src)
   | subImm8 (dst : Reg64) (value : UInt8) : NonControlFlowEncoding (sub_r64_imm8 dst value)
+  /-- The compact ABI stack-frame subtraction is an ordinary fallthrough instruction. -/
   | subRsp8 (value : UInt8) : NonControlFlowEncoding (sub_rsp value)
   | subRsp32 (value : UInt32) : NonControlFlowEncoding (sub_rsp32 value)
   | bitAnd (dst src : Reg64) : NonControlFlowEncoding (and_r64 dst src)
