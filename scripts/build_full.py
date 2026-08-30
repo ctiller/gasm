@@ -24,6 +24,7 @@ asks Lake to prove that the complete default closure needs no further work.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -35,6 +36,8 @@ from lean_process_lease import inherited_lease_environment, lean_process_lease
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LAKEFILE = REPO_ROOT / "lakefile.toml"
+NORMALIZATION_BATCH_SIZE_ENV = "GASM_LEAN_NORMALIZATION_BATCH_SIZE"
+MAX_AUTOMATIC_NORMALIZATION_BATCH_SIZE = 16
 
 
 def default_targets() -> list[str]:
@@ -56,6 +59,81 @@ def build_plan(lake: str, targets: list[str]) -> list[list[str]]:
     return [*phases, [lake, "--no-build", "build"]]
 
 
+def module_source(module: str) -> Path:
+    return REPO_ROOT / f"{module.replace('.', '/')}.lean"
+
+
+def local_import_order(root: str) -> list[str]:
+    """Return the local source closure in dependency-first order."""
+    ordered: list[str] = []
+    visited: set[str] = set()
+    visiting: set[str] = set()
+
+    def visit(module: str) -> None:
+        source = module_source(module)
+        if not source.is_file() or module in visited:
+            return
+        if module in visiting:
+            raise ValueError(f"local Lean import cycle involving {module}")
+        visiting.add(module)
+        for line in source.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("import "):
+                for imported in stripped.removeprefix("import ").split():
+                    visit(imported)
+        visiting.remove(module)
+        visited.add(module)
+        ordered.append(module)
+
+    visit(root)
+    return ordered
+
+
+def normalization_batches(
+    lake: str, targets: list[str], batch_size: int
+) -> list[list[str]]:
+    """Prebuild local default-target source closures in bounded topological waves."""
+    modules: list[str] = []
+    scheduled: set[str] = set()
+    for target in targets:
+        for module in local_import_order(target):
+            if module not in scheduled:
+                modules.append(module)
+                scheduled.add(module)
+    return [
+        [lake, "build", *modules[index:index + batch_size]]
+        for index in range(0, len(modules), batch_size)
+    ]
+
+
+def normalization_batch_size() -> int:
+    raw = os.environ.get(NORMALIZATION_BATCH_SIZE_ENV)
+    if raw is None:
+        try:
+            total_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+        except (AttributeError, OSError, ValueError):
+            from lean_process_lease import windows_commit_status
+
+            status = windows_commit_status()
+            total_bytes = status.total_physical_bytes if status is not None else 8 * 1024**3
+        # Cold Gasm profiling observes roughly 1.5 GiB RSS per sibling Lean process. Budget
+        # 1.8 GiB per wave member and cap at 16 even on large hosts so desktop/CI headroom remains.
+        return max(
+            1,
+            min(
+                MAX_AUTOMATIC_NORMALIZATION_BATCH_SIZE,
+                total_bytes // (18 * 1024**3 // 10),
+            ),
+        )
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise ValueError(f"{NORMALIZATION_BATCH_SIZE_ENV} must be an integer") from error
+    if value < 1:
+        raise ValueError(f"{NORMALIZATION_BATCH_SIZE_ENV} must be at least 1")
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Build every Lake default target sequentially, then verify the full closure."
@@ -70,23 +148,41 @@ def main(argv: list[str] | None = None) -> int:
     lake = shutil.which("lake") or "lake"
     try:
         targets = default_targets()
+        batch_size = normalization_batch_size()
+        normalization = normalization_batches(lake, targets, batch_size)
     except (OSError, tomllib.TOMLDecodeError, ValueError) as error:
         print(f"full build configuration error: {error}", file=sys.stderr)
         return 2
 
-    plan = build_plan(lake, targets)
+    plan = [*normalization, *build_plan(lake, targets)]
     print("Authoritative memory-bounded full build")
     print(f"Default targets ({len(targets)}), in declared order: {', '.join(targets)}")
+    print(
+        f"Local Lean normalization: {sum(len(command) - 2 for command in normalization)} "
+        f"closure modules in {len(normalization)} wave(s), at most {batch_size} per wave"
+    )
     if args.dry_run:
         for index, command in enumerate(plan, start=1):
-            label = "closure check" if index == len(plan) else f"phase {index}/{len(targets)}"
+            if index <= len(normalization):
+                label = f"normalize {index}/{len(normalization)}"
+            elif index == len(plan):
+                label = "closure check"
+            else:
+                phase = index - len(normalization)
+                label = f"phase {phase}/{len(targets)}"
             print(f"[{label}] {subprocess.list2cmdline(command)}", flush=True)
         return 0
 
     try:
         with lean_process_lease():
             for index, command in enumerate(plan, start=1):
-                label = "closure check" if index == len(plan) else f"phase {index}/{len(targets)}"
+                if index <= len(normalization):
+                    label = f"normalize {index}/{len(normalization)}"
+                elif index == len(plan):
+                    label = "closure check"
+                else:
+                    phase = index - len(normalization)
+                    label = f"phase {phase}/{len(targets)}"
                 print(f"[{label}] {subprocess.list2cmdline(command)}", flush=True)
                 result = subprocess.run(
                     command,

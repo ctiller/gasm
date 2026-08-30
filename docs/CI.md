@@ -54,6 +54,13 @@ default closure is current and fails if a phase or target drift left any work un
 neither proof coverage nor target membership; it prevents independent Gasm/Stdlib/Spikes and gate
 roots from becoming runnable in one high-fan-out wave.
 
+Before those roots, the launcher derives each local default-root import closure from the Lean
+sources and prebuilds it in dependency-first waves. The automatic wave size budgets approximately
+1.8 GiB of physical memory per concurrent module and is capped at 16; set
+`GASM_LEAN_NORMALIZATION_BATCH_SIZE` to an exact positive size for a measured host-specific
+override. These are redundant builds of modules already in the default closure, not a narrower
+validation surface, and the final bare no-build check remains authoritative.
+
 All canonical Lean/Lake launchers also share one host-global OS file lease. The lease is common
 across worktrees, releases automatically if its owner crashes, and on Windows keeps an adaptive
 reserve before starting a child tree: 30% of commit (capped at 32 GiB) and 25% of physical memory
