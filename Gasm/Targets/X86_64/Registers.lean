@@ -252,6 +252,47 @@ theorem X86_64MachineState.setFlagsCmp64_zf_of_eq (s : X86_64MachineState)
     BitVec.getLsbD_or] at bit
   simp at bit
 
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Unequal CMP operands clear ZF, independently of preserved system flags. -/
+theorem X86_64MachineState.setFlagsCmp64_zf_of_ne (s : X86_64MachineState)
+    (a b : UInt64) (different : a ≠ b) : (s.setFlagsCmp64 a b).zf = false := by
+  have hdiff : a - b ≠ 0 := by
+    intro zero
+    apply different
+    apply (UInt64.sub_left_inj b).mp
+    simpa using zero
+  have hpreserved :
+      (s.flags &&& (~~~arithmeticStatusMask)) &&& ((1 : UInt64) <<< 6) = 0 := by
+    rw [UInt64.and_assoc,
+      show (~~~arithmeticStatusMask : UInt64) &&& ((1 : UInt64) <<< 6) = 0 by
+        rw [← UInt64.toBitVec_inj]
+        simp [arithmeticStatusMask]]
+    simp
+  have hsf :
+      (if ((a - b) >>> 63) == 1 then ((1 : UInt64) <<< 7) else 0) &&&
+          ((1 : UInt64) <<< 6) = 0 := by
+    split <;> rfl
+  have hcf :
+      (if a < b then ((1 : UInt64) <<< 0) else 0) &&& ((1 : UInt64) <<< 6) = 0 := by
+    split <;> rfl
+  have hof :
+      (if ((a ^^^ b) &&& (a ^^^ (a - b)) &&& ((1 : UInt64) <<< 63)) != 0
+       then ((1 : UInt64) <<< 11) else 0) &&& ((1 : UInt64) <<< 6) = 0 := by
+    split <;> rfl
+  have hpf : computeParity8 (a - b) &&& ((1 : UInt64) <<< 6) = 0 := by
+    simp only [computeParity8]
+    split <;> rfl
+  have haf : computeAuxCarry a b (a - b) &&& ((1 : UInt64) <<< 6) = 0 := by
+    unfold computeAuxCarry
+    split <;> rfl
+  unfold X86_64MachineState.setFlagsCmp64 X86_64MachineState.zf
+  dsimp only
+  rw [if_neg]
+  · repeat rw [uint64_and_or_distrib_right]
+    rw [hpreserved, hsf, hcf, hof, hpf, haf]
+    rfl
+  · exact fun equal => hdiff (beq_iff_eq.mp equal)
+
 /- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
 /-- Boolean-normalized form used by unsigned no-borrow branches such as JAE. -/
 theorem X86_64MachineState.setFlagsCmp64_cf_eq_false_iff

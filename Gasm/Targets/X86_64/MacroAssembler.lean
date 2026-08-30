@@ -117,6 +117,8 @@ inductive NonControlFlowEncoding : X86_64Instr → Prop where
       NonControlFlowEncoding (mov_mem64_disp base disp src)
   | movMem64DispImm (base : Reg64) (disp : UInt8) (value : UInt32) :
       NonControlFlowEncoding (mov_mem64_disp_imm base disp value)
+  | movReg64Mem64Disp (dst base : Reg64) (disp : UInt8) :
+      NonControlFlowEncoding (mov_reg64_mem64_disp dst base disp)
   | push (src : Reg64) : NonControlFlowEncoding (push_r64 src)
   | pop (dst : Reg64) : NonControlFlowEncoding (pop_r64 dst)
   | div (divisor : Reg64) : NonControlFlowEncoding (div_r64 divisor)
