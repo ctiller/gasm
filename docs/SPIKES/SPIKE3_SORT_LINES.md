@@ -1,13 +1,11 @@
 # Spike 3: Verified Stdin Lexicographical Sort & Windows PE64 Executable
 
 **Status (2026-08-29): implemented vertical slice with narrow verification coverage.** The
-Windows lowering has checked trace-equality facts for exactly two stdin values: empty input and
-`defaultSampleInput`. Its `VerifiedProgram Bool` instance composes those two facts; `Bool` is a
-two-element selector, not a proof over arbitrary `ByteArray` input. The source-level reader,
-bounded hook wiring, and executable tests cover more behavior operationally, but no theorem yet
-proves end-to-end equivalence, sortedness, or permutation for every stdin stream. The precise
-boundary is documented in §6 and
-`Spikes/Spike3SortLines/Windows/Equivalence.lean`.
+native and Wasm lowerings retain concrete checked trace-equality facts only for literal inputs;
+these are not proofs over arbitrary `ByteArray` input. The source-level streaming decoder and
+the ghost line-world establish reusable universal logical facts, but no theorem yet connects a
+lowered tokenizer, descriptor table, sort loop, or writer to those facts. The precise remaining
+bridge is recorded in §6.
 
 ## 1. Overview & High-Level Architecture
 
@@ -118,23 +116,27 @@ Those remain required before the mathematical contract below can be claimed for 
 
 ### 5.1 Framed ghost line-world layer
 
-`Spikes/Spike3SortLines/LogicalWorld.lean` now factors the intended universal proof shape
-without making a machine or `VerifiedProgram` claim.  An immutable nominal `LineId -> bytes`
-universe is separated from the mutable tokenizer state, sorting order, and output prefix.  The
-reading layer exposes byte and line-completion transitions plus a projection to the existing
-fragmentation-independent `ByteLineStream`; a fresh nominal identity is demanded only when a
-delimiter completes a line.  The sorting layer carries one permutation frame from the completed
-IDs and proves every generic adjacent compare/swap preserves it.  The emitting layer carries an
-independent `emitted ++ remaining = order` prefix frame.
+`Spikes/Spike3SortLines/LogicalWorld.lean` factors the intended universal proof shape without
+making a machine or `VerifiedProgram` claim. An immutable nominal `LineId -> bytes` universe is
+separated from the mutable tokenizer state, sorting order, and output prefix. A
+`ReadFragmentCertificate` is indexed by the exact input, capacity, and `ChunksOf` read schedule,
+and contains a `ReadingState.Reaches` derivation from the initial state. Its decoder projection
+therefore reaches the production `ByteLineStream.feed stdin`; two legal schedules for the same
+finite input have equal decoder observations. Fresh delimiter allocation also proves nominal IDs
+are unique, and erasing them recovers the exact completed byte-line sequence.
 
-These certificates deliberately do not repeat one another's representation facts: buffer
-fragmentation belongs to the reader projection, storage representation belongs to a later
-concrete-to-ghost relation, comparison belongs to the permutation/order layer, and writes belong
-to the emission prefix layer.  `PhaseTransition` composes only their selected phase transitions.
-All success and `resourceFailed` transitions preserve the same abstract cleanup/recovery frame;
-the future shared obligation algebra will refine that equality with actual transfer and discharge
-laws.  This is a reusable logical staging point, not evidence yet that native/WASI code realizes
-the states, block contracts, allocation failure handling, or arbitrary-input termination.
+`StorageCertificate` is indexed by that same input-derived reader, line universe, and source
+order. It requires each resident ID to carry both its exact generation and immutable bytes, and
+rejects stale storage entries outside the source. The sorting state retains an exact nominal
+permutation. Entering emission now requires an ordered sorting state; each emission transition
+retains both orderedness and the source permutation, and completion proves a sorted emitted order
+with the exact source multiset (also after erasing IDs to bytes).
+
+The logical layer intentionally contains no resource frame or purported linearity law. Its
+`ResourceGovernorSeam` is only a relation slot for the active obligation/governor work: a target
+bridge must separately establish allocation, retry, cleanup, and discharge. This is a reusable
+logical staging point, not evidence that native/WASI code realizes the states, block contracts,
+allocation failure handling, or arbitrary-input termination.
 
 ---
 
@@ -145,9 +147,17 @@ from a valid Windows entry state $\sigma_{\text{entry}}$, for arbitrary standard
 yields a canonical effect trace $\mathcal{T}_{\text{asm}}$ identical to the monadic functional
 specification $\mathcal{T}_{\text{spec}}(\text{sortLinesSpec}(I))$.
 
-**Current proof boundary:** this universal statement is not proved. The Windows equivalence file
-checks the empty and canonical sample inputs and provides explicit-hypothesis wrappers for exactly
-those two values. Its `EnvironmentLoader Bool`/`VerifiedProgram Bool` composition exhausts the
-selector type but does not quantify over stdin bytes. Closing the gap requires a live read-binder
-obligation plus induction over the streaming-ingestion loop; see `docs/READ_BINDER_CONTRACT.md`
-§§8–9 and `docs/REVIEW.md` Law 9.
+**Current proof boundary:** this universal statement is not proved. The four remaining Spike 3
+`native_decide` facts are Linux empty/canonical, Windows canonical, and Wasm canonical. None has
+a proved logical-to-native simulation bridge, so this work does not replace any of them merely
+because the ghost facts are available.
+
+The exact remaining target lemma is a platform bridge for each lowered implementation: for every
+finite `stdin`, every legal `Gasm.Effects.ChunksOf stdin capacity chunks` schedule, and every
+successful concrete run whose storage is related by `StorageCertificate`, the concrete tokenizer
+reaches its certificate state, the concrete descriptor/sort loop reaches a `SortedCertificate`,
+and its concrete writes realize `EmissionState.completed_sorted_permutation`. Coupled with the
+existing `ByteLineStream.feedChunks_of_chunksOf`, this yields the actual target trace equal to
+`spike3ByteSortSpec` for that exact `Environment.stdin`. Proving this requires block/loop
+simulation for each target and the external resource-governor premises; it cannot be discharged
+by a literal evaluator or a finite selector.
