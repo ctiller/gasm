@@ -79,6 +79,7 @@ import Gasm.Targets.X86_64.MemoryFrameAudit
 import Gasm.Execution.QEMUAArch64
 
 import Gasm.Targets.AArch64
+import Gasm.Targets.AArch64.MacroAssembler
 import Gasm.Targets.AArch64.BareMetal.Device
 import Gasm.Targets.AArch64.BareMetal.Emitter
 import Gasm.Targets.AArch64.BareMetal.Executable

@@ -390,6 +390,28 @@ transition and event result, nonfaulting state, and the dynamic condition relati
 operational/profile premises. This proves neither a whole branch execution nor termination. Blocks
 without a selected JCC acquire no conditional relocation obligation.
 
+## AArch64 macro segments
+
+`Gasm.Targets.AArch64.MacroAssembler` is a target-owned, closed straight-line kernel for a small
+64-bit AArch64 subset. Its operand type is `Fin 31`, so selected MOV/register and logical forms can
+name only X0--X30. Encoding value 31 is not admitted: those encodings mean XZR for this instruction
+class while the broader machine register type can also denote SP. MOV-wide lanes are `Fin 4`, not
+masked caller integers. The selected constructors are MOV register, MOVZ/MOVK, and ADD/SUB/AND
+shifted-register forms fixed to `LSL #0`, with flags and logical inversion disabled.
+
+`runLocalSteps` folds only the constructor-local semantic steps. Its laws prove PC advancement by
+four per instruction, preservation of fault and termination fields, memory, SP, and NZCV, and every
+GPR outside the structurally declared clobber list. `Segment.then` is list composition; its code,
+clobbers, instructions, bytes, and frame laws are consequently derived compositionally. Emitted
+instructions are the structural map of the closed constructors and serialized bytes are computed
+directly from exactly that list. Constant materialization is deliberately the total four-word form:
+MOVZ lane 0 followed by MOVK lanes 1, 2, and 3.
+
+These are local instruction-step facts only. They do not perform production lookup, fault stopping,
+fuel accounting, host interception, or termination; they establish no ABI, callable export,
+admissibility, artifact connection, `VerifiedExportSet`, or `VerifiedProgram` authority. A later
+target/linker bridge must connect selected instructions and exact bytes to those authorities.
+
 ## Differential certificate transport
 
 Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,
