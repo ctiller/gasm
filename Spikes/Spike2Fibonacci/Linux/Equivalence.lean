@@ -45,7 +45,7 @@ set_option maxHeartbeats 5000000
 theorem spike2_canonical_effect_trace_equivalence :
     (runAsmTrace (Event := AnyEvent) spike2Instructions spike2Executable.load ==
      runModelTrace (fibonacciSpec : TraceM AnyEvent Unit)) = true := by
-  native_decide
+  decide +kernel
 
 theorem spike2_selected_termination :
     selectedExecutionTerminates (Event := AnyEvent) true selectedNonInputPlatformCall

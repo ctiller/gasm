@@ -78,7 +78,7 @@ theorem fib_iter_asm_soundness (n : Nat) (hn : n ≤ 124) :
 theorem spike2_canonical_effect_trace_equivalence :
     (runAsmTrace (Event := AnyEvent) spike2Instructions spike2Executable.load ==
      runModelTrace (fibonacciSpec : TraceM AnyEvent Unit)) = true := by
-  native_decide
+  decide +kernel
 
 /-- Closed reference certificate: all reached host boundaries are input-independent and the
     complete 90-row driver returns before the platform budget is exhausted. -/
