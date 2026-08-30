@@ -704,4 +704,20 @@ theorem Spike2WritePhysicalLoopWitness.toPhaseWitness {value stackUpper outputLi
     (physical.branch completed within) (physical.writeNoWrap completed within) (physical.above completed within)
   branch completed within := physical.branch completed within
 
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
+theorem spike2ExtractionPhase_ofPhysicalWitness (value stackLower : UInt64)
+    (initial : X86_64MachineState) (initialEventsRev : List AnyEvent)
+    (physical : Spike2ExtractionPhysicalLoopWitness value stackLower initial initialEventsRev) :
+    DecimalExtractionPhase selectedNonInputPlatformCall spike2Indexed value
+      (spike2ExtractionInvariant initial initialEventsRev) :=
+  spike2ExtractionPhase value stackLower initial initialEventsRev physical.toPhaseWitness
+
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
+theorem spike2WritePhase_ofPhysicalWitness (value stackUpper outputLimit : UInt64)
+    (initial : X86_64MachineState) (initialEventsRev : List AnyEvent)
+    (physical : Spike2WritePhysicalLoopWitness value stackUpper outputLimit initial initialEventsRev) :
+    DecimalWritePhase selectedNonInputPlatformCall spike2Indexed value
+      (spike2WriteInvariant initial initialEventsRev) :=
+  spike2WritePhase value stackUpper outputLimit initial initialEventsRev physical.toPhaseWitness
+
 end Spikes.Spike2Fibonacci.Linux
