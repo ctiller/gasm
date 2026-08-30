@@ -80,33 +80,33 @@ private theorem authority_afterBackEdgeStep (state : X86_64MachineState)
 private theorem rowCode_afterLoadStep (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (mov_r64 .r8 .r14) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterAddStep (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (add_r64 .r8 .r15) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterCurrentStep (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (mov_r64 .r14 .r15) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterNextStep (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (mov_r64 .r15 .r8) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterCounterStep (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (add_r64_imm8 .r13 1) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterBackEdgeStep (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (jmp_rel32 4294967027) state) := by
   apply authority.transportRead64 state _
-  intro address
+  intro address _
   exact X86_64Mem.read_congr' .w64 address _ _ (by
     intro k _
     simp only [X86_64Instruction.step]

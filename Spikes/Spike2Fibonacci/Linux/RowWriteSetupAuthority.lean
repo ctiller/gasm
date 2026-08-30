@@ -77,37 +77,37 @@ private theorem authority_afterSyscallInstruction (state : X86_64MachineState)
 private theorem rowCode_afterMovR8Rdi (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (mov_r64 .r8 .rdi) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterLeaRsi (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (lea_rsp .rsi 0x40) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterSubR8Rsi (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (sub_r64 .r8 .rsi) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterMovRdxR8 (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (mov_r64 .rdx .r8) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterMovEdi (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (mov_r32 .edi 1) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterMovEax (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step (mov_r32 .eax 1) state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 private theorem rowCode_afterSyscallInstruction (state : X86_64MachineState)
     (authority : Spike2RowCodeAuthority state) :
     Spike2RowCodeAuthority (X86_64Instruction.step syscall_op state) :=
-  authority.transportRead64 _ _ (by intro; rfl)
+  authority.transportRead64 _ _ (by intro _ _; rfl)
 
 theorem decimalAuthority_afterWriteSetupEnd {predecessor : X86_64MachineState}
     (authority : Spike2DecimalTextAuthority (afterLineTerminator predecessor)) :
@@ -203,7 +203,9 @@ theorem rowCodeAuthority_afterWriteSyscall {predecessor : X86_64MachineState}
     change Spike2RowCodeAuthority
       (X86_64Instruction.step syscall_op (beforeWriteSyscall predecessor))
     exact rowCode_afterSyscallInstruction _ atSyscall
-  exact atHook.transportRead64 _ _ (sysWriteHook_preserves_read64 _)
+  exact atHook.transportRead64 _ _ (by
+    intro address _
+    exact sysWriteHook_preserves_read64 _ address)
 
 end Row8Parametric
 

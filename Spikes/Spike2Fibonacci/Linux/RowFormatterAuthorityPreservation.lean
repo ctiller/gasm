@@ -54,10 +54,11 @@ private theorem Spike2RowCodeAuthority.afterExtractionPass {Event : Type}
     (above : spike2RowLinkedTextUpper ≤ (initial.rsp - 8).toNat) :
     Spike2RowCodeAuthority (extractionFinal backDisp initial) := by
   constructor
-  intro address within
+  intro address observed
   rw [spike2_extraction_pass_preserves_text_read64 pass address writeNoWrap]
-  · exact authority.ordinary address within
-  · unfold spike2RowLinkedTextUpper at within above
+  · exact authority.ordinary address observed
+  · have within := spike2RowObservedRips_bounded observed
+    unfold spike2RowLinkedTextUpper at within above
     omega
 
 private theorem Spike2RowCodeAuthority.afterWritePass {Event : Type}
@@ -71,10 +72,11 @@ private theorem Spike2RowCodeAuthority.afterWritePass {Event : Type}
     (above : spike2RowLinkedTextUpper ≤ (initial.gprs .rdi).toNat) :
     Spike2RowCodeAuthority (writeFinal backDisp initial) := by
   constructor
-  intro address within
+  intro address observed
   rw [spike2_write_pass_preserves_text_read64 pass address writeNoWrap]
-  · exact authority.ordinary address within
-  · unfold spike2RowLinkedTextUpper at within above
+  · exact authority.ordinary address observed
+  · have within := spike2RowObservedRips_bounded observed
+    unfold spike2RowLinkedTextUpper at within above
     omega
 
 /-- The accepted `Spike2DecimalTextAuthority` advances across the first extraction pass. -/

@@ -46,21 +46,47 @@ namespace Row8Parametric
 writes must begin at or above this boundary before row-code observations can be immutable. -/
 def spike2RowLinkedTextUpper : Nat := 4198709
 
-/-- Immutable selector authority for linked row text.  The authority exposes only the exact
-`read64 address ≠ address` observations needed by ordinary-code dispatch below the linked-text
-boundary; it is neither a memory equality nor an equality of machine states. -/
+/-- The finite, reviewed instruction starts in the complete linked row graph.  This includes
+both index branches and the shared decimal/tail blocks, so later row variants can reuse the same
+authority without quantifying over unrelated low memory. -/
+def spike2RowObservedRips : List UInt64 := [
+  4198437, 4198441, 4198447, 4198452, 4198457, 4198462, 4198467, 4198471,
+  4198473, 4198476, 4198480, 4198485, 4198487, 4198492, 4198497, 4198502,
+  4198507, 4198512, 4198514, 4198517, 4198527, 4198529, 4198532, 4198536,
+  4198540, 4198545, 4198547, 4198552, 4198554, 4198559, 4198564, 4198569,
+  4198574, 4198579, 4198582, 4198592, 4198594, 4198596, 4198599, 4198603,
+  4198604, 4198608, 4198612, 4198614, 4198615, 4198617, 4198621, 4198625,
+  4198627, 4198637, 4198639, 4198643, 4198653, 4198655, 4198659, 4198662,
+  4198667, 4198670, 4198673, 4198678, 4198683, 4198685, 4198688, 4198691,
+  4198694, 4198697, 4198701
+]
+
+/-- Every reviewed row observation ends at or before the exact linked-text upper boundary. -/
+theorem spike2RowObservedRips_bounded {address : UInt64}
+    (observed : address ∈ spike2RowObservedRips) :
+    address.toNat + 8 ≤ spike2RowLinkedTextUpper := by
+  simp only [spike2RowObservedRips, List.mem_cons, List.mem_singleton] at observed
+  rcases observed with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h |
+    h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h |
+    h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h |
+    h | h | h | h | h | h | h | h | h | h | h | h | h | h | h
+  all_goals (try subst address) <;> simp_all [spike2RowLinkedTextUpper]
+
+/-- Immutable selector authority for linked row text.  It exposes only the finite reviewed
+`read64 address ≠ address` observations, not an interval-wide or whole-memory relation. -/
 structure Spike2RowCodeAuthority (state : X86_64MachineState) : Prop where
   ordinary : ∀ address : UInt64,
-    address.toNat + 8 ≤ spike2RowLinkedTextUpper → state.read64 address ≠ address
+    address ∈ spike2RowObservedRips → state.read64 address ≠ address
 
 /-- Transport row-code authority across a projection-wise read frame. -/
 theorem Spike2RowCodeAuthority.transportRead64 (before after : X86_64MachineState)
     (authority : Spike2RowCodeAuthority before)
-    (preserved : ∀ address, after.read64 address = before.read64 address) :
+    (preserved : ∀ address, address ∈ spike2RowObservedRips →
+      after.read64 address = before.read64 address) :
     Spike2RowCodeAuthority after where
-  ordinary address within := by
-    rw [preserved]
-    exact authority.ordinary address within
+  ordinary address observed := by
+    rw [preserved address observed]
+    exact authority.ordinary address observed
 
 /-- A byte write beginning beyond linked row text preserves every bounded row-code observation. -/
 theorem Spike2RowCodeAuthority.afterWrite8 (initial : X86_64MachineState)
@@ -69,13 +95,14 @@ theorem Spike2RowCodeAuthority.afterWrite8 (initial : X86_64MachineState)
     (above : spike2RowLinkedTextUpper ≤ writeAddress.toNat) :
     Spike2RowCodeAuthority (initial.write8 writeAddress value) := by
   constructor
-  intro address within
+  intro address observed
   change X86_64Mem.read .w64 address
     (X86_64Mem.write .w8 writeAddress value.toUInt64 initial.memory) ≠ address
   rw [X86_64Mem.read64_write_below .w8 initial.memory writeAddress address value.toUInt64
     writeNoWrap]
-  · exact authority.ordinary address within
-  · unfold spike2RowLinkedTextUpper at within above
+  · exact authority.ordinary address observed
+  · have within := spike2RowObservedRips_bounded observed
+    unfold spike2RowLinkedTextUpper at within above
     omega
 
 /-- Projection-only physical bounds which advance the accepted decimal text authority through
@@ -99,9 +126,10 @@ structure TailAuthorityFrame (predecessor : X86_64MachineState) : Prop where
   lineFeedNoWrap : ((beforeLineFeedStore predecessor).gprs .rdi).toNat + 1 ≤ 2 ^ 64
   lineFeedAbove : spike2RowLinkedTextUpper ≤ ((beforeLineFeedStore predecessor).gprs .rdi).toNat
 
-/-- The local instruction, safety, and physical authority projections consumed by a continuing
-one-digit/two-value-digit row.  This is the backward-collected weakest-premise boundary for
-`rowPrefix`; it contains no total-memory or total-state equality. -/
+/-- The local execution frames plus preservation authorities used by a continuing
+one-digit/two-value-digit row.  `rowPrefix` consumes the execution frames; the authority fields
+support reconstruction of the successor row.  The bundle contains no total-memory or
+total-state equality. -/
 structure LocalRowNeeds (predecessor : X86_64MachineState) : Prop where
   opening : OpeningFrame predecessor
   openingRest : OpeningRestFrame predecessor
