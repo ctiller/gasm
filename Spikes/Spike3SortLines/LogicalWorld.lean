@@ -165,6 +165,54 @@ theorem reaches_completed_nodup {lineUniverse : LineUniverse LineId}
         have hline : id = line := by simpa using hmem'
         exact fresh (hline ▸ hmem)
 
+/-- EOF is a real tokenizer transition rather than an equality on erased bytes.  In particular,
+    a pending nonempty byte run receives a fresh nominal identity, while an empty tail after LF
+    does not manufacture a record. -/
+inductive Finalizes (lineUniverse : LineUniverse LineId) :
+    ReadingState LineId → ReadingState LineId → Prop where
+  | noTail (state : ReadingState LineId) (empty : state.pendingRev = []) :
+      Finalizes lineUniverse state state
+  | tail (state : ReadingState LineId) (line : LineId)
+      (nonempty : state.pendingRev ≠ [])
+      (fresh : line ∉ state.completed)
+      (contents : lineUniverse.bytes line = state.pendingRev.reverse) :
+      Finalizes lineUniverse state
+        { consumed := state.consumed
+          pendingRev := []
+          completed := state.completed ++ [line] }
+
+/-- EOF finalization erases to the same complete-or-retain observation as the byte decoder. -/
+theorem Finalizes.completed_bytes {lineUniverse : LineUniverse LineId}
+    {before after : ReadingState LineId}
+    (finalizes : Finalizes lineUniverse before after) :
+    after.completed.map lineUniverse.bytes =
+      (decoder lineUniverse before).finalizedLines := by
+  cases finalizes with
+  | noTail empty =>
+    simp [decoder, ByteLineStream.finalizedLines, empty, ByteLineStream.completedLines]
+  | tail line nonempty _fresh contents =>
+    simp [decoder, ByteLineStream.finalizedLines, ByteLineStream.completedLines,
+      contents]
+
+/-- The EOF tail identity is fresh, so finalization preserves the source provenance invariant. -/
+theorem Finalizes.completed_nodup {lineUniverse : LineUniverse LineId}
+    {before after : ReadingState LineId}
+    (finalizes : Finalizes lineUniverse before after) (beforeNodup : before.completed.Nodup) :
+    after.completed.Nodup := by
+  cases finalizes with
+  | noTail => exact beforeNodup
+  | tail line _ fresh _ =>
+    simp only [List.nodup_append, List.nodup_cons, List.not_mem_nil]
+    constructor
+    · exact beforeNodup
+    · constructor
+      · exact ⟨by simp, by simp⟩
+      · intro id hmem id' hmem' heq
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem'
+        subst id'
+        have hline : id = line := by simpa using hmem'
+        exact fresh (hline ▸ hmem)
+
 end ReadingState
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
@@ -354,6 +402,8 @@ structure ReadFragmentCertificate (LineId : Type) (lineUniverse : LineUniverse L
   chunksOf : Gasm.Effects.ChunksOf stdin capacity chunks
   state : ReadingState LineId
   reaches : ReadingState.Reaches lineUniverse ReadingState.initial chunks.flatten state
+  finalized : ReadingState LineId
+  finalizes : ReadingState.Finalizes lineUniverse state finalized
 
 /- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
 /-- A certificate's ghost decoder is exactly the production decoder fed by the logical stdin. -/
@@ -387,6 +437,21 @@ theorem ReadFragmentCertificate.completed_nodup
   simpa [ReadingState.initial] using
     ReadingState.reaches_completed_nodup certificate.reaches (by simp [ReadingState.initial])
 
+/-- EOF-finalized identities, including an unterminated trailing record, have the same exact
+    byte provenance as the input decoder. -/
+theorem ReadFragmentCertificate.finalized_bytes
+    (certificate : ReadFragmentCertificate LineId lineUniverse stdin capacity chunks) :
+    certificate.finalized.completed.map lineUniverse.bytes =
+      (ByteLineStream.feed {} stdin).finalizedLines := by
+  rw [certificate.finalizes.completed_bytes, certificate.projects_stream]
+  rfl
+
+/-- Source storage is nominally unique even when EOF creates the final record. -/
+theorem ReadFragmentCertificate.finalized_nodup
+    (certificate : ReadFragmentCertificate LineId lineUniverse stdin capacity chunks) :
+    certificate.finalized.completed.Nodup :=
+  certificate.finalizes.completed_nodup certificate.completed_nodup
+
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- A concrete storage witness for the *exact* EOF-finalized input-derived line universe.
 `locate` is supplied by a target bridge (for example descriptor-table lookup), while this layer
@@ -401,14 +466,28 @@ structure StorageCertificate (Storage LineId : Type) (lineUniverse : LineUnivers
   locate : Storage → LineId → Option (Nat × List UInt8)
   generation : LineId → Nat
   source : List LineId
-  source_bytes_eq_finalized : source.map lineUniverse.bytes =
-    (ByteLineStream.feed {} stdin).finalizedLines
+  source_eq_finalized : source = reading.finalized.completed
   generation_exact : ∀ id, id ∈ source → source[(generation id)]? = some id
   resident_exact : ∀ id, id ∈ source →
     locate storage id = some (generation id, lineUniverse.bytes id)
   no_stale_entry : ∀ id n bytes,
     locate storage id = some (n, bytes) →
       id ∈ source ∧ n = generation id ∧ bytes = lineUniverse.bytes id
+
+/-- Storage source order is exactly the EOF-finalized tokenizer provenance, not merely an erased
+    list of matching bytes. -/
+theorem StorageCertificate.source_nodup
+    (certificate : StorageCertificate (LineId := LineId) Storage lineUniverse stdin capacity chunks) :
+    certificate.source.Nodup := by
+  rw [certificate.source_eq_finalized]
+  exact certificate.reading.finalized_nodup
+
+theorem StorageCertificate.source_bytes_eq_finalized
+    (certificate : StorageCertificate (LineId := LineId) Storage lineUniverse stdin capacity chunks) :
+    certificate.source.map lineUniverse.bytes =
+      (ByteLineStream.feed {} stdin).finalizedLines := by
+  rw [certificate.source_eq_finalized]
+  exact certificate.reading.finalized_bytes
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- The sealed logical hand-off from ingestion/preparation to sorting.  `tableOrder` is the
@@ -637,7 +716,7 @@ inductive PhaseTransition (lineUniverse : LineUniverse LineId)
       (step : ReadingState.Step lineUniverse before after) :
       PhaseTransition lineUniverse authority (.reading before) (.reading after)
   | prepared {state prepared}
-      (reading_exact : prepared.certificate.storage.reading.state = state) :
+      (reading_exact : prepared.certificate.storage.reading.finalized = state) :
       PhaseTransition lineUniverse authority (.reading state)
         (.readyToSort prepared)
   | beginSorting {prepared} :
@@ -668,7 +747,7 @@ theorem PhaseTransition.prepared_source
     {authority : PreparationAuthority World Concrete Storage Table LineId lineUniverse stdin capacity chunks}
     {state : ReadingState LineId}
     {prepared : EstablishedPreparation World Concrete Storage Table LineId lineUniverse stdin capacity chunks authority}
-    (reading_exact : prepared.certificate.storage.reading.state = state) :
+    (reading_exact : prepared.certificate.storage.reading.finalized = state) :
     PhaseTransition lineUniverse authority (.reading state) (.readyToSort prepared) :=
   .prepared reading_exact
 
