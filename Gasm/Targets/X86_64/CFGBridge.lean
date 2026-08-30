@@ -31,7 +31,7 @@ open Gasm.Targets.X86_64.MacroAssembler
 /-- The x86 conditions admitted by the operational CFG bridge. This target-owned datatype keeps a
     logical `ConditionCode` from being attached to an unrelated emitted conditional instruction. -/
 inductive X86BranchCondition where
-  | equal | notEqual | less | lessEqual | greater | greaterEqual
+  | equal | notEqual | less | lessEqual | greater | greaterEqual | aboveOrEqual
 
 def X86BranchCondition.holds : X86BranchCondition → X86_64MachineState → Prop
   | .equal => (·.zf = true)
@@ -40,6 +40,7 @@ def X86BranchCondition.holds : X86BranchCondition → X86_64MachineState → Pro
   | .lessEqual => (fun state => state.zf = true ∨ state.sf != state.of_)
   | .greater => (fun state => state.zf = false ∧ state.sf = state.of_)
   | .greaterEqual => (fun state => state.sf = state.of_)
+  | .aboveOrEqual => (·.cf = false)
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- Closed target-owned evidence that the exact existential instruction is a direct JMP. -/
@@ -60,6 +61,8 @@ inductive ConditionalJumpEncoding : X86_64Instr → X86BranchCondition → Prop 
   | jg8 (disp : UInt8) : ConditionalJumpEncoding (jg_rel8 disp) .greater
   | jge8 (disp : UInt8) : ConditionalJumpEncoding (jge_rel8 disp) .greaterEqual
   | jge32 (disp : Int32) : ConditionalJumpEncoding (jge_rel32 disp) .greaterEqual
+  | jae8 (disp : UInt8) : ConditionalJumpEncoding (jae_rel8 disp) .aboveOrEqual
+  | jae32 (disp : Int32) : ConditionalJumpEncoding (jae_rel32 disp) .aboveOrEqual
 
 /- REF: docs/MACRO_ASSEMBLER.md#operational-cfg-realization -/
 /-- Conservative pure-block ghost law. Typestate and every ghost/authority component are preserved

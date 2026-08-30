@@ -104,6 +104,9 @@ inductive NonControlFlowEncoding : X86_64Instr → Prop where
   | bitAnd (dst src : Reg64) : NonControlFlowEncoding (and_r64 dst src)
   | xor32 (dst src : Reg32) : NonControlFlowEncoding (xor_r32 dst src)
   | compareImm8 (dst : Reg64) (value : UInt8) : NonControlFlowEncoding (cmp_r64_imm8 dst value)
+  /-- The full-width Linux errno-range comparison is an ordinary instruction.  This admits only
+      the selected `CMP r64, imm32` form; it does not classify a following branch. -/
+  | compareImm32 (dst : Reg64) (value : UInt32) : NonControlFlowEncoding (cmp_r64_imm32 dst value)
   | leaRsp (dst : Reg64) (disp : UInt8) : NonControlFlowEncoding (lea_rsp dst disp)
   | push (src : Reg64) : NonControlFlowEncoding (push_r64 src)
   | pop (dst : Reg64) : NonControlFlowEncoding (pop_r64 dst)

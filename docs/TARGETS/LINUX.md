@@ -92,6 +92,23 @@ M2-B[Linux-x86-syscall] or M2-B[Linux-AArch64-svc] profile relates them to a res
 after-world and composes with selected thread lifecycle or parking semantics under the canonical
 boundary-profile closure rule; raw result/TID/fd bits cannot mint identities, grants or obligations.
 
+### 2.3.1 Linked instruction placement
+
+The initial consumer is
+`Spikes.Spike3SortLines.Linux.LinkCertificate`, a target-owned handoff from that exact symbolic
+Linux source and static-link invocation to its resource-failure proof prefix. It records the source
+splice, data-symbol link environment, computed source offset, exact final indexed splice, and a
+checked non-wrapping unique address layout. Its final lookup-resolution theorem is derived from
+those facts; it is not a caller-supplied record field.
+
+The resulting `spike3_no_grant_resource_failure_lookup` theorem derives real
+`instructionAtRipIndexed` facts for the selected no-grant resource prefix without making its
+consumer unfold the complete assembler or linker. It is intentionally not an execution or
+termination theorem: local instruction semantics, safety, call selection, interceptor behavior,
+resource outcome, ABI boundary, and final `VerifiedProgram` composition are still proved by their
+respective target/profile layers. A relayout invalidates and regenerates the link certificate,
+while leaving local semantic proofs intact.
+
 ### 2.4 Required thread, task join, and futex refinement
 
 The exact profiles are M6-T[Linux], M6-NX[Linux], M6-NA[Linux], M6-X[Linux], and M6-A[Linux].

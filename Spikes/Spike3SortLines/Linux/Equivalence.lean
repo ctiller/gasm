@@ -24,6 +24,7 @@ import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.Linux.Syscall
 import Gasm.Targets.Linux.Linker
 import Spikes.Spike3SortLines.Spec
+import Spikes.Spike3SortLines.Linux.LinkCertificate
 import Spikes.Spike3SortLines.Linux.Program
 
 namespace Spikes.Spike3SortLines.Linux

@@ -69,6 +69,17 @@ theorem mov_r32_sequential (dst : Reg32) (value : UInt32) :
     cases dst <;> rfl
 
 /- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
+/-- The selected full-width errno-range comparison is a safe fallthrough instruction.  The
+    resource-rejection proof uses this one additional ordinary form; branch classification remains
+    separate and target-owned. -/
+theorem cmp_r64_imm32_sequential (dst : Reg64) (value : UInt32) :
+    SequentialInstruction (cmp_r64_imm32 dst value) where
+  encoding := .compareImm32 dst value
+  safeFallthrough := by
+    intro state _
+    rfl
+
+/- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
 /-- Every concrete instruction step reached inside a sequential segment is safe. Fault-capable
     instructions pay this obligation at the block that establishes their operand invariant. -/
 def SafeSequentialOn (code : List X86_64Instr) (initial : X86_64MachineState) : Prop :=
