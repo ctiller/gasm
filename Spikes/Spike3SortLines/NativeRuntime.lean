@@ -147,6 +147,55 @@ def spike3WindowsArenaCapability (Event : Type) : Capability (WindowsX86_64 Even
   providers := []
   establishes := fun _ _ _ _ => True
 
+/- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
+/-- The grant-indexed Win32 runtime supports every provider in the standard table.  The only
+    altered cases are `ExitProcess` (made terminal) and `VirtualAlloc` (made fallible); both still
+    resolve their exact target-owned provider slots. -/
+theorem spike3WindowsRuntimeSupports (Event : Type) [Inject ConsoleEvent Event]
+    [Inject ProcessEvent Event] [Inject NetEvent Event] (grant : Spike3NativeArenaGrant) :
+    ∀ artifact provider, provider ∈ standardWindowsProviders →
+      Platform.providerLinked (P := WindowsX86_64 Event) artifact provider →
+      Platform.runtimeSupports (P := WindowsX86_64 Event)
+        (spike3WindowsRuntime Event grant) artifact provider := by
+  intro artifact provider hprovider hlinked
+  rcases hlinked with ⟨_, hlinkedSlot⟩
+  let layout := computeSectionLayout artifact.executable.textBytes.size
+    artifact.executable.rdataBytes.size 512
+  let slots := artifact.executable.iatFunctionSlots layout.idataRva
+  change (match slots[provider.importIndex]? with
+    | some address => ∀ state, Gasm.Targets.Windows.findIatIndex state address =
+        some provider.iatIndex →
+        ((spike3WindowsRuntime Event grant).interceptCall address state).isSome
+    | none => False)
+  change (match slots[provider.importIndex]? with
+    | some address => _
+    | none => False) at hlinkedSlot
+  generalize hslot : slots[provider.importIndex]? = resolved at hlinkedSlot ⊢
+  cases resolved with
+  | none => exact hlinkedSlot.elim
+  | some address =>
+      intro state hfind
+      simp only [standardWindowsProviders, List.mem_cons, List.not_mem_nil, or_false] at hprovider
+      rcases hprovider with rfl | rfl | rfl | rfl | rfl | rfl
+      all_goals
+        change (spike3WindowsCallIntercept grant address state).isSome
+        simp [spike3WindowsCallIntercept, win32CallIntercept, win32Intercept, windowsProvider, hfind]
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Full Win32 capability composition for Spike 3: target-owned imported service providers plus
+    the caller-provided finite arena grant.  The grant is operational because realization selects
+    `spike3WindowsRuntime` from its second context component. -/
+def spike3WindowsArenaCapabilities (Event : Type) [Inject ConsoleEvent Event]
+    [Inject ProcessEvent Event] [Inject NetEvent Event] :
+    CapabilityComposition (WindowsX86_64 Event) where
+  root := Capability.compose (windowsHostCapability Event standardWindowsProviders)
+    (spike3WindowsArenaCapability Event)
+  realize := fun _ context => spike3WindowsRuntime Event context.2
+  realizeSupports := by
+    intro context artifact provider hmember hlinked
+    simp only [Capability.compose] at hmember
+    exact spike3WindowsRuntimeSupports Event context.2 artifact provider hmember hlinked
+
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- A failed Linux reservation returns null and resumes at the syscall continuation. -/
 theorem spike3LinuxMmapHook_rejects_insufficient (grant : Spike3NativeArenaGrant)
