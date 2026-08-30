@@ -39,10 +39,19 @@ TEMPORARY_PARSER_FILES = {
     "scripts/check_gates.py",
     "Tools/CheckGatesAxioms.lean",
 }
-FORBIDDEN_PATH_PARTS = ("allowlist", "allow_list", "whitelist", "waiver_ledger", "exception_ledger")
-PARSER_MARKERS = ("ALLOWLIST_PATH", "load_allowlist", "parseAllowlist", "AllowlistEntry")
+FORBIDDEN_PATH_PARTS = (
+    "allowlist", "allow_list", "whitelist", "waiver", "exemption",
+    "gate_exception", "gate-exception", "bypass_ledger", "suppression_ledger",
+    "optout_ledger", "opt_out_ledger",
+)
+PARSER_MARKERS = (
+    "ALLOWLIST_PATH", "load_allowlist", "parseAllowlist", "AllowlistEntry",
+    "load_waivers", "parseWaiver", "load_exceptions", "parseExceptionLedger",
+    "suppress_finding", "is_exempt",
+)
 LEDGER_REFERENCE_RE = re.compile(
-    r"scripts/[A-Za-z0-9_.-]*(?:allowlist|allow_list|whitelist|waiver_ledger|exception_ledger)"
+    r"scripts/[A-Za-z0-9_.-]*(?:allowlist|allow_list|whitelist|waiver|exemption|"
+    r"gate[_-]exceptions?|bypass[_-]ledger|suppression[_-]ledger|opt[_-]?out[_-]ledger)"
     r"[A-Za-z0-9_.-]*",
     re.IGNORECASE,
 )
@@ -107,14 +116,18 @@ def forbidden_ledger_references(paths: Iterable[str]) -> list[str]:
     return sorted(leaks)
 
 
+def count_live_entries(text: str) -> int:
+    return sum(
+        1 for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
 def live_temporary_entries() -> int:
     path = REPO_ROOT / TEMPORARY_LEDGER
     if not path.is_file():
         return 0
-    return sum(
-        1 for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    )
+    return count_live_entries(path.read_text(encoding="utf-8"))
 
 
 def run_check(paths: Iterable[str] | None = None) -> tuple[list[str], list[str], list[str], int]:
@@ -134,17 +147,25 @@ def self_test() -> int:
         TEMPORARY_LEDGER,
     ])
     reference_probe = "_exception_ledger_reference_probe.txt"
+    parser_probe = "scripts/_exception_parser_probe.py"
     probe_path = REPO_ROOT / reference_probe
     probe_path.write_text("use scripts/new_allowlist.txt\n", encoding="utf-8")
     try:
+        parser_path = REPO_ROOT / parser_probe
+        parser_path.write_text("def load_exceptions(): pass\n", encoding="utf-8")
         bad_references = forbidden_ledger_references([reference_probe])
+        bad_parsers = parser_leaks([parser_probe])
     finally:
         probe_path.unlink(missing_ok=True)
+        (REPO_ROOT / parser_probe).unlink(missing_ok=True)
+    ceiling_rejects_growth = count_live_entries("entry\n" * (MAX_TEMPORARY_GATE_ENTRIES + 1)) > MAX_TEMPORARY_GATE_ENTRIES
     passed = (
         bad_paths == ["scripts/new_allowlist.txt", "scripts/waiver_ledger.toml"]
         and bad_references == [f"{reference_probe}: scripts/new_allowlist.txt"]
+        and bad_parsers == [f"{parser_probe}: load_exceptions"]
+        and ceiling_rejects_growth
     )
-    print(f"synthetic exception-ledger path/reference rejection: {'PASS' if passed else 'FAIL'}")
+    print(f"synthetic path/reference/parser/ceiling rejection: {'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1
 
 

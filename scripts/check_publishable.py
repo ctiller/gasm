@@ -149,7 +149,7 @@ TEXT_EXTENSIONS_TO_SCAN = {
 }
 
 TRACKED_BINARY_EXTENSIONS = {
-    ".exe", ".o", ".obj", ".olean", ".ilean", ".c", ".wasm", ".wat", ".pyc",
+    ".exe", ".o", ".obj", ".olean", ".ilean", ".wasm", ".wat", ".pyc",
     ".dll", ".so", ".dylib", ".bin", ".dat", ".zip", ".tar", ".gz", ".7z",
     ".class", ".pdb",
 }
@@ -276,7 +276,11 @@ def check_secrets() -> List[Finding]:
             continue
         for name, pattern in SECRET_PATTERNS:
             if pattern.search(text):
-                findings.append(Finding("SECRET", rf.rel, f"{name} pattern matched{_untracked_note(rf)}"))
+                findings.append(Finding(
+                    "SECRET", rf.rel,
+                    f"{name} secret-shaped literal matched{_untracked_note(rf)}; "
+                    "tests/examples must construct synthetic values from fragments"
+                ))
     return findings
 
 
@@ -295,7 +299,8 @@ def check_machine_local_paths() -> List[Finding]:
                 sample = matches[0]
                 findings.append(Finding("MACHINE_PATH", rf.rel,
                                          f"{name} ({len(matches)} occurrence(s), e.g. {sample!r})"
-                                         f"{_untracked_note(rf)}"))
+                                         f"{_untracked_note(rf)}; use a placeholder such as "
+                                         f"<user> or $WORKSPACE in examples"))
     return findings
 
 
@@ -326,7 +331,7 @@ def check_no_reference_prose() -> List[Finding]:
         rel = p.relative_to(REPO_ROOT).as_posix()
         findings.append(Finding("THIRD_PARTY_PROSE", rel,
                                  "file under references/ - owner ruling bans ALL third-party prose "
-                                 "from the tree at publish, independent of redistributability", False))
+                                 "from the tree at publish, independent of redistributability"))
     return findings
 
 
@@ -355,7 +360,7 @@ def check_ref_citations_into_references() -> List[Finding]:
                                      f"{len(hits)} REF: citation(s) still target references/ "
                                      f"(e.g. {hits[0]!r}) - must be re-pointed at the references.json "
                                      f"slug registry (docs/REFERENCE_INDEX.md) before references/ can "
-                                     f"be deleted", False))
+                                     f"be deleted"))
     return findings
 
 
@@ -388,13 +393,13 @@ def check_notice_matches_references_state() -> List[Finding]:
                                  "still contains file(s) -- this is an affirmatively FALSE statement "
                                  "in a legal file, disclaiming an attribution obligation that in fact "
                                  "applies. Either the claim must be removed/qualified or references/ "
-                                 "must be emptied before publish.", False))
+                                 "must be emptied before publish."))
     elif refs_has_files and not claims_no_third_party:
         findings.append(Finding("NOTICE_CLAIM_MISMATCH", "NOTICE",
                                  "references/ contains file(s) but NOTICE does not carry its "
                                  "no-third-party-content claim -- if this is deliberate (real "
                                  "third-party content now vendored with proper attribution), fine; "
-                                 "if NOTICE simply was not updated, that is a stale legal file.", False))
+                                 "if NOTICE simply was not updated, that is a stale legal file."))
     elif claims_no_third_party and not refs_has_files:
         pass  # the desired, currently-true state: claim present, references/ empty.
     # (neither claims_no_third_party nor refs_has_files: nothing to reconcile.)

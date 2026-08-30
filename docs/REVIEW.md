@@ -275,7 +275,9 @@ This subsection specifies what the two Law 10 gate tools implement, so that Pill
    exit code 0. Retired exception-ledger paths, their parser/matching machinery, and documentation
    that advertises a retired ledger are forbidden. Until Law-10 debt reaches zero, its one named
    ledger is the sole temporary exception and its live-entry count may only decrease; after zero,
-   that file and its two parsers are deleted too.
+   that file and its two parsers are deleted too. The ratchet recognizes the established names
+   plus common waiver/exemption/bypass/suppression spellings; review still rejects semantic
+   exception mechanisms regardless of vocabulary.
 10. **Roundtrip and Fuzzer Gates:** `lake exe test_roundtrip` must exit 0. The unfiltered local
    runner's `fuzzers` group — currently `perf_fuzzer`, `x86_fuzzer`, `encoding_fuzzer`,
    `wasm_fuzzer`, `gzip_fuzzer`, `png_stability_fuzzer`, `x86_stability_fuzzer`, and
