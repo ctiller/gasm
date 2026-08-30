@@ -29,6 +29,7 @@ RIP-only shortcut.
 namespace Spikes.Spike2Fibonacci.Linux
 
 open Gasm.Targets.X86_64
+open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.DecimalSegments
 open Gasm.Targets.X86_64.DecimalSchedule
 
@@ -203,5 +204,69 @@ theorem Spike2DecimalTextAuthority.afterWrite {Event : Type}
       exact authority.writePop | exact authority.writeStore |
       exact authority.writeAdvance | exact authority.writeDecrement |
       exact authority.writeBranch | exact authority.writeExit
+
+/-- The first extraction successor reaches the concrete DIV text instruction without changing
+memory, so the program-owned text authority supplies its dispatcher fact. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_extraction_xor_ordinary (initial : X86_64MachineState)
+    (entry : initial.rip = spike2ExtractionAddress .clearHigh)
+    (authority : Spike2DecimalTextAuthority initial) :
+    Spike2OrdinaryCode (extractionStates initial).1 := by
+  constructor
+  · change initial.rip + 2 ≠ Gasm.Targets.X86_64.Instructions.linuxSyscallEntry
+    rw [entry]
+    decide
+  · rw [show (extractionStates initial).1.rip = initial.rip + 2 by rfl]
+    change X86_64Mem.read .w64 (initial.rip + 2) (extractionStates initial).1.memory ≠
+      initial.rip + 2
+    rw [show (extractionStates initial).1.memory = initial.memory by rfl]
+    rw [entry]
+    exact authority.extractDivide
+
+/- The DIV instruction has a genuinely conditional core, so its fallthrough uses the explicit
+execution-safety evidence rather than assuming that a placed instruction advanced. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_extraction_div_fallthrough (state : X86_64MachineState)
+    (safe : (X86_64Instruction.step (div_r64 .r10) state).fault = none) :
+    (X86_64Instruction.step (div_r64 .r10) state).rip = state.rip + 3 := by
+  let core : X86_64MachineState :=
+    { state with stdinBuffer := ByteArray.empty, incomingRequests := [] }
+  change (@X86_64Instruction.step DivR64 instX86_64InstructionDivR64
+    { divisor := .r10 } core).fault = none at safe
+  change (@X86_64Instruction.step DivR64 instX86_64InstructionDivR64
+    { divisor := .r10 } core).rip = state.rip + 3
+  simp only [X86_64Instruction.step] at safe ⊢
+  split at safe
+  · contradiction
+  · rename_i hnonzero
+    split at safe
+    · contradiction
+    · rename_i hfits
+      simp [hnonzero, hfits, core]
+
+/-- The DIV successor is still ordinary Linux code: its read64 observation is the original
+ASCII instruction observation, proved via the concrete no-memory-write theorem. -/
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_extraction_div_ordinary (initial : X86_64MachineState)
+    (entry : initial.rip = spike2ExtractionAddress .clearHigh)
+    (authority : Spike2DecimalTextAuthority initial)
+    (safe : ExtractionExecutionSafety 236 initial) :
+    Spike2OrdinaryCode (extractionStates initial).2.1 := by
+  have rip : (extractionStates initial).2.1.rip = spike2ExtractionAddress .ascii := by
+    change (X86_64Instruction.step (div_r64 .r10) (extractionStates initial).1).rip = _
+    have divSafe : (X86_64Instruction.step (div_r64 .r10) (extractionStates initial).1).fault = none :=
+      safe.divSafe
+    have divRip := spike2_extraction_div_fallthrough (extractionStates initial).1 divSafe
+    rw [divRip]
+    rw [show (extractionStates initial).1.rip = initial.rip + 2 by rfl, entry]
+    decide
+  constructor
+  · rw [rip]
+    decide
+  · rw [rip]
+    change X86_64Mem.read .w64 (spike2ExtractionAddress .ascii)
+      (extractionStates initial).2.1.memory ≠ spike2ExtractionAddress .ascii
+    rw [extractionAfterDiv_preservesMemory initial]
+    exact authority.extractAscii
 
 end Spikes.Spike2Fibonacci.Linux
