@@ -368,4 +368,79 @@ private theorem resourceTail (state : X86_64MachineState)
     (by change state.fault = none; exact safe)
   simpa [afterExitCode, afterExitNumber] using ProductionPrefix.SelectedPrefix.append p0 p1
 
+private theorem syscall_preserves_rax (state : X86_64MachineState) :
+    (X86_64Instruction.step syscall_op state).gprs .rax = state.gprs .rax := rfl
+private theorem syscall_preserves_rdi (state : X86_64MachineState) :
+    (X86_64Instruction.step syscall_op state).gprs .rdi = state.gprs .rdi := rfl
+
+set_option maxHeartbeats 2000000 in
+private def resourceExitStep (state : X86_64MachineState)
+    (hrip : state.rip = spike3NoGrantResourceFailureBase) (safe : state.fault = none) :
+    letI : ExternalCallInterceptor X86_64 AnyEvent := spike3LinuxRuntime AnyEvent noNativeArenaGrant
+    ProductionPrefix.SelectedPrefix.SelectedProcessExitStep (Event := AnyEvent) noGrantSelected
+      spike3NoGrantResourceArtifactIndex (afterExitNumber state) spike3ResourceFailureExitCode := by
+  letI : ExternalCallInterceptor X86_64 AnyEvent := spike3LinuxRuntime AnyEvent noNativeArenaGrant
+  have hrax : (X86_64Instruction.step syscall_op (afterExitNumber state)).gprs .rax = 60 := by
+    rw [syscall_preserves_rax, afterExitNumber_rax]
+  have hrdi : (X86_64Instruction.step syscall_op (afterExitNumber state)).gprs .rdi =
+      spike3ResourceFailureExitCode.toUInt64 := by
+    rw [syscall_preserves_rdi, afterExitNumber_rdi]
+  refine {
+    instruction := syscall_op
+    hooked := (Gasm.Targets.Linux.sysExitHook
+      (Event := AnyEvent) (X86_64Instruction.step syscall_op (afterExitNumber state))).1
+    event := (Gasm.Targets.Linux.sysExitHook
+      (Event := AnyEvent) (X86_64Instruction.step syscall_op (afterExitNumber state))).2
+    encoding := .syscall
+    lookup := ?_
+    selectedAt := ?_
+    steppedSafe := ?_
+    intercept := ?_
+    exits := ?_ }
+  · change instructionAtRipIndexed spike3NoGrantResourceArtifactIndex
+      (afterExitNumber state).rip = some syscall_op
+    rw [afterExitNumber_rip state hrip]
+    have haddr : spike3NoGrantResourceFailureBase + 10 =
+        spike3NoGrantResourceFailureBase + 5 + 5 := by
+      rw [spike3_no_grant_resource_failure_base]
+      decide
+    rw [haddr]
+    exact spike3_no_grant_resource_failure_lookup
+      (spike3NoGrantResourceFailureBase + 10, syscall_op) (by
+        have h0 : (X86_64Instruction.encode (mov_r32 .edi spike3ResourceFailureExitCode)).size = 5 := rfl
+        have h1 : (X86_64Instruction.encode (mov_r32 .eax 60)).size = 5 := rfl
+        simp [indexInstructions, indexInstructions.loop, spike3ResourceFailureInstructions, h0, h1, haddr])
+  · change noGrantSelected linuxSyscallEntry
+      (X86_64Instruction.step syscall_op (afterExitNumber state)) = true
+    simp [noGrantSelected, hrax, SYS_mmap, SYS_exit]
+  · change state.fault = none
+    exact safe
+  · change spike3LinuxCallIntercept noNativeArenaGrant linuxSyscallEntry
+      (X86_64Instruction.step syscall_op (afterExitNumber state)) =
+        some ((Gasm.Targets.Linux.sysExitHook (Event := AnyEvent)
+          (X86_64Instruction.step syscall_op (afterExitNumber state))).1,
+          (Gasm.Targets.Linux.sysExitHook (Event := AnyEvent)
+            (X86_64Instruction.step syscall_op (afterExitNumber state))).2)
+    have hnotMmap : (60 : UInt64) ≠ SYS_mmap := by decide
+    simp [spike3LinuxCallIntercept, linuxCallIntercept, linuxSyscallIntercept, hrax, hrdi,
+      hnotMmap, Gasm.Targets.Linux.sysExitHook]
+  · simp [Gasm.Targets.Linux.sysExitHook, hrdi]
+
+theorem noGrantPreparationTerminates (stdin : ByteArray) (slack : Nat) :
+    letI : ExternalCallInterceptor X86_64 AnyEvent := spike3LinuxRuntime AnyEvent noNativeArenaGrant
+    selectedExecutionTerminates (Event := AnyEvent) false noGrantSelected
+      spike3NoGrantResourceArtifactIndex (14 + slack) (noGrantInitial stdin) = true := by
+  letI : ExternalCallInterceptor X86_64 AnyEvent := spike3LinuxRuntime AnyEvent noNativeArenaGrant
+  have trace := ProductionPrefix.SelectedPrefix.append
+    (ProductionPrefix.SelectedPrefix.append
+      (ProductionPrefix.SelectedPrefix.append
+        (ProductionPrefix.SelectedPrefix.append (entryOrdinaryPrefix stdin) (mmapRejectionPrefix stdin))
+          (cmpPrefix stdin))
+      (branchToResourcePrefix stdin))
+    (resourceTail (afterBranch stdin) (afterBranch_rip stdin) (afterBranch_safe stdin))
+  have h := ProductionPrefix.SelectedPrefix.selectedExecutionTerminates_of_processExit_with_slack
+    (allowHalted := false) trace
+    (resourceExitStep (afterBranch stdin) (afterBranch_rip stdin) (afterBranch_safe stdin)) slack
+  simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using h
+
 end Spikes.Spike3SortLines.Linux
