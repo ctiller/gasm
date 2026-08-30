@@ -66,6 +66,59 @@ private theorem stepJge32 (disp : Int32) (state : X86_64MachineState) :
       { state with rip := if state.sf == state.of_ then
           state.rip + 6 + signExtend32To64 disp else state.rip + 6 } := rfl
 
+/-- The non-terminal main-header edge.  This is the typed entry producer for every reachable
+formatter row; callers supply the signed counter fact instead of unfolding the driver. -/
+theorem spike2_main_header_fallthrough_selected_prefix (state : X86_64MachineState)
+    (eventsRev : List AnyEvent)
+    (hrip : state.rip = spike2WindowsMainLoopRip)
+    (continues : ¬ X86BranchCondition.greaterEqual.holds
+      (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state))
+    (hsafe : state.fault = none) :
+    ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 2 state eventsRev
+      (spike2AfterMainHeader state) eventsRev [] := by
+  change ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed (1 + 1) state
+    eventsRev (spike2AfterMainHeader state) eventsRev []
+  have hcmpRip : (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip = 5368713271 := by
+    rw [stepCmpImm8, hrip, spike2WindowsMainLoopRip_eq]
+    rfl
+  have hbodyRip : (spike2AfterMainHeader state).rip = 5368713277 := by
+    unfold spike2AfterMainHeader
+    simp only [X86BranchCondition.holds] at continues
+    rw [stepJge32]
+    simp [continues, hcmpRip]
+  refine ProductionPrefix.SelectedPrefix.ordinary
+    (Event := AnyEvent) (selected := selectedNonInputPlatformCall) (indexed := spike2Indexed)
+    sequentialCmpCounter ?_ ?_ ?_ ?_ ?_
+  · rw [hrip]
+    exact spike2MainLoop_fetch
+  · simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
+      Gasm.Targets.Windows.findIatIndex, hcmpRip, linuxSyscallEntry]
+  · change (if (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip ==
+        linuxSyscallEntry then linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+    rw [hcmpRip]
+    simp [linuxSyscallEntry, Gasm.Targets.Windows.win32Intercept,
+      Gasm.Targets.Windows.findIatIndex]
+  · rw [stepCmpImm8]
+    exact hsafe
+  · refine ProductionPrefix.SelectedPrefix.conditionalFallthrough
+      (Event := AnyEvent) (selected := selectedNonInputPlatformCall) (indexed := spike2Indexed)
+      (.jge32 267) continues ?_ ?_ ?_ ?_ (.nil _ _)
+    · rw [hcmpRip]
+      rfl
+    · change selectedNonInputPlatformCall (spike2AfterMainHeader state).rip
+        (spike2AfterMainHeader state) = true
+      simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
+        Gasm.Targets.Windows.findIatIndex, hbodyRip, linuxSyscallEntry]
+    · change ExternalCallInterceptor.interceptCall X86_64 (spike2AfterMainHeader state).rip
+        (spike2AfterMainHeader state) = none
+      change (if (spike2AfterMainHeader state).rip == linuxSyscallEntry then
+          linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+      rw [hbodyRip]
+      simp [linuxSyscallEntry, Gasm.Targets.Windows.win32Intercept,
+        Gasm.Targets.Windows.findIatIndex]
+    · change state.fault = none
+      exact hsafe
+
 /-- The terminal main-header branch takes the linked `jge` edge.  Selection and silence at the
 landing point are explicit inputs, so this producer exports no expanded predecessor state. -/
 theorem spike2_main_header_taken_selected_prefix (state : X86_64MachineState)
