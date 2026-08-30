@@ -11,11 +11,12 @@ slots, and must model finite memory growth and its explicit failure outcome.
 ### Execution resources
 
 The target runtime receives a concrete `WasiResourceBudget` at the established program entry;
-it is not a constant owned by `WasiArtifact`.  This lets a capability select finite evaluator
-fuel for the particular finite `Environment` without narrowing `stdin`.  A program that promises
-post-preparation progress must prove its selected per-input fuel grant sufficient.  Linear-memory
-pages remain finite and fallible: a sorter, for example, may report allocation exhaustion during
-preparation, but cannot turn that outcome into successful output.
+`WasiArtifact.defaultResources` is only a profile for fixed-runtime tools and is never consumed by
+`Platform.run`. This lets a capability select finite evaluator fuel for the particular finite
+`Environment` without narrowing `stdin`. A program that promises post-preparation progress must
+prove its selected per-input fuel grant sufficient. Linear-memory pages remain finite and fallible:
+a sorter, for example, may report allocation exhaustion during preparation, but cannot turn that
+outcome into successful output.
 
 ---
 

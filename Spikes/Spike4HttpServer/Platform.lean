@@ -281,7 +281,7 @@ def spike4LinuxCapabilities : CapabilityComposition (LinuxX86_64 AnyEvent) where
 
 def spike4WasiCapabilities : CapabilityComposition WasiPlatform where
   root := wasiParserCapability
-  realize := fun artifact _ => { host := spike4WasiRuntime, resources := artifact.resources }
+  realize := fun artifact _ => { host := spike4WasiRuntime, resources := artifact.defaultResources }
   realizeSupports := by
     intro context artifact provider membership linked
     simp [wasiParserCapability, spike4WasiProviders] at membership
@@ -303,7 +303,7 @@ def spike4WasiArtifact : WasiArtifact :=
     instructions := Wasm.spike4WasmInstructions
     dataSegments := Wasm.spike4DataSegments
     imports := Wasm.spike4WasmImports
-    resources := { fuel := 512, memoryPages := 1 } }
+    defaultResources := { fuel := 512, memoryPages := 1 } }
 
 def spike4WindowsParserConnection : WindowsParserConnection spike4WindowsArtifact where
   driver := streamingParserDriverConnection

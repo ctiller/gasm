@@ -79,7 +79,7 @@ def spike1WasiArtifact : WasiArtifact where
   instructions := spike1WasmInstructions
   dataSegments := spike1DataSegments
   imports := ["fd_write", "proc_exit"]
-  resources := { fuel := 100, memoryPages := 65536 }
+  defaultResources := { fuel := 100, memoryPages := 65536 }
 
 def spike1WasiExports : VerifiedExportSet Unit Unit WasiPlatform
     wasiBoundarySpec wasiBoundarySemantics :=

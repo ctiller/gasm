@@ -788,17 +788,17 @@ def runWasiTrace (instrs : List WasmInstr) (segments : List WasmDataSegment) (st
 open Gasm.Core.Platform
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
-/-- Complete WASI artifact tied to instructions and import ABI.  `resources` records an artifact
-    profile/default for tools and fixed-runtime callers; `Platform.run` deliberately consumes the
-    concrete `WasiRuntime.resources` selected at entry instead.  A universal verified program
-    must therefore establish any input-dependent fuel provision through its capability context. -/
+/-- Complete WASI artifact tied to instructions and import ABI. `defaultResources` is an artifact
+    profile for tools and fixed-runtime callers; `Platform.run` deliberately consumes the concrete
+    `WasiRuntime.resources` selected at entry instead. A universal verified program must therefore
+    establish any input-dependent fuel provision through its capability context. -/
 structure WasiArtifact where
   module : WasmModule
   typeSignatures : List FuncType
   instructions : List WasmInstr
   dataSegments : List WasmDataSegment
   imports : List String := ["fd_write", "proc_exit"]
-  resources : WasiResourceBudget
+  defaultResources : WasiResourceBudget
 
 /-- One exact host-import slot.  Carrying the complete import vector prevents
     an index proof for one module from being reused against another module's

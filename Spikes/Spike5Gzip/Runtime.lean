@@ -474,7 +474,7 @@ def wasiStreamArtifact (direction : CodecDirection) : WasiArtifact :=
     instructions := wasiStreamInstructions
     dataSegments := []
     imports := streamImportNames direction
-    resources := { fuel := 16, memoryPages := 1 } }
+    defaultResources := { fuel := 16, memoryPages := 1 } }
 
 theorem empty_wasi_memory_size : WasmMem.size (initWasmMemory []) = 65536 := by
   change (List.replicate 65536 (0 : UInt8)).length = 65536
@@ -503,7 +503,7 @@ def wasiStreamingCapabilities (direction : CodecDirection) :
     CapabilityComposition WasiPlatform where
   root := wasiStreamingCapability direction
   realize := fun artifact context =>
-    { host := wasiStreamingHost context, resources := artifact.resources }
+    { host := wasiStreamingHost context, resources := artifact.defaultResources }
   realizeSupports := by
     intro context artifact provider hprovider hlinked
     change WasiStreamingContext at context

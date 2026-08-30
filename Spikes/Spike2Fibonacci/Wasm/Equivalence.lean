@@ -139,7 +139,7 @@ instance : Platform Spike2WasiPlatform where
   load := fun _ environment => environment
   run := fun runtime artifact environment =>
     (runWasiOutcomeWithHost runtime artifact.instructions artifact.dataSegments environment.stdin
-      artifact.imports environment.incomingRequests artifact.resources).observable
+      artifact.imports environment.incomingRequests artifact.defaultResources).observable
   admissible := fun _ artifact _ =>
     ∃ bytes, emitWasmBinary artifact.module artifact.typeSignatures = .ok bytes
   emit := fun artifact => emitWasmBinary artifact.module artifact.typeSignatures
@@ -278,7 +278,7 @@ def spike2WasiArtifact : WasiArtifact where
   instructions := spike2WasmInstructions
   dataSegments := spike2DataSegments
   imports := ["fd_write", "proc_exit"]
-  resources := { fuel := defaultWasmFuel, memoryPages := 65536 }
+  defaultResources := { fuel := defaultWasmFuel, memoryPages := 65536 }
 
 def spike2FibExport : Export := { name := "fibIter", desc := .func 3 }
 
