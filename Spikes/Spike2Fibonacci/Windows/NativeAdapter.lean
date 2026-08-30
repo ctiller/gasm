@@ -83,6 +83,29 @@ theorem spike2MainLoop_fetch :
     instructionAtRipIndexed spike2Indexed spike2WindowsMainLoopRip = some (cmp_r64_imm8 .r13 91) := by
   rfl
 
+/-- Opaque fetch facts for the fixed WriteFile/recurrence tail.  Keeping these in the local
+linked-image producer prevents row consumers from reducing the full instruction index. -/
+theorem spike2WriteFile_fetch :
+    instructionAtRipIndexed spike2Indexed 5368713517 = some (call_rip 0x1edd) := by rfl
+
+theorem spike2Recurrence_mov_fetch :
+    instructionAtRipIndexed spike2Indexed 5368713523 = some (mov_r64 .r8 .r14) := by rfl
+
+theorem spike2Recurrence_add_fetch :
+    instructionAtRipIndexed spike2Indexed 5368713526 = some (add_r64 .r8 .r15) := by rfl
+
+theorem spike2Recurrence_mov14_fetch :
+    instructionAtRipIndexed spike2Indexed 5368713529 = some (mov_r64 .r14 .r15) := by rfl
+
+theorem spike2Recurrence_mov15_fetch :
+    instructionAtRipIndexed spike2Indexed 5368713532 = some (mov_r64 .r15 .r8) := by rfl
+
+theorem spike2Recurrence_inc_fetch :
+    instructionAtRipIndexed spike2Indexed 5368713535 = some (add_r64_imm8 .r13 1) := by rfl
+
+theorem spike2Recurrence_backedge_fetch :
+    instructionAtRipIndexed spike2Indexed 5368713539 = some (jmp_rel32 (-277)) := by rfl
+
 /-- The seven linked setup transitions form a selected production prefix.  The third transition
 is the actual IAT `GetStdHandle` call, so it cannot be replaced by a trace-only account of the
 driver's initial register state. -/
