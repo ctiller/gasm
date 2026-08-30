@@ -372,8 +372,10 @@ Implemented in `Gasm.Core.AbiContext`:
 - non-prophetic relational entry tuples, relational result/outcome/post-world exit tuples, and
   relational physical/logical worlds;
 - assume/guarantee realization requiring physical admissibility and logical refinement for every
-  execution entered from a related world satisfying the contract precondition; and
+  execution entered from a related world satisfying the contract precondition;
 - caller-side `EstablishedBoundaryEntry` evidence for every canonical external environment;
+- `VerifiedBoundaryCall`, which combines exact final-export membership with caller establishment
+  and derives the exact result/outcome-indexed transition for a run of that final artifact;
 - exact `VerifiedExportSet` manifests, unique target lookup keys, proof-bearing callable entries,
   one final artifact identity, and target-owned joint admissibility;
 - the target-optional `TargetLinkSemantics`, final-artifact `JointLinkCertificate`, and generic
