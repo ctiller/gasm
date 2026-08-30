@@ -146,12 +146,21 @@ theorem Interned.weakenLeft {Arch BlockId : Type} [TargetArch Arch]
 end BlockRef
 
 /- REF: docs/MACRO_ASSEMBLER.md#next-control-flow-slice -/
-/-- Authoring terminators for the first selected control-flow slice. Direct jumps retain the exact
-    core `BlockEdge`; target-free terminators carry no artificial target-closure obligation. -/
+/-- Authoring terminators for direct and conditional control-flow slices. Branches retain the exact
+    core edge contracts; target-free terminators carry no artificial target-closure obligation. -/
 inductive DirectTerminator {Arch BlockId : Type} [TargetArch Arch] {S : Type}
     (exit : ComposedState Arch S) where
   | jmp (target : BlockRef Arch BlockId) (edge : BlockEdge (BlockId := BlockId) exit)
       (targetExact : edge.target = target.entry) : DirectTerminator exit
+  | jcc (condition : ConditionCode Arch)
+      (targetTrue : BlockRef Arch BlockId)
+      (edgeTrue : ConditionalBlockEdge (BlockId := BlockId) exit
+        (condition.holds exit.machine))
+      (trueExact : edgeTrue.target = targetTrue.entry)
+      (targetFalse : BlockRef Arch BlockId)
+      (edgeFalse : ConditionalBlockEdge (BlockId := BlockId) exit
+        (¬ condition.holds exit.machine))
+      (falseExact : edgeFalse.target = targetFalse.entry) : DirectTerminator exit
   | ret (exportedObligations : List ObligationToken) (bytesToPop : UInt16 := 0)
       (stackClean : exit.stackDepth = 0)
       (obligationsMatch : exit.obligations = exportedObligations)
@@ -173,6 +182,24 @@ def jmpToBlock {Arch BlockId : Type} [TargetArch Arch] {S : Type}
     DirectTerminator (BlockId := BlockId) exit :=
   .jmp (BlockRef.ofBlock target) edge targetExact
 
+/- REF: docs/MACRO_ASSEMBLER.md#typed-conditional-branching -/
+/-- Author a conditional branch from the two supplied target block values. Both exact definitions
+    are retained for static closure; each `ConditionalBlockEdge` asks for its entry contract only
+    when its corresponding runtime proposition is selected. -/
+def jccToBlocks {Arch BlockId : Type} [TargetArch Arch] {S : Type}
+    {exit : ComposedState Arch S} (condition : ConditionCode Arch)
+    (targetTrue : BasicBlock Arch BlockId)
+    (edgeTrue : ConditionalBlockEdge (BlockId := BlockId) exit
+      (condition.holds exit.machine))
+    (trueExact : edgeTrue.target = targetTrue.entry)
+    (targetFalse : BasicBlock Arch BlockId)
+    (edgeFalse : ConditionalBlockEdge (BlockId := BlockId) exit
+      (¬ condition.holds exit.machine))
+    (falseExact : edgeFalse.target = targetFalse.entry) :
+    DirectTerminator (BlockId := BlockId) exit :=
+  .jcc condition (BlockRef.ofBlock targetTrue) edgeTrue trueExact
+    (BlockRef.ofBlock targetFalse) edgeFalse falseExact
+
 /- REF: docs/MACRO_ASSEMBLER.md#next-control-flow-slice -/
 /-- Nominal remapping preserves the selected terminator and all of its core contracts. -/
 def mapId {Arch OldId NewId : Type} [TargetArch Arch] {S : Type}
@@ -181,6 +208,11 @@ def mapId {Arch OldId NewId : Type} [TargetArch Arch] {S : Type}
   | .jmp target edge targetExact =>
       .jmp (target.mapId map) (mapEdgeId map edge)
         (congrArg (mapEntryId map) targetExact)
+  | .jcc condition targetTrue edgeTrue trueExact targetFalse edgeFalse falseExact =>
+      .jcc condition (targetTrue.mapId map) (mapConditionalEdgeId map edgeTrue)
+        (congrArg (mapEntryId map) trueExact)
+        (targetFalse.mapId map) (mapConditionalEdgeId map edgeFalse)
+        (congrArg (mapEntryId map) falseExact)
   | .ret obligations bytesToPop stackClean obligationsMatch callee =>
       .ret obligations bytesToPop stackClean obligationsMatch callee
   | .sysExit exitCode droppable => .sysExit exitCode droppable
@@ -192,17 +224,20 @@ def toCpu {Arch BlockId : Type} [TargetArch Arch] {S : Type}
     {exit : ComposedState Arch S} : DirectTerminator (BlockId := BlockId) exit →
       CpuTerminator Arch BlockId exit
   | .jmp _ edge _ => .jmp edge
+  | .jcc condition _ edgeTrue _ _ edgeFalse _ => .jcc condition edgeTrue edgeFalse
   | .ret obligations bytesToPop stackClean obligationsMatch callee =>
       .ret obligations bytesToPop stackClean obligationsMatch callee
   | .sysExit exitCode droppable => .sysExit exitCode droppable
   | .halt droppable => .halt droppable
 
 /- REF: docs/MACRO_ASSEMBLER.md#next-control-flow-slice -/
-/-- Only a selected direct jump asks the builder for target membership. -/
+/-- Only selected static branch forms ask the builder for their applicable target memberships. -/
 def TargetsInterned {Arch BlockId : Type} [TargetArch Arch] {S : Type}
     {exit : ComposedState Arch S} (blocks : List (BasicBlock Arch BlockId)) :
     DirectTerminator (BlockId := BlockId) exit → Prop
   | .jmp target _ _ => target.Interned blocks
+  | .jcc _ targetTrue _ _ targetFalse _ _ =>
+      targetTrue.Interned blocks ∧ targetFalse.Interned blocks
   | .ret .. | .sysExit .. | .halt .. => True
 
 theorem TargetsInterned.weakenRight {Arch BlockId : Type} [TargetArch Arch] {S : Type}
@@ -212,6 +247,7 @@ theorem TargetsInterned.weakenRight {Arch BlockId : Type} [TargetArch Arch] {S :
     terminator.TargetsInterned (before ++ after) := by
   cases terminator with
   | jmp => exact BlockRef.Interned.weakenRight closed
+  | jcc => exact ⟨closed.1.weakenRight, closed.2.weakenRight⟩
   | ret | sysExit | halt => trivial
 
 theorem TargetsInterned.weakenLeft {Arch BlockId : Type} [TargetArch Arch] {S : Type}
@@ -221,12 +257,13 @@ theorem TargetsInterned.weakenLeft {Arch BlockId : Type} [TargetArch Arch] {S : 
     terminator.TargetsInterned (before ++ after) := by
   cases terminator with
   | jmp => exact BlockRef.Interned.weakenLeft closed
+  | jcc => exact ⟨closed.1.weakenLeft, closed.2.weakenLeft⟩
   | ret | sysExit | halt => trivial
 
 end DirectTerminator
 
 /- REF: docs/MACRO_ASSEMBLER.md#next-control-flow-slice -/
-/-- A block authored with only direct symbolic jumps and target-free terminators. -/
+/-- A block authored with direct/conditional symbolic branches and target-free terminators. -/
 structure DirectBlock (Arch : Type) [TargetArch Arch] (BlockId : Type) where
   entry : BlockEntry Arch BlockId
   body : (state : ComposedState Arch entry.State) → entry.accepts state →
@@ -321,6 +358,8 @@ theorem mapId {Arch OldId NewId : Type} [TargetArch Arch] {S : Type}
       ((blocks.map (DirectBlock.mapId map)).map DirectBlock.toBasicBlock) := by
   cases terminator with
   | jmp => exact BlockRef.Interned.mapId map closed
+  | jcc => exact ⟨BlockRef.Interned.mapId map closed.1,
+      BlockRef.Interned.mapId map closed.2⟩
   | ret | sysExit | halt => trivial
 
 end DirectTerminator.TargetsInterned
@@ -634,6 +673,9 @@ def finalize {Arch BlockId : Type} [TargetArch Arch]
     cases terminator with
     | jmp target edge targetExact =>
         exact ⟨target.definition, closed, targetExact.symm⟩
+    | jcc condition targetTrue edgeTrue trueExact targetFalse edgeFalse falseExact =>
+        exact ⟨⟨targetTrue.definition, closed.1, trueExact.symm⟩,
+          targetFalse.definition, closed.2, falseExact.symm⟩
     | ret | sysExit | halt => trivial
 
 end Builder

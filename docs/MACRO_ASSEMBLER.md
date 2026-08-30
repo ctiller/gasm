@@ -240,7 +240,7 @@ derives the existing `TypedControlFlowGraph` fields (`entryInGraph`, `uniqueIds`
 `Fin` injections. Byte layout remains entirely deferred to the linker and operational realization.
 
 Recursive and mutually recursive components remain a later finite fixpoint-builder extension over
-the same nominal IDs. CALL/JCC/indirect forms remain unselected and therefore add no obligations in
+the same nominal IDs. CALL/indirect forms remain unselected and therefore add no obligations in
 this slice. When added, CALL must carry return-continuation, ABI, obligation-transfer, and
 exceptional/cancellation contracts, while indirect edges must carry closed target-set resolution.
 An authoring form such as “back five instructions” must resolve immediately to a typed
@@ -270,6 +270,20 @@ neither whole-program termination nor platform
 admissibility, and creates no artifact or emission authority. Straight-line and other unselected
 forms acquire no relocation premise. After differential relayout, the CFG and edge proofs remain
 valid; only layout and relocation evidence is regenerated.
+
+### Typed conditional branching
+
+`DirectTerminator.jccToBlocks` accepts the true and false `BasicBlock` values themselves. The
+frontend retains both exact definitions, both existing core `ConditionalBlockEdge`s, and exact
+entry identities. Both definitions must already be interned, so `BuildHistory` remains finite and
+acyclic; injective remapping and collision-free composition transport both memberships. Static CFG
+closure publishes both possible successors, while `ConditionalBlockEdge.activate` and the core
+selected-edge relation require the entry contract only for the runtime-selected path. Blocks using
+JMP, RET, exit, or halt acquire no conditional-branch premise.
+
+This frontend step does not yet choose a concrete JCC encoding. The narrow x86 linker form uses one
+near-JCC rel32 target and one proved fallthrough target; arbitrary placement requires a later proved
+JCC-plus-JMP terminator sequence rather than pretending a single JCC has two displacements.
 
 ## Differential certificate transport
 
