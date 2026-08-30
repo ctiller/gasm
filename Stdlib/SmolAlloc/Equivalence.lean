@@ -84,9 +84,11 @@ structure SmolAllocatorFrame where
   freeHead : UInt64
   memory   : X86_64Memory
 
-/-- The structural fresh-allocation decision used by the finite-arena contract.  It mirrors the
-    three pre-write guards in `smolMallocSymbolicProgram`: alignment overflow, header overflow,
-    and the exact `bump`/`endExclusive` capacity check. -/
+/-- The structural *fresh-path* allocation decision used by finite-arena guard reasoning.  It
+    mirrors the three pre-write guards in `smolMallocSymbolicProgram`: alignment overflow, header
+    overflow, and the exact `bump`/`endExclusive` capacity check.  It intentionally does not
+    model allocator header writes or free-list reuse; clients requiring those facts must use an
+    emitted-call trace such as Spike 3's `NativeOperationTrace`. -/
 def smolFreshAllocation (request : UInt64) (arena : NativeArenaCapability)
     (frame : SmolAllocatorFrame) : Option SmolAllocatorFrame :=
   if request > 0xFFFFFFFFFFFFFFFF - 7 then

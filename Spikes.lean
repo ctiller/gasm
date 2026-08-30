@@ -62,6 +62,9 @@ import Spikes.Spike3SortLines.Composition
 import Spikes.Spike3SortLines.ReadBinderBridge
 import Spikes.Spike3SortLines.LogicalWorld
 import Spikes.Spike3SortLines.TargetBridge
+import Spikes.Spike3SortLines.NativeSpecification
+import Spikes.Spike3SortLines.Linux.OutcomeAdapter
+import Spikes.Spike3SortLines.Windows.OutcomeAdapter
 import Spikes.Spike3SortLines.Windows.Program
 import Spikes.Spike3SortLines.Windows.Equivalence
 import Spikes.Spike3SortLines.TraceStepLemmas

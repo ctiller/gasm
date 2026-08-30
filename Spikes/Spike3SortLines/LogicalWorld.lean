@@ -715,6 +715,12 @@ inductive PhaseTransition (lineUniverse : LineUniverse LineId)
   | read {before after}
       (step : ReadingState.Step lineUniverse before after) :
       PhaseTransition lineUniverse authority (.reading before) (.reading after)
+  /-- EOF is an observable reading transition.  A nonempty pending tail must receive its fresh
+      nominal line identity before preparation can seal source storage; an empty tail after LF
+      remains unchanged. -/
+  | finalize {before after}
+      (step : ReadingState.Finalizes lineUniverse before after) :
+      PhaseTransition lineUniverse authority (.reading before) (.reading after)
   | prepared {state prepared}
       (reading_exact : prepared.certificate.storage.reading.finalized = state) :
       PhaseTransition lineUniverse authority (.reading state)
@@ -750,6 +756,15 @@ theorem PhaseTransition.prepared_source
     (reading_exact : prepared.certificate.storage.reading.finalized = state) :
     PhaseTransition lineUniverse authority (.reading state) (.readyToSort prepared) :=
   .prepared reading_exact
+
+/-- EOF finalization is reachable in the operational phase machine, rather than only inside a
+    storage certificate. -/
+theorem PhaseTransition.finalizes_input {lineUniverse : LineUniverse LineId}
+    {authority : PreparationAuthority World Concrete Storage Table LineId lineUniverse stdin capacity chunks}
+    {before after : ReadingState LineId}
+    (step : ReadingState.Finalizes lineUniverse before after) :
+    PhaseTransition lineUniverse authority (.reading before) (.reading after) :=
+  .finalize step
 
 /-- Once `ReadyToSort` exists, beginning sort needs no allocator premise: all finite resource
     acquisition was discharged by preparation. -/

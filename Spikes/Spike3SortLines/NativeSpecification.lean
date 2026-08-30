@@ -24,9 +24,9 @@ Phase-indexed native preparation evidence shared by the Linux and Win32 bridges.
 An accepted OS reservation is not preparation success.  The evidence below
 follows the actual phases: a refused reservation stops immediately; an admitted
 reservation exposes classified ingestion; completed ingestion exposes the exact
-descriptor-table allocation result.  Every actual allocator request is carried
-through `smolFreshAllocationOutcome`, which includes the implementation's
-rounding, header, and finite-arena boundary checks.
+descriptor-table allocation result.  `smolFreshAllocationOutcome` is only the
+fresh-allocation guard model; this module records full emitted malloc/free calls
+and their frame transitions so header writes and free-list reuse are not erased.
 -/
 
 namespace Spikes.Spike3SortLines
@@ -102,7 +102,9 @@ def nativeRetainedLinesRequests (stored : List (List UInt8)) : List UInt64 :=
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#3-in-memory-line-tokenization-lexicographical-ordering -/
 /-- The actual native descriptor table has sixteen-byte slots (pointer, length, next/order
-metadata), so the lowered `shl rcx, 4` request is exactly this UInt64 product. -/
+metadata), so this is the lowered `shl rcx, 4` *UInt64* request.  It is modular by definition;
+`NativeTableRequestFits` is carried by a successful nonempty preparation before treating it as a
+nonwrapping mathematical `count * 16` allocation. -/
 def nativeSortTableRequest (stored : List (List UInt8)) : UInt64 :=
   stored.length.toUInt64 * 16
 
@@ -170,12 +172,35 @@ def NativeMallocPurpose.request : NativeMallocPurpose → UInt64
   | .retainedNode _ => 24
   | .sortTable stored => nativeSortTableRequest stored
 
+/-- The allocation owning a live native payload.  Free operations name this owner as well as the
+payload address, preventing an EOF/growth free from being justified by an unrelated allocation. -/
+inductive NativeAllocationOwner where
+  | startupReadBuffer
+  | lineBuffer (capacity : UInt64)
+  | retainedPayload (line : List UInt8)
+  | retainedNode (line : List UInt8)
+  | sortTable (stored : List (List UInt8))
+  deriving DecidableEq
+
+def NativeMallocPurpose.owner : NativeMallocPurpose → NativeAllocationOwner
+  | .startupReadBuffer => .startupReadBuffer
+  | .startupLineBuffer => .lineBuffer 256
+  | .growLineBuffer oldCapacity => .lineBuffer (oldCapacity + 256)
+  | .retainedPayload line => .retainedPayload line
+  | .retainedNode line => .retainedNode line
+  | .sortTable stored => .sortTable stored
+
 /-- `smol_free` sites are retained in the preparation trace because free-list reuse affects a
 later malloc result.  A growth step therefore cannot be treated as a fresh-only allocation. -/
 inductive NativeFreePurpose where
   | replaceLineBuffer (oldCapacity : UInt64)
   | eofReadBuffer
-  | eofLineBuffer
+  | eofLineBuffer (capacity : UInt64)
+
+def NativeFreePurpose.owner : NativeFreePurpose → NativeAllocationOwner
+  | .replaceLineBuffer capacity => .lineBuffer capacity
+  | .eofReadBuffer => .startupReadBuffer
+  | .eofLineBuffer capacity => .lineBuffer capacity
 
 inductive NativePreparationOperation where
   | malloc (purpose : NativeMallocPurpose)
@@ -186,36 +211,64 @@ def NativePreparationOperation.request? : NativePreparationOperation → Option 
   | .free .. => none
 
 /-- An ordered projection of actual `smol_malloc`/`smol_free` executions.  Adjacent allocator
-frames include all header writes and free-list reuse. -/
+frames include all header writes and free-list reuse, while the `live` indices ensure each free
+uses the exact pointer returned by the preceding allocation of its named owner. -/
 inductive NativeOperationTrace (arena : NativeArenaCapability) :
-    SmolAllocatorFrame → List NativePreparationOperation → SmolAllocatorFrame → Prop where
-  | empty (frame : SmolAllocatorFrame) : NativeOperationTrace arena frame [] frame
+    SmolAllocatorFrame → List (NativeAllocationOwner × UInt64) →
+      List NativePreparationOperation → SmolAllocatorFrame → List (NativeAllocationOwner × UInt64) → Prop where
+  | empty (frame : SmolAllocatorFrame) (live : List (NativeAllocationOwner × UInt64)) :
+      NativeOperationTrace arena frame live [] frame live
   | malloc {before after finish : SmolAllocatorFrame} {purpose : NativeMallocPurpose}
+      {payload : UInt64} {live liveFinish : List (NativeAllocationOwner × UInt64)}
       {operations : List NativePreparationOperation}
       (call : NativeAllocatorCall arena purpose.request before after .allocated)
-      (rest : NativeOperationTrace arena after operations finish) :
-      NativeOperationTrace arena before (.malloc purpose :: operations) finish
+      (returned : call.machineAfter.gprs .rax = payload)
+      (rest : NativeOperationTrace arena after ((purpose.owner, payload) :: live) operations finish liveFinish) :
+      NativeOperationTrace arena before live (.malloc purpose :: operations) finish liveFinish
   | free {before after finish : SmolAllocatorFrame} {purpose : NativeFreePurpose}
-      {payload : UInt64} {operations : List NativePreparationOperation}
+      {payload : UInt64} {live liveFinish : List (NativeAllocationOwner × UInt64)}
+      {operations : List NativePreparationOperation}
+      (owned : (purpose.owner, payload) ∈ live)
       (call : NativeAllocatorFreeCall before after payload)
-      (rest : NativeOperationTrace arena after operations finish) :
-      NativeOperationTrace arena before (.free purpose payload :: operations) finish
+      (rest : NativeOperationTrace arena after (live.erase (purpose.owner, payload)) operations finish liveFinish) :
+      NativeOperationTrace arena before live (.free purpose payload :: operations) finish liveFinish
+
+/- REF: docs/ABI_CONTEXT.md#7-finite-allocation-and-request-accounting -/
+/-- Bounds carried at the native boundary.  Lean `UInt64` arithmetic is modular; the phase model
+therefore does not claim a mathematical request size unless this premise rules out wrapping. -/
+def nativeUInt64Modulus : Nat := 18446744073709551616
+
+def NativeLineCapacityFits (line : List UInt8) (capacity : UInt64) : Prop :=
+  line.length + 1 < nativeUInt64Modulus ∧ line.length.toUInt64 + 1 ≤ capacity
+
+def NativeGrowthSafe (capacity : UInt64) : Prop :=
+  capacity ≤ 0xFFFFFFFFFFFFFFFF - 256
+
+def NativeTableRequestFits (stored : List (List UInt8)) : Prop :=
+  stored.length < nativeUInt64Modulus / 16
 
 /-- The source-derived portion of preparation.  A growth pair is always `malloc(cap + 256)`
-followed immediately by freeing the old buffer; retained lines always allocate payload then
-the 24-byte node in input order. -/
-inductive NativeIngestionOperationOrder : List (List UInt8) → List NativePreparationOperation → Prop where
-  | done : NativeIngestionOperationOrder [] []
-  | grow {lines : List (List UInt8)} {operations : List NativePreparationOperation}
-      (oldCapacity oldPayload : UInt64)
-      (rest : NativeIngestionOperationOrder lines operations) :
-      NativeIngestionOperationOrder lines
-        (.malloc (.growLineBuffer oldCapacity) :: .free (.replaceLineBuffer oldCapacity) oldPayload :: operations)
-  | retained {line : List UInt8} {lines : List (List UInt8)}
+followed immediately by freeing the old buffer.  It can occur only for the next line which does
+not fit, carries a nonwrapping bound, and recurs at the enlarged capacity; hence it cannot insert
+arbitrary/zero growth steps.  Retention consumes exactly one line in input order. -/
+inductive NativeIngestionOperationOrder : UInt64 → List (List UInt8) →
+    List NativePreparationOperation → UInt64 → Prop where
+  | done (capacity : UInt64) : NativeIngestionOperationOrder capacity [] [] capacity
+  | grow {capacity : UInt64} {line : List UInt8} {lines : List (List UInt8)}
+      {operations : List NativePreparationOperation} {finish : UInt64}
+      (safe : NativeGrowthSafe capacity)
+      (doesNotFit : ¬ NativeLineCapacityFits line capacity)
+      (oldPayload : UInt64)
+      (rest : NativeIngestionOperationOrder (capacity + 256) (line :: lines) operations finish) :
+      NativeIngestionOperationOrder capacity (line :: lines)
+        (.malloc (.growLineBuffer capacity) ::
+          .free (.replaceLineBuffer capacity) oldPayload :: operations) finish
+  | retained {capacity finish : UInt64} {line : List UInt8} {lines : List (List UInt8)}
       {operations : List NativePreparationOperation}
-      (rest : NativeIngestionOperationOrder lines operations) :
-      NativeIngestionOperationOrder (line :: lines)
-        (.malloc (.retainedPayload line) :: .malloc (.retainedNode line) :: operations)
+      (fits : NativeLineCapacityFits line capacity)
+      (rest : NativeIngestionOperationOrder capacity lines operations finish) :
+      NativeIngestionOperationOrder capacity (line :: lines)
+        (.malloc (.retainedPayload line) :: .malloc (.retainedNode line) :: operations) finish
 
 /-- The complete successful operation shape.  Startup failures are modeled separately; after
 both startup allocations, EOF always frees both staging buffers.  For empty input no table
@@ -223,25 +276,33 @@ allocation appears at all, while a nonempty finalized source has exactly one `co
 operation after those frees. -/
 structure NativePreparationPlan (stored : List (List UInt8)) where
   readBufferPayload : UInt64
-  lineBufferPayload : UInt64
+  initialLineBufferPayload : UInt64
   ingestionOperations : List NativePreparationOperation
-  ingestionExact : NativeIngestionOperationOrder stored ingestionOperations
+  finalLineCapacity : UInt64
+  finalLineBufferPayload : UInt64
+  ingestionExact : NativeIngestionOperationOrder 256 stored ingestionOperations finalLineCapacity
+  postEofOperations : List NativePreparationOperation
+  postEofExact : if stored = [] then postEofOperations = [] else
+    postEofOperations = [.malloc (.sortTable stored)]
+  tableRequestBound : stored ≠ [] → NativeTableRequestFits stored
   operations : List NativePreparationOperation
   operationsExact : operations =
     .malloc .startupReadBuffer :: .malloc .startupLineBuffer :: ingestionOperations ++
-      [.free .eofReadBuffer readBufferPayload, .free .eofLineBuffer lineBufferPayload] ++
-      (if stored = [] then [] else [.malloc (.sortTable stored)])
+      [.free .eofReadBuffer readBufferPayload,
+        .free (.eofLineBuffer finalLineCapacity) finalLineBufferPayload] ++ postEofOperations
 
 /-- A failed malloc is located at the next operation of the selected plan, after an exact prefix
 of actual allocator transitions.  It cannot silently skip a source line or invent a subsequent
 table result. -/
-structure NativeOperationRefusal (arena : NativeArenaCapability)
-    (start : SmolAllocatorFrame) where
+structure NativeOperationRefusal (arena : NativeArenaCapability) {stored : List (List UInt8)}
+    (plan : NativePreparationPlan stored) (start : SmolAllocatorFrame) where
   completedOperations : List NativePreparationOperation
   nextPurpose : NativeMallocPurpose
   remainingOperations : List NativePreparationOperation
   beforeFailure : SmolAllocatorFrame
-  successful : NativeOperationTrace arena start completedOperations beforeFailure
+  liveBeforeFailure : List (NativeAllocationOwner × UInt64)
+  selectedPlan : plan.operations = completedOperations ++ .malloc nextPurpose :: remainingOperations
+  successful : NativeOperationTrace arena start [] completedOperations beforeFailure liveBeforeFailure
   refused : NativeAllocatorCall arena nextPurpose.request beforeFailure beforeFailure .refused
 
 /- REF: docs/ABI_CONTEXT.md#7-finite-allocation-and-request-accounting -/
@@ -272,14 +333,16 @@ inductive NativePreparationEvidence (target : NativePreparationTarget)
   | startupReadBufferRefused
       (arena : NativeArenaCapability) (reservation : NativeReservationEvidence target context arena)
       (initial : SmolAllocatorFrame) (initialFrame : NativeAllocatorInitialFrame arena initial)
-      (failure : NativeOperationRefusal arena initial)
+      (plan : NativePreparationPlan (environmentInputLines environment))
+      (failure : NativeOperationRefusal arena plan initial)
       (firstOperation : failure.completedOperations = [] ∧
         failure.nextPurpose = NativeMallocPurpose.startupReadBuffer) :
       NativePreparationEvidence target context environment storageCapacity readCapacity chunks
   | startupLineBufferRefused
       (arena : NativeArenaCapability) (reservation : NativeReservationEvidence target context arena)
       (initial : SmolAllocatorFrame) (initialFrame : NativeAllocatorInitialFrame arena initial)
-      (failure : NativeOperationRefusal arena initial)
+      (plan : NativePreparationPlan (environmentInputLines environment))
+      (failure : NativeOperationRefusal arena plan initial)
       (firstOperation : failure.completedOperations =
         [NativePreparationOperation.malloc NativeMallocPurpose.startupReadBuffer] ∧
         failure.nextPurpose = NativeMallocPurpose.startupLineBuffer) :
@@ -294,14 +357,19 @@ inductive NativePreparationEvidence (target : NativePreparationTarget)
       (prepared untouchedTail : List (List UInt8)) (first : List UInt8)
       (ingestionRefused : ingestion = .refused prepared first untouchedTail)
       (inputPartition : environmentInputLines environment = prepared ++ first :: untouchedTail)
+      (plan : NativePreparationPlan (environmentInputLines environment))
       (prefixOperations : List NativePreparationOperation)
-      (prefixExact : NativeIngestionOperationOrder prepared prefixOperations)
+      (remainingIngestionOperations : List NativePreparationOperation)
       (failurePurpose : NativeIngestionFailurePurpose first)
-      (failure : NativeOperationRefusal arena initial)
+      (ingestionPlanSplit : plan.ingestionOperations = prefixOperations ++
+        .malloc failurePurpose.mallocPurpose :: remainingIngestionOperations)
+      (failure : NativeOperationRefusal arena plan initial)
       (firstFailedOperation : failure.completedOperations =
         NativePreparationOperation.malloc NativeMallocPurpose.startupReadBuffer ::
           NativePreparationOperation.malloc NativeMallocPurpose.startupLineBuffer :: prefixOperations ∧
-        failure.nextPurpose = failurePurpose.mallocPurpose) :
+        failure.nextPurpose = failurePurpose.mallocPurpose)
+      (nodePayloadImmediatelyBefore : failurePurpose = .node → ∃ beforePayload,
+        prefixOperations = beforePayload ++ [.malloc (.retainedPayload first)]) :
       NativePreparationEvidence target context environment storageCapacity readCapacity chunks
   | sortTableRefused
       (arena : NativeArenaCapability) (reservation : NativeReservationEvidence target context arena)
@@ -314,7 +382,7 @@ inductive NativePreparationEvidence (target : NativePreparationTarget)
       (sourceExact : stored = environmentInputLines environment)
       (nonempty : stored ≠ [])
       (plan : NativePreparationPlan stored)
-      (failure : NativeOperationRefusal arena initial)
+      (failure : NativeOperationRefusal arena plan initial)
       (tableIsNext : plan.operations = failure.completedOperations ++
         [NativePreparationOperation.malloc (NativeMallocPurpose.sortTable stored)] ++
           failure.remainingOperations ∧
@@ -331,7 +399,8 @@ inductive NativePreparationEvidence (target : NativePreparationTarget)
       (stored : List (List UInt8)) (ingestionCompleted : ingestion = .completed stored)
       (sourceExact : stored = environmentInputLines environment)
       (plan : NativePreparationPlan stored)
-      (trace : NativeOperationTrace arena initial plan.operations finish) :
+      (finishLive : List (NativeAllocationOwner × UInt64))
+      (trace : NativeOperationTrace arena initial [] plan.operations finish finishLive) :
       NativePreparationEvidence target context environment storageCapacity readCapacity chunks
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
