@@ -29,6 +29,25 @@ a generic Wasm cost framework: each subsequent loop lemma will consume the
 exact state relation produced here.
 -/
 
+/-- One ordinary production instruction consumes the two interpreter entries
+    (`evalInstrs` and `evalInstrMatch`) and leaves all continuation fuel
+    available to the exact remaining instruction list.  This local helper is
+    intentionally kept here rather than becoming a second evaluator or a
+    global cost model. -/
+theorem spike3_evalInstrs_step
+    (fuel : Nat) (instruction : WasmInstr) (rest : List WasmInstr)
+    (before after : WasmMachineState)
+    (hbefore : before.trapped = false) (hexit : before.exitCode = none)
+    (hstep : evalInstrMatch (fuel + 1) instruction before
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) = .ok (after, .next)) :
+    evalInstrs (fuel + 2) (instruction :: rest) before
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) =
+      evalInstrs (fuel + 1) rest after
+        (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) := by
+  rw [show fuel + 2 = (fuel + 1) + 1 from rfl]
+  simp only [evalInstrs, hbefore, hexit, Option.isSome_none, Bool.or_self,
+    Bool.false_eq_true, if_false, hstep]
+
 /-- One production `fd_read` with Spike 3's statically installed single
     512-byte iovec consumes exactly the available prefix, advances `stdinPos`
     by that amount, and writes the corresponding `nread`.  The memory facts
@@ -49,6 +68,33 @@ theorem spike3_fdRead_single_iovec
       (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos + Nat.min 512 (state.stdin.size - pos), stack := [] }), .next) := by
   exact wasiHostCall_fd_read_single state nreadPtr pos memoryAfterRead memoryAfter
     hpos hbuf hlen hwrite hnread
+
+/-- The `call 0` instruction used at the head of every Spike 3 ingestion
+    iteration consumes a fixed two-unit interpreter prefix and hands the exact
+    host-read post-state to the rest of that *same production loop body*. -/
+theorem spike3_step_fdRead
+    (fuel : Nat) (rest : List WasmInstr) (state : WasmMachineState)
+    (nreadPtr : UInt32) (pos : Nat) (memoryAfterRead memoryAfter : WasmMemory)
+    (hbefore : state.trapped = false) (hexit : state.exitCode = none)
+    (hpos : pos < state.stdin.size)
+    (hbuf : WasmMem.read32 state.memory 0 = some 0x100)
+    (hlen : WasmMem.read32 state.memory 4 = some 512)
+    (hwrite : WasmMem.writeBytes state.memory 0x100
+      (state.stdin.extract pos (pos + Nat.min 512 (state.stdin.size - pos))) = some memoryAfterRead)
+    (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat
+      (Nat.min 512 (state.stdin.size - pos)).toUInt32 = some memoryAfter) :
+    evalInstrs (fuel + 2) (.call 0 :: rest)
+      { state with stack := [.i32 nreadPtr, .i32 1, .i32 0, .i32 0], stdinPos := pos }
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) =
+    evalInstrs (fuel + 1) rest
+      (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos + Nat.min 512 (state.stdin.size - pos), stack := [] }))
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) := by
+  apply spike3_evalInstrs_step
+  · simpa using hbefore
+  · simpa using hexit
+  · simpa [evalInstrMatch, evalLeafInstr] using
+      (spike3_fdRead_single_iovec state nreadPtr pos memoryAfterRead memoryAfter
+        hpos hbuf hlen hwrite hnread)
 
 /-- The positive-read branch strictly decreases the remaining-input variant
     used by the outer ingestion loop. -/
