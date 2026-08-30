@@ -37,6 +37,7 @@ import Spikes.Spike2Fibonacci.Windows.Equivalence
 import Spikes.Spike2Fibonacci.Windows.IATLemmas
 import Spikes.Spike2Fibonacci.Linux.Program
 import Spikes.Spike2Fibonacci.Linux.NativeAdapter
+import Spikes.Spike2Fibonacci.Linux.Row1
 import Spikes.Spike2Fibonacci.Linux.Equivalence
 import Spikes.Spike2Fibonacci.Wasm.Program
 import Spikes.Spike2Fibonacci.Wasm.Equivalence
