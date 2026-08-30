@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Effects.Trace
+import Init.Data.List.Lex
 import Spikes.Spike3SortLines.Input
 
 /-! Executable, byte-total specification for Spike 3.
@@ -57,6 +58,120 @@ def insertByteLine (line : List UInt8) : List (List UInt8) → List (List UInt8)
 def sortByteLines : List (List UInt8) → List (List UInt8)
   | [] => []
   | line :: rest => insertByteLine line (sortByteLines rest)
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+/-- The executable byte comparator is precisely the ordinary lexicographic order on byte lists.
+    Keeping this conversion local lets the sorting proof use Lean's standard order laws without
+    changing the target-facing comparison routine. -/
+theorem byteLineLe_eq_true_iff (left right : List UInt8) :
+    byteLineLe left right = true ↔ left ≤ right := by
+  rw [List.le_iff_lt_or_eq]
+  induction left generalizing right with
+  | nil =>
+    cases right <;> simp [byteLineLe]
+  | cons left leftRest ih =>
+    cases right with
+    | nil => simp [byteLineLe]
+    | cons right rightRest =>
+      by_cases equal : left = right
+      · subst equal
+        simp [byteLineLe, ih]
+      · rw [List.cons_lt_cons_iff]
+        simp [byteLineLe, equal]
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+theorem byteLineLe_refl (line : List UInt8) : byteLineLe line line = true :=
+  (byteLineLe_eq_true_iff line line).mpr (Std.Refl.refl line)
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+theorem byteLineLe_trans {left middle right : List UInt8}
+    (leftMiddle : byteLineLe left middle = true)
+    (middleRight : byteLineLe middle right = true) :
+    byteLineLe left right = true := by
+  apply (byteLineLe_eq_true_iff left right).mpr
+  calc
+    left ≤ middle := (byteLineLe_eq_true_iff left middle).mp leftMiddle
+    _ ≤ right := (byteLineLe_eq_true_iff middle right).mp middleRight
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+theorem byteLineLe_antisymm {left right : List UInt8}
+    (leftRight : byteLineLe left right = true)
+    (rightLeft : byteLineLe right left = true) : left = right :=
+  Std.Antisymm.antisymm _ _
+    ((byteLineLe_eq_true_iff left right).mp leftRight)
+    ((byteLineLe_eq_true_iff right left).mp rightLeft)
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+theorem byteLineLe_total (left right : List UInt8) :
+    byteLineLe left right = true ∨ byteLineLe right left = true := by
+  rcases List.le_total left right with leftRight | rightLeft
+  · exact Or.inl ((byteLineLe_eq_true_iff left right).mpr leftRight)
+  · exact Or.inr ((byteLineLe_eq_true_iff right left).mpr rightLeft)
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+/-- Inserting one line rearranges no existing line and adds exactly that line. -/
+theorem insertByteLine_perm (line : List UInt8) (lines : List (List UInt8)) :
+    (insertByteLine line lines).Perm (line :: lines) := by
+  induction lines with
+  | nil => simp [insertByteLine]
+  | cons current rest ih =>
+    unfold insertByteLine
+    split
+    · exact List.Perm.refl _
+    · exact (List.Perm.cons current ih).trans (List.Perm.swap line current rest)
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+/-- Insertion preserves pairwise lexicographic ordering. -/
+theorem insertByteLine_pairwise_le (line : List UInt8) {lines : List (List UInt8)}
+    (ordered : List.Pairwise (fun left right : List UInt8 => left ≤ right) lines) :
+    List.Pairwise (fun left right : List UInt8 => left ≤ right) (insertByteLine line lines) := by
+  induction lines with
+  | nil => simp [insertByteLine]
+  | cons current rest ih =>
+    rw [List.pairwise_cons] at ordered
+    unfold insertByteLine
+    by_cases lineBefore : byteLineLe line current = true
+    · simp only [lineBefore]
+      apply List.Pairwise.cons
+      · intro next nextMember
+        have nextCases : next = current ∨ next ∈ rest := by simpa using nextMember
+        rcases nextCases with equal | nextMember
+        · cases equal
+          exact (byteLineLe_eq_true_iff line current).mp lineBefore
+        · calc
+            line ≤ current := (byteLineLe_eq_true_iff line current).mp lineBefore
+            _ ≤ next := ordered.1 next nextMember
+      · exact List.Pairwise.cons ordered.1 ordered.2
+    · simp only [lineBefore]
+      apply List.Pairwise.cons
+      · intro next nextMember
+        have currentLeLine : current ≤ line := by
+          rcases List.le_total line current with lineLeCurrent | currentLeLine
+          · exact False.elim
+              (lineBefore ((byteLineLe_eq_true_iff line current).mpr lineLeCurrent))
+          · exact currentLeLine
+        have nextCases : next = line ∨ next ∈ rest := by
+          simpa using (List.Perm.mem_iff (insertByteLine_perm line rest)).mp nextMember
+        rcases nextCases with nextIsLine | nextRest
+        · cases nextIsLine
+          exact currentLeLine
+        · exact ordered.1 next nextRest
+      · exact ih ordered.2
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+theorem sortByteLines_pairwise_le (lines : List (List UInt8)) :
+    List.Pairwise (fun left right : List UInt8 => left ≤ right) (sortByteLines lines) := by
+  induction lines with
+  | nil => simp [sortByteLines]
+  | cons line rest ih => exact insertByteLine_pairwise_le line ih
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+theorem sortByteLines_perm (lines : List (List UInt8)) :
+    (sortByteLines lines).Perm lines := by
+  induction lines with
+  | nil => exact List.Perm.refl _
+  | cons line rest ih =>
+    exact (insertByteLine_perm line _).trans (List.Perm.cons line ih)
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
 /-- Observable output for a sorted byte-line sequence. Each completed input line is emitted with

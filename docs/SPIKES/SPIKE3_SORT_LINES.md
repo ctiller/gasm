@@ -157,10 +157,10 @@ order. It requires each resident ID to carry both its exact generation and immut
 rejects stale storage entries outside the source. `ReadyToSortCertificate` additionally ties the
 physical sort table to the sealed initial order. The sorting state retains an exact nominal
 permutation. Entering emission requires an ordered sorting state; each emission transition retains
-both orderedness and the source permutation, and completion proves a sorted emitted order with the
-exact source multiset (also after erasing IDs to bytes). A target terminal may additionally carry
-an explicit byte-cursor output refusal retaining its prefix; it is not a free line-world
-transition.
+both orderedness and the source permutation. The byte comparator is proved lexicographic, so an
+ordered nominal permutation erases to exactly `sortByteLines` of the input-derived byte records,
+including repeated equal byte lines. A target terminal may additionally carry an explicit
+byte-cursor output refusal retaining its prefix; it is not a free line-world transition.
 
 The logical layer intentionally contains no resource frame or purported linearity law. Its
 `PreparationAuthority` is an explicit, target-supplied relation indexed by the one active world:

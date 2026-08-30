@@ -224,6 +224,74 @@ def Ordered (lineUniverse : LineUniverse LineId) : List LineId → Prop
   | left :: right :: rest =>
       byteLineLe (lineUniverse.bytes left) (lineUniverse.bytes right) = true ∧ Ordered lineUniverse (right :: rest)
 
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+private theorem pairwise_head_le {head other : List UInt8} {tail : List (List UInt8)}
+    (ordered : List.Pairwise (fun left right : List UInt8 => left ≤ right) (head :: tail))
+    (member : other ∈ head :: tail) : head ≤ other := by
+  by_cases same : other = head
+  · subst same
+    exact Std.Refl.refl _
+  · exact (List.pairwise_cons.mp ordered).1 other (by simpa [same] using member)
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+/-- The nominal-order predicate erases to pairwise lexicographic order over immutable bytes. -/
+theorem ordered_pairwise_bytes (lineUniverse : LineUniverse LineId)
+    (ids : List LineId) (ordered : Ordered lineUniverse ids) :
+    List.Pairwise (fun left right : List UInt8 => left ≤ right) (ids.map lineUniverse.bytes) := by
+  cases ids with
+  | nil => simp
+  | cons left ids =>
+    cases ids with
+    | nil => simp
+    | cons right rest =>
+      have tailOrdered : Ordered lineUniverse (right :: rest) := ordered.2
+      have tailPairwise := ordered_pairwise_bytes lineUniverse (right :: rest) tailOrdered
+      apply List.Pairwise.cons
+      · intro next nextMember
+        calc
+          lineUniverse.bytes left ≤ lineUniverse.bytes right :=
+            (byteLineLe_eq_true_iff _ _).mp ordered.1
+          _ ≤ next := pairwise_head_le tailPairwise nextMember
+      · exact tailPairwise
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+private theorem pairwise_le_perm_eq {left right : List (List UInt8)}
+    (leftOrdered : List.Pairwise (fun left right : List UInt8 => left ≤ right) left)
+    (rightOrdered : List.Pairwise (fun left right : List UInt8 => left ≤ right) right)
+    (permutation : left.Perm right) : left = right := by
+  induction left generalizing right with
+  | nil =>
+    simp at permutation
+    exact permutation.symm
+  | cons left leftTail ih =>
+    cases right with
+    | nil => simp at permutation
+    | cons right rightTail =>
+      have rightInLeft : right ∈ left :: leftTail :=
+        (List.Perm.mem_iff permutation.symm).mp (by simp)
+      have leftInRight : left ∈ right :: rightTail :=
+        (List.Perm.mem_iff permutation).mp (by simp)
+      have leftLeRight : left ≤ right := pairwise_head_le leftOrdered rightInLeft
+      have rightLeLeft : right ≤ left := pairwise_head_le rightOrdered leftInRight
+      have heads : left = right := Std.Antisymm.antisymm _ _ leftLeRight rightLeLeft
+      subst right
+      exact congrArg (List.cons left) (ih (List.pairwise_cons.mp leftOrdered).2
+        (List.pairwise_cons.mp rightOrdered).2 (List.Perm.cons_inv permutation))
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+/-- An ordered nominal permutation has one byte-level representation: the canonical insertion
+    sort of its source bytes. Nominal IDs may be distinct while their bytes are equal; the proof
+    uses multiset permutation and therefore preserves those duplicates exactly. -/
+theorem ordered_permutation_eq_sortByteLines (lineUniverse : LineUniverse LineId)
+    {order source : List LineId}
+    (ordered : Ordered lineUniverse order)
+    (permutation : order.Perm source) :
+    order.map lineUniverse.bytes = sortByteLines (source.map lineUniverse.bytes) := by
+  apply pairwise_le_perm_eq
+  · exact ordered_pairwise_bytes lineUniverse order ordered
+  · exact sortByteLines_pairwise_le _
+  · exact (permutation.map lineUniverse.bytes).trans (sortByteLines_perm _).symm
+
 end SortingState
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
