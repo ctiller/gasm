@@ -44,6 +44,8 @@ import Gasm.MemoryModel.RelationPath
 import Gasm.MemoryModel.RelationPathControls
 import Gasm.MemoryModel.CpuGraphOrderPath
 import Gasm.MemoryModel.CpuGraphOrderPathControls
+import Gasm.MemoryModel.CpuGraphCoherencePath
+import Gasm.MemoryModel.CpuGraphCoherencePathControls
 import Gasm.MemoryModel.ProgramOrderPath
 import Gasm.MemoryModel.ProgramOrderPathControls
 
