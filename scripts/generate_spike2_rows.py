@@ -360,9 +360,86 @@ def extraction_first_source(row: int) -> str:
     body = (body.replace("Row7", f"Row{row}").replace("row7", f"row{row}")
         .replace("sequentialDivR10", f"spike2Row{row}SequentialDivR10")
         .replace("sequentialCmp", f"spike2Row{row}SequentialCmp"))
-    return replace_lookup_rfl(
+    rendered = replace_lookup_rfl(
         leaf_header(row, local_cmp=True) + body + "\nend Spikes.Spike2Fibonacci.Linux\n", row
     )
+    return split_extraction_certificate(rendered, row)
+
+
+def split_extraction_certificate(source: str, row: int) -> str:
+    """Keep concrete extraction proofs below the single-declaration normalization cliff."""
+    theorem = f"theorem spike2_row{row}_extraction_first_selected_prefix"
+    start = source.index(theorem)
+    end = source.index("\n\nend Spikes.Spike2Fibonacci.Linux", start)
+    body = f'''private def spike2Row{row}ExtractionFirstMid : X86_64MachineState :=
+  X86_64Instruction.step (add_r64_imm8 .rdx 0x30)
+    (X86_64Instruction.step (div_r64 .r10)
+      (X86_64Instruction.step (xor_r32 .edx .edx) spike2Row{row}AfterValueSetup))
+
+private theorem spike2Row{row}ExtractionFirstHead :
+    ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 3
+      spike2Row{row}AfterValueSetup ([] : List AnyEvent) spike2Row{row}ExtractionFirstMid [] [] := by
+  refine ProductionPrefix.SelectedPrefix.ordinary ({{
+      encoding := .xor32 .edx .edx
+      safeFallthrough := by intro _ _; rfl }}) ?_ ?_ ?_ ?_ ?_
+  · exact spike2Row{row}ExtractionFirstLookupXor
+  · decide
+  · decide
+  · rfl
+  · refine ProductionPrefix.SelectedPrefix.ordinary spike2Row{row}SequentialDivR10 ?_ ?_ ?_ ?_ ?_
+    · exact spike2Row{row}ExtractionFirstLookupDiv
+    · decide
+    · decide
+    · decide
+    · refine ProductionPrefix.SelectedPrefix.ordinary ({{
+        encoding := .addImm8 .rdx 0x30
+        safeFallthrough := by intro _ _; rfl }}) ?_ ?_ ?_ ?_ ?_
+      · exact spike2Row{row}ExtractionFirstLookupAscii
+      · decide
+      · decide
+      · rfl
+      · exact .nil _ _
+
+private theorem spike2Row{row}ExtractionFirstTail :
+    ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 4
+      spike2Row{row}ExtractionFirstMid ([] : List AnyEvent) spike2Row{row}AfterExtractionFirst [] [] := by
+  refine ProductionPrefix.SelectedPrefix.ordinary ({{
+      encoding := .push .rdx
+      safeFallthrough := by intro _ _; rfl }}) ?_ ?_ ?_ ?_ ?_
+  · exact spike2Row{row}ExtractionFirstLookupPush
+  · decide
+  · decide
+  · rfl
+  · refine ProductionPrefix.SelectedPrefix.ordinary ({{
+      encoding := .addImm8 .rcx 1
+      safeFallthrough := by intro _ _; rfl }}) ?_ ?_ ?_ ?_ ?_
+    · exact spike2Row{row}ExtractionFirstLookupCount
+    · decide
+    · decide
+    · rfl
+    · refine ProductionPrefix.SelectedPrefix.ordinary (spike2Row{row}SequentialCmp .rax 0)
+        ?_ ?_ ?_ ?_ ?_
+      · exact spike2Row{row}ExtractionFirstLookupCmp
+      · decide
+      · decide
+      · rfl
+      · refine ProductionPrefix.SelectedPrefix.conditionalTaken (.jne8 236)
+          (by
+            simp only [X86BranchCondition.holds]
+            decide)
+          ?_ ?_ ?_ ?_ ?_
+        · exact spike2Row{row}ExtractionFirstLookupBranch
+        · decide
+        · decide
+        · rfl
+        · exact .nil _ _
+
+theorem spike2_row{row}_extraction_first_selected_prefix :
+    ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 7
+      spike2Row{row}AfterValueSetup ([] : List AnyEvent) spike2Row{row}AfterExtractionFirst [] [] := by
+  simpa using ProductionPrefix.SelectedPrefix.append
+    spike2Row{row}ExtractionFirstHead spike2Row{row}ExtractionFirstTail'''
+    return source[:start] + body + source[end:]
 
 
 def write_second_source(row: int, first_source: str) -> str:
