@@ -365,6 +365,27 @@ private theorem spike2_extraction_count_ordinary {stackLower : UInt64}
   · decide
   · exact authority.extractCompare
 
+/-- CMP reaches the linked JNE coordinate without touching the completed extraction frame. -/
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+private theorem spike2_extraction_cmp_ordinary {stackLower : UInt64}
+    (initial : X86_64MachineState) (entry : initial.rip = spike2ExtractionAddress .clearHigh)
+    (authority : Spike2DecimalTextAuthority initial) (safety : ExtractionSafety stackLower initial)
+    (safe : ExtractionExecutionSafety 236 initial)
+    (writeNoWrap : (initial.rsp - 8).toNat + 8 ≤ 2 ^ 64)
+    (above : 4198635 ≤ (initial.rsp - 8).toNat) :
+    Spike2OrdinaryCode (extractionStates initial).2.2.2.2.2 := by
+  obtain ⟨_, _, _, _, _, rip⟩ := spike2_extraction_reached_addresses initial entry safe
+  apply spike2_ordinary_from_stack_write initial _ (spike2ExtractionAddress .branch)
+    (initial.rsp - 8) (UInt64.ofNat ((initial.gprs .rax).toNat % 10) + 0x30) rip
+  · rw [show (extractionStates initial).2.2.2.2.2.memory =
+      (extractionFinal 236 initial).memory by rfl,
+      (extractionPassEffect 236 stackLower initial safety safe).memory]
+  · exact writeNoWrap
+  · exact spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress])
+  · decide
+  · exact authority.extractBranch
+
+
 /-- The DIV successor is still ordinary Linux code: its read64 observation is the original
 ASCII instruction observation, proved via the concrete no-memory-write theorem. -/
 /- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
