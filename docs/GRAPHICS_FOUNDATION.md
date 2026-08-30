@@ -152,6 +152,12 @@ availability, and wait-consumption transition checks its exact frame owner. Reco
 shared depth attachment, but submission atomically rechecks and acquires its depth lease, closing the
 record/submit TOCTOU interval.
 
+Releasing an acquired image does not consume the binary acquire signal. Both maintenance1 release
+and parent swapchain destruction transfer the frame into an explicit
+`releasedImageAwaitingAcquireDrain` obligation while preserving `.acquireSignaled owner`. The
+semaphore becomes idle only after `drainReleasedAcquireSignal` consumes that exact owner's payload;
+an immediate second acquisition with it is rejected.
+
 A same-image reacquisition is eligible to retire prior presentation use only after that exact prior
 frame's render execution and registered presentation wait have completed. Out-of-date and
 surface-lost present results are modeled as enqueued rejections: they register and later consume the
@@ -171,14 +177,20 @@ retired old swapchain generation when reacquisition is no longer possible. It is
 derived from a render fence. Swapchain destruction waits for application render leases and queued
 semaphore waits, retires every implementation-owned image generation, and may leave presentation
 backing in the independent ledger until the presentation agent closes its exact use. Out-of-date is
-monotone, recreation requires the same surface and a previously non-retired old swapchain, and frame
-capacity exceeds image capacity so the correlation record needed for reacquisition credit is not
-itself exhausted.
+monotone, and recreation requires the same surface and a previously non-retired old swapchain.
+Dormant presentation-correlation records are retained for reuse credit but do not consume the
+`maxActiveFrames` pool; capacity applies only to acquired, rendering, wait-pending, or acquire-drain
+obligations, including across coexisting swapchain generations.
 
 The base-KHR model has no public acquired-image release operation. The optional
 `releaseAcquiredImageExt` transition is feature-gated by `swapchainMaintenance1`; when the extension
 is absent it returns `extensionUnavailable` without changing ownership. Otherwise an unsubmitted
 acquired image remains obligated until presentation or parent swapchain destruction.
+
+Surface loss is a named monotone presentation-environment transition, not raw record mutation. It
+does not erase swapchain or backing obligations. Orderly surface retirement is available only after
+all live swapchains and retired implementation-owned backing generations for that surface have
+closed; subsequent use of the retired surface generation is rejected as stale.
 
 The presentation model captures a local serialization digest for each shader only as correlation
 data. It does not prove that a native shader module has those bytes or that the Vulkan implementation
