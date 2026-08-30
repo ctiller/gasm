@@ -74,6 +74,41 @@ private theorem authority_afterSyscallInstruction (state : X86_64MachineState)
     Spike2DecimalTextAuthority (X86_64Instruction.step syscall_op state) :=
   authority.transportRead64 _ _ (by intro; rfl)
 
+private theorem rowCode_afterMovR8Rdi (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state) :
+    Spike2RowCodeAuthority (X86_64Instruction.step (mov_r64 .r8 .rdi) state) :=
+  authority.transportRead64 _ _ (by intro; rfl)
+
+private theorem rowCode_afterLeaRsi (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state) :
+    Spike2RowCodeAuthority (X86_64Instruction.step (lea_rsp .rsi 0x40) state) :=
+  authority.transportRead64 _ _ (by intro; rfl)
+
+private theorem rowCode_afterSubR8Rsi (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state) :
+    Spike2RowCodeAuthority (X86_64Instruction.step (sub_r64 .r8 .rsi) state) :=
+  authority.transportRead64 _ _ (by intro; rfl)
+
+private theorem rowCode_afterMovRdxR8 (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state) :
+    Spike2RowCodeAuthority (X86_64Instruction.step (mov_r64 .rdx .r8) state) :=
+  authority.transportRead64 _ _ (by intro; rfl)
+
+private theorem rowCode_afterMovEdi (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state) :
+    Spike2RowCodeAuthority (X86_64Instruction.step (mov_r32 .edi 1) state) :=
+  authority.transportRead64 _ _ (by intro; rfl)
+
+private theorem rowCode_afterMovEax (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state) :
+    Spike2RowCodeAuthority (X86_64Instruction.step (mov_r32 .eax 1) state) :=
+  authority.transportRead64 _ _ (by intro; rfl)
+
+private theorem rowCode_afterSyscallInstruction (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state) :
+    Spike2RowCodeAuthority (X86_64Instruction.step syscall_op state) :=
+  authority.transportRead64 _ _ (by intro; rfl)
+
 theorem decimalAuthority_afterWriteSetupEnd {predecessor : X86_64MachineState}
     (authority : Spike2DecimalTextAuthority (afterLineTerminator predecessor)) :
     Spike2DecimalTextAuthority (afterWriteSetupEnd predecessor) := by
@@ -134,6 +169,40 @@ theorem decimalAuthority_afterWriteSyscall {predecessor : X86_64MachineState}
   have atFd := decimalAuthority_afterWriteSetupFd (predecessor := predecessor) atCount
   have atSyscall := decimalAuthority_beforeWriteSyscall (predecessor := predecessor) atFd
   have atHook := decimalAuthority_beforeWriteHook (predecessor := predecessor) atSyscall
+  exact atHook.transportRead64 _ _ (sysWriteHook_preserves_read64 _)
+
+/-- Named register-only cutpoints and the write hook preserve bounded row-code authority. -/
+theorem rowCodeAuthority_afterWriteSyscall {predecessor : X86_64MachineState}
+    (authority : Spike2RowCodeAuthority (afterLineTerminator predecessor)) :
+    Spike2RowCodeAuthority (afterWriteSyscall predecessor) := by
+  have atEnd : Spike2RowCodeAuthority (afterWriteSetupEnd predecessor) := by
+    change Spike2RowCodeAuthority
+      (X86_64Instruction.step (mov_r64 .r8 .rdi) (afterLineTerminator predecessor))
+    exact rowCode_afterMovR8Rdi _ authority
+  have atBuffer : Spike2RowCodeAuthority (afterWriteSetupBuffer predecessor) := by
+    change Spike2RowCodeAuthority
+      (X86_64Instruction.step (lea_rsp .rsi 0x40) (afterWriteSetupEnd predecessor))
+    exact rowCode_afterLeaRsi _ atEnd
+  have atLength : Spike2RowCodeAuthority (afterWriteSetupLength predecessor) := by
+    change Spike2RowCodeAuthority
+      (X86_64Instruction.step (sub_r64 .r8 .rsi) (afterWriteSetupBuffer predecessor))
+    exact rowCode_afterSubR8Rsi _ atBuffer
+  have atCount : Spike2RowCodeAuthority (afterWriteSetupCount predecessor) := by
+    change Spike2RowCodeAuthority
+      (X86_64Instruction.step (mov_r64 .rdx .r8) (afterWriteSetupLength predecessor))
+    exact rowCode_afterMovRdxR8 _ atLength
+  have atFd : Spike2RowCodeAuthority (afterWriteSetupFd predecessor) := by
+    change Spike2RowCodeAuthority
+      (X86_64Instruction.step (mov_r32 .edi 1) (afterWriteSetupCount predecessor))
+    exact rowCode_afterMovEdi _ atCount
+  have atSyscall : Spike2RowCodeAuthority (beforeWriteSyscall predecessor) := by
+    change Spike2RowCodeAuthority
+      (X86_64Instruction.step (mov_r32 .eax 1) (afterWriteSetupFd predecessor))
+    exact rowCode_afterMovEax _ atFd
+  have atHook : Spike2RowCodeAuthority (beforeWriteHook predecessor) := by
+    change Spike2RowCodeAuthority
+      (X86_64Instruction.step syscall_op (beforeWriteSyscall predecessor))
+    exact rowCode_afterSyscallInstruction _ atSyscall
   exact atHook.transportRead64 _ _ (sysWriteHook_preserves_read64 _)
 
 end Row8Parametric
