@@ -18,6 +18,7 @@ import Stdlib.SmolAlloc.Spec
 import Stdlib.SmolAlloc.Windows
 import Stdlib.SmolAlloc.Program
 import Stdlib.SmolAlloc.Equivalence
+import Stdlib.SmolAlloc.WasmTests
 
 import Stdlib.Zlib.ByteArrayBridge
 import Stdlib.Zlib.CRC32
