@@ -66,6 +66,7 @@ def spike2AfterMainHeader (state : X86_64MachineState) : X86_64MachineState :=
   X86_64Instruction.step (jge_rel32 259)
     (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state)
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Exact state at the terminal syscall after taking the main-loop exit and setting
     `SYS_exit (0)`.  The syscall itself is deliberately excluded: its process-exit outcome is
     discharged by `SelectedPrefix.selectedExecutionTerminates_of_processExit`. -/

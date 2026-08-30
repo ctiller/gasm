@@ -624,6 +624,7 @@ theorem spike2_row1_selected_prefix :
     spike2_row1_recurrence_selected_prefix
   simpa [spike2Row1WriteEventsRev] using recurrence
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Boundary facts exported for the finite 90-row driver composition.  They expose only the
 machine fields that genuinely vary across rows, leaving this instruction certificate cached. -/
 theorem spike2_row1_after_recurrence_boundary :
