@@ -30,6 +30,8 @@ import Gasm.Core.AbiContext
 import Gasm.Core.Platform
 import Gasm.Core.Verification
 
+import Gasm.Proof.LocalExecution
+
 import Gasm.MemoryModel.CpuGraph
 import Gasm.MemoryModel.ProgramOrder
 import Gasm.MemoryModel.FiniteSearch

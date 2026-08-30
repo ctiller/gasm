@@ -24,6 +24,7 @@ import Gasm.Targets.X86_64.Instructions.Pop
 import Gasm.Targets.X86_64.Instructions.Push
 import Gasm.Targets.X86_64.Instructions.Sub
 import Gasm.Targets.X86_64.Instructions.Xor
+import Gasm.Proof.LocalExecution
 
 namespace Gasm.Targets.X86_64.MacroAssembler
 
@@ -38,12 +39,22 @@ def runLocalSteps : List X86_64Instr → X86_64MachineState → X86_64MachineSta
   | [], s => s
   | i :: rest, s => runLocalSteps rest (X86_64Instruction.step i s)
 
+private theorem runLocalSteps_eq_generic (code : List X86_64Instr) (s : X86_64MachineState) :
+    runLocalSteps code s =
+      Gasm.Proof.LocalExecution.runSteps X86_64Instruction.step code s := by
+  induction code generalizing s with
+  | nil => rfl
+  | cons i rest ih =>
+      change runLocalSteps rest (X86_64Instruction.step i s) =
+        Gasm.Proof.LocalExecution.runSteps X86_64Instruction.step rest
+          (X86_64Instruction.step i s)
+      exact ih _
+
 /- REF: docs/MACRO_ASSEMBLER.md#execution-and-contracts -/
 theorem runLocalSteps_append (xs ys : List X86_64Instr) (s : X86_64MachineState) :
     runLocalSteps (xs ++ ys) s = runLocalSteps ys (runLocalSteps xs s) := by
-  induction xs generalizing s with
-  | nil => rfl
-  | cons x xs ih => simp [runLocalSteps, ih]
+  simpa only [runLocalSteps_eq_generic] using
+    Gasm.Proof.LocalExecution.runSteps_append X86_64Instruction.step xs ys s
 
 /- REF: docs/MACRO_ASSEMBLER.md#explicit-footprints -/
 /-- What a contract promises about a non-register part of machine state. `unspecified` means
@@ -150,25 +161,28 @@ def Segment.then (first second : Segment) : Segment where
   preservesGpr := by
     intro s r h
     rw [runLocalSteps_append]
-    have hfirst : r ∉ first.contract.clobberedGprs := by
-      intro hr; exact h (List.mem_append_left _ hr)
-    have hsecond : r ∉ second.contract.clobberedGprs := by
-      intro hr; exact h (List.mem_append_right _ hr)
-    rw [second.preservesGpr _ r hsecond, first.preservesGpr _ r hfirst]
+    exact Gasm.Proof.LocalExecution.preservesOutside_comp_append
+      (runLocalSteps first.code) (runLocalSteps second.code) (fun state register => state.gprs register)
+      first.contract.clobberedGprs second.contract.clobberedGprs first.preservesGpr
+      second.preservesGpr s r h
   preservesMemory := by
     intro h s
     simp only at h
     split at h <;> try contradiction
     rename_i hp
-    rw [runLocalSteps_append, second.preservesMemory hp.2,
-      first.preservesMemory hp.1]
+    rw [runLocalSteps_append]
+    exact Gasm.Proof.LocalExecution.preserves_comp
+      (runLocalSteps first.code) (runLocalSteps second.code) (·.memory)
+      (first.preservesMemory hp.1) (second.preservesMemory hp.2) s
   preservesFlags := by
     intro h s
     simp only at h
     split at h
     · rename_i hp
-      rw [runLocalSteps_append, second.preservesFlags hp,
-        first.preservesFlags h]
+      rw [runLocalSteps_append]
+      exact Gasm.Proof.LocalExecution.preserves_comp
+        (runLocalSteps first.code) (runLocalSteps second.code) (·.flags)
+        (first.preservesFlags h) (second.preservesFlags hp) s
     · contradiction
   preservesRip := by simp
   controlFlowFree := by

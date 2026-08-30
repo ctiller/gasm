@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Targets.AArch64.Semantics
+import Gasm.Proof.LocalExecution
 
 namespace Gasm.Targets.AArch64.MacroAssembler
 
@@ -212,6 +213,16 @@ def runLocalSteps : List Instruction → AArch64MachineState → AArch64MachineS
   | instruction :: rest, state =>
       runLocalSteps rest (instruction.step state)
 
+private theorem runLocalSteps_eq_generic (code : List Instruction) (state : AArch64MachineState) :
+    runLocalSteps code state =
+      Gasm.Proof.LocalExecution.runSteps Instruction.step code state := by
+  induction code generalizing state with
+  | nil => rfl
+  | cons instruction rest ih =>
+      change runLocalSteps rest (instruction.step state) =
+        Gasm.Proof.LocalExecution.runSteps Instruction.step rest (instruction.step state)
+      exact ih _
+
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 def localCodeSize : List Instruction → UInt64
   | [] => 0
@@ -220,9 +231,8 @@ def localCodeSize : List Instruction → UInt64
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 theorem runLocalSteps_append (xs ys : List Instruction) (state : AArch64MachineState) :
     runLocalSteps (xs ++ ys) state = runLocalSteps ys (runLocalSteps xs state) := by
-  induction xs generalizing state with
-  | nil => rfl
-  | cons instruction rest ih => simp [runLocalSteps, ih]
+  simpa only [runLocalSteps_eq_generic] using
+    Gasm.Proof.LocalExecution.runSteps_append Instruction.step xs ys state
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 theorem runLocalSteps_pc (code : List Instruction) (state : AArch64MachineState) :
@@ -236,48 +246,47 @@ theorem runLocalSteps_pc (code : List Instruction) (state : AArch64MachineState)
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 theorem runLocalSteps_preservesMemory (code : List Instruction) (state : AArch64MachineState) :
     (runLocalSteps code state).memory = state.memory := by
-  induction code generalizing state with
-  | nil => rfl
-  | cons instruction rest ih => rw [runLocalSteps, ih, step_memory]
+  rw [runLocalSteps_eq_generic]
+  exact Gasm.Proof.LocalExecution.runSteps_preserves Instruction.step (·.memory)
+    step_memory code state
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 theorem runLocalSteps_preservesSp (code : List Instruction) (state : AArch64MachineState) :
     (runLocalSteps code state).sp = state.sp := by
-  induction code generalizing state with
-  | nil => rfl
-  | cons instruction rest ih => rw [runLocalSteps, ih, step_sp]
+  rw [runLocalSteps_eq_generic]
+  exact Gasm.Proof.LocalExecution.runSteps_preserves Instruction.step (·.sp)
+    step_sp code state
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 theorem runLocalSteps_preservesNzcv (code : List Instruction) (state : AArch64MachineState) :
     (runLocalSteps code state).nzcv = state.nzcv := by
-  induction code generalizing state with
-  | nil => rfl
-  | cons instruction rest ih => rw [runLocalSteps, ih, step_nzcv]
+  rw [runLocalSteps_eq_generic]
+  exact Gasm.Proof.LocalExecution.runSteps_preserves Instruction.step (·.nzcv)
+    step_nzcv code state
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 theorem runLocalSteps_preservesFault (code : List Instruction) (state : AArch64MachineState) :
     (runLocalSteps code state).fault = state.fault := by
-  induction code generalizing state with
-  | nil => rfl
-  | cons instruction rest ih => rw [runLocalSteps, ih, step_fault]
+  rw [runLocalSteps_eq_generic]
+  exact Gasm.Proof.LocalExecution.runSteps_preserves Instruction.step (·.fault)
+    step_fault code state
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 theorem runLocalSteps_preservesTerminated (code : List Instruction)
     (state : AArch64MachineState) :
     (runLocalSteps code state).terminated = state.terminated := by
-  induction code generalizing state with
-  | nil => rfl
-  | cons instruction rest ih => rw [runLocalSteps, ih, step_terminated]
+  rw [runLocalSteps_eq_generic]
+  exact Gasm.Proof.LocalExecution.runSteps_preserves Instruction.step (·.terminated)
+    step_terminated code state
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 theorem runLocalSteps_preservesGpr (code : List Instruction) (state : AArch64MachineState)
     (register : Gpr) (notClobbered : register ∉ code.flatMap Instruction.clobberedGprs) :
     (runLocalSteps code state).gprs register = state.gprs register := by
-  induction code generalizing state with
-  | nil => rfl
-  | cons instruction rest ih =>
-      simp only [List.flatMap_cons, List.mem_append, not_or] at notClobbered
-      rw [runLocalSteps, ih _ notClobbered.2, step_gpr _ _ _ notClobbered.1]
+  rw [runLocalSteps_eq_generic]
+  exact Gasm.Proof.LocalExecution.runSteps_preservesOutside Instruction.step
+    Instruction.clobberedGprs (fun machine gpr => machine.gprs gpr) step_gpr
+    code state register notClobbered
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 /-- Structural serialization of selected instructions. There is no independent byte field which

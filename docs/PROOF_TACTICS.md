@@ -33,6 +33,21 @@ and final artifact connection.  Give each layer a small contract and a frame law
 systems, prove chunk composition independently of chunk boundaries.  For sorting, keep immutable
 line contents separate from the mutable permutation and algorithm-specific ordered region.
 
+## Lift target steps through small generic algebras
+
+When two targets repeat only the list induction around their own one-step facts, keep those semantic
+facts target-owned and lift them through `Gasm.Proof.LocalExecution`.  The x86-64 and AArch64 macro
+assemblers use the same append and frame algebra while retaining different instruction classes,
+clobber definitions, contracts, and production runners.  This centralized two append proofs and
+six AArch64 frame inductions, and removed x86-64's manual composed-frame bookkeeping; each target
+retains only a small fold-alignment proof so its established public definition keeps the same
+reduction behavior.  Generalize the algebraic shell only; instruction safety, control flow, fuel,
+faults, host effects, and artifact identity stay with the layer that defines them.
+
+For that alignment proof, expose one recursive layer with `change` and apply the induction
+hypothesis directly.  A broad `simp` over the fold can unfold a target's large step semantics: in
+this extraction the direct proof reduced the focused rebuild from about 97 seconds to 5 seconds.
+
 ## Make control-flow obligations local
 
 Use typed block-entry contracts as invariant transfer points.  Prove straight-line production
