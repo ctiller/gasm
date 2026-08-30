@@ -75,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
 
     output_parts: list[str] = []
     peak_rss = 0
+    peak_snapshot: list[tuple[int, int, str]] = []
+    process_peaks: dict[int, tuple[int, str]] = {}
     root = None
     start = time.monotonic()
     try:
@@ -105,12 +107,25 @@ def main(argv: list[str] | None = None) -> int:
                 except psutil.Error:
                     pass
                 sample_rss = 0
+                sample_processes: list[tuple[int, int, str]] = []
                 for process in processes:
                     try:
-                        sample_rss += process.memory_info().rss
+                        rss = process.memory_info().rss
+                        previous = process_peaks.get(process.pid)
+                        if previous is None:
+                            command_line = " ".join(process.cmdline()) or process.name()
+                            label = " ".join(command_line.split())[:300]
+                        else:
+                            label = previous[1]
+                        if previous is None or rss > previous[0]:
+                            process_peaks[process.pid] = (rss, label)
+                        sample_processes.append((rss, process.pid, label))
+                        sample_rss += rss
                     except psutil.Error:
                         pass
-                peak_rss = max(peak_rss, sample_rss)
+                if sample_rss > peak_rss:
+                    peak_rss = sample_rss
+                    peak_snapshot = sorted(sample_processes, reverse=True)[:8]
                 time.sleep(args.sample_ms / 1000)
             reader.join(timeout=5)
             exit_code = child.returncode
@@ -127,6 +142,17 @@ def main(argv: list[str] | None = None) -> int:
         f"MEASURE seconds={elapsed:.3f} peak_mib={peak_rss / 1024**2:.1f} "
         f"built_jobs={built_jobs} sample_ms={args.sample_ms} exit={exit_code}"
     )
+    for rss, pid, label in peak_snapshot:
+        print(
+            f"MEASURE_AT_AGGREGATE_PEAK pid={pid} rss_mib={rss / 1024**2:.1f} "
+            f"command={label}"
+        )
+    for pid, (rss, label) in sorted(
+        process_peaks.items(), key=lambda item: item[1][0], reverse=True
+    )[:8]:
+        print(
+            f"MEASURE_PROCESS_PEAK pid={pid} rss_mib={rss / 1024**2:.1f} command={label}"
+        )
     return exit_code
 
 
