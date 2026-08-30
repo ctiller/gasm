@@ -32,8 +32,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CANONICAL_FILE = "Gasm/Core/Platform.lean"
 DECLARATION_RE = re.compile(
-    r"(?m)^\s*(?P<modifiers>(?:(?:private|protected|noncomputable|partial|scoped|unsafe)\s+)*)"
-    r"(?P<kind>structure|class|inductive|abbrev|def)\s+"
+    r"(?m)^\s*(?:@\[[^\]]*\]\s*)*"
+    r"(?P<modifiers>(?:(?:private|protected|noncomputable|partial|scoped|unsafe)\s+)*)"
+    r"(?P<kind>structure|class|inductive|abbrev|def|opaque)\s+"
     r"(?P<name>[A-Za-z0-9_.<>]+)\b"
 )
 RETIRED_IDENTIFIERS = {
@@ -138,6 +139,8 @@ def self_test() -> int:
     legacy = dict(good, **{"Spikes/Old.lean": "def x : VerifiedLinuxProgram := by trivial\n"})
     modified = dict(good, **{"Gasm/Modified.lean": "private structure VerifiedFooProgram where\n"})
     qualified = dict(good, **{"Gasm/Qualified.lean": "noncomputable def Foo.VerifiedBarProgram := 1\n"})
+    attributed = dict(good, **{"Gasm/Attributed.lean": "@[irreducible] def Foo.VerifiedBazProgram := 1\n"})
+    opaque = dict(good, **{"Gasm/Opaque.lean": "opaque VerifiedOpaqueProgram : Type\n"})
     shadow = dict(good)
     shadow[CANONICAL_FILE] += "def VerifiedProgram := 1\n"
     passed = all([
@@ -146,6 +149,8 @@ def self_test() -> int:
         bool(findings(legacy)),
         bool(findings(modified)),
         bool(findings(qualified)),
+        bool(findings(attributed)),
+        bool(findings(opaque)),
         bool(findings(shadow)),
     ])
     print(f"verification-authority synthetic controls: {'PASS' if passed else 'FAIL'}")
