@@ -615,6 +615,27 @@ optimization, whole-expression execution, instruction/flag semantics, ABI, layou
 export, or `VerifiedProgram` authority. Loops, recursion, CALL, indirect and exceptional edges,
 memory, and pointer representations remain unselected.
 
+## Automatic structured decision plans
+
+`Gasm.Compiler.Word.StructuredPlanCompiler` removes the manual topology step for the first explicit
+decision-tree grammar. Recognition accepts a branch-free leaf, or an `ite` whose condition is
+branch-free and whose two arms are recursively accepted trees. Its dependent result remains indexed
+by the exact original `Structured.Expr`; it cannot attach a convenient but unrelated topology to a
+source declaration. An `ite` hidden under a `letE` or inside a condition is rejected. The frontend
+does not normalize, duplicate, or eagerly evaluate that source construct.
+
+Plan roles are generated nominally rather than from strings or numeric offsets. Each branch maps
+the false and true child roles through distinct injections into a `Sum`-tagged scope and reserves
+`none` as its fresh parent identity. The generic injective role-remapping theorem preserves the
+source, topology, and branch polarity. Existing `Plan.uniqueRoles` and `Plan.root_mem` then provide
+collision freedom and root selection for every generated tree.
+
+The output is only the existing stable symbolic `StructuredCFG.Plan`. It assigns no block and
+proves no leaf implementation, condition flags, edge/world transfer, CFG execution, layout,
+artifact, or `VerifiedProgram` property. Generated and hand-optimized blocks remain independently
+replaceable through `Assignment` and `Realizes`; changing an implementation does not require
+reconstructing the generated source topology.
+
 ## Differential certificate transport
 
 Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,

@@ -20,6 +20,7 @@ import Gasm.Compiler.Word.LeanReify
 import Gasm.Compiler.Word.Structured
 import Gasm.Compiler.Word.StructuredCFG
 import Gasm.Compiler.Word.StructuredLeanReify
+import Gasm.Compiler.Word.StructuredPlanCompilerControls
 
 namespace Gasm.Compiler.Word.Examples
 
