@@ -51,6 +51,25 @@ structure NativeArenaCapability where
   endExclusive : UInt64
   deriving Repr, DecidableEq
 
+/-- Construct a finite native arena only when its exclusive end is representable.  This is the
+    same unsigned addition guarded by the lowered entry sequence before it installs `r15`. -/
+def NativeArenaCapability.ofReservation (base bytes : UInt64) : Option NativeArenaCapability :=
+  if bytes != 0 && base ≤ 0xFFFFFFFFFFFFFFFF - bytes then
+    some { base, endExclusive := base + bytes }
+  else
+    none
+
+theorem NativeArenaCapability.ofReservation_success (base bytes : UInt64)
+    (h : bytes != 0 && base ≤ 0xFFFFFFFFFFFFFFFF - bytes) :
+    NativeArenaCapability.ofReservation base bytes =
+      some { base, endExclusive := base + bytes } := by
+  simp [NativeArenaCapability.ofReservation, h]
+
+theorem NativeArenaCapability.ofReservation_overflow (base bytes : UInt64)
+    (h : ¬ (bytes != 0 && base ≤ 0xFFFFFFFFFFFFFFFF - bytes)) :
+    NativeArenaCapability.ofReservation base bytes = none := by
+  simp [NativeArenaCapability.ofReservation, h]
+
 /-- The fresh-allocation decision implemented by `smol_malloc` after it has rounded a request and
     added its header.  `some header` is a successful fresh allocation; `none` is exhaustion or an
     invalid bump/end ordering. -/
@@ -85,11 +104,13 @@ def smolMallocSymbolicProgram : List SymbolicInstr := [
   -- 1. Align requested size up to multiple of 8: r8 = (rcx + 7) & ~7
   instr (mov_r64 .r8 .rcx),
   instr (add_r64_imm8 .r8 7),
+  jb_near_label "fresh_exhausted", -- reject `size + 7` overflow before any write
   instr (and_r64_imm8 .r8 0xF8),
 
   -- 2. Calculate total block size needed: r9 = r8 + 32
   instr (mov_r64 .r9 .r8),
   instr (add_r64_imm8 .r9 32),
+  jb_near_label "fresh_exhausted", -- reject header addition overflow before any write
 
   -- 3. Check freelist head in r10: if non-null, inspect candidate block
   instr (cmp_r64_imm8 .r10 0),

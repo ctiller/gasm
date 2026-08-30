@@ -56,25 +56,70 @@ def noNativeArenaGrant : Spike3NativeArenaGrant := ⟨0⟩
 def spike3NativeReservationGrant : Spike3NativeArenaGrant := ⟨65536⟩
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
-/-- Actual Linux resource-failure execution: an insufficient grant produces the explicit exit 75
-    event and halts within the stated finite fuel, before any allocator result is dereferenced. -/
-theorem linux_no_grant_is_explicit_resource_failure :
-    emittedSpike3ResourceFailure (runSpike3LinuxWithGrant noNativeArenaGrant ByteArray.empty 24) = true := by
-  set_option maxRecDepth 10000 in
-    set_option maxHeartbeats 4000000 in
-      decide
+/-- The Linux resource boundary is exact and input-independent: a rejected reservation carries
+    raw `-ENOMEM`, does not change memory, and transfers only to the syscall continuation.  The
+    emitted Linux entry code compares against the complete raw-errno range before any allocator
+    write; its end-to-end literal executions live in `NativeRegression.lean`, not as proof claims. -/
+theorem linux_rejected_reservation_is_exact (_stdin : ByteArray) (state : X86_64MachineState)
+    (h : noNativeArenaGrant.admits (state.gprs .rsi) = false) :
+    (spike3LinuxMmapHook (Event := AnyEvent) noNativeArenaGrant state).1.gprs .rax = linuxEnomem ∧
+      isLinuxRawErrno ((spike3LinuxMmapHook (Event := AnyEvent) noNativeArenaGrant state).1.gprs .rax) = true ∧
+      (spike3LinuxMmapHook (Event := AnyEvent) noNativeArenaGrant state).1.memory = state.memory := by
+  exact ⟨spike3LinuxMmapHook_rejects_insufficient _ _ h,
+    spike3LinuxMmapHook_rejection_is_raw_errno _ _ h,
+    spike3LinuxMmapHook_rejection_preserves_memory _ _ h⟩
+
+/-- The selected Win32 `ExitProcess` runtime produces the exact halted resource outcome and does
+    not alter memory.  This is separate from the Linux raw-errno convention. -/
+theorem windows_resource_exit_is_exact (state : X86_64MachineState)
+    (hcode : (state.gprs .rcx).toUInt32 = spike3ResourceFailureExitCode) :
+    (spike3ExitProcessHook (Event := AnyEvent) state).1.fault = some .halted ∧
+      (spike3ExitProcessHook (Event := AnyEvent) state).1.memory = state.memory ∧
+      (spike3ExitProcessHook (Event := AnyEvent) state).2 =
+        some (Inject.inject (ProcessEvent.exit spike3ResourceFailureExitCode)) := by
+  simp [spike3ExitProcessHook, hcode]
+
+/-- A rejected Win32 reservation is null, preserves memory, and the emitted `je
+    resource_exhausted` branch supplies the terminal process outcome above. -/
+theorem windows_rejected_reservation_is_exact (_stdin : ByteArray) (state : X86_64MachineState)
+    (h : noNativeArenaGrant.admits (state.gprs .rdx) = false) :
+    (spike3VirtualAllocHook (Event := AnyEvent) noNativeArenaGrant state).1.gprs .rax = 0 ∧
+      (spike3VirtualAllocHook (Event := AnyEvent) noNativeArenaGrant state).1.memory = state.memory := by
+  exact ⟨spike3VirtualAllocHook_rejects_insufficient _ _ h,
+    spike3VirtualAllocHook_rejection_preserves_memory _ _ h⟩
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
-/-- Recovery is a fresh invocation under a sufficient explicit grant, not mutation of a failed
-    run.  The reservation hooks prove the new invocation receives a non-null arena base. -/
-theorem native_resource_retry_has_linux_reservation :
-    Spike3NativeArenaGrant.admits spike3NativeReservationGrant 65536 = true := by
-  exact Spike3NativeArenaGrant.admits_of_le _ (by decide) (by decide)
+/-- Retrying with the same input is a fresh grant-indexed invocation.  No state from a failed
+    attempt appears in this statement: with a sufficient grant the real Linux reservation
+    transition reaches its concrete arena base. -/
+theorem fresh_same_input_retry_has_linux_reservation (stdin : ByteArray)
+    (state : X86_64MachineState) (hstdin : state.stdinBuffer = stdin)
+    (hrequested : state.gprs .rsi = 65536) :
+    (spike3LinuxMmapHook (Event := AnyEvent) spike3NativeReservationGrant state).1.gprs .rax =
+      0x70000000 ∧
+    (spike3LinuxMmapHook (Event := AnyEvent) spike3NativeReservationGrant state).1.stdinBuffer = stdin := by
+  have h : Spike3NativeArenaGrant.admits spike3NativeReservationGrant 65536 = true :=
+    Spike3NativeArenaGrant.admits_of_le _ (by rfl) (UInt64.le_refl _)
+  exact ⟨spike3LinuxMmapHook_recovers_with_sufficient_grant _ _ hrequested (by simpa [hrequested] using h),
+    by simp [spike3LinuxMmapHook, spike3LinuxArena, hrequested, h,
+      Stdlib.SmolAlloc.NativeArenaCapability.ofReservation,
+      X86_64MachineState.setGpr64,
+      hstdin]⟩
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
-/-- The same fresh grant is sufficient for the Win32 reservation request. -/
-theorem native_resource_retry_has_windows_reservation :
-    Spike3NativeArenaGrant.admits spike3NativeReservationGrant 65536 = true := by
-  exact Spike3NativeArenaGrant.admits_of_le _ (by decide) (by decide)
+/-- The same fresh-input recovery property holds for the Win32 reservation boundary. -/
+theorem fresh_same_input_retry_has_windows_reservation (stdin : ByteArray)
+    (state : X86_64MachineState) (hstdin : state.stdinBuffer = stdin)
+    (hrequested : state.gprs .rdx = 65536) :
+    (spike3VirtualAllocHook (Event := AnyEvent) spike3NativeReservationGrant state).1.gprs .rax =
+      0x20000000 ∧
+    (spike3VirtualAllocHook (Event := AnyEvent) spike3NativeReservationGrant state).1.stdinBuffer = stdin := by
+  have h : Spike3NativeArenaGrant.admits spike3NativeReservationGrant 65536 = true :=
+    Spike3NativeArenaGrant.admits_of_le _ (by rfl) (UInt64.le_refl _)
+  exact ⟨spike3VirtualAllocHook_recovers_with_sufficient_grant _ _ hrequested (by simpa [hrequested] using h),
+    by simp [spike3VirtualAllocHook, spike3WindowsArena, hrequested, h,
+      Stdlib.SmolAlloc.NativeArenaCapability.ofReservation, Gasm.Targets.Windows.popReturnAddress,
+      X86_64MachineState.setGpr64,
+      hstdin]⟩
 
 end Spikes.Spike3SortLines

@@ -85,10 +85,12 @@ def spike3SymbolicProgram : List SymbolicInstr := [
   instr (mov_r64_imm64 .r8 0xFFFFFFFFFFFFFFFF),
   instr (xor_r32 .r9d .r9d),
   instr syscall_op,
-  instr (cmp_r64_imm8 .rax 0),
-  je_near_label "resource_exhausted",
+  -- Linux returns failures as raw unsigned encodings of -errno, i.e. [-4095, -1].
+  instr (cmp_r64_imm32 .rax 0xFFFFF001),
+  jae_near_label "resource_exhausted",
   instr (mov_r64 .r15 .rax), -- r15 = exclusive finite arena end
   instr (add_r64_imm32 .r15 65536),
+  jb_near_label "resource_exhausted", -- reject non-representable arena end
   instr (mov_r64 .r11 .rax), -- r11 = smolalloc arena bump pointer
   instr (xor_r32 .r10d .r10d), -- r10 = smolalloc freelist head = NULL
   instr (mov_mem64_disp_imm .rsp 0x30 0), -- [rsp + 0x30] = lineCount = 0

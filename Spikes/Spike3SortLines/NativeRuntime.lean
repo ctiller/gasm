@@ -23,6 +23,7 @@ import Gasm.Targets.Linux.Syscall
 import Gasm.Targets.X86_64.Instructions.Syscall
 import Gasm.Targets.Windows.Win32API
 import Spikes.Spike3SortLines.Platform
+import Stdlib.SmolAlloc.Program
 
 /-! The ordinary Linux and Win32 host interceptors remain total simulation helpers for their
 general consumers.  Spike 3 selects these grant-indexed runtimes explicitly, so only a consumer
@@ -38,6 +39,7 @@ open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.Linux
 open Gasm.Targets.Windows
+open Stdlib.SmolAlloc
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- A caller-provided finite native backing-arena grant.  It has no default: a native execution
@@ -57,17 +59,42 @@ theorem Spike3NativeArenaGrant.admits_of_le (grant : Spike3NativeArenaGrant)
     grant.admits requested = true := by
   simp [Spike3NativeArenaGrant.admits, hrequested, hcapacity]
 
+/-- Linux syscall results in this unsigned interval encode `-errno` rather than a pointer. -/
+def linuxRawErrnoFloor : UInt64 := 0xFFFFFFFFFFFFF001
+
+/-- The explicit `ENOMEM` result used when the caller did not grant the requested arena. -/
+def linuxEnomem : UInt64 := 0xFFFFFFFFFFFFFFF4
+
+def isLinuxRawErrno (result : UInt64) : Bool :=
+  linuxRawErrnoFloor ≤ result
+
+theorem linuxEnomem_is_raw_errno : isLinuxRawErrno linuxEnomem = true := by
+  rfl
+
+/-- Concrete capability whose base and exclusive end are exactly the values installed in the
+    Linux program's `rax`/`r15` initialization sequence. -/
+def spike3LinuxArena (grant : Spike3NativeArenaGrant) (requested : UInt64) :
+    Option NativeArenaCapability :=
+  if grant.admits requested then NativeArenaCapability.ofReservation 0x70000000 requested else none
+
+/-- Concrete capability whose base and exclusive end are exactly the values installed in the
+    Win32 program's `rax`/`r15` initialization sequence. -/
+def spike3WindowsArena (grant : Spike3NativeArenaGrant) (requested : UInt64) :
+    Option NativeArenaCapability :=
+  if grant.admits requested then NativeArenaCapability.ofReservation 0x20000000 requested else none
+
 /- REF: docs/TARGETS/LINUX.md#22-memory-mapping-mmap-state-model -/
-/-- Spike 3's grant-aware `mmap` realization.  Failure is a normal zero result with the syscall
-    continuation restored, exactly the convention checked by the native program before it uses
-    the arena pointer. -/
+/-- Spike 3's grant-aware `mmap` realization.  Failure is Linux's actual raw `-ENOMEM` encoding,
+    not a null pointer; the lowered entry sequence rejects the complete `[-4095, -1]` range
+    before it installs an arena base or writes allocator state. -/
 def spike3LinuxMmapHook {Event : Type} (grant : Spike3NativeArenaGrant)
     (state : X86_64MachineState) : X86_64MachineState × Option Event :=
   let requested := state.gprs .rsi
-  if grant.admits requested then
-    sysMmapHook state
-  else
-    ({ (state.setGpr64 .rax 0) with rip := state.gprs .rcx }, none)
+  match spike3LinuxArena grant requested with
+  | some arena =>
+      ({ (state.setGpr64 .rax arena.base) with rip := state.gprs .rcx }, none)
+  | none =>
+      ({ (state.setGpr64 .rax linuxEnomem) with rip := state.gprs .rcx }, none)
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
 /-- Spike 3's grant-aware `VirtualAlloc` realization.  It pops the import call's return address
@@ -76,10 +103,11 @@ def spike3LinuxMmapHook {Event : Type} (grant : Spike3NativeArenaGrant)
 def spike3VirtualAllocHook {Event : Type} (grant : Spike3NativeArenaGrant)
     (state : X86_64MachineState) : X86_64MachineState × Option Event :=
   let requested := state.gprs .rdx
-  if grant.admits requested then
-    virtualAllocHook state
-  else
-    (popReturnAddress state |>.setGpr64 .rax 0, none)
+  match spike3WindowsArena grant requested with
+  | some arena =>
+      (popReturnAddress state |>.setGpr64 .rax arena.base, none)
+  | none =>
+      (popReturnAddress state |>.setGpr64 .rax 0, none)
 
 /- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
 /-- Spike 3's process exit is terminal for both success and resource exhaustion.  The general
@@ -197,35 +225,61 @@ def spike3WindowsArenaCapabilities (Event : Type) [Inject ConsoleEvent Event]
     exact spike3WindowsRuntimeSupports Event context.2 artifact provider hmember hlinked
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
-/-- A failed Linux reservation returns null and resumes at the syscall continuation. -/
+/-- A failed Linux reservation returns raw `-ENOMEM` and resumes at the syscall continuation. -/
 theorem spike3LinuxMmapHook_rejects_insufficient (grant : Spike3NativeArenaGrant)
     (state : X86_64MachineState) (h : grant.admits (state.gprs .rsi) = false) :
-    (spike3LinuxMmapHook (Event := AnyEvent) grant state).1.gprs .rax = 0 := by
-  simp [spike3LinuxMmapHook, h, X86_64MachineState.setGpr64]
+    (spike3LinuxMmapHook (Event := AnyEvent) grant state).1.gprs .rax = linuxEnomem := by
+  simp [spike3LinuxMmapHook, spike3LinuxArena, h, X86_64MachineState.setGpr64]
+
+theorem spike3LinuxMmapHook_rejection_is_raw_errno (grant : Spike3NativeArenaGrant)
+    (state : X86_64MachineState) (h : grant.admits (state.gprs .rsi) = false) :
+    isLinuxRawErrno ((spike3LinuxMmapHook (Event := AnyEvent) grant state).1.gprs .rax) = true := by
+  rw [spike3LinuxMmapHook_rejects_insufficient grant state h]
+  exact linuxEnomem_is_raw_errno
+
+/-- Refusing a reservation changes only the syscall result and continuation; in particular it
+    cannot manufacture an allocator header or mutate client memory before the emitted program
+    takes its resource-exhaustion branch. -/
+theorem spike3LinuxMmapHook_rejection_preserves_memory (grant : Spike3NativeArenaGrant)
+    (state : X86_64MachineState) (h : grant.admits (state.gprs .rsi) = false) :
+    (spike3LinuxMmapHook (Event := AnyEvent) grant state).1.memory = state.memory := by
+  simp [spike3LinuxMmapHook, spike3LinuxArena, h, X86_64MachineState.setGpr64]
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- A sufficient Linux grant recovers the ordinary successful reservation result on a fresh
     invocation.  The theorem is intentionally about a new state: failed runs do not mutate a
     hidden global allocator budget. -/
 theorem spike3LinuxMmapHook_recovers_with_sufficient_grant (grant : Spike3NativeArenaGrant)
-    (state : X86_64MachineState) (h : grant.admits (state.gprs .rsi) = true) :
+    (state : X86_64MachineState) (hrequested : state.gprs .rsi = 65536)
+    (h : grant.admits (state.gprs .rsi) = true) :
     (spike3LinuxMmapHook (Event := AnyEvent) grant state).1.gprs .rax = 0x70000000 := by
-  simp [spike3LinuxMmapHook, h, sysMmapHook, X86_64MachineState.setGpr64]
+  have h65536 : grant.admits 65536 = true := by simpa [hrequested] using h
+  simp [spike3LinuxMmapHook, spike3LinuxArena, hrequested, h65536, NativeArenaCapability.ofReservation,
+    X86_64MachineState.setGpr64]
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- A failed Win32 reservation returns null after the normal call/return transition. -/
 theorem spike3VirtualAllocHook_rejects_insufficient (grant : Spike3NativeArenaGrant)
     (state : X86_64MachineState) (h : grant.admits (state.gprs .rdx) = false) :
     (spike3VirtualAllocHook (Event := AnyEvent) grant state).1.gprs .rax = 0 := by
-  simp [spike3VirtualAllocHook, h, popReturnAddress, X86_64MachineState.setGpr64]
+  simp [spike3VirtualAllocHook, spike3WindowsArena, h, popReturnAddress,
+    X86_64MachineState.setGpr64]
+
+theorem spike3VirtualAllocHook_rejection_preserves_memory (grant : Spike3NativeArenaGrant)
+    (state : X86_64MachineState) (h : grant.admits (state.gprs .rdx) = false) :
+    (spike3VirtualAllocHook (Event := AnyEvent) grant state).1.memory = state.memory := by
+  simp [spike3VirtualAllocHook, spike3WindowsArena, h, popReturnAddress,
+    X86_64MachineState.setGpr64]
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 /-- A sufficient Win32 grant recovers the ordinary successful reservation result on a fresh
     invocation. -/
 theorem spike3VirtualAllocHook_recovers_with_sufficient_grant (grant : Spike3NativeArenaGrant)
-    (state : X86_64MachineState) (h : grant.admits (state.gprs .rdx) = true) :
+    (state : X86_64MachineState) (hrequested : state.gprs .rdx = 65536)
+    (h : grant.admits (state.gprs .rdx) = true) :
     (spike3VirtualAllocHook (Event := AnyEvent) grant state).1.gprs .rax = 0x20000000 := by
-  simp [spike3VirtualAllocHook, h, virtualAllocHook, popReturnAddress,
+  have h65536 : grant.admits 65536 = true := by simpa [hrequested] using h
+  simp [spike3VirtualAllocHook, spike3WindowsArena, hrequested, h65536, NativeArenaCapability.ofReservation, popReturnAddress,
     X86_64MachineState.setGpr64]
 
 end Spikes.Spike3SortLines
