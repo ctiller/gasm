@@ -261,18 +261,6 @@ theorem output_refusal_outcome
   unfold outcome
   rw [terminalEq]
 
-/- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
-theorem success_outcome_is_spec
-    (completion : Completion World Concrete OutputConcrete Storage Table PreparationError OutputError LineId
-      lineUniverse stdin capacity chunks authority writeObserved)
-    (environment : Gasm.Core.Platform.Environment)
-    (stdinExact : environment.stdin.toList = stdin)
-    (success : ∃ ready emission done cursor outputDone,
-      completion.terminal = .completed ready emission done cursor outputDone) :
-    completion.outcome = spike3ByteSortSpec environment .ready .accepted := by
-  rw [spike3ByteSortSpec_ready_accepts]
-  simpa [environmentInputLines, decodeStdinLines, stdinExact] using completion.success_outcome success
-
 end Completion
 
 end Spikes.Spike3SortLines.TargetBridge

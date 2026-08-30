@@ -52,8 +52,8 @@ structure ByteLineStream where
 deriving Repr, DecidableEq
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
-/-- Incorporates one byte from stdin. Unterminated final bytes stay pending rather than being
-    silently turned into a line, matching Spike 3's newline-triggered node allocation. -/
+/-- Incorporates one byte from stdin. Unterminated final bytes remain pending until the explicit
+    EOF observation below, where a nonempty tail becomes Spike 3's final retained line. -/
 def ByteLineStream.step (state : ByteLineStream) (byte : UInt8) : ByteLineStream :=
   if byte == lineFeed then
     { currentRev := []
@@ -74,9 +74,17 @@ def ByteLineStream.completedLines (state : ByteLineStream) : List (List UInt8) :
   state.completedRev.reverse
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
+/-- Final line observation at EOF.  A nonempty trailing byte run is retained by the native
+lowerings; a trailing empty state after LF contributes no extra line. -/
+def ByteLineStream.finalizedLines (state : ByteLineStream) : List (List UInt8) :=
+  match state.currentRev with
+  | [] => state.completedLines
+  | _ => state.completedLines ++ [trimLineEnding state.currentRev.reverse]
+
+/- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- The byte-level stdin model used by Spike 3's universal-environment specification. -/
 def decodeStdinLines (stdin : ByteArray) : List (List UInt8) :=
-  (ByteLineStream.feed {} stdin.toList).completedLines
+  (ByteLineStream.feed {} stdin.toList).finalizedLines
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- Streaming composition: splitting an arbitrary stdin stream into host read chunks cannot
@@ -121,6 +129,14 @@ theorem ByteLineStream.completedLines_feedChunks_flatten (state : ByteLineStream
   rw [ByteLineStream.feedChunks_flatten]
 
 /- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
+/-- EOF finalization is equally invariant under arbitrary finite read fragmentation. -/
+theorem ByteLineStream.finalizedLines_feedChunks_flatten (state : ByteLineStream)
+    (chunks : List (List UInt8)) :
+    ((state.feedChunks chunks).finalizedLines) =
+      ((state.feed chunks.flatten).finalizedLines) := by
+  rw [ByteLineStream.feedChunks_flatten]
+
+/- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
 /-- A bounded read-binder schedule feeds exactly its source stream to the decoder.  This connects
     the concrete `ChunksOf` continuation contract to the sorter without choosing a sample stdin,
     a read count, or a particular placement of chunk boundaries. -/
@@ -137,6 +153,15 @@ theorem ByteLineStream.completedLines_of_chunksOf (state : ByteLineStream)
     {stdin : List UInt8} {capacity : Nat} {chunks : List (List UInt8)}
     (hchunks : Gasm.Effects.ChunksOf stdin capacity chunks) :
     (state.feedChunks chunks).completedLines = (state.feed stdin).completedLines := by
+  rw [ByteLineStream.feedChunks_of_chunksOf state hchunks]
+
+/- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
+/-- Consequently, every valid bounded read schedule has the exact same EOF-finalized line
+observation as its source stream, including a final unterminated record when present. -/
+theorem ByteLineStream.finalizedLines_of_chunksOf (state : ByteLineStream)
+    {stdin : List UInt8} {capacity : Nat} {chunks : List (List UInt8)}
+    (hchunks : Gasm.Effects.ChunksOf stdin capacity chunks) :
+    (state.feedChunks chunks).finalizedLines = (state.feed stdin).finalizedLines := by
   rw [ByteLineStream.feedChunks_of_chunksOf state hchunks]
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
