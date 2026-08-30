@@ -281,7 +281,7 @@ def spike4LinuxCapabilities : CapabilityComposition (LinuxX86_64 AnyEvent) where
 
 def spike4WasiCapabilities : CapabilityComposition WasiPlatform where
   root := wasiParserCapability
-  realize := fun _ _ => spike4WasiRuntime
+  realize := fun artifact _ => { host := spike4WasiRuntime, resources := artifact.resources }
   realizeSupports := by
     intro context artifact provider membership linked
     simp [wasiParserCapability, spike4WasiProviders] at membership

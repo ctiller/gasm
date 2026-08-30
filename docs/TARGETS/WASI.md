@@ -8,6 +8,15 @@ realization is currently connected to callability. Library requirements remain i
 WASI. A future realization may use explicit parameters or instance-qualified capability-table
 slots, and must model finite memory growth and its explicit failure outcome.
 
+### Execution resources
+
+The target runtime receives a concrete `WasiResourceBudget` at the established program entry;
+it is not a constant owned by `WasiArtifact`.  This lets a capability select finite evaluator
+fuel for the particular finite `Environment` without narrowing `stdin`.  A program that promises
+post-preparation progress must prove its selected per-input fuel grant sufficient.  Linear-memory
+pages remain finite and fallible: a sorter, for example, may report allocation exhaustion during
+preparation, but cannot turn that outcome into successful output.
+
 ---
 
 ## 1. WASI Snapshot Preview 1 Architecture

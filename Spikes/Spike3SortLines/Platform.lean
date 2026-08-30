@@ -51,13 +51,15 @@ def spike3WasiProvider (index : Nat) : WasiProvider :=
     importIndex := index }
 
 def spike3WasiReadWriteExitCapability : Capability Spike3WasiPreview1Platform where
-  Context := Unit
+  -- The entry supplies a finite, input-specific execution grant.  The grant does not restrict
+  -- stdin; it is the concrete capability from which the WASI evaluator takes fuel and pages.
+  Context := WasiResourceBudget
   providers := [0, 1, 2].map spike3WasiProvider
   establishes := fun _ _ _ _ => True
 
 def spike3WasiCapabilities : CapabilityComposition Spike3WasiPreview1Platform where
   root := spike3WasiReadWriteExitCapability
-  realize := fun _ _ => wasiHostCall
+  realize := fun _ resources => { host := wasiHostCall, resources }
   realizeSupports := by
     intro context artifact provider hprovider hlinked
     simp only [spike3WasiReadWriteExitCapability, List.mem_map] at hprovider

@@ -502,7 +502,8 @@ def wasiStreamingCapability (direction : CodecDirection) :
 def wasiStreamingCapabilities (direction : CodecDirection) :
     CapabilityComposition WasiPlatform where
   root := wasiStreamingCapability direction
-  realize := fun _ => wasiStreamingHost
+  realize := fun artifact context =>
+    { host := wasiStreamingHost context, resources := artifact.resources }
   realizeSupports := by
     intro context artifact provider hprovider hlinked
     change WasiStreamingContext at context
@@ -544,7 +545,8 @@ def wasiStreamingEntryContext (direction : CodecDirection) (environment : Enviro
 theorem wasi_streaming_trace_equivalence (direction : CodecDirection)
     (environment : Environment) :
     Platform.run (P := WasiPlatform)
-      (wasiStreamingHost (wasiStreamingEntryContext direction environment))
+      ((wasiStreamingCapabilities direction).realize (wasiStreamArtifact direction)
+        (wasiStreamingEntryContext direction environment))
       (wasiStreamArtifact direction) environment =
         wasiStreamingSpec direction environment := by
   cases direction with

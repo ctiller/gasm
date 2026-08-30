@@ -78,13 +78,15 @@ theorem spike5_linux_gunzip_trace_equivalence (environment : Environment) :
 
 theorem spike5_wasm_gzip_trace_equivalence (environment : Environment) :
     Platform.run (P := WasiPlatform)
-      (wasiStreamingHost (wasiStreamingEntryContext .compress environment))
+      ((wasiStreamingCapabilities .compress).realize (wasiStreamArtifact .compress)
+        (wasiStreamingEntryContext .compress environment))
       (wasiStreamArtifact .compress) environment = wasiStreamingSpec .compress environment :=
   wasi_streaming_trace_equivalence .compress environment
 
 theorem spike5_wasm_gunzip_trace_equivalence (environment : Environment) :
     Platform.run (P := WasiPlatform)
-      (wasiStreamingHost (wasiStreamingEntryContext .decompress environment))
+      ((wasiStreamingCapabilities .decompress).realize (wasiStreamArtifact .decompress)
+        (wasiStreamingEntryContext .decompress environment))
       (wasiStreamArtifact .decompress) environment = wasiStreamingSpec .decompress environment :=
   wasi_streaming_trace_equivalence .decompress environment
 

@@ -627,6 +627,17 @@ def WasiRunOutcome.ofResult : WasmRunResult → WasiRunOutcome
 abbrev WasiHostRuntime :=
   List String → Nat → WasmMachineState → WasmMachineState × ControlSignal
 
+/- REF: docs/TARGETS/WASI.md#2-syscall-signatures -/
+/-- Concrete runtime provision selected at one program entry.  Fuel is deliberately not an
+    artifact constant: an artifact is reusable, while the finite work required by a particular
+    finite environment is not.  The capability composition selects this record from its entry
+    context, so a whole-program proof can require a per-input sufficient fuel grant without
+    making the input domain finite or silently treating fuel as infinite.  Linear memory remains
+    finite and is still passed to the evaluator as a fallible capability. -/
+structure WasiRuntime where
+  host : WasiHostRuntime
+  resources : WasiResourceBudget
+
 /-- Runs a WASI artifact under an explicit finite platform resource capability
     and the exact composed host/library runtime selected by its capabilities. -/
 def runWasiOutcomeWithHost (host : WasiHostRuntime)
@@ -777,8 +788,10 @@ def runWasiTrace (instrs : List WasmInstr) (segments : List WasmDataSegment) (st
 open Gasm.Core.Platform
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
-/-- Complete WASI artifact tied to the instructions, resources, and import ABI
-    whose behavior is proved by the sole `VerifiedProgram`. -/
+/-- Complete WASI artifact tied to instructions and import ABI.  `resources` records an artifact
+    profile/default for tools and fixed-runtime callers; `Platform.run` deliberately consumes the
+    concrete `WasiRuntime.resources` selected at entry instead.  A universal verified program
+    must therefore establish any input-dependent fuel provision through its capability context. -/
 structure WasiArtifact where
   module : WasmModule
   typeSignatures : List FuncType
@@ -852,7 +865,7 @@ instance : Platform WasiPlatform where
   Artifact := WasiArtifact
   State := Environment
   Observation := WasiObservable AnyEvent
-  RuntimeContext := WasiHostRuntime
+  RuntimeContext := WasiRuntime
   Import := String
   Provider := WasiProvider
   BoundaryWorld := Unit
@@ -867,10 +880,10 @@ instance : Platform WasiPlatform where
   runtimeSupports := fun runtime _ provider =>
     match provider.protocol with
     | .preview1 => ∀ state,
-        runtime provider.imports provider.importIndex state =
+        runtime.host provider.imports provider.importIndex state =
           wasiHostCall provider.imports provider.importIndex state
     | .library _ => ∀ state,
-        (runtime provider.imports provider.importIndex state).1.trapped = state.trapped
+        (runtime.host provider.imports provider.importIndex state).1.trapped = state.trapped
   boundaryArtifact := id
   artifactConnected := fun artifact =>
     artifact.module.functions.head?.map (fun fn => fn.body) = some artifact.instructions ∧
@@ -878,21 +891,22 @@ instance : Platform WasiPlatform where
     artifact.module.imports.map (fun imported => imported.name) = artifact.imports
   load := fun _ environment => environment
   run := fun runtime artifact environment =>
-    (runWasiOutcomeWithHost runtime artifact.instructions artifact.dataSegments environment.stdin
-      artifact.imports environment.incomingRequests artifact.resources).observable
+    (runWasiOutcomeWithHost runtime.host artifact.instructions artifact.dataSegments environment.stdin
+      artifact.imports environment.incomingRequests runtime.resources).observable
   admissible := fun _ artifact _ => ∃ bytes, emitWasmBinary artifact.module artifact.typeSignatures = .ok bytes
   emit := fun artifact => emitWasmBinary artifact.module artifact.typeSignatures
 
 /- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
 def wasiHostCapability : Capability WasiPlatform where
-  Context := Unit
+  Context := WasiResourceBudget
   providers :=
     [{ protocol := .preview1, imports := ["fd_write", "proc_exit"], importIndex := 0 },
      { protocol := .preview1, imports := ["fd_write", "proc_exit"], importIndex := 1 }]
   establishes := fun _ _ _ _ => True
 
-private def realizeWasiHost (_artifact : WasiArtifact) (_context : Unit) : WasiHostRuntime :=
-  wasiHostCall
+private def realizeWasiHost (_artifact : WasiArtifact) (resources : WasiResourceBudget) :
+    WasiRuntime :=
+  { host := wasiHostCall, resources }
 
 def wasiHostCapabilities : CapabilityComposition WasiPlatform where
   root := wasiHostCapability

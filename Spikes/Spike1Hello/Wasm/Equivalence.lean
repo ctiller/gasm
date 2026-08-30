@@ -152,7 +152,7 @@ theorem spike1WasiProviderCertificate :
 /-- Root-entry capability establishment. -/
 def spike1WasiEntryCertificate :
     ProgramEntryCertificate WasiPlatform wasiHostCapabilities spike1WasiArtifact where
-  entryContext := fun _ => ()
+  entryContext := fun _ => { fuel := 100, memoryPages := 65536 }
   entryEstablished := by intro; trivial
 
 /-- Artifact serialization is the platform admissibility fact for WASI emission. -/
