@@ -24,6 +24,8 @@ import shutil
 import subprocess
 import sys
 
+from lean_process_lease import inherited_lease_environment, lean_process_lease
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPT_IN_ENV = "GASM_RUN_FULL_REFS_COVERAGE"
@@ -95,7 +97,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.print_command:
         print(subprocess.list2cmdline(command))
         return 0
-    return subprocess.run(command, cwd=REPO_ROOT, check=False).returncode
+    try:
+        with lean_process_lease():
+            return subprocess.run(
+                command, cwd=REPO_ROOT, check=False, env=inherited_lease_environment()
+            ).returncode
+    except (OSError, TimeoutError, ValueError) as error:
+        print(f"full declaration-coverage lease failed: {error}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

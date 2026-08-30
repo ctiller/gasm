@@ -22,7 +22,7 @@
 #
 # Use this when you only need fast type-checking feedback on library code
 # (e.g. Gasm/Core, Gasm/Targets/X86_64/Instructions, Stdlib/...) and don't
-# need every spike exe relinked. Run a full `lake build` before committing
-# to make sure the exes/tests still build.
+# need every full-build root. Run `python scripts/build_full.py` before committing;
+# it preserves the exact Lake default target set while avoiding cross-root fan-out.
 
-lake build Gasm Stdlib Spikes
+python scripts/lean_process_lease.py -- lake build Gasm Stdlib Spikes

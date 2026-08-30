@@ -16,78 +16,26 @@ param(
     [Parameter(Mandatory = $true)]
     [string[]] $LakeArgs,
 
+    [string] $Executable = 'lake',
+
     [int] $SampleMilliseconds = 500
 )
 
 $ErrorActionPreference = 'Stop'
 
-$lake = (Get-Command lake).Source
-$stdoutPath = [System.IO.Path]::GetTempFileName()
-$stderrPath = [System.IO.Path]::GetTempFileName()
+$measuredExecutable = (Get-Command $Executable).Source
+$python = (Get-Command python).Source
+$measurementScript = Join-Path $PSScriptRoot 'measure_process_tree.py'
+$measurementArgs = @(
+    $measurementScript,
+    '--sample-ms',
+    $SampleMilliseconds,
+    '--',
+    $measuredExecutable
+) + $LakeArgs
 
-try {
-    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $process = Start-Process `
-        -FilePath $lake `
-        -ArgumentList $LakeArgs `
-        -WorkingDirectory (Get-Location).Path `
-        -WindowStyle Hidden `
-        -PassThru `
-        -RedirectStandardOutput $stdoutPath `
-        -RedirectStandardError $stderrPath
-
-    $peakBytes = 0L
-    while (-not $process.HasExited) {
-        $allProcesses = Get-CimInstance Win32_Process
-        $descendantIds = [System.Collections.Generic.HashSet[int]]::new()
-        [void] $descendantIds.Add($process.Id)
-
-        $changed = $true
-        while ($changed) {
-            $changed = $false
-            foreach ($candidate in $allProcesses) {
-                if ($descendantIds.Contains([int] $candidate.ParentProcessId) -and
-                    -not $descendantIds.Contains([int] $candidate.ProcessId)) {
-                    [void] $descendantIds.Add([int] $candidate.ProcessId)
-                    $changed = $true
-                }
-            }
-        }
-
-        $sampleBytes = 0L
-        foreach ($processId in $descendantIds) {
-            $sample = Get-Process -Id $processId -ErrorAction SilentlyContinue
-            if ($sample) {
-                $sampleBytes += $sample.WorkingSet64
-            }
-        }
-        if ($sampleBytes -gt $peakBytes) {
-            $peakBytes = $sampleBytes
-        }
-
-        Start-Sleep -Milliseconds $SampleMilliseconds
-        $process.Refresh()
-    }
-    $stopwatch.Stop()
-
-    $stdout = Get-Content -Raw $stdoutPath
-    $stderr = Get-Content -Raw $stderrPath
-    $combined = $stdout + $stderr
-    Write-Output $combined
-
-    $builtJobs = ([regex]::Matches(
-        $combined,
-        '(?m)^(?:✔|⚠) \[[0-9]+/[0-9]+\] Built '
-    )).Count
-    Write-Output ('MEASURE seconds={0:N3} peak_mib={1:N1} built_jobs={2} sample_ms={3} exit={4}' -f `
-        $stopwatch.Elapsed.TotalSeconds,
-        ($peakBytes / 1MB),
-        $builtJobs,
-        $SampleMilliseconds,
-        $process.ExitCode)
-
-    exit $process.ExitCode
-}
-finally {
-    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
-}
+# The Python sampler follows only this child tree. The previous implementation enumerated every
+# Win32_Process through CIM every 500ms and itself failed with OutOfMemoryException during a host
+# pressure incident. Keep this PowerShell entry point for compatibility, but delegate immediately.
+& $python @measurementArgs
+exit $LASTEXITCODE

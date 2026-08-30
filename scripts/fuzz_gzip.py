@@ -30,18 +30,28 @@ import subprocess
 import sys
 import tempfile
 
+from lean_process_lease import inherited_lease_environment, lean_process_lease
+
 def test_spike5_binaries(count: int = 50):
     # 1. Emit spike5_gzip.exe and spike5_gunzip.exe from verified contracts
     print("[*] Emitting spike5_gzip.exe and spike5_gunzip.exe from Lean verified contracts...")
-    res1 = subprocess.run(["lake", "exe", "spike5_gzip_windows"], capture_output=True, text=True)
-    if res1.returncode != 0:
-        print(f"[-] Failed to emit spike5_gzip.exe: {res1.stderr}")
-        sys.exit(1)
+    with lean_process_lease():
+        child_env = inherited_lease_environment()
+        res1 = subprocess.run(
+            ["lake", "exe", "spike5_gzip_windows"], capture_output=True, text=True,
+            env=child_env,
+        )
+        if res1.returncode != 0:
+            print(f"[-] Failed to emit spike5_gzip.exe: {res1.stderr}")
+            sys.exit(1)
 
-    res2 = subprocess.run(["lake", "exe", "spike5_gunzip_windows"], capture_output=True, text=True)
-    if res2.returncode != 0:
-        print(f"[-] Failed to emit spike5_gunzip.exe: {res2.stderr}")
-        sys.exit(1)
+        res2 = subprocess.run(
+            ["lake", "exe", "spike5_gunzip_windows"], capture_output=True, text=True,
+            env=child_env,
+        )
+        if res2.returncode != 0:
+            print(f"[-] Failed to emit spike5_gunzip.exe: {res2.stderr}")
+            sys.exit(1)
 
     gzip_exe = os.path.abspath("spike5_gzip.exe")
     gunzip_exe = os.path.abspath("spike5_gunzip.exe")
@@ -178,7 +188,8 @@ def main():
 
     print("\n[+] [In-Process Fuzzer] Running Lean GzipFuzzer CLI...")
     cmd = ["lake", "exe", "gzip_fuzzer", "--count", "100"]
-    subprocess.run(cmd, check=True)
+    with lean_process_lease():
+        subprocess.run(cmd, check=True, env=inherited_lease_environment())
 
     print("\n" + "=" * 80)
     print(" ALL DUAL-DIRECTION LIVE NATIVE BINARY AND IN-LEAN FUZZER CHECKS PASSED (100% SUCCESS)")

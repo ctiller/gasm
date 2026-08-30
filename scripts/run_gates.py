@@ -98,6 +98,7 @@ Usage:
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from contextlib import nullcontext
 import json
 import os
 import re
@@ -107,6 +108,8 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
+
+from lean_process_lease import inherited_lease_environment, lean_process_lease
 
 if sys.stdout.encoding != "utf-8":
     try:
@@ -149,7 +152,7 @@ def _run_capture(cmd: List[str], cwd: Optional[Path] = None, timeout: float = 30
             text=True, encoding="utf-8", errors="replace", timeout=timeout,
         )
         return proc.returncode, proc.stdout
-    except (FileNotFoundError, OSError) as e:
+    except (FileNotFoundError, OSError, TimeoutError, ValueError) as e:
         return None, str(e)
     except subprocess.TimeoutExpired as e:
         return None, f"timed out after {timeout}s: {e}"
@@ -499,12 +502,13 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
     lake = shutil.which("lake") or "lake"
     py = shutil.which("python") or shutil.which("python3") or shutil.which("py") or "python"
     return [
-        {"key": "lake_build", "desc": "lake build",
+        {"key": "lake_build", "desc": "python scripts/build_full.py",
          "group": "build",
          "long": "all defaultTargets compile cleanly (a stray `sorry` is only a compiler "
                  "warning here -- lakefile.toml sets no warningAsError -- the actual "
                  "zero-sorry/zero-unauthorized-axiom enforcement is check_gates_axioms below)",
-         "cmd": [lake, "build"], "slow": False, "tools": ["lean"], "depends_on": []},
+         "cmd": [py, "scripts/build_full.py"], "slow": False,
+         "tools": ["python", "lean"], "depends_on": []},
         {"key": "check_refs", "desc": "python scripts/check_refs.py",
          "group": "linters",
          "long": "Law 3: citation validity (no Lean parsing -- see docs/REVIEW.md #4.1.2)",
@@ -782,25 +786,30 @@ def resolve_gate_cmd(cmd: List[str]) -> List[str]:
     return cmd
 
 
-def run_one_gate(cmd: List[str], capture: bool, timeout_s: float) -> Dict:
+def run_one_gate(cmd: List[str], capture: bool, timeout_s: float,
+                 needs_lean_lease: bool = False) -> Dict:
     eff_cmd = resolve_gate_cmd(cmd)
     start = time.monotonic()
     sys.stdout.flush()
     sys.stderr.flush()
     try:
-        if capture:
-            proc = subprocess.run(eff_cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, text=True,
-                                   encoding="utf-8", errors="replace", timeout=timeout_s)
-            output = proc.stdout
-            code = proc.returncode
-        else:
-            # Inherit the parent's stdout/stderr so a human watching a 15-25 minute run sees
-            # live progress. `proc.returncode` below is STILL the direct exit code of THIS
-            # exact process -- no shell, no pipe, no tee sits between us and it.
-            proc = subprocess.run(eff_cmd, cwd=REPO_ROOT, timeout=timeout_s)
-            output = None
-            code = proc.returncode
+        lease = lean_process_lease() if needs_lean_lease else nullcontext()
+        with lease:
+            child_env = inherited_lease_environment() if needs_lean_lease else None
+            if capture:
+                proc = subprocess.run(eff_cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, text=True,
+                                       encoding="utf-8", errors="replace", timeout=timeout_s,
+                                       env=child_env)
+                output = proc.stdout
+                code = proc.returncode
+            else:
+                # Inherit the parent's stdout/stderr so a human watching a 15-25 minute run sees
+                # live progress. `proc.returncode` below is STILL the direct exit code of THIS
+                # exact process -- no shell, no pipe, no tee sits between us and it.
+                proc = subprocess.run(eff_cmd, cwd=REPO_ROOT, timeout=timeout_s, env=child_env)
+                output = None
+                code = proc.returncode
         elapsed = time.monotonic() - start
         return {"exit_code": code, "output": output, "wall_time": elapsed,
                 "launch_error": None, "timed_out": False}
@@ -858,6 +867,14 @@ def _tool_info_for(g: Dict, prereqs: Dict[str, Dict]) -> str:
     if non_lean:
         return ", ".join(f"{t}={prereqs[t].get('version') or '?'}" for t in non_lean)
     return prereqs["lean"].get("version") or "-"
+
+
+def automatic_parallel_jobs(selected: List[Dict], cpu_count: Optional[int] = None) -> int:
+    """Memory-safe worker default; the global lease additionally serializes Lean child trees."""
+    if any(g.get("group") == "proofs" for g in selected):
+        return 1
+    available_cpus = cpu_count if cpu_count is not None else (os.cpu_count() or 1)
+    return min(2, max(1, available_cpus))
 
 
 # --------------------------------------------------------------------------------------------
@@ -1198,10 +1215,12 @@ def main() -> int:
                          help="Select one or more specific gates by key (can be repeated).")
     parser.add_argument("--shard", type=str, default=None,
                          help="Shard index and total (e.g. 1/4, 2/4) to distribute gates across parallel runners.")
-    parser.add_argument("-j", "--jobs", type=int, default=1,
-                         help="Number of concurrent worker processes (default: 1; >1 enables parallel execution).")
+    parser.add_argument("-j", "--jobs", type=int, default=None,
+                         help="Explicit worker count. Lean/Lake trees remain globally serialized; "
+                              "a large value can still pressure the host with non-Lean tools.")
     parser.add_argument("--parallel", action="store_true",
-                         help="Run independent gates concurrently across worker processes (default worker count = CPU count).")
+                         help="Run independent gates concurrently. Automatic limit: proofs=1, "
+                              "other selections<=2. Use --jobs for an explicit override.")
     parser.add_argument("--list-groups", action="store_true",
                          help="List all available gate groups and their gates, then exit.")
     parser.add_argument("--gate-timeout", type=float, default=DEFAULT_GATE_TIMEOUT_S,
@@ -1279,11 +1298,27 @@ def main() -> int:
 
     selected_keys = {g["key"] for g in selected}
 
-    jobs = args.jobs
-    if args.parallel and jobs <= 1:
-        jobs = max(1, os.cpu_count() or 4)
+    if args.jobs is not None and args.jobs < 1:
+        sys.stderr.write("--jobs must be at least 1\n")
+        return EXIT_PREREQ_ABORT
+    if args.jobs is not None:
+        jobs = args.jobs
+    elif args.parallel:
+        # Proof executables can each import or scan a repository-sized environment. Running them
+        # together has exhausted Windows system commit in practice. Other groups retain bounded
+        # concurrency without turning CPU count into an unbounded memory multiplier.
+        jobs = automatic_parallel_jobs(selected)
+    else:
+        jobs = 1
 
     if not json_mode:
+        if args.jobs is not None and args.jobs > 2:
+            print(f"WARNING: explicit --jobs={args.jobs} overrides the automatic worker cap. "
+                  "Lean/Lake trees remain globally serialized, but other tools can still "
+                  "consume substantial resources.")
+        elif args.parallel and args.jobs is None:
+            reason = "proof gates are memory-heavy" if jobs == 1 else "automatic memory-safe cap"
+            print(f"[*] Parallel worker limit: {jobs} ({reason})")
         print("#" * 100)
         print("# gasm gate runner (scripts/run_gates.py) -- TC5")
         print(f"# repo root: {REPO_ROOT}")
@@ -1365,7 +1400,8 @@ def main() -> int:
         lake = shutil.which("lake") or "lake"
         if not json_mode:
             print("\n[*] --clean: running `lake clean` before the gate sequence...")
-        clean_res = run_one_gate([lake, "clean"], capture=json_mode, timeout_s=args.gate_timeout)
+        clean_res = run_one_gate([lake, "clean"], capture=json_mode,
+                                 timeout_s=args.gate_timeout, needs_lean_lease=True)
         status = "PASS" if clean_res["exit_code"] == 0 else "FAIL"
         clean_row = {"key": "lake_clean", "status": status,
                      "exit_code": clean_res["exit_code"],
@@ -1429,7 +1465,9 @@ def main() -> int:
                     del pending_gates[key]
                     if not json_mode:
                         print(f"  [START  ] {key:<28} ($ {' '.join(g['cmd'])})")
-                    fut = executor.submit(run_one_gate, g["cmd"], True, args.gate_timeout)
+                    fut = executor.submit(
+                        run_one_gate, g["cmd"], True, args.gate_timeout, "lean" in g["tools"]
+                    )
                     in_flight[fut] = g
 
                 if in_flight:
@@ -1488,7 +1526,8 @@ def main() -> int:
                 print(f"       $ {' '.join(g['cmd'])}   (cwd={REPO_ROOT})")
                 print("-" * 100)
 
-            res = run_one_gate(g["cmd"], capture=json_mode, timeout_s=args.gate_timeout)
+            res = run_one_gate(g["cmd"], capture=json_mode, timeout_s=args.gate_timeout,
+                               needs_lean_lease="lean" in g["tools"])
             if res["timed_out"]:
                 status = f"TIMEOUT (> {args.gate_timeout:.0f}s)"
                 exit_code = None

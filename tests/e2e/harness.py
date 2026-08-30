@@ -29,10 +29,17 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from lean_process_lease import inherited_lease_environment, lean_process_lease
 
 
 class TestStatus(enum.Enum):
@@ -158,21 +165,26 @@ class ExecutionContext:
             run_env.update(env)
         work_dir = cwd or self.repo_root
         try:
-            proc = subprocess.run(
-                cmd,
-                cwd=work_dir,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=timeout,
-                env=run_env,
-            )
+            executable = Path(cmd[0]).name.lower()
+            needs_lean_lease = executable in {"lake", "lake.exe", "lean", "lean.exe"}
+            if needs_lean_lease:
+                with lean_process_lease():
+                    run_env.update(inherited_lease_environment())
+                    proc = subprocess.run(
+                        cmd, cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True, timeout=timeout, env=run_env,
+                    )
+            else:
+                proc = subprocess.run(
+                    cmd, cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, timeout=timeout, env=run_env,
+                )
             return proc.returncode, proc.stdout, proc.stderr
         except FileNotFoundError as e:
             return None, "", f"Executable not found: {e}"
         except subprocess.TimeoutExpired as e:
             return None, "", f"Command timed out after {timeout}s: {e}"
-        except Exception as e:
+        except (OSError, TimeoutError, ValueError) as e:
             return None, "", f"Execution error: {e}"
 
     def run_lean_target(self, target: str, timeout: float = 120.0) -> Tuple[Optional[int], str, str]:

@@ -27,7 +27,14 @@ The current hosted selection is:
 | CI slice | Events | Platform | Commands selected |
 |---|---|---|---|
 | Linters | push, PR, manual | Ubuntu once | `check_refs`, `check_full_refs_gate_wiring`, `check_gates`, `check_publishable`, `check_licenses`, `check_doc_facade`, `check_orphan_modules`, `check_instructions_umbrella` |
-| Proofs | push, PR, manual | Windows + Ubuntu | `lake build`, then the complete `proofs` group: the explicitly opted-in full-repository `check_refs_coverage` launcher, `check_gates_axioms`, `test_roundtrip`, `check_x86_obligations`, `check_aarch64_obligations` |
+| Proofs | push, PR, manual | Windows + Ubuntu | `python scripts/build_full.py`, then the complete `proofs` group: the explicitly opted-in full-repository `check_refs_coverage` launcher, `check_gates_axioms`, `test_roundtrip`, `check_x86_obligations`, `check_aarch64_obligations` |
+| Fast tests | push | Windows + Ubuntu | `python scripts/build_full.py`, then `test_zlib`, `test_png`, `test_smolalloc` |
+| Spike tests | PR, manual | Windows | the three Stdlib tests, Windows Spike 1–5 tests, and Wasm Spike 1–3 tests |
+| Spike tests | PR, manual | Ubuntu | the three Stdlib tests, x86 bare-metal/AArch64 bare-metal/AArch64 Linux Spike 1 tests, and Wasm Spike 1–3 tests |
+| Fuzzers | PR, manual | Windows, two shards | the complete eight-entry `fuzzers` group, including `perf_fuzzer` and `x86_fuzzer` |
+| Fuzzers | PR, manual | Ubuntu, two shards | `wasm_fuzzer`, `encoding_fuzzer`, `gzip_fuzzer`, `png_stability_fuzzer`, `x86_stability_fuzzer`, `elf_stability_fuzzer` |
+| Reference refresh | weekly, manual | Windows + Ubuntu | `check_references.py --refresh --all` |
+| Extended fuzzing | weekly, manual | Windows + Ubuntu | `x86_fuzzer`, `wasm_fuzzer`, `encoding_fuzzer`, `gzip_fuzzer`; Windows additionally runs `scripts/fuzz_gzip.py` |
 
 The canonical declaration-coverage command is
 `python scripts/run_full_refs_coverage.py --full-repository`. CI may instead set
@@ -39,13 +46,24 @@ near 28 GiB aggregate memory with one Lean process near 17 GiB. Those observatio
 not fixed requirements; cost depends on tree, cache, machine, and concurrency. Focused commands
 such as `lake exe test_graphics_foundation` remain useful inner-loop checks but do not replace the
 full gate.
-| Fast tests | push | Windows + Ubuntu | `lake build`, then `test_zlib`, `test_png`, `test_smolalloc` |
-| Spike tests | PR, manual | Windows | the three Stdlib tests, Windows Spike 1–5 tests, and Wasm Spike 1–3 tests |
-| Spike tests | PR, manual | Ubuntu | the three Stdlib tests, x86 bare-metal/AArch64 bare-metal/AArch64 Linux Spike 1 tests, and Wasm Spike 1–3 tests |
-| Fuzzers | PR, manual | Windows, two shards | the complete eight-entry `fuzzers` group, including `perf_fuzzer` and `x86_fuzzer` |
-| Fuzzers | PR, manual | Ubuntu, two shards | `wasm_fuzzer`, `encoding_fuzzer`, `gzip_fuzzer`, `png_stability_fuzzer`, `x86_stability_fuzzer`, `elf_stability_fuzzer` |
-| Reference refresh | weekly, manual | Windows + Ubuntu | `check_references.py --refresh --all` |
-| Extended fuzzing | weekly, manual | Windows + Ubuntu | `x86_fuzzer`, `wasm_fuzzer`, `encoding_fuzzer`, `gzip_fuzzer`; Windows additionally runs `scripts/fuzz_gzip.py` |
+
+The canonical authoritative build command is `python scripts/build_full.py`. It reads the exact
+`defaultTargets` list from `lakefile.toml`, builds those roots sequentially in declared order, and
+finishes with `lake --no-build build`. The final step is load-bearing: it proves that the same bare
+default closure is current and fails if a phase or target drift left any work undone. This changes
+neither proof coverage nor target membership; it prevents independent Gasm/Stdlib/Spikes and gate
+roots from becoming runnable in one high-fan-out wave.
+
+All canonical Lean/Lake launchers also share one host-global OS file lease. The lease is common
+across worktrees, releases automatically if its owner crashes, and on Windows keeps an adaptive
+reserve before starting a child tree: 30% of commit (capped at 32 GiB) and 25% of physical memory
+(capped at 12 GiB), with small-host floors of 4 GiB and 2 GiB respectively. This
+reserve protects the desktop app and shared GPU/driver commitments as well as the compiler;
+dedicated-video-memory wording does not imply that system commit was uninvolved.
+`GASM_LEAN_COMMIT_RESERVE_GIB`, `GASM_LEAN_PHYSICAL_RESERVE_GIB`, and
+`GASM_LEAN_LEASE_TIMEOUT_SECONDS` are explicit operational overrides. `run_gates.py --parallel`
+keeps proof gates sequential and caps other automatic worker pools at two; even an explicit
+`--jobs` value cannot overlap canonical Lean/Lake trees, though non-Lean tools may still overlap.
 
 The unfiltered local command, `python scripts/run_gates.py` with no selection flags, is
 intentionally broader than any one hosted job. Its table currently contains one build gate,
@@ -148,13 +166,13 @@ Two independent caches, both restored via `actions/cache`:
    with progressively shorter same-OS restore prefixes so a near match can seed an incremental
    build.
 
-Every Lean-bearing job runs `lake build` after cache restoration. The cache is an optimization,
+Every Lean-bearing job runs `python scripts/build_full.py` after cache restoration. The cache is an optimization,
 not proof evidence by itself. The current workflows do not run `lake clean`, and this document
 does not claim that an arbitrary or deliberately modified cache can only affect performance.
 Where a clean-rebuild contract is required, use the unfiltered local runner with `--clean` or
 add an explicit clean CI job.
 
-The workflows currently do not wrap `lake build` with `Measure-Command`/`time` and do not write
+The workflows currently do not wrap the phased full build with `Measure-Command`/`time` and do not write
 build durations to `$GITHUB_STEP_SUMMARY`. Job logs and GitHub's job duration are the only timing
 signals until explicit instrumentation is added.
 

@@ -135,9 +135,9 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: lake build (all defaultTargets)
+      - name: Memory-bounded build (all defaultTargets)
         shell: bash
-        run: lake build
+        run: python scripts/build_full.py
 
       - name: Run proofs & obligations in parallel
         shell: bash
@@ -203,9 +203,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86 qemu-user
 
-      - name: lake build (all defaultTargets)
+      - name: Memory-bounded build (all defaultTargets)
         shell: bash
-        run: lake build
+        run: python scripts/build_full.py
 
       - name: Fast Stdlib unit suite (Push mode)
         if: github.event_name == 'push'
@@ -319,9 +319,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nasm
 
-      - name: lake build (all defaultTargets)
+      - name: Memory-bounded build (all defaultTargets)
         shell: bash
-        run: lake build
+        run: python scripts/build_full.py
 
       - name: Run Fuzzers Shard in Parallel [Windows]
         if: runner.os == 'Windows'

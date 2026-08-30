@@ -15,7 +15,7 @@
 
 """Build the fast correctness frontier for one x86-64 instruction family.
 
-This is an inner-loop command, not a replacement for ``lake build Gasm`` or the
+This is an inner-loop command, not a replacement for ``python scripts/build_full.py`` or the
 full repository gates.  It checks the edited instruction module and the core
 consumers that catch local encoding, decoding, semantics, frame, and oracle
 breakage without pulling the registry-derived whole-library tail into every
@@ -28,6 +28,8 @@ import argparse
 from pathlib import Path
 import subprocess
 import sys
+
+from lean_process_lease import inherited_lease_environment, lean_process_lease
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,11 +75,19 @@ def main() -> int:
         parser.error(str(error))
 
     command = ["lake", "build", *targets]
-    print("FAST PARTIAL x86 family build (run `lake build Gasm` before review):", flush=True)
+    print("FAST PARTIAL x86 family build (run `python scripts/build_full.py` before review):",
+          flush=True)
     print(" ".join(command), flush=True)
     if args.print_only:
         return 0
-    return subprocess.run(command, cwd=ROOT, check=False).returncode
+    try:
+        with lean_process_lease():
+            return subprocess.run(
+                command, cwd=ROOT, check=False, env=inherited_lease_environment()
+            ).returncode
+    except (OSError, TimeoutError, ValueError) as error:
+        print(f"x86 family build lease failed: {error}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

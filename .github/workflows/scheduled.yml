@@ -122,9 +122,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nasm
 
-      - name: lake build (all defaultTargets)
+      - name: Memory-bounded build (all defaultTargets)
         shell: bash
-        run: lake build
+        run: python scripts/build_full.py
 
       - name: x86-64 semantics fuzzer (extended)
         shell: bash
