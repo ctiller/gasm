@@ -75,9 +75,6 @@ def checkInstrData (d : AArch64InstrCheckData) : List String := Id.run do
   | .llvmMcEncoding reason =>
     if reason.trimAscii.toString.length < minReasonLen then
       violations := violations ++ [s!"{d.label}: llvmMcEncoding reason '{reason}' is too short (< {minReasonLen} chars)"]
-  | .optedOut reason =>
-    if reason.trimAscii.toString.length < minReasonLen then
-      violations := violations ++ [s!"{d.label}: optedOut reason '{reason}' is too short (< {minReasonLen} chars)"]
 
   -- 6. Cost provenance non-vacuity (Law 14)
   match d.provenance with

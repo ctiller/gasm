@@ -89,7 +89,6 @@ structure AArch64Uop where
 inductive AArch64ValidationOracle where
   | silicon
   | llvmMcEncoding (reason : String)
-  | optedOut       (reason : String)
   deriving Repr, DecidableEq, Inhabited
 
 /- REF: docs/TARGETS/ARM64.md#3-mandatory-validation-obligations-cost-provenance-laws-13-14 -/

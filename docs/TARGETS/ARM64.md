@@ -592,7 +592,6 @@ Per repository governance (P4/P5 unified obligations), every AArch64 instruction
 inductive AArch64ValidationOracle where
   | silicon
   | llvmMcEncoding (reason : String)
-  | optedOut       (reason : String)
   deriving Repr, DecidableEq, Inhabited
 
 inductive CoefficientProvenance where
@@ -601,7 +600,7 @@ inductive CoefficientProvenance where
   deriving Repr, DecidableEq, Inhabited
 ```
 
-- **Validation Oracle Enforcement**: `CheckAArch64Obligations.lean` verifies that instances claiming `.llvmMcEncoding` or `.optedOut` carry non-empty, justified rationale strings (≥ 20 characters).
+- **Validation Oracle Enforcement**: `CheckAArch64Obligations.lean` verifies that instances claiming `.llvmMcEncoding` carry a non-empty, justified rationale string (≥ 20 characters). There is no opt-out constructor: each selected instruction must name an admitted oracle.
 - **Cost Provenance Honesty**: Since RDTSC / PMU calibration data for Cortex-A53 is not yet measured in-tree, all coefficients must honestly declare `.modelInternalUnvalidated "Cortex-A53 TRM initial nominal estimates uncalibrated against hardware PMU harness"`.
 
 ---
@@ -828,11 +827,11 @@ gate first.
   `X86_64Instruction` class (`validationOracle : ι → ValidationOracle`, `costProvenance : ι →
   CoefficientProvenance`, both with no `:=` default, unlike e.g. `canFuzzHardware := fun _ =>
   true`) and `Gasm/Targets/X86_64/Instructions/Obligations.lean` for the two option types
-  (`ValidationOracle = .silicon | .nasmEncoding reason | .optedOut reason`;
+  (`ValidationOracle = .silicon | .nasmEncoding reason`;
   `CoefficientProvenance = .cited artifact | .modelInternalUnvalidated reason`). The gate is
   `lake exe check_x86_obligations` (`Tools/CheckX86Obligations.lean`); an ARM equivalent
   (`check_arm_obligations`, or a generalization of the x86 one) would need to exist before
-  ARM instructions could pass CI, and every `.nasmEncoding`/`.optedOut`/
+  ARM instructions could pass CI, and every `.nasmEncoding`/
   `.modelInternalUnvalidated` reason string is length-checked, so a placeholder reason will
   not pass.
 - **`.silicon` and NASM-encoding cross-checks are both x86-specific machinery, not available
