@@ -43,6 +43,10 @@ import Spikes.Spike2Fibonacci.Wasm.Program
 import Spikes.Spike2Fibonacci.Wasm.Equivalence
 
 import Spikes.Spike3SortLines.Spec
+import Spikes.Spike3SortLines.Ingestion
+import Spikes.Spike3SortLines.VecIngestion
+import Spikes.Spike3SortLines.Composition
+import Spikes.Spike3SortLines.ReadBinderBridge
 import Spikes.Spike3SortLines.LogicalWorld
 import Spikes.Spike3SortLines.TargetBridge
 import Spikes.Spike3SortLines.Windows.Program
