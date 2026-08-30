@@ -236,6 +236,26 @@ theorem X86_64MachineState.setFlagsCmp64_cf (s : X86_64MachineState) (a b : UInt
   · rw [if_neg hcarry, hof, hpf, haf]
     simp [hcarry]
 
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+/-- Boolean-normalized form used by unsigned no-borrow branches such as JAE. -/
+theorem X86_64MachineState.setFlagsCmp64_cf_eq_false_iff
+    (s : X86_64MachineState) (a b : UInt64) :
+    (s.setFlagsCmp64 a b).cf = false ↔ ¬ a < b := by
+  constructor
+  · intro hfalse hlt
+    have htrue : (s.setFlagsCmp64 a b).cf = true := by
+      rw [X86_64MachineState.setFlagsCmp64_cf]
+      exact hlt
+    simp [hfalse] at htrue
+  · intro hnlt
+    cases hcf : (s.setFlagsCmp64 a b).cf with
+    | false => rfl
+    | true =>
+        exfalso
+        apply hnlt
+        rw [← X86_64MachineState.setFlagsCmp64_cf]
+        exact hcf
+
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Updates RFLAGS arithmetic condition codes following a 64-bit addition (a + b) while preserving system flags. -/
 def X86_64MachineState.setFlagsAdd64 (s : X86_64MachineState) (a b : UInt64) : X86_64MachineState :=
