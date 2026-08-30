@@ -267,8 +267,8 @@ private def wasiHostCallRaw (imports : List String) (idx : Nat)
         pure ()
       else
         let entryAddr := iovs_ptr.toNat + i * 8
-        match WasmMem.read32 curMem entryAddr, WasmMem.read32 curMem (entryAddr + 4) with
-        | some bufPtr, some bufLen =>
+        match readCiovec curMem entryAddr with
+        | some (bufPtr, bufLen) =>
           let available := if curPos < s4.stdin.size then s4.stdin.size - curPos else 0
           let toRead := min bufLen.toNat available
           let delivered := s4.stdin.extract curPos (curPos + toRead)
@@ -278,7 +278,7 @@ private def wasiHostCallRaw (imports : List String) (idx : Nat)
             curPos := curPos + toRead
             totalRead := totalRead + toRead.toUInt32
           | none => trapped := true
-        | _, _ => trapped := true
+        | none => trapped := true
     if trapped then
       return ({ s4 with trapped := true }, .next)
     match WasmMem.write32 curMem nread_ptr.toNat totalRead with
@@ -438,8 +438,7 @@ theorem wasiHostCall_fd_read_single
     (state : WasmMachineState) (nreadPtr : UInt32) (pos : Nat)
     (memoryAfterRead memoryAfter : WasmMemory)
     (hpos : pos < state.stdin.size)
-    (hbuf : WasmMem.read32 state.memory 0 = some 0x100)
-    (hlen : WasmMem.read32 state.memory 4 = some 512)
+    (hciovec : readCiovec state.memory 0 = some (0x100, 512))
     (hwrite : WasmMem.writeBytes state.memory 0x100
       (state.stdin.extract pos (pos + Nat.min 512 (state.stdin.size - pos))) = some memoryAfterRead)
     (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat
@@ -447,7 +446,7 @@ theorem wasiHostCall_fd_read_single
     wasiHostCall ["fd_read", "fd_write", "proc_exit"] 0
       { state with stack := [.i32 nreadPtr, .i32 1, .i32 0, .i32 0], stdinPos := pos } =
       (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos + Nat.min 512 (state.stdin.size - pos), stack := [] }), .next) := by
-  simp [wasiHostCall, wasiImportUsesExternalInputs, wasiHostCallRaw, popI32, hbuf, hlen, hpos, hwrite, hnread,
+  simp [wasiHostCall, wasiImportUsesExternalInputs, wasiHostCallRaw, popI32, hciovec, hpos, hwrite, hnread,
     pushVal]
 
 /- REF: docs/TARGETS/WASI.md#20-fdread -/
@@ -459,14 +458,13 @@ theorem wasiHostCall_fd_read_single_eof
     (state : WasmMachineState) (nreadPtr : UInt32) (pos : Nat)
     (memoryAfterRead memoryAfter : WasmMemory)
     (heof : state.stdin.size ≤ pos)
-    (hbuf : WasmMem.read32 state.memory 0 = some 0x100)
-    (hlen : WasmMem.read32 state.memory 4 = some 512)
+    (hciovec : readCiovec state.memory 0 = some (0x100, 512))
     (hwrite : WasmMem.writeBytes state.memory 0x100 ByteArray.empty = some memoryAfterRead)
     (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat 0 = some memoryAfter) :
     wasiHostCall ["fd_read", "fd_write", "proc_exit"] 0
       { state with stack := [.i32 nreadPtr, .i32 1, .i32 0, .i32 0], stdinPos := pos } =
       (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos, stack := [] }), .next) := by
-  simp [wasiHostCall, wasiImportUsesExternalInputs, wasiHostCallRaw, popI32, hbuf, hlen, heof,
+  simp [wasiHostCall, wasiImportUsesExternalInputs, wasiHostCallRaw, popI32, hciovec, heof,
     hwrite, hnread, pushVal]
 
 /- REF: docs/TARGETS/WASI.md#22-procexit -/

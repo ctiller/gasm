@@ -107,8 +107,7 @@ theorem spike3_fdRead_single_iovec
     (state : WasmMachineState) (nreadPtr : UInt32) (pos : Nat)
     (memoryAfterRead memoryAfter : WasmMemory)
     (hpos : pos < state.stdin.size)
-    (hbuf : WasmMem.read32 state.memory 0 = some 0x100)
-    (hlen : WasmMem.read32 state.memory 4 = some 512)
+    (hciovec : readCiovec state.memory 0 = some (0x100, 512))
     (hwrite : WasmMem.writeBytes state.memory 0x100
       (state.stdin.extract pos (pos + Nat.min 512 (state.stdin.size - pos))) = some memoryAfterRead)
     (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat
@@ -117,7 +116,7 @@ theorem spike3_fdRead_single_iovec
       { state with stack := [.i32 nreadPtr, .i32 1, .i32 0, .i32 0], stdinPos := pos } =
       (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos + Nat.min 512 (state.stdin.size - pos), stack := [] }), .next) := by
   exact wasiHostCall_fd_read_single state nreadPtr pos memoryAfterRead memoryAfter
-    hpos hbuf hlen hwrite hnread
+    hpos hciovec hwrite hnread
 
 /-- The `call 0` instruction used at the head of every Spike 3 ingestion
     iteration consumes a fixed two-unit interpreter prefix and hands the exact
@@ -127,8 +126,7 @@ theorem spike3_step_fdRead
     (nreadPtr : UInt32) (pos : Nat) (memoryAfterRead memoryAfter : WasmMemory)
     (hbefore : state.trapped = false) (hexit : state.exitCode = none)
     (hpos : pos < state.stdin.size)
-    (hbuf : WasmMem.read32 state.memory 0 = some 0x100)
-    (hlen : WasmMem.read32 state.memory 4 = some 512)
+    (hciovec : readCiovec state.memory 0 = some (0x100, 512))
     (hwrite : WasmMem.writeBytes state.memory 0x100
       (state.stdin.extract pos (pos + Nat.min 512 (state.stdin.size - pos))) = some memoryAfterRead)
     (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat
@@ -144,7 +142,7 @@ theorem spike3_step_fdRead
   · simpa using hexit
   · simpa [evalInstrMatch, evalLeafInstr] using
       (spike3_fdRead_single_iovec state nreadPtr pos memoryAfterRead memoryAfter
-        hpos hbuf hlen hwrite hnread)
+      hpos hciovec hwrite hnread)
 
 /-- The positive-read branch strictly decreases the remaining-input variant
     used by the outer ingestion loop. -/
@@ -166,14 +164,13 @@ theorem spike3_fdRead_single_iovec_eof
     (state : WasmMachineState) (nreadPtr : UInt32) (pos : Nat)
     (memoryAfterRead memoryAfter : WasmMemory)
     (heof : state.stdin.size ≤ pos)
-    (hbuf : WasmMem.read32 state.memory 0 = some 0x100)
-    (hlen : WasmMem.read32 state.memory 4 = some 512)
+    (hciovec : readCiovec state.memory 0 = some (0x100, 512))
     (hwrite : WasmMem.writeBytes state.memory 0x100 ByteArray.empty = some memoryAfterRead)
     (hnread : WasmMem.write32 memoryAfterRead nreadPtr.toNat 0 = some memoryAfter) :
     wasiHostCall ["fd_read", "fd_write", "proc_exit"] 0
       { state with stack := [.i32 nreadPtr, .i32 1, .i32 0, .i32 0], stdinPos := pos } =
       (pushVal (.i32 0) ({ state with memory := memoryAfter, stdinPos := pos, stack := [] }), .next) :=
   wasiHostCall_fd_read_single_eof state nreadPtr pos memoryAfterRead memoryAfter
-    heof hbuf hlen hwrite hnread
+    heof hciovec hwrite hnread
 
 end Spikes.Spike3SortLines.Wasm
