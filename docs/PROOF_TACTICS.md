@@ -33,8 +33,9 @@ from a resource enforced by emitted code.  A useful bound often supplies the ind
 
 For a bounded production loop, expose the mathematical bound, prove one pass, carry its invariant,
 and compose exact prefix and fuel certificates before discharging the platform wrapper.  Spike 2
-uses `Stdlib.Fmt.UInt64DecimalSchedule` for the one-to-twenty-digit schedule,
-`Gasm.Targets.X86_64.DecimalSchedule` for one-pass machine effects, and
+uses `Stdlib.Fmt.UInt64DecimalSchedule` for the one-to-twenty-digit bound,
+`Gasm.Targets.X86_64.DecimalPass` for one-pass machine effects,
+`Gasm.Targets.X86_64.DecimalSchedule` for two-phase composition, and
 `Gasm.Targets.X86_64.EventfulSegment` for production-prefix composition; instruction semantics and
 artifact authority remain with their target owners.  Reducing the closed 50,000-step native run
 with `native_decide` instead caused pathological time and memory use while hiding this induction.
@@ -43,6 +44,13 @@ the right completion for an exact closed proposition even when a structural libr
 cleaner.  Build such memory-heavy proofs sequentially, extract the generic certificate bridge from
 working consumers afterward, and introduce semantic chunks only if one proof exceeds the resource
 envelope on its own.
+
+Keep the reusable one-pass facts below the schedule-composition boundary.  The x86 decimal path
+compiles raw instruction projections in `DecimalStepFacts`, packages the seven- and five-step
+contracts in `DecimalPass`, and leaves only bounded two-phase composition in `DecimalSchedule`.
+In particular, store safety and placement in a selected pass and derive its architectural effect;
+do not store the same large dependent effect proposition a second time.  This keeps layout and
+runtime consumers cached when only schedule composition changes.
 
 Changing the evaluator does not rescue a proposition whose proof term is itself monolithic.  On the
 exact 90-row Spike 2 Windows certificate, `decide +kernel` exceeded 60 GB without producing an

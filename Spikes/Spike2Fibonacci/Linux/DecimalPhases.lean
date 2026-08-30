@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -/
 
+import Gasm.Targets.X86_64.DecimalSchedule
 import Spikes.Spike2Fibonacci.Linux.DecimalRuntime
 
 /-!

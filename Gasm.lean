@@ -84,6 +84,8 @@ import Gasm.Targets.X86_64.ExecutionCutpoint
 import Gasm.Targets.X86_64.LocalBlockDischarge
 import Gasm.Targets.X86_64.SelectedLoopTermination
 import Gasm.Targets.X86_64.DecimalSegments
+import Gasm.Targets.X86_64.DecimalStepFacts
+import Gasm.Targets.X86_64.DecimalPass
 import Gasm.Targets.X86_64.DecimalSchedule
 import Gasm.Targets.X86_64.DecimalMacro
 import Gasm.Targets.X86_64.DecimalMacroSelectedPrefix

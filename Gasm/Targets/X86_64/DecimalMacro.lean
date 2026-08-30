@@ -15,7 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Targets.X86_64.CFGLinker
-import Gasm.Targets.X86_64.DecimalSchedule
+import Gasm.Targets.X86_64.DecimalPass
 
 /-!
 # Symbolic decimal-pass coordinates and final-link refinement
@@ -349,7 +349,6 @@ theorem toSelectedPass {Event : Type}
   safety := safety
   executionSafety := executionSafety
   branch := branch
-  effect := extractionPassEffect backDisp stackLower initial safety executionSafety
 
 end ExtractionLinkedLayout
 
@@ -408,7 +407,6 @@ theorem toSelectedPass {Event : Type}
   safety := safety
   executionSafety := executionSafety
   branch := branch
-  effect := writePassEffect backDisp stackUpper outputLimit initial safety executionSafety
 
 end WriteLinkedLayout
 
