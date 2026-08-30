@@ -1108,7 +1108,8 @@ def _self_test_uncited_anonymous_instance(lake: str) -> Dict:
     check_refs.py no longer even tries -- Law 1 detection now lives entirely in
     Tools/CheckRefsCoverage.lean), so this control needs a real build and then the
     declaration-coverage Lean tool itself, mirroring `_self_test_planted_sorry`'s
-    shape for the axiom gate."""
+    shape for the axiom gate. The declaration-coverage gate is unconditional:
+    there is no exception path that can absorb this planted defect."""
     probe = REPO_ROOT / "Gasm" / "_TC5SelfTestUncitedInstance.lean"
     original_root = GASM_ROOT_FILE.read_text(encoding="utf-8")
     import_line = "import Gasm._TC5SelfTestUncitedInstance\n"
@@ -1132,7 +1133,8 @@ def _self_test_uncited_anonymous_instance(lake: str) -> Dict:
                 [sys.executable, "scripts/run_full_refs_coverage.py", "--full-repository"],
                 cwd=REPO_ROOT, timeout=300)
             red = (code != 0 and "instInhabitedTc5SelfTestUncitedFoo" in (out or "")
-                   and "_TC5SelfTestUncitedInstance.lean" in (out or ""))
+                   and "_TC5SelfTestUncitedInstance.lean" in (out or "")
+                   and "declaration coverage has no exception path" in (out or ""))
     finally:
         _git_unstage(probe)
         GASM_ROOT_FILE.write_text(original_root, encoding="utf-8")

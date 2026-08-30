@@ -91,8 +91,8 @@ tell "this module's `.olean` genuinely failed to import" (a real,
 reportable finding, folded into `unloadable`) apart from "this OS process
 itself crashed, was killed, or emitted nothing parseable" (also folded into
 `unloadable`, since both are exactly the blind spot this gate refuses to
-hide). The worker carries no allowlist knowledge; the parent alone does
-`byKey` matching against whatever candidates come back, exactly as before.
+hide). The parent applies the containment and source-citation scans to every
+candidate returned by a worker; uncited declarations have no exception path.
 
 THE HARD PART: BRIDGING NAME TO SOURCE POSITION. The environment gives
 declaration NAMES, not source positions; a `REF:` comment is a source-level
@@ -418,71 +418,6 @@ def scanFileForCitedLines (filePath : System.FilePath) (declLines : Std.HashSet 
       pendingHasRef := false
   return cited
 
-/-- One parsed, VALID line of scripts/ref_allowlist.txt -- same 5-field
-`::`-delimited shape as scripts/gate_allowlist.txt and
-scripts/license_allowlist.txt (see either for the established convention
-this mirrors). -/
-/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
-structure RefAllowlistEntry where
-  file           : String
-  declName       : String
-  fqn            : String
-  category       : String
-  justification  : String
-  lineNum        : Nat
-deriving Inhabited
-
-/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
-def validRefCategories : List String := ["derived-scaffolding", "internal-helper", "grandfathered"]
-
-/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
-def splitOnMax (s : String) (sep : String) (maxParts : Nat) : List String :=
-  let parts := s.splitOn sep
-  if parts.length ≤ maxParts then
-    parts
-  else
-    let head := parts.take (maxParts - 1)
-    let tail := parts.drop (maxParts - 1)
-    head ++ [String.intercalate sep tail]
-
-/-- Parses scripts/ref_allowlist.txt. A malformed line is a HARD parse
-failure, same discipline as every other allowlist in this repository. -/
-/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
-def parseRefAllowlist (contents : String) : List RefAllowlistEntry × List String := Id.run do
-  let mut entries : List RefAllowlistEntry := []
-  let mut errors : List String := []
-  let mut lineNum := 0
-  for rawLine in contents.splitOn "\n" do
-    lineNum := lineNum + 1
-    let line := rawLine.trimAscii.toString
-    if line.isEmpty || line.startsWith "#" then
-      continue
-    let parts := splitOnMax line "::" 5
-    if parts.length != 5 then
-      errors := errors ++
-        [s!"ref_allowlist.txt:{lineNum}: expected 5 '::'-delimited fields (file::decl::fqn::category::justification), got {parts.length}: {rawLine}"]
-      continue
-    let file := parts[0]!.trimAscii.toString
-    let declName := parts[1]!.trimAscii.toString
-    let fqn := parts[2]!.trimAscii.toString
-    let category := parts[3]!.trimAscii.toString.toLower
-    let justification := parts[4]!.trimAscii.toString
-    if !validRefCategories.contains category then
-      errors := errors ++
-        [s!"ref_allowlist.txt:{lineNum}: unknown category '{parts[3]!.trimAscii.toString}' (expected one of {validRefCategories})"]
-      continue
-    if fqn.isEmpty then
-      errors := errors ++ [s!"ref_allowlist.txt:{lineNum}: missing fully-qualified name (3rd field)"]
-      continue
-    if justification.isEmpty then
-      errors := errors ++ [s!"ref_allowlist.txt:{lineNum}: missing justification"]
-      continue
-    entries := entries ++ [(⟨file, declName, fqn, category, justification, lineNum⟩ : RefAllowlistEntry)]
-  return (entries, errors)
-
-/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
-def matchKey (moduleName : Name) (fqn : String) : String := s!"{moduleName}::{fqn}"
-
 /-- What a `--scan-module` worker process reported, once its one
 `GASM_SCAN_RESULT` JSON line has been parsed. `loadFailed` mirrors the old
 in-process `catch` arm (the module's own `importModules` failed); the parent
@@ -536,8 +471,8 @@ on-disk path via `discoverProjectModules`) rather than rediscovered here, so
 the worker never needs its own disk walk. Always exits `0`: whether the
 IMPORT itself succeeded or failed is reported IN the JSON (`ok` field), not
 via process exit code -- see this file's header (SUBPROCESS ISOLATION) for
-why that split matters. Carries no allowlist knowledge; the parent alone
-does `byKey` matching. -/
+why that split matters. Declaration coverage has no exception path: every
+reported declaration must carry its own preceding citation. -/
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
 def runScanWorker (target : Name) (file : System.FilePath) : IO UInt32 := do
   setupSearchPath
@@ -565,29 +500,11 @@ def runGate : IO UInt32 := do
 
   setupSearchPath
 
-  let allowlistPath : System.FilePath := "scripts" / "ref_allowlist.txt"
-  if !(← allowlistPath.pathExists) then
-    IO.eprintln s!"[!] ERROR: {allowlistPath} not found relative to the current directory."
-    IO.eprintln "    Run the canonical full gate from the repo root: `python scripts/run_full_refs_coverage.py --full-repository`"
-    return 1
-  let allowlistText ← IO.FS.readFile allowlistPath
-  let (allowlist, parseErrors) := parseRefAllowlist allowlistText
-
   IO.println sepLine
   IO.println " gasm Law 1 / Law 3 DECLARATION-COVERAGE Gate Verifier (Tools/CheckRefsCoverage.lean)"
   IO.println sepLine
   IO.println "[*] Enumerates every reportable project declaration from the COMPILED ENVIRONMENT"
   IO.println "    (not source-text pattern matching), then checks each for a preceding `REF:`."
-
-  if !parseErrors.isEmpty then
-    IO.println ""
-    IO.println s!"[!] FAILED: {parseErrors.length} malformed allowlist line(s):"
-    for e in parseErrors do
-      IO.println s!"    - {e}"
-    IO.println sepLine
-    return 1
-
-  IO.println s!"[*] Loaded {allowlist.length} valid allowlist entr(y/ies) from {allowlistPath}."
 
   let env ←
     try
@@ -664,15 +581,8 @@ def runGate : IO UInt32 := do
   for d in topLevel do
     byFile := byFile.insert d.file ((byFile.getD d.file #[]).push d)
 
-  let mut byKey : Std.HashMap String RefAllowlistEntry := {}
-  for e in allowlist do
-    let entryModule := moduleNameOfPath (System.FilePath.mk e.file)
-    byKey := byKey.insert (matchKey entryModule e.fqn) e
-
   let mut scanned := 0
   let mut uncited : Array DeclCandidate := #[]
-  let mut allowlisted := 0
-  let mut matchedKeys : Std.HashSet String := {}
 
   for (file, decls) in byFile.toList do
     let declLines : Std.HashSet Nat := decls.foldl (init := {}) (fun s d => s.insert d.anchorLine)
@@ -680,13 +590,7 @@ def runGate : IO UInt32 := do
     for d in decls do
       scanned := scanned + 1
       if !cited.contains d.anchorLine then
-        let key := matchKey d.module d.fqn
-        match byKey[key]? with
-        | some _ => allowlisted := allowlisted + 1; matchedKeys := matchedKeys.insert key
-        | none => uncited := uncited.push d
-
-  let staleEntries := allowlist.filter (fun e =>
-    !matchedKeys.contains (matchKey (moduleNameOfPath (System.FilePath.mk e.file)) e.fqn))
+        uncited := uncited.push d
 
   let elapsedMs := (← IO.monoMsNow) - startTime
   let baselineProjectCount := (discovered.filter (fun (m, _) => baselineModules.contains m)).size
@@ -718,8 +622,7 @@ def runGate : IO UInt32 := do
   IO.println s!"[*] {candidates.size} candidate declaration(s) before containment filtering;"
   IO.println s!"    {topLevel.size} genuinely top-level (compiler-synthesized companions excluded --"
   IO.println "    see this file's own header for the containment/API-based exclusion rationale)."
-  IO.println s!"[*] Scanned {scanned} top-level declaration(s); {allowlisted} uncited-but-allowlisted,"
-  IO.println s!"    {uncited.size} uncited with no matching entry."
+  IO.println s!"[*] Scanned {scanned} top-level declaration(s); {uncited.size} uncited."
 
   let mut failed := false
 
@@ -746,22 +649,13 @@ def runGate : IO UInt32 := do
     failed := true
     IO.println ""
     IO.println s!"[!] FAILED: {uncited.size} declaration(s) have no preceding `REF:` citation"
-    IO.println "    (Law 1 violation: Invention) and no matching scripts/ref_allowlist.txt entry:"
+    IO.println "    (Law 1 violation: Invention); declaration coverage has no exception path:"
     for d in uncited.toList do
       IO.println s!"    - {d.file}:{d.anchorLine}: {d.module}::{d.fqn}"
 
-  if !staleEntries.isEmpty then
-    failed := true
-    IO.println ""
-    IO.println s!"[!] FAILED: {staleEntries.length} scripts/ref_allowlist.txt entr(y/ies) matched no"
-    IO.println "    uncited declaration in this scan (stale; prune or fix the fqn):"
-    for e in staleEntries do
-      IO.println s!"    - ref_allowlist.txt:{e.lineNum} {e.file}::{e.declName}::{e.fqn}"
-
   if !failed then
-    IO.println "[+] Every reportable declaration in scope carries a `REF:` citation (directly, or"
-    IO.println "    via an honest scripts/ref_allowlist.txt entry), and every allowlist entry"
-    IO.println "    matched a real finding."
+    IO.println "[+] Every reportable declaration in scope carries a preceding `REF:` citation;"
+    IO.println "    declaration coverage has no exception path."
 
   IO.println ""
   IO.println s!"[*] Wall time: {elapsedMs}ms."

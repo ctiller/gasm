@@ -239,12 +239,14 @@ def get_tier2_tests() -> List[TestCase]:
     # Feature 4: Citation Discipline (M1, R1) - 5 boundary tests
     # --------------------------------------------------------------------------------------------
     def t2_04_01(ctx):
-        allowlist = (ctx.repo_root / "scripts" / "ref_allowlist.txt").read_text(encoding="utf-8")
-        lines = [line.strip() for line in allowlist.splitlines() if line.strip() and not line.startswith("#")]
-        if len(lines) > 50:
-            return TestStatus.FAIL, f"Too many exemptions in ref_allowlist ({len(lines)} > 50)"
-        return TestStatus.PASS, f"ref_allowlist is tightly constrained ({len(lines)} entries)"
-    tests.append(make_boundary_test("T2.04.01", 4, "M1", "allowlist_size_bound", "Verify ref_allowlist size ceiling", t2_04_01))
+        allowlist = ctx.repo_root / "scripts" / "ref_allowlist.txt"
+        gate_source = (ctx.repo_root / "Tools" / "CheckRefsCoverage.lean").read_text(encoding="utf-8")
+        if allowlist.exists():
+            return TestStatus.FAIL, "Declaration citation exception file still exists"
+        if "declaration coverage has no exception path" not in gate_source:
+            return TestStatus.FAIL, "Gate does not assert unconditional declaration coverage"
+        return TestStatus.PASS, "Declaration citation coverage has no exception path"
+    tests.append(make_boundary_test("T2.04.01", 4, "M1", "unconditional_declaration_coverage", "Verify declaration coverage has no exceptions", t2_04_01))
 
     def t2_04_02(ctx):
         test_str = "/- REF: docs/TARGETS/ARM64.md -/"

@@ -432,20 +432,20 @@ class TestT1_04_01(BaseTier1Test):
 
 
 class TestT1_04_02(BaseTier1Test):
-    """T1.04.02: Verify scripts/ref_allowlist.txt contains no wildcard exemptions."""
+    """T1.04.02: Verify declaration citation coverage has no exception mechanism."""
     def __init__(self):
-        super().__init__("T1.04.02", 4, "M1", "ref_allowlist_strict", "Verify ref_allowlist.txt has no wildcards.")
+        super().__init__("T1.04.02", 4, "M1", "citation_coverage_unconditional", "Verify declaration citation coverage is unconditional.")
 
     def run(self, ctx: ExecutionContext) -> TestResult:
         start = time.monotonic()
         allowlist = ctx.repo_root / "scripts" / "ref_allowlist.txt"
-        if not allowlist.exists():
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "scripts/ref_allowlist.txt missing", time.monotonic() - start)
-        lines = [line.strip() for line in allowlist.read_text(encoding="utf-8").splitlines() if line.strip() and not line.startswith("#")]
-        wildcards = [line for line in lines if "*" in line or "?" in line]
-        if wildcards:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Wildcard entries found in ref_allowlist: {wildcards}", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, f"ref_allowlist.txt is strict with {len(lines)} explicit entries", time.monotonic() - start)
+        gate_source = (ctx.repo_root / "Tools" / "CheckRefsCoverage.lean").read_text(encoding="utf-8")
+        forbidden = ["RefAllowlistEntry", "parseRefAllowlist", "ref_allowlist.txt", "uncited-but-allowlisted"]
+        leftovers = [token for token in forbidden if token in gate_source]
+        if allowlist.exists() or leftovers:
+            detail = "allowlist file still exists" if allowlist.exists() else f"gate retains exception machinery: {leftovers}"
+            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, detail, time.monotonic() - start)
+        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "Every uncited compiled declaration fails unconditionally", time.monotonic() - start)
 
 
 class TestT1_04_03(BaseTier1Test):

@@ -65,8 +65,8 @@ name = "check_gates_axioms"
 root = "Tools.CheckGatesAxioms"
 
 # Law 1 / Law 3 declaration-coverage gate verifier: walks every compiled
-# declaration in Gasm/Stdlib/Spikes and cross-checks a preceding `REF:`
-# citation against scripts/ref_allowlist.txt. See Tools/CheckRefsCoverage.lean
+# declaration in Gasm/Stdlib/Spikes and requires a preceding `REF:` citation.
+# See Tools/CheckRefsCoverage.lean
 # for why this, and not scripts/check_refs.py's old regex-based declaration
 # matching, is the load-bearing declaration-coverage gate.
 [[lean_exe]]
