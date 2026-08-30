@@ -73,6 +73,7 @@ theorem fibonacciOutputBytes_90 :
     fibonacciOutputBytes 90 =
       (List.range 90).flatMap (fun offset => fibonacciLineBytes (offset + 1)) := rfl
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Observable part of a native-driver state at its main-loop boundary.  An adapter may retain
     arbitrary additional facts in `frame`; these fields are the values that the generic induction
     needs to preserve and expose to Linux/Windows trace adapters. -/
@@ -82,6 +83,7 @@ structure FibonacciBoundary where
   next : UInt64
   output : List UInt8
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- A platform adapter observes this boundary from its actual machine state. -/
 abbrev FibonacciObserver (State : Type) := State → FibonacciBoundary
 
@@ -115,6 +117,7 @@ structure NativeDriverBlocks (State : Type) where
 
 namespace NativeDriverBlocks
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Iterating the adapter's native block transition.  It is structural recursion over the number
     of completed rows, never a replay of a whole-program evaluator. -/
 def run (blocks : NativeDriverBlocks State) : Nat → State
