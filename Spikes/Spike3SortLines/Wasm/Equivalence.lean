@@ -51,11 +51,22 @@ def defaultSampleInput : ByteArray :=
   "cherry\r\napple\r\nbanana\r\n".toUTF8
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
-/-- Finite capability selected at the Spike 3 WASI boundary.  It does not constrain stdin: an
-    allocation or execution shortfall is represented in `WasiObservable`, rather than converted
-    to a partial output trace. -/
-def spike3WasiResources : WasiResourceBudget :=
-  { fuel := defaultWasmFuel, memoryPages := 65536 }
+/-- Candidate concrete evaluator-fuel grant for one finite input.  The quadratic component follows
+    the selected in-place line sorter; it is deliberately a function of the environment, never a
+    hidden bound on stdin.  `Spike3WasmBehavior.productionRunWithinFuel` is the load-bearing
+    target proof that this exact provision covers the actual evaluator run after preparation
+    seals. Memory remains finite and fallible: it is not made total by this fuel policy. -/
+def spike3WasiFuelFor (environment : Environment) : Nat :=
+  65536 + 4096 * (environment.stdin.size + 1) * (environment.stdin.size + 1)
+
+def spike3WasiResourcesFor (environment : Environment) : WasiResourceBudget :=
+  { fuel := spike3WasiFuelFor environment
+    memoryPages := 65536 }
+
+/-- The entry context contains exactly the published finite fuel bound, rather than a caller
+    chosen unrelated number. -/
+theorem spike3WasiResourcesFor_fuel (environment : Environment) :
+    (spike3WasiResourcesFor environment).fuel = spike3WasiFuelFor environment := rfl
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Observable Wasm trace on canonical 3-line input. -/
@@ -77,9 +88,13 @@ def specTraceCanonical : List AnyEvent := [
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- The operational target is parameterized by the canonical environment, not a Bool or a finite
     collection of samples. `environmentInputLines` is its shared executable byte-stream model. -/
+def spike3WasmRunFor (environment : Environment) : WasiRunOutcome :=
+  runWasiOutcome spike3WasmInstructions spike3DataSegments environment.stdin
+    ["fd_read", "fd_write", "proc_exit"] environment.incomingRequests
+    (spike3WasiResourcesFor environment)
+
 def spike3WasmTraceFor (environment : Environment) : WasiObservable AnyEvent :=
-  (runWasiOutcome spike3WasmInstructions spike3DataSegments environment.stdin
-    ["fd_read", "fd_write", "proc_exit"] environment.incomingRequests spike3WasiResources).observable
+  (spike3WasmRunFor environment).observable
 
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- The exact byte-level input observation which the whole-program sort specification consumes. -/
@@ -151,56 +166,68 @@ theorem spike3_wasi_platform_loads_environment
     fuel exhaustion, memory exhaustion, trap, nonzero exit, or clean fall-through therefore
     cannot discharge this obligation or be silently rewritten as success. -/
 structure Spike3WasmBehavior (environment : Environment) where
+  /-- The capability's concrete environment-specific fuel grant is sufficient for this exact
+      finite run.  This is a post-seal progress obligation, not an assumption that input is
+      bounded or that the evaluator has unlimited fuel. -/
+  productionRunWithinFuel : ∀ partialState,
+    spike3WasmRunFor environment ≠ .fuelExhausted partialState
   successfulExitIsSorted : ∀ events,
     spike3WasmTraceFor environment = .exited 0 events →
       events = byteSortOutput (sortByteLines (environmentInputLines environment))
 
-/-- The universal contract normalizes exactly the successful-exit payload.  Every other
-    `WasiObservable` constructor is retained verbatim, including interpreter fuel exhaustion
-    after preparation has sealed. -/
-def spike3WasmSpecification (environment : Environment) : WasiObservable AnyEvent :=
-  match spike3WasmTraceFor environment with
+theorem Spike3WasmBehavior.noFuelExhausted
+    (behavior : Spike3WasmBehavior environment) :
+    spike3WasmTraceFor environment ≠ .fuelExhausted := by
+  intro exhausted
+  cases hrun : spike3WasmRunFor environment with
+  | completed state signal => simp [spike3WasmTraceFor, hrun] at exhausted
+  | exited state code => simp [spike3WasmTraceFor, hrun] at exhausted
+  | trapped state => simp [spike3WasmTraceFor, hrun] at exhausted
+  | fuelExhausted partialState => exact behavior.productionRunWithinFuel partialState hrun
+  | memoryExhausted state requested available =>
+      simp [spike3WasmTraceFor, hrun] at exhausted
+
+/-- The verified post-seal contract normalizes exactly the successful-exit payload and excludes
+    fuel exhaustion through the separately proved per-environment grant.  The raw finite
+    observation is still available as `spike3WasmFiniteSpec`, preserving the platform's complete
+    outcome vocabulary for diagnostics and preparation reasoning. -/
+def spike3WasmSpecification (behavior : Spike3WasmBehavior environment) : WasiObservable AnyEvent :=
+  match h : spike3WasmTraceFor environment with
   | .exited 0 _ => spike3WasmSuccessSpec environment
+  | .fuelExhausted => False.elim (behavior.noFuelExhausted h)
   | observation => observation
 
-/-- A finite interpreter budget remains an observable contract outcome. -/
-theorem spike3WasmSpecification_fuelExhausted (environment : Environment)
-    (exhausted : spike3WasmTraceFor environment = .fuelExhausted) :
-    spike3WasmSpecification environment = .fuelExhausted := by
-  unfold spike3WasmSpecification
-  rw [exhausted]
-
 /-- A rejected linear-memory capability remains an observable contract outcome. -/
-theorem spike3WasmSpecification_memoryExhausted (environment : Environment)
+theorem spike3WasmSpecification_memoryExhausted (behavior : Spike3WasmBehavior environment)
     (exhausted : spike3WasmTraceFor environment = .memoryExhausted requested available) :
-    spike3WasmSpecification environment = .memoryExhausted requested available := by
+    spike3WasmSpecification behavior = .memoryExhausted requested available := by
   unfold spike3WasmSpecification
   rw [exhausted]
 
 /-- Traps and clean fall-through remain distinct from source-level success. -/
-theorem spike3WasmSpecification_trapped (environment : Environment)
+theorem spike3WasmSpecification_trapped (behavior : Spike3WasmBehavior environment)
     (trapped : spike3WasmTraceFor environment = .trapped events) :
-    spike3WasmSpecification environment = .trapped events := by
+    spike3WasmSpecification behavior = .trapped events := by
   unfold spike3WasmSpecification
   rw [trapped]
 
-theorem spike3WasmSpecification_completed (environment : Environment)
+theorem spike3WasmSpecification_completed (behavior : Spike3WasmBehavior environment)
     (completed : spike3WasmTraceFor environment = .completed events) :
-    spike3WasmSpecification environment = .completed events := by
+    spike3WasmSpecification behavior = .completed events := by
   unfold spike3WasmSpecification
   rw [completed]
 
-theorem spike3WasmSpecification_nonzeroExit (environment : Environment)
+theorem spike3WasmSpecification_nonzeroExit (behavior : Spike3WasmBehavior environment)
     (nonzero : code ≠ 0)
     (exited : spike3WasmTraceFor environment = .exited code events) :
-    spike3WasmSpecification environment = .exited code events := by
+    spike3WasmSpecification behavior = .exited code events := by
   unfold spike3WasmSpecification
   rw [exited]
   simp [nonzero]
 
 theorem Spike3WasmBehavior.refinesSpecification
     (behavior : Spike3WasmBehavior environment) :
-    spike3WasmTraceFor environment = spike3WasmSpecification environment := by
+    spike3WasmTraceFor environment = spike3WasmSpecification behavior := by
   cases h : spike3WasmTraceFor environment with
   | completed events =>
       unfold spike3WasmSpecification
@@ -219,8 +246,7 @@ theorem Spike3WasmBehavior.refinesSpecification
       unfold spike3WasmSpecification
       rw [h]
   | fuelExhausted =>
-      unfold spike3WasmSpecification
-      rw [h]
+      exact False.elim (behavior.noFuelExhausted h)
   | memoryExhausted requested available =>
       unfold spike3WasmSpecification
       rw [h]
@@ -234,7 +260,9 @@ def spike3WasiArtifact : WasiArtifact where
   instructions := spike3WasmInstructions
   dataSegments := spike3DataSegments
   imports := ["fd_read", "fd_write", "proc_exit"]
-  resources := spike3WasiResources
+  -- Static artifact metadata pins the linear-memory ceiling.  The entry capability supplies
+  -- its finite evaluator fuel in `spike3WasiResourcesFor`.
+  resources := { fuel := 0, memoryPages := 65536 }
 
 def spike3WasiExports : VerifiedExportSet Unit Unit WasiPlatform
     wasiBoundarySpec wasiBoundarySemantics :=
@@ -282,7 +310,7 @@ def spike3WasiProviderCertificate :
 
 def spike3WasiEntryCertificate :
     ProgramEntryCertificate Spike3WasiPreview1Platform spike3WasiCapabilities spike3WasiArtifact where
-  entryContext := fun _ => ()
+  entryContext := spike3WasiResourcesFor
   entryEstablished := by intros; trivial
 
 theorem spike3WasiAdmissibilityCertificate :
@@ -300,7 +328,7 @@ def spike3WasiBehaviorCertificate
     (behavior : ∀ environment : Environment, Spike3WasmBehavior environment) :
     ProgramBehaviorCertificate Spike3WasiPreview1Platform spike3WasiCapabilities spike3WasiArtifact
       spike3WasiEntryCertificate where
-  spec := spike3WasmSpecification
+  spec := fun environment => spike3WasmSpecification (behavior environment)
   traceEquivalence := by
     intro environment
     exact (behavior environment).refinesSpecification
