@@ -1,0 +1,107 @@
+/- Copyright 2026 Craig Tiller -/
+import Spikes.Spike2Fibonacci.Windows.RowIndexPath
+
+namespace Spikes.Spike2Fibonacci.Windows
+
+open Gasm.Core Gasm.Effects Gasm.Targets Gasm.Targets.X86_64
+open Gasm.Targets.X86_64.Instructions
+open Stdlib.Fmt
+
+set_option maxRecDepth 2000000
+set_option maxHeartbeats 5000000
+
+theorem spike2_decimal_slice (state : X86_64MachineState) (eventsRev : List AnyEvent)
+    (hrip : state.rip = 5368713409) (rsp : state.rsp = spike2AfterPrologue.rsp)
+    (safe : state.fault = none) (low : Spike2RowLowMemory state)
+    (cursorAboveStack : state.rsp.toNat ≤ (state.gprs .rdi).toNat)
+    (cursorAbove : spike2RowLowMemoryTop ≤ (state.gprs .rdi).toNat)
+    (cursorRoom : (state.gprs .rdi).toNat + 22 < 2 ^ 64) :
+    ∃ fuel final finalEventsRev emitted,
+      fuel ≤ 243 ∧
+      ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed fuel
+        state eventsRev final finalEventsRev emitted ∧
+      Spike2RowRegisterFrame state final ∧
+      Spike2RowLowMemory final ∧
+      final.rip = 5368713457 ∧
+      spike2RowLowMemoryTop ≤ (final.gprs .rdi).toNat ∧
+      (final.gprs .rdi).toNat + 2 ≤ 2 ^ 64 := by
+  let decimalInitial := spike2AfterDecimalSetup state
+  let value := decimalInitial.gprs .rax
+  have setupFrame := spike2_decimal_setup_registerFrame state
+  have setupSafe : decimalInitial.fault = none := setupFrame.fault.trans safe
+  have setupLow := spike2_decimal_setup_lowMemory state low
+  have setupRip : decimalInitial.rip = 5368713424 := by
+    change state.rip + 3 + 10 + 2 = 5368713424
+    rw [hrip]
+    rfl
+  have text3424 : decimalInitial.read64 5368713424 ≠ 5368713424 := by
+    rw [setupLow 5368713424 (by decide)]
+    exact spike2_initial_text_3424_not_selfref
+  have setupPrefix := spike2_decimal_setup_selected_prefix state eventsRev hrip safe text3424
+  have stackBounds := spike2_decimal_stack_bounds value
+  have digitsBound := decimalDigitCount_le_twenty value
+  have frame : Spike2DecimalFrame value decimalInitial := {
+    entry := setupRip
+    dividend := rfl
+    divisor := by rfl
+    count := by
+      dsimp [decimalInitial, spike2AfterDecimalSetup]
+      simp [step_xor_r32, X86_64MachineState.setGpr32,
+        X86_64MachineState.setFlagsLogic, reg32To64]
+    fault := setupSafe
+    stackRoom := by
+      rw [setupFrame.rsp, rsp]
+      exact stackBounds.1
+    stackTop := by
+      rw [setupFrame.rsp, rsp]
+      exact stackBounds.2
+    bufferAboveStack := by
+      change state.rsp.toNat ≤ (state.gprs .rdi).toNat
+      exact cursorAboveStack
+    bufferTop := by
+      change (state.gprs .rdi).toNat + decimalDigitCount value < 2 ^ 64
+      omega
+    text3424 := text3424
+    text3444 := by
+      rw [setupLow 5368713444 (by decide)]
+      exact spike2_initial_text_3444_not_selfref
+    text3457 := by
+      rw [setupLow 5368713457 (by decide)]
+      exact spike2_initial_text_3457_not_selfref
+    text3384 := by
+      rw [setupLow 5368713384 (by decide)]
+      exact spike2_initial_text_3384_not_selfref
+    writeFileIat := by
+      rw [setupLow 5368721424 (by decide)]
+      exact spike2_after_prologue_writeFileIat
+    exitProcessIat := by
+      rw [setupLow 5368721432 (by decide)]
+      exact spike2_after_prologue_exitProcessIat }
+  rcases spike2_uint64_decimal_selected_prefix_bounded value decimalInitial eventsRev frame with
+    ⟨decimalFuel, final, finalEventsRev, emitted, decimalBound, decimalPrefix,
+      finalRsp, finalRdi, _finalRcx, _formatBytes, _r12, finalR13, _r14, _r15, caller⟩
+  have decimalRegisters : Spike2RowRegisterFrame decimalInitial final := {
+    rsp := finalRsp
+    r13 := finalR13
+    fault := caller.fault.trans setupSafe.symm }
+  have initialRdi : decimalInitial.gprs .rdi = state.gprs .rdi := by rfl
+  have noWrap : (decimalInitial.gprs .rdi).toNat + decimalDigitCount value < 2 ^ 64 := by
+    rw [initialRdi]
+    omega
+  have finalRdiNat : (final.gprs .rdi).toNat =
+      (decimalInitial.gprs .rdi).toNat + decimalDigitCount value := by
+    rw [finalRdi, UInt64.toNat_add]
+    simp [Nat.toUInt64, Nat.mod_eq_of_lt noWrap]
+  have finalLow : Spike2RowLowMemory final := by
+    intro address below
+    rw [caller.lowMemory address below]
+    exact setupLow address below
+  refine ⟨3 + decimalFuel, final, finalEventsRev, emitted, ?_, setupPrefix.append decimalPrefix,
+    setupFrame.trans decimalRegisters, finalLow, caller.rip, ?_, ?_⟩
+  · omega
+  · rw [finalRdiNat, initialRdi]
+    omega
+  · rw [finalRdiNat, initialRdi]
+    omega
+
+end Spikes.Spike2Fibonacci.Windows
