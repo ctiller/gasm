@@ -34,6 +34,12 @@ from lean_process_lease import inherited_lease_environment, lean_process_lease
 
 BUILT_JOB_RE = re.compile(r"(?m)^(?:✔|⚠) \[[0-9]+/[0-9]+\] Built ")
 
+if sys.stdout.encoding != "utf-8":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
 
 def terminate_tree(root) -> None:
     if psutil is None:
