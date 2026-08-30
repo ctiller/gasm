@@ -301,6 +301,25 @@ private theorem spike2_ordinary_from_initial_memory (initial state : X86_64Machi
     rw [memory]
     exact notIat
 
+/- The PUSH-written stack word is the only extraction memory mutation.  This frame transports a
+named lower text observation across that exact write; callers must still provide the concrete
+RIP and non-Linux-entry facts. -/
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+private theorem spike2_ordinary_from_stack_write (initial state : X86_64MachineState)
+    (address writeAddress value : UInt64) (rip : state.rip = address)
+    (memory : state.memory = X86_64Mem.write .w64 writeAddress value initial.memory)
+    (writeNoWrap : writeAddress.toNat + 8 ≤ 2 ^ 64)
+    (below : address.toNat + 8 ≤ writeAddress.toNat)
+    (notLinux : address ≠ Gasm.Targets.X86_64.Instructions.linuxSyscallEntry)
+    (notIat : initial.read64 address ≠ address) : Spike2OrdinaryCode state := by
+  constructor
+  · rw [rip]
+    exact notLinux
+  · rw [rip]
+    change X86_64Mem.read .w64 address state.memory ≠ address
+    rw [memory, spike2_read64_write_below .w64 initial.memory writeAddress address value writeNoWrap below]
+    exact notIat
+
 /-- The DIV successor is still ordinary Linux code: its read64 observation is the original
 ASCII instruction observation, proved via the concrete no-memory-write theorem. -/
 /- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
