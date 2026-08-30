@@ -72,6 +72,17 @@ def spike2AfterPrologue : X86_64MachineState :=
       (X86_64Instruction.step (mov_r64_imm64 .r13 1)
         (X86_64Instruction.step (mov_r64 .r12 .rax) spike2AfterGetStdHandle)))
 
+/-- Concrete linked address of the first `cmp r13, 91` driver-header instruction.  This is
+exported as a scalar boundary fact so consumers do not unfold the prologue state. -/
+def spike2WindowsMainLoopRip : UInt64 := spike2AfterPrologue.rip
+
+theorem spike2WindowsMainLoopRip_eq : spike2WindowsMainLoopRip = 5368713267 := by rfl
+
+/-- Exact fetch at the opaque driver-header boundary. -/
+theorem spike2MainLoop_fetch :
+    instructionAtRipIndexed spike2Indexed spike2WindowsMainLoopRip = some (cmp_r64_imm8 .r13 91) := by
+  rfl
+
 /-- The seven linked setup transitions form a selected production prefix.  The third transition
 is the actual IAT `GetStdHandle` call, so it cannot be replaced by a trace-only account of the
 driver's initial register state. -/
