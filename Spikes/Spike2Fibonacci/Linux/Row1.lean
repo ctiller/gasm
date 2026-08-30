@@ -624,4 +624,15 @@ theorem spike2_row1_selected_prefix :
     spike2_row1_recurrence_selected_prefix
   simpa [spike2Row1WriteEventsRev] using recurrence
 
+/-- Boundary facts exported for the finite 90-row driver composition.  They expose only the
+machine fields that genuinely vary across rows, leaving this instruction certificate cached. -/
+theorem spike2_row1_after_recurrence_boundary :
+    spike2Row1AfterRecurrence.rip = spike2MainLoopRip ∧
+    spike2Row1AfterRecurrence.gprs .r13 = 2 ∧
+    spike2Row1AfterRecurrence.gprs .r14 = 1 ∧
+    spike2Row1AfterRecurrence.gprs .r15 = 2 ∧
+    spike2Row1AfterRecurrence.rsp = spike2AfterPrologue.rsp ∧
+    spike2Row1AfterRecurrence.fault = none := by
+  decide
+
 end Spikes.Spike2Fibonacci.Linux
