@@ -126,6 +126,17 @@ The following code shapes have enough evidence to investigate but are not canoni
   functional correctness nor termination.  Spike 3 should wait for accepted streaming, relational
   ghost-state, and resource-recovery invariants.  Keep generic worklist or dataflow iteration
   separate until the candidates in `docs/STDLIB_FACILITIES_PLAN.md` earn promotion.
+- Separately compiled typeclass proof dictionaries are a candidate delivery mechanism for stable
+  block-law schemas, complementary to forward-post/backward-precondition discovery.
+  `LocalBlockDischarge` already has the right dictionary shape, while `LocalBlockRun.then` exposes
+  the exact middle-state premise that composition must still prove.  A prototype may register a
+  local, shallow instance for an explicitly named block/interface key and let final graph
+  composition resolve that law; nominal `SourceScope`/`SourceRef` identity, selected artifacts,
+  contracts, and arbitrary state facts must remain explicit and outside instance search.  Compare
+  it against the existing explicit dictionary on identical theorems: consumer elaboration time,
+  invalidated jobs, dependency closure, search depth, and ambiguity/coherence failures.  Do not
+  extract a class unless two real blocks improve; Lean's compiled modules already avoid replaying
+  imported proof bodies, so shorter call syntax alone is not evidence of proof-economy.
 - Bounded byte reads appear in ELF, x86-64, AArch64, PNG, Zlib, and Gzip.  A first cursor slice
   should validate against two consumers with the same offset/progress needs while keeping format
   errors and validation consumer-owned.
