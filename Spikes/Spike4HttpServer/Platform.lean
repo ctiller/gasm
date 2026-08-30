@@ -231,7 +231,9 @@ def wasiParserCapability : Capability WasiPlatform where
 
 def spike4WindowsCapabilities : CapabilityComposition (WindowsX86_64 AnyEvent) where
   root := windowsParserCapability
-  realize := fun _ _ => spike4WindowsRuntime
+  realize := fun _ _ =>
+    { interceptor := spike4WindowsRuntime
+      proofBudget := { evaluatorFuel := 50000 } }
   realizeSupports := by
     intro context artifact provider membership linked
     let executable := artifact.executable
@@ -265,7 +267,9 @@ def spike4WindowsCapabilities : CapabilityComposition (WindowsX86_64 AnyEvent) w
 
 def spike4LinuxCapabilities : CapabilityComposition (LinuxX86_64 AnyEvent) where
   root := linuxParserCapability
-  realize := fun _ _ => spike4LinuxRuntime
+  realize := fun _ _ =>
+    { interceptor := spike4LinuxRuntime
+      proofBudget := { evaluatorFuel := 50000 } }
   realizeSupports := by
     intro context artifact provider membership linked state
     simp [linuxParserCapability, spike4LinuxProviders] at membership
