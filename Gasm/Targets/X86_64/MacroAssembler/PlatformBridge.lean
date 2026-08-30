@@ -168,6 +168,36 @@ structure IndexedLayoutCertificate (indexed : List (UInt64 × X86_64Instr)) : Pr
     instructionAtRipIndexed indexed entry.1 = some entry.2
 
 /- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
+/-- An indexed instruction stream with unique byte addresses is a complete lookup table.  This is
+    deliberately structural: consumers prove address uniqueness from their linker range facts,
+    then reuse this theorem without reducing the complete emitted instruction list. -/
+theorem IndexedLayoutCertificate.ofNoDupAddresses
+    (indexed : List (UInt64 × X86_64Instr))
+    (unique : (indexed.map Prod.fst).Nodup) :
+    IndexedLayoutCertificate indexed := by
+  constructor
+  intro entry member
+  induction indexed with
+  | nil => simp at member
+  | cons head rest ih =>
+      rcases head with ⟨address, instruction⟩
+      have unique' : (rest.map Prod.fst).Nodup := by
+        exact (List.pairwise_cons.mp unique).2
+      simp only [List.map_cons, List.mem_cons] at member unique
+      rcases member with hhead | hrest
+      · cases hhead
+        simp [instructionAtRipIndexed]
+      · have hne : ¬ address = entry.1 := by
+          intro heq
+          have memberAddress : entry.1 ∈ rest.map Prod.fst :=
+            List.mem_map.mpr ⟨entry, hrest, rfl⟩
+          exact ((List.pairwise_cons.mp unique).1 entry.1 memberAddress) heq
+        have hneBool : (address == entry.1) = false := by
+          exact decide_eq_false_iff_not.mpr hne
+        rw [instructionAtRipIndexed, hneBool]
+        exact ih unique' hrest
+
+/- REF: docs/MACRO_ASSEMBLER.md#placement-construction -/
 /-- A body's serialized instruction index is included in the final artifact index. This is the
     layout-stable fact regenerated after relayout or differential byte changes. -/
 structure ContiguousInstructionSubsequence (indexed : List (UInt64 × X86_64Instr))
