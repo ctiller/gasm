@@ -583,4 +583,58 @@ private theorem spike2_write_count_ordinary {stackUpper outputLimit : UInt64}
   · decide
   · exact authority.writeBranch
 
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_write_branch_rip_taken (initial : X86_64MachineState)
+    (entry : initial.rip = spike2WriteAddress .pop)
+    (taken : X86BranchCondition.notEqual.holds (writeStates initial).2.2.2) :
+    (writeFinal 243 initial).rip = spike2WriteAddress .pop := by
+  obtain ⟨_, _, _, branchRip⟩ := spike2_write_reached_addresses initial entry
+  change (if !(writeStates initial).2.2.2.zf then (writeStates initial).2.2.2.rip + 2 +
+      signExtend8To64 243 else (writeStates initial).2.2.2.rip + 2) = spike2WriteAddress .pop
+  change (writeStates initial).2.2.2.zf = false at taken
+  simp [taken]
+  rw [branchRip]
+  exact spike2WriteLinkedLayout.takenTarget
+
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_write_branch_rip_fallthrough (initial : X86_64MachineState)
+    (entry : initial.rip = spike2WriteAddress .pop)
+    (fallthrough : ¬ X86BranchCondition.notEqual.holds (writeStates initial).2.2.2) :
+    (writeFinal 243 initial).rip = spike2WriteAddress .exit := by
+  obtain ⟨_, _, _, branchRip⟩ := spike2_write_reached_addresses initial entry
+  change (if !(writeStates initial).2.2.2.zf then (writeStates initial).2.2.2.rip + 2 +
+      signExtend8To64 243 else (writeStates initial).2.2.2.rip + 2) = spike2WriteAddress .exit
+  change ¬ (writeStates initial).2.2.2.zf = false at fallthrough
+  have zf : (writeStates initial).2.2.2.zf = true := by
+    cases h : (writeStates initial).2.2.2.zf <;> simp [h] at fallthrough ⊢
+  simp [zf]
+  rw [branchRip]
+  exact spike2WriteLinkedLayout.falseFallthrough
+
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+theorem spike2WriteOrdinary_of_textAuthority {stackUpper outputLimit : UInt64}
+    (initial : X86_64MachineState) (entry : initial.rip = spike2WriteAddress .pop)
+    (authority : Spike2DecimalTextAuthority initial) (safety : WriteSafety stackUpper outputLimit initial)
+    (safe : WriteExecutionSafety 243 initial)
+    (branch : X86BranchCondition.notEqual.holds (writeStates initial).2.2.2 ∨
+      ¬ X86BranchCondition.notEqual.holds (writeStates initial).2.2.2)
+    (writeNoWrap : (initial.gprs .rdi).toNat + 1 ≤ 2 ^ 64)
+    (above : 4198635 ≤ (initial.gprs .rdi).toNat) : Spike2WriteOrdinary 243 initial := by
+  refine ⟨spike2_write_pop_ordinary initial entry authority,
+    spike2_write_store_ordinary initial entry authority safety safe writeNoWrap above,
+    spike2_write_cursor_ordinary initial entry authority safety safe writeNoWrap above,
+    spike2_write_count_ordinary initial entry authority safety safe writeNoWrap above, ?_⟩
+  have memory := (writePassEffect 243 stackUpper outputLimit initial safety safe).memory
+  rcases branch with taken | fallthrough
+  · exact spike2_ordinary_from_output_write initial _ (spike2WriteAddress .pop)
+      (initial.gprs .rdi) (initial.read64 initial.rsp).toUInt8.toUInt64
+      (spike2_write_branch_rip_taken initial entry taken) memory writeNoWrap
+      (spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress]))
+      (by decide) authority.writePop
+  · exact spike2_ordinary_from_output_write initial _ (spike2WriteAddress .exit)
+      (initial.gprs .rdi) (initial.read64 initial.rsp).toUInt8.toUInt64
+      (spike2_write_branch_rip_fallthrough initial entry fallthrough) memory writeNoWrap
+      (spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress]))
+      (by decide) authority.writeExit
+
 end Spikes.Spike2Fibonacci.Linux
