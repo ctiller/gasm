@@ -27,11 +27,14 @@ candidate rather than widening the library speculatively.
 - For an expensive exact execution proof, keep the complete certificate in its producer and export
   a separate typed boundary containing only the observations required by the successor.  The
   accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
-  execution and `spike2_row8_after_recurrence_boundary` for RIP, recurrence/ABI registers, stack,
-  and fault transfer from Row 7 to Row 8.  Exact generator reproduction and output/event facts stay
-  with the producer.  Clean builds measured roughly 24--37 seconds for boundary data/opening and
-  about 1.6 seconds for final composition.  This is a proven proof-term caching and forward-boundary
-  pattern, not yet a target-independent API.
+  execution.  `spike2_row8_opening_selected_prefix` consumes the predecessor-only
+  `Row7BoundaryFacts.spike2Row7HeaderFacts`; the successor-facing
+  `Row8BoundaryFacts.spike2Row8HeaderFacts` imports only `Row8BoundaryData` and exposes RIP,
+  recurrence/ABI registers, stack, and fault facts.  Do not use the convenience re-export from
+  heavyweight `Row8.lean` as the cache boundary.  Exact generator reproduction and output/event
+  facts stay with the producer.  Clean builds measured roughly 24--37 seconds for boundary
+  data/opening and about 1.6 seconds for final composition.  This is a proven proof-term caching and
+  forward-boundary pattern, not yet a target-independent API.
 
 ## Admission record
 
