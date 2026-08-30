@@ -173,6 +173,23 @@ theorem row9_reuse {row8Predecessor : X86_64MachineState} {eventsRev : List AnyE
   have row9 := row8.next (by omega) (by omega) row9Needs
   exact row9.rowPrefix
 
+/-- A schedule-sized two-row producer.  The Row 8 endpoint is definitionally the Row 9 entry,
+so the two opaque 64-step rows append without a state transport premise. -/
+theorem rows8And9_reuse {row8Predecessor : X86_64MachineState}
+    {eventsRev : List AnyEvent}
+    (row8 : OneDigitTwoPassInvariant 7 21 34 row8Predecessor)
+    (row9Needs : LocalRowNeeds (afterRecurrence row8Predecessor)) :
+    ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 128
+      row8Predecessor eventsRev
+      (afterRecurrence (afterRecurrence row8Predecessor))
+      (accumulateEvent (accumulateEvent eventsRev (writeEvent row8Predecessor))
+        (writeEvent (afterRecurrence row8Predecessor)))
+      (emittedBy (writeEvent row8Predecessor) ++
+        emittedBy (writeEvent (afterRecurrence row8Predecessor))) := by
+  have first := row8.rowPrefix (eventsRev := eventsRev)
+  have second := row9_reuse (eventsRev := eventsRev) row8 row9Needs
+  simpa using first.append second
+
 end Row8Parametric
 
 end Spikes.Spike2Fibonacci.Linux
