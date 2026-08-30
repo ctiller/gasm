@@ -2178,6 +2178,19 @@ private theorem seqStoreRsp50Rax :
   encoding := .movMem64Disp .rsp 0x50 .rax
   safeFallthrough := by intro state _; rfl
 
+private theorem secondCaller02Rsp (environment : Environment) :
+    (secondCaller02 environment).gprs .rsp = 0x7FFFFFFEFF88 := by
+  change (secondCaller02 environment).rsp = 0x7FFFFFFEFF88
+  rw [secondCaller02, conditionalStepRsp (ConditionalJumpEncoding.je32 1187), secondCaller01,
+    cmpImm8StepRsp]
+  exact secondCaller00Rsp environment
+
+private theorem secondCaller02Rax (environment : Environment) :
+    (secondCaller02 environment).gprs .rax = spike3ConcreteLinuxArena.base + 32 := by
+  rw [secondCaller02, conditionalStepGpr (ConditionalJumpEncoding.je32 1187), secondCaller01,
+    cmpImm8StepGprAny]
+  exact secondCaller00Rax environment
+
 private theorem secondCaller03Safe (environment : Environment) :
     (secondCaller03 environment).fault = none := by
   rw [secondCaller03, storeStepFault, secondCaller02Safe]
@@ -2187,6 +2200,17 @@ private theorem secondCaller03Rip (environment : Environment) :
   rw [secondCaller03, seqStoreRsp50Rax.step_rip_eq_of_safe _
     (secondCaller03Safe environment), secondCaller02Rip]
   rfl
+
+private theorem secondCaller03FirstPayloadSlot (environment : Environment) :
+    (secondCaller03 environment).read64 0x7FFFFFFEFFD8 =
+      spike3ConcreteLinuxArena.base + 32 := by
+  rw [secondCaller03]
+  change X86_64Mem.read .w64 0x7FFFFFFEFFD8
+    (X86_64Mem.write .w64
+      ((secondCaller02 environment).gprs .rsp + signExtend8To64 0x50)
+      ((secondCaller02 environment).gprs .rax) (secondCaller02 environment).memory) = _
+  rw [secondCaller02Rsp, secondCaller02Rax]
+  exact X86_64Mem.read64_write64_same _ _ _
 
 private theorem secondCaller03R10 (environment : Environment) :
     (secondCaller03 environment).gprs .r10 = 0 := by
@@ -2230,6 +2254,10 @@ private theorem secondCaller04Rsp (environment : Environment) :
     (secondCaller04 environment).rsp = 0x7FFFFFFEFF88 := by
   rw [secondCaller04, mov32EcxStepRsp]
   exact secondCaller03Rsp environment
+
+private theorem secondCaller04GprRsp (environment : Environment) :
+    (secondCaller04 environment).gprs .rsp = 0x7FFFFFFEFF88 :=
+  secondCaller04Rsp environment
 
 private theorem linuxSecondMallocEntrySafe (environment : Environment) :
     (linuxSecondMallocEntry environment).fault = none := by
@@ -2541,6 +2569,49 @@ private theorem readStack_writeSecond24 (value : UInt64) (memory : X86_64Memory)
         X86_64Mem.read .w64 0x7FFFFFFEFF80 memory := by
   simp [spike3ConcreteLinuxArena, X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte]
 
+private theorem readFirstPayloadSlot_writeReturn (value : UInt64) (memory : X86_64Memory) :
+    X86_64Mem.read .w64 0x7FFFFFFEFFD8
+      (X86_64Mem.write .w64 0x7FFFFFFEFF80 value memory) =
+        X86_64Mem.read .w64 0x7FFFFFFEFFD8 memory := by
+  simp [X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte]
+
+private theorem readFirstPayloadSlot_writeSecond0 (value : UInt64) (memory : X86_64Memory) :
+    X86_64Mem.read .w64 0x7FFFFFFEFFD8
+      (X86_64Mem.write .w64 (spike3ConcreteLinuxArena.base + 544) value memory) =
+        X86_64Mem.read .w64 0x7FFFFFFEFFD8 memory := by
+  simp [spike3ConcreteLinuxArena, X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte]
+
+private theorem readFirstPayloadSlot_writeSecond8 (value : UInt64) (memory : X86_64Memory) :
+    X86_64Mem.read .w64 0x7FFFFFFEFFD8
+      (X86_64Mem.write .w64 (spike3ConcreteLinuxArena.base + 552) value memory) =
+        X86_64Mem.read .w64 0x7FFFFFFEFFD8 memory := by
+  simp [spike3ConcreteLinuxArena, X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte]
+
+private theorem readFirstPayloadSlot_writeSecond16 (value : UInt64) (memory : X86_64Memory) :
+    X86_64Mem.read .w64 0x7FFFFFFEFFD8
+      (X86_64Mem.write .w64 (spike3ConcreteLinuxArena.base + 560) value memory) =
+        X86_64Mem.read .w64 0x7FFFFFFEFFD8 memory := by
+  simp [spike3ConcreteLinuxArena, X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte]
+
+private theorem readFirstPayloadSlot_writeSecond24 (value : UInt64) (memory : X86_64Memory) :
+    X86_64Mem.read .w64 0x7FFFFFFEFFD8
+      (X86_64Mem.write .w64 (spike3ConcreteLinuxArena.base + 568) value memory) =
+        X86_64Mem.read .w64 0x7FFFFFFEFFD8 memory := by
+  simp [spike3ConcreteLinuxArena, X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte]
+
+private theorem linuxSecondMallocEntryFirstPayloadSlot (environment : Environment) :
+    (linuxSecondMallocEntry environment).read64 0x7FFFFFFEFFD8 =
+      spike3ConcreteLinuxArena.base + 32 := by
+  rw [linuxSecondMallocEntry]
+  change X86_64Mem.read .w64 0x7FFFFFFEFFD8
+    (X86_64Mem.write .w64 ((secondCaller04 environment).gprs .rsp - 8)
+      ((secondCaller04 environment).rip + 5) (secondCaller04 environment).memory) = _
+  rw [secondCaller04GprRsp]
+  rw [show (0x7FFFFFFEFF88 : UInt64) - 8 = 0x7FFFFFFEFF80 by decide,
+    readFirstPayloadSlot_writeReturn]
+  change (secondCaller03 environment).read64 0x7FFFFFFEFFD8 = _
+  exact secondCaller03FirstPayloadSlot environment
+
 private theorem sA22ReturnSlot (initial) (h : SecondFreshEntryConditions initial) :
     (a22 initial).read64 (a22 initial).rsp = linuxSecondMallocReturnRip := by
   rw [a22Rsp, h.stackAddress]
@@ -2576,6 +2647,17 @@ private theorem sA23R10 (initial) (h : SecondFreshEntryConditions initial) :
 private theorem sA23Memory (initial) (_h : SecondFreshEntryConditions initial) :
     (a23 initial).memory = (a21 initial).memory := by
   rw [a23, ret_op_step_memory, sA22Memory initial]
+
+private theorem sA23FirstPayloadSlot (environment : Environment) :
+    (a23 (linuxSecondMallocEntry environment)).read64 0x7FFFFFFEFFD8 =
+      spike3ConcreteLinuxArena.base + 32 := by
+  let initial := linuxSecondMallocEntry environment
+  let h := linuxSecondFreshEntry environment
+  change X86_64Mem.read .w64 0x7FFFFFFEFFD8 (a23 initial).memory = _
+  rw [sA23Memory initial h, sA21Memory initial h, readFirstPayloadSlot_writeSecond24,
+    readFirstPayloadSlot_writeSecond16, readFirstPayloadSlot_writeSecond8,
+    readFirstPayloadSlot_writeSecond0]
+  exact linuxSecondMallocEntryFirstPayloadSlot environment
 private theorem sA23StackRestored (environment : Environment) :
     (a23 (linuxSecondMallocEntry environment)).rsp = 0x7FFFFFFEFF88 := by
   rw [a23, ret_op_step_rsp, a22Rsp, linuxSecondMallocEntryRsp]
@@ -2989,7 +3071,7 @@ def linuxFirstReadComparedState (environment : Environment) : X86_64MachineState
   readCaller13 environment
 private def linuxFirstReadHappyState (environment : Environment) :=
   X86_64Instruction.step (jle_rel32 420) (readCaller13 environment)
-private def linuxFirstReadFailureState (environment : Environment) :=
+private def linuxFirstReadNonpositiveState (environment : Environment) :=
   X86_64Instruction.step (jle_rel32 420) (readCaller13 environment)
 
 private theorem seqStoreRsp58Rax :
@@ -3021,6 +3103,28 @@ private theorem seqLoadRsp48R10 :
   encoding := .movReg64Mem64Disp .r10 .rsp 0x48
   safeFallthrough := by intro state _; rfl
 
+private theorem xor32StepMemory (dst src : Reg32) (state : X86_64MachineState) :
+    (X86_64Instruction.step (xor_r32 dst src) state).memory = state.memory := by
+  cases dst <;> cases src <;> rfl
+
+private theorem cmpImm8StepMemory (dst : Reg64) (value : UInt8)
+    (state : X86_64MachineState) :
+    (X86_64Instruction.step (cmp_r64_imm8 dst value) state).memory = state.memory := by
+  cases dst <;> rfl
+
+private theorem conditionalStepMemory {instruction : X86_64Instr} {kind : X86BranchCondition}
+    (encoding : ConditionalJumpEncoding instruction kind) (state : X86_64MachineState) :
+    (X86_64Instruction.step instruction state).memory = state.memory := by
+  cases encoding <;> rfl
+
+private theorem readFirstPayloadSlot_writeSecondResult (value : UInt64)
+    (memory : X86_64Memory) :
+    X86_64Mem.read .w64 0x7FFFFFFEFFD8
+      (X86_64Mem.write .w64 0x7FFFFFFEFFE0 value memory) =
+        X86_64Mem.read .w64 0x7FFFFFFEFFD8 memory := by
+  exact X86_64Mem.read64_write_below .w64 memory 0x7FFFFFFEFFE0 0x7FFFFFFEFFD8 value
+    (by decide) (by decide)
+
 private theorem loadStepFault (dst base : Reg64) (disp : UInt8) (state : X86_64MachineState) :
     (X86_64Instruction.step (mov_reg64_mem64_disp dst base disp) state).fault = state.fault := by
   cases dst <;> cases base <;> rfl
@@ -3049,6 +3153,11 @@ private theorem readCaller00R11 (environment : Environment) :
 private theorem readCaller00Rsp (environment : Environment) :
     (readCaller00 environment).rsp = 0x7FFFFFFEFF88 :=
   (linuxSecondFreshMallocEvidence environment).stackRestored
+private theorem readCaller00FirstPayloadSlot (environment : Environment) :
+    (readCaller00 environment).read64 0x7FFFFFFEFFD8 =
+      spike3ConcreteLinuxArena.base + 32 := by
+  simpa [readCaller00, linuxSecondFreshMallocCertificate] using
+    sA23FirstPayloadSlot environment
 
 private theorem readCaller01Safe (environment : Environment) :
     (readCaller01 environment).fault = none :=
@@ -3074,6 +3183,19 @@ private theorem readCaller02Rip (environment : Environment) :
   rw [readCaller02, (ConditionalJumpEncoding.je32 1162).step_rip_eq_fallthrough _
     (secondSuccessBranchNotChosen environment), readCaller01Rip]
   rfl
+private theorem readCaller02Rsp (environment : Environment) :
+    (readCaller02 environment).gprs .rsp = 0x7FFFFFFEFF88 := by
+  change (readCaller02 environment).rsp = 0x7FFFFFFEFF88
+  rw [readCaller02, conditionalStepRsp (ConditionalJumpEncoding.je32 1162), readCaller01,
+    cmpImm8StepRsp]
+  exact readCaller00Rsp environment
+private theorem readCaller02FirstPayloadSlot (environment : Environment) :
+    (readCaller02 environment).read64 0x7FFFFFFEFFD8 =
+      spike3ConcreteLinuxArena.base + 32 := by
+  change X86_64Mem.read .w64 0x7FFFFFFEFFD8 (readCaller02 environment).memory = _
+  rw [readCaller02, conditionalStepMemory (ConditionalJumpEncoding.je32 1162), readCaller01,
+    cmpImm8StepMemory]
+  exact readCaller00FirstPayloadSlot environment
 
 private theorem readCaller03Safe (environment : Environment) :
     (readCaller03 environment).fault = none := by
@@ -3083,6 +3205,18 @@ private theorem readCaller03Rip (environment : Environment) :
   rw [readCaller03, seqStoreRsp58Rax.step_rip_eq_of_safe _ (readCaller03Safe environment),
     readCaller02Rip]
   rfl
+private theorem readCaller03FirstPayloadSlot (environment : Environment) :
+    (readCaller03 environment).read64 0x7FFFFFFEFFD8 =
+      spike3ConcreteLinuxArena.base + 32 := by
+  rw [readCaller03]
+  change X86_64Mem.read .w64 0x7FFFFFFEFFD8
+    (X86_64Mem.write .w64
+      ((readCaller02 environment).gprs .rsp + signExtend8To64 0x58)
+      ((readCaller02 environment).gprs .rax) (readCaller02 environment).memory) = _
+  rw [readCaller02Rsp]
+  rw [show (0x7FFFFFFEFF88 : UInt64) + signExtend8To64 0x58 = 0x7FFFFFFEFFE0 by decide]
+  rw [readFirstPayloadSlot_writeSecondResult]
+  exact readCaller02FirstPayloadSlot environment
 private theorem readCaller04Safe (environment : Environment) :
     (readCaller04 environment).fault = none := by
   rw [readCaller04, xor32StepFault, readCaller03Safe]
@@ -3091,6 +3225,17 @@ private theorem readCaller04Rip (environment : Environment) :
   rw [readCaller04, (seqXor32 .edi .edi).step_rip_eq_of_safe _ (readCaller04Safe environment),
     readCaller03Rip]
   rfl
+private theorem readCaller04Rsp (environment : Environment) :
+    (readCaller04 environment).gprs .rsp = 0x7FFFFFFEFF88 := by
+  rw [readCaller04, xor32StepGprOther .edi .edi _ .rsp (by decide), readCaller03,
+    storeStepGpr]
+  exact readCaller02Rsp environment
+private theorem readCaller04FirstPayloadSlot (environment : Environment) :
+    (readCaller04 environment).read64 0x7FFFFFFEFFD8 =
+      spike3ConcreteLinuxArena.base + 32 := by
+  change X86_64Mem.read .w64 0x7FFFFFFEFFD8 (readCaller04 environment).memory = _
+  rw [readCaller04, xor32StepMemory]
+  exact readCaller03FirstPayloadSlot environment
 private theorem readCaller04Rdi (environment : Environment) :
     (readCaller04 environment).gprs .rdi = 0 := by
   rw [readCaller04_eq]
@@ -3107,6 +3252,13 @@ private theorem readCaller05Rdi (environment : Environment) :
     (readCaller05 environment).gprs .rdi = 0 := by
   rw [readCaller05, loadStepGprOther .rsi .rsp 0x50 _ .rdi (by decide)]
   exact readCaller04Rdi environment
+private theorem readCaller05Rsi (environment : Environment) :
+    (readCaller05 environment).gprs .rsi = spike3ConcreteLinuxArena.base + 32 := by
+  change (readCaller04 environment).read64
+    ((readCaller04 environment).gprs .rsp + signExtend8To64 0x50) = _
+  rw [readCaller04Rsp]
+  rw [show (0x7FFFFFFEFF88 : UInt64) + signExtend8To64 0x50 = 0x7FFFFFFEFFD8 by decide]
+  exact readCaller04FirstPayloadSlot environment
 private theorem readCaller06Safe (environment : Environment) :
     (readCaller06 environment).fault = none := by
   rw [readCaller06, mov32StepFault, readCaller05Safe]
@@ -3168,6 +3320,12 @@ private theorem readCaller09Rdi (environment : Environment) :
     (readCaller09 environment).gprs .rdi = 0 := by
   rw [readCaller09, storeStepGpr, readCaller08, storeStepGpr]
   exact readCaller07Rdi environment
+private theorem readCaller09Rsi (environment : Environment) :
+    (readCaller09 environment).gprs .rsi = spike3ConcreteLinuxArena.base + 32 := by
+  rw [readCaller09, storeStepGpr, readCaller08, storeStepGpr, readCaller07,
+    mov32StepGprOther .eax 0 _ .rsi (by decide), readCaller06,
+    mov32StepGprOther .edx 512 _ .rsi (by decide)]
+  exact readCaller05Rsi environment
 
 private theorem syscallStepRip (state : X86_64MachineState) :
     (X86_64Instruction.step syscall_op state).rip = linuxSyscallEntry := by rfl
@@ -3200,6 +3358,11 @@ private theorem linuxFirstReadBoundaryRdi (environment : Environment) :
     (linuxFirstReadBoundary environment).gprs .rdi = 0 := by
   rw [linuxFirstReadBoundary, syscallStepGprOther _ .rdi (by decide) (by decide)]
   exact readCaller09Rdi environment
+private theorem linuxFirstReadBoundaryRsi (environment : Environment) :
+    (linuxFirstReadBoundary environment).gprs .rsi =
+      spike3ConcreteLinuxArena.base + 32 := by
+  rw [linuxFirstReadBoundary, syscallStepGprOther _ .rsi (by decide) (by decide)]
+  exact readCaller09Rsi environment
 private theorem linuxFirstReadBoundaryRcx (environment : Environment) :
     (linuxFirstReadBoundary environment).gprs .rcx = 4198592 := by
   rw [linuxFirstReadBoundary, syscallStepRcx]
@@ -3210,6 +3373,46 @@ theorem linuxFirstReadBoundary_exact (environment : Environment) :
     NativeReadBoundary .linux 512 (linuxFirstReadBoundary environment) :=
   .linux (linuxFirstReadBoundaryRip environment) (linuxFirstReadBoundaryRax environment)
     (linuxFirstReadBoundaryRdi environment) (linuxFirstReadBoundaryRdx environment)
+
+/-- The typed read consumer exported at the first host boundary.  Its exclusive token is for
+    exactly the first allocation's 512-byte payload, rather than a register-shaped buffer
+    witness detached from the allocator result. -/
+structure LinuxFirstReadConsumerCertificate (environment : Environment) where
+  boundary : X86_64MachineState
+  bufferPointer : UInt64
+  allocationEnd : UInt64
+  capacity : Nat
+  writeAuthority : MemoryPerm bufferPointer capacity .Exclusive
+
+def linuxFirstReadConsumerCertificate (environment : Environment) :
+    LinuxFirstReadConsumerCertificate environment :=
+  { boundary := linuxFirstReadBoundary environment
+    bufferPointer := spike3ConcreteLinuxArena.base + 32
+    allocationEnd := spike3ConcreteLinuxArena.base + 544
+    capacity := 512
+    writeAuthority :=
+      { validRange := by simp [spike3ConcreteLinuxArena]
+        nonEmpty := by decide } }
+
+/-- Forward allocator facts and the read continuation's weakest memory requirement meet exactly:
+    RSI is the first payload, its complete 512-byte host-write range ends at that allocation's
+    bump, and the typed exclusive token authorizes precisely that range. -/
+theorem linuxFirstReadConsumerCertificate_projection (environment : Environment) :
+    let consumer := linuxFirstReadConsumerCertificate environment
+    consumer.boundary = linuxFirstReadBoundary environment ∧
+      NativeReadBoundary .linux consumer.capacity consumer.boundary ∧
+      consumer.boundary.gprs .rsi = consumer.bufferPointer ∧
+      consumer.bufferPointer =
+        (linuxFirstFreshMallocCertificate environment).resultPointer ∧
+      consumer.bufferPointer.toNat + consumer.capacity = consumer.allocationEnd.toNat ∧
+      consumer.allocationEnd =
+        (linuxFirstFreshMallocCertificate environment).finalFrame.bump ∧
+      consumer.allocationEnd.toNat ≤ spike3ConcreteLinuxArena.endExclusive.toNat := by
+  dsimp [linuxFirstReadConsumerCertificate]
+  refine ⟨rfl, linuxFirstReadBoundary_exact environment, ?_, rfl, ?_, rfl, ?_⟩
+  · exact linuxFirstReadBoundaryRsi environment
+  · simp [spike3ConcreteLinuxArena]
+  · simp [spike3ConcreteLinuxArena]
 
 private theorem linuxFirstReadSelected (environment : Environment) :
     nativePreparationSelected .linux (linuxFirstReadBoundary environment).rip
@@ -3254,6 +3457,26 @@ private theorem linuxFirstReadAfterHostRip (environment : Environment) :
     sysReadHookRipOfStdin _ (linuxFirstReadBoundaryRdi environment)]
   exact linuxFirstReadBoundaryRcx environment
 
+/-- The current stdin hook returns the unsigned byte count selected by `min 512 available`.
+    In particular this read model has no negative-errno result on the selected stdin edge. -/
+theorem linuxFirstReadAfterHost_count (environment : Environment) :
+    (linuxFirstReadAfterHost environment).gprs .rax =
+      (min 512 (linuxFirstReadBoundary environment).stdinBuffer.size).toUInt64 := by
+  rw [linuxFirstReadAfterHost]
+  unfold sysReadHook
+  rw [if_pos (by simpa using linuxFirstReadBoundaryRdi environment)]
+  change (min ((linuxFirstReadBoundary environment).gprs .rdx).toNat
+    (linuxFirstReadBoundary environment).stdinBuffer.size).toUInt64 = _
+  rw [linuxFirstReadBoundaryRdx]
+  rfl
+
+theorem linuxFirstReadAfterHost_count_le_capacity (environment : Environment) :
+    ((linuxFirstReadAfterHost environment).gprs .rax).toNat ≤ 512 := by
+  rw [linuxFirstReadAfterHost_count]
+  have bounded := Nat.min_le_left 512 (linuxFirstReadBoundary environment).stdinBuffer.size
+  rw [Nat.toUInt64_eq, UInt64.toNat_ofNat', Nat.mod_eq_of_lt (by omega)]
+  exact bounded
+
 private theorem readCaller10Safe (environment : Environment) :
     (readCaller10 environment).fault = none := by
   rw [readCaller10, loadStepFault, linuxFirstReadAfterHostSafe]
@@ -3278,12 +3501,36 @@ private theorem readCaller12Rip (environment : Environment) :
   rw [readCaller12, seqStoreRsp28Rax.step_rip_eq_of_safe _ (readCaller12Safe environment),
     readCaller11Rip]
   rfl
+private theorem readCaller12Rax (environment : Environment) :
+    (readCaller12 environment).gprs .rax =
+      (linuxFirstReadAfterHost environment).gprs .rax := by
+  rw [readCaller12, storeStepGpr, readCaller11,
+    loadStepGprOther .r10 .rsp 0x48 _ .rax (by decide), readCaller10,
+    loadStepGprOther .r11 .rsp 0x40 _ .rax (by decide)]
 private theorem readCaller13Safe (environment : Environment) :
     (readCaller13 environment).fault = none := cmpImm8Safe .rax 0 _ (readCaller12Safe environment)
 private theorem readCaller13Rip (environment : Environment) :
     (readCaller13 environment).rip = 4198611 := by
   rw [readCaller13, (seqCmpImm8 .rax 0).step_rip_eq_of_safe _ (readCaller13Safe environment),
     readCaller12Rip]
+  rfl
+
+private theorem cmpImm8RaxZeroSetsZf (state : X86_64MachineState)
+    (zero : state.gprs .rax = 0) :
+    (X86_64Instruction.step (cmp_r64_imm8 .rax 0) state).zf = true := by
+  change (({ state with stdinBuffer := ByteArray.empty, incomingRequests := [] }.setFlagsCmp64
+    (state.gprs .rax) 0).zf = true)
+  exact X86_64MachineState.setFlagsCmp64_zf_of_eq _ _ _ zero
+
+/-- Empty input makes the current nonpositive edge concretely reachable as EOF zero.  This does
+    not claim an errno/failure edge, which would require richer hook semantics. -/
+theorem linuxFirstReadNonpositiveCondition_of_empty (environment : Environment)
+    (empty : (linuxFirstReadBoundary environment).stdinBuffer.size = 0) :
+    X86BranchCondition.lessEqual.holds (linuxFirstReadComparedState environment) := by
+  left
+  change (readCaller13 environment).zf = true
+  apply cmpImm8RaxZeroSetsZf
+  rw [readCaller12Rax, linuxFirstReadAfterHost_count, empty]
   rfl
 
 private theorem conditionalTakenOne {environment : Environment} {events : List AnyEvent}
@@ -3435,10 +3682,10 @@ private theorem linuxFirstReadHappyRip (environment : Environment)
     (ConditionalJumpEncoding.jle32 420).step_rip_eq_fallthrough _ happy,
     readCaller13Rip]
   rfl
-private theorem linuxFirstReadFailureRip (environment : Environment)
-    (failure : X86BranchCondition.lessEqual.holds (readCaller13 environment)) :
-    (linuxFirstReadFailureState environment).rip = 4199037 := by
-  rw [linuxFirstReadFailureState, jle32StepRipTaken 420 _ failure, readCaller13Rip]
+private theorem linuxFirstReadNonpositiveRip (environment : Environment)
+    (nonpositive : X86BranchCondition.lessEqual.holds (readCaller13 environment)) :
+    (linuxFirstReadNonpositiveState environment).rip = 4199037 := by
+  rw [linuxFirstReadNonpositiveState, jle32StepRipTaken 420 _ nonpositive, readCaller13Rip]
   rfl
 private theorem linuxFirstReadBranchSafe (environment : Environment) :
     (X86_64Instruction.step (jle_rel32 420) (readCaller13 environment)).fault = none := by
@@ -3457,21 +3704,22 @@ private theorem linuxFirstReadHappyBranchSelectedPath (environment : Environment
       (linuxFirstReadHappyRip environment happy) (by decide))
     (linuxFirstReadBranchSafe environment)
 
-private theorem linuxFirstReadFailureBranchSelectedPath (environment : Environment)
-    (failure : X86BranchCondition.lessEqual.holds (readCaller13 environment)) :
+private theorem linuxFirstReadNonpositiveBranchSelectedPath (environment : Environment)
+    (nonpositive : X86BranchCondition.lessEqual.holds (readCaller13 environment)) :
     NativePreparationPrefix .linux spike3ConcreteExecutionContext environment 1
-      (readCaller13 environment) [] (linuxFirstReadFailureState environment) [] [] := by
-  simpa [linuxFirstReadFailureState] using conditionalTakenOne
-    (environment := environment) (events := []) (ConditionalJumpEncoding.jle32 420) failure
+      (readCaller13 environment) [] (linuxFirstReadNonpositiveState environment) [] [] := by
+  simpa [linuxFirstReadNonpositiveState] using conditionalTakenOne
+    (environment := environment) (events := []) (ConditionalJumpEncoding.jle32 420) nonpositive
     (callerThroughReadLookupAt environment (readCaller13 environment)
       (4198611, jle_rel32 420) (readCaller13Rip environment)
       (by simp [linuxCallerThroughReadIndex]))
-    (normalAt 4199037 (linuxFirstReadFailureState environment)
-      (linuxFirstReadFailureRip environment failure) (by decide))
+    (normalAt 4199037 (linuxFirstReadNonpositiveState environment)
+      (linuxFirstReadNonpositiveRip environment nonpositive) (by decide))
     (linuxFirstReadBranchSafe environment)
 
 /-- Projection-limited result of one selected first-read continuation. -/
 structure LinuxFirstReadBranchCertificate (environment : Environment) where
+  consumer : LinuxFirstReadConsumerCertificate environment
   finalState : X86_64MachineState
   finalEvents : List AnyEvent
   fuel : Nat
@@ -3479,17 +3727,20 @@ structure LinuxFirstReadBranchCertificate (environment : Environment) where
 def linuxFirstReadHappyCertificate (environment : Environment) :
     LinuxFirstReadBranchCertificate environment :=
   { finalState := linuxFirstReadHappyState environment
+    consumer := linuxFirstReadConsumerCertificate environment
     finalEvents := []
     fuel := 15 }
 
-def linuxFirstReadFailureCertificate (environment : Environment) :
+def linuxFirstReadNonpositiveCertificate (environment : Environment) :
     LinuxFirstReadBranchCertificate environment :=
-  { finalState := linuxFirstReadFailureState environment
+  { consumer := linuxFirstReadConsumerCertificate environment
+    finalState := linuxFirstReadNonpositiveState environment
     finalEvents := []
     fuel := 15 }
 
 /-- The forward state from the actual read dispatcher meets the happy edge's weakest requirement
-    exactly when signed `bytesRead > 0`; the linked `jle` then falls through to chunk scanning. -/
+    exactly when signed `bytesRead > 0`; the linked `jle` then falls through to chunk scanning.
+    This is a selected prefix certificate, not a whole-program completion claim. -/
 theorem linuxFirstReadHappyCertificate_selectedPath (environment : Environment)
     (happy : ¬ X86BranchCondition.lessEqual.holds (linuxFirstReadComparedState environment)) :
     NativePreparationPrefix .linux spike3ConcreteExecutionContext environment
@@ -3508,25 +3759,26 @@ theorem linuxFirstReadHappyCertificate_selectedPath (environment : Environment)
   have branch := linuxFirstReadHappyBranchSelectedPath environment happyLocal
   simpa [linuxFirstReadHappyCertificate, readCaller00] using SelectedPrefix.append shared branch
 
-/-- The read failure/EOF edge carries the exact compared state to `stream_eof` when the linked
-    signed `jle` predicate holds. -/
-theorem linuxFirstReadFailureCertificate_selectedPath (environment : Environment)
-    (failure : X86BranchCondition.lessEqual.holds (linuxFirstReadComparedState environment)) :
+/-- The read nonpositive/EOF edge carries the exact compared state to `stream_eof` when the
+    linked signed `jle` predicate holds.  For the current stdin hook RAX is a count in `0..512`;
+    this prefix therefore reaches the taken edge at EOF zero, not through a modelled errno. -/
+theorem linuxFirstReadNonpositiveCertificate_selectedPath (environment : Environment)
+    (nonpositive : X86BranchCondition.lessEqual.holds (linuxFirstReadComparedState environment)) :
     NativePreparationPrefix .linux spike3ConcreteExecutionContext environment
-      (linuxFirstReadFailureCertificate environment).fuel
+      (linuxFirstReadNonpositiveCertificate environment).fuel
       (linuxSecondFreshMallocCertificate environment).returnState []
-      (linuxFirstReadFailureCertificate environment).finalState
-      (linuxFirstReadFailureCertificate environment).finalEvents [] := by
+      (linuxFirstReadNonpositiveCertificate environment).finalState
+      (linuxFirstReadNonpositiveCertificate environment).finalEvents [] := by
   letI : ExternalCallInterceptor X86_64 AnyEvent :=
     spike3LinuxRuntime AnyEvent spike3ConcreteExecutionContext.arenaGrant
   change SelectedPrefix (nativePreparationSelected .linux)
     (nativePreparationIndex .linux spike3ConcreteExecutionContext environment) 15
-      (readCaller00 environment) [] (linuxFirstReadFailureState environment) [] []
+      (readCaller00 environment) [] (linuxFirstReadNonpositiveState environment) [] []
   have shared := linuxFirstReadSharedSelectedPath environment
-  have failureLocal : X86BranchCondition.lessEqual.holds (readCaller13 environment) := by
-    simpa [linuxFirstReadComparedState] using failure
-  have branch := linuxFirstReadFailureBranchSelectedPath environment failureLocal
-  simpa [linuxFirstReadFailureCertificate, readCaller00] using
+  have nonpositiveLocal : X86BranchCondition.lessEqual.holds (readCaller13 environment) := by
+    simpa [linuxFirstReadComparedState] using nonpositive
+  have branch := linuxFirstReadNonpositiveBranchSelectedPath environment nonpositiveLocal
+  simpa [linuxFirstReadNonpositiveCertificate, readCaller00] using
     SelectedPrefix.append shared branch
 
 theorem linuxFirstReadHappyCertificate_projection (environment : Environment)
@@ -3539,18 +3791,18 @@ theorem linuxFirstReadHappyCertificate_projection (environment : Environment)
   exact ⟨by simpa [linuxFirstReadHappyCertificate] using
     linuxFirstReadHappyRip environment happyLocal, rfl, rfl⟩
 
-theorem linuxFirstReadFailureCertificate_projection (environment : Environment)
-    (failure : X86BranchCondition.lessEqual.holds (linuxFirstReadComparedState environment)) :
-    (linuxFirstReadFailureCertificate environment).finalState.rip = 4199037 ∧
-      (linuxFirstReadFailureCertificate environment).finalEvents = [] ∧
-      (linuxFirstReadFailureCertificate environment).fuel = 15 := by
-  have failureLocal : X86BranchCondition.lessEqual.holds (readCaller13 environment) := by
-    simpa [linuxFirstReadComparedState] using failure
-  exact ⟨by simpa [linuxFirstReadFailureCertificate] using
-    linuxFirstReadFailureRip environment failureLocal, rfl, rfl⟩
+theorem linuxFirstReadNonpositiveCertificate_projection (environment : Environment)
+    (nonpositive : X86BranchCondition.lessEqual.holds (linuxFirstReadComparedState environment)) :
+    (linuxFirstReadNonpositiveCertificate environment).finalState.rip = 4199037 ∧
+      (linuxFirstReadNonpositiveCertificate environment).finalEvents = [] ∧
+      (linuxFirstReadNonpositiveCertificate environment).fuel = 15 := by
+  have nonpositiveLocal : X86BranchCondition.lessEqual.holds (readCaller13 environment) := by
+    simpa [linuxFirstReadComparedState] using nonpositive
+  exact ⟨by simpa [linuxFirstReadNonpositiveCertificate] using
+    linuxFirstReadNonpositiveRip environment nonpositiveLocal, rfl, rfl⟩
 
 /-- Concrete prologue, two successful fresh allocations, real first read hook, and positive-read
-    branch form one exact 88-step selected spine. -/
+    branch form one exact prefix-only 88-step selected spine. -/
 theorem linuxFirstReadHappySpine (environment : Environment)
     (happy : ¬ X86BranchCondition.lessEqual.holds (linuxFirstReadComparedState environment)) :
     NativePreparationPrefix .linux spike3ConcreteExecutionContext environment 88
@@ -3566,21 +3818,21 @@ theorem linuxFirstReadHappySpine (environment : Environment)
   have read := linuxFirstReadHappyCertificate_selectedPath environment happy
   simpa [linuxFirstReadHappyCertificate] using SelectedPrefix.append allocations read
 
-/-- Concrete prologue, two successful fresh allocations, real first read hook, and EOF/failure
-    branch form one exact 88-step selected spine. -/
-theorem linuxFirstReadFailureSpine (environment : Environment)
-    (failure : X86BranchCondition.lessEqual.holds (linuxFirstReadComparedState environment)) :
+/-- Concrete prologue, two successful fresh allocations, real first read hook, and
+    nonpositive/EOF branch form one exact prefix-only 88-step selected spine. -/
+theorem linuxFirstReadNonpositiveSpine (environment : Environment)
+    (nonpositive : X86BranchCondition.lessEqual.holds (linuxFirstReadComparedState environment)) :
     NativePreparationPrefix .linux spike3ConcreteExecutionContext environment 88
       (nativePreparationEntry .linux spike3ConcreteExecutionContext environment) []
-      (linuxFirstReadFailureCertificate environment).finalState [] [] := by
+      (linuxFirstReadNonpositiveCertificate environment).finalState [] [] := by
   letI : ExternalCallInterceptor X86_64 AnyEvent :=
     spike3LinuxRuntime AnyEvent spike3ConcreteExecutionContext.arenaGrant
   change SelectedPrefix (nativePreparationSelected .linux)
     (nativePreparationIndex .linux spike3ConcreteExecutionContext environment) 88
       (nativePreparationEntry .linux spike3ConcreteExecutionContext environment) []
-      (linuxFirstReadFailureState environment) [] []
+      (linuxFirstReadNonpositiveState environment) [] []
   have allocations := linuxTwoFreshMallocCallReturnSpine environment
-  have read := linuxFirstReadFailureCertificate_selectedPath environment failure
-  simpa [linuxFirstReadFailureCertificate] using SelectedPrefix.append allocations read
+  have read := linuxFirstReadNonpositiveCertificate_selectedPath environment nonpositive
+  simpa [linuxFirstReadNonpositiveCertificate] using SelectedPrefix.append allocations read
 
 end Spikes.Spike3SortLines.Linux
