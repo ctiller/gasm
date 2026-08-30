@@ -117,6 +117,12 @@ indexed lookup inside a larger instruction stream. Along with an initially fault
 that the production explicit-outcome evaluator consumes exactly the body's instruction count and
 then resumes a caller-provided continuation from the same fallthrough state as `runLocalSteps`.
 
+Selected-call proofs use the parallel `SelectedAfterEach` law and
+`selectedPrefixOfSafeSequential`.  The law is quantified over symbolic instruction-list prefixes;
+the opaque bridge constructs the exact `ProductionPrefix.SelectedPrefix` constructor spine once.
+Clients therefore retain every lookup, safety, selector, and silence obligation without embedding
+another deeply nested proof over closed intermediate machine states.
+
 This theorem deliberately does not turn falling off an isolated body into successful function
 termination: the current body has no `RET`. Placement and runtime silence are artifact/platform
 facts, while instruction fault preservation and successful sequential advancement are proved once
@@ -212,6 +218,19 @@ is expected to derive `IndexedLayoutCertificate` from its injective, aligned add
 `ContiguousInstructionSubsequence.ofDecomposition` supplies the complementary linker-facing
 constructor directly from `beforeCode ++ code ++ afterCode` and the encoded prefix span, so consumers
 do not prove index membership manually.
+
+`selectedPrefixOfSafeSequentialSubsequence` is the selected-call specialization of the same split.
+Local proofs retain a symbolic `bodyBase`; one opaque index-level theorem combines them with a
+caller-supplied `IndexedLayoutCertificate` and subsequence inclusion.  This avoids separately
+normalizing a large closed instruction index at every sequential program counter.  This theorem
+does not establish linked-text bytes or text-wide non-wrapping. Branch and host-transition
+constructors remain explicit and must be appended with their exact target/runtime evidence.
+
+`SelectedSequentialStepEvidence` is the consumer-facing bundled form of the same law. It lets a
+fixed pass enumerate each reached ordinary step once instead of traversing the code separately for
+lookup, selection, silence, and safety. `DecimalMacroSelectedPrefix` is the concrete 7/5 consumer:
+it builds the six/four ordinary steps through the opaque bridge, appends the JNE taken/fallthrough
+constructor explicitly, and returns the existing `extractionFinal`/`writeFinal` state.
 
 This initial straight-line slice therefore supplies instruction realization, local ABI realization,
 and an exact byte boundary, but does not claim whole-function callability merely from its RAX theorem.
