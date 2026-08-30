@@ -185,6 +185,10 @@ name = "test_spike3_wasm"
 root = "Spikes.Spike3SortLines.Wasm.Test"
 
 [[lean_exe]]
+name = "test_spike3_native_resource"
+root = "Spikes.Spike3SortLines.NativeRegression"
+
+[[lean_exe]]
 name = "test_smolalloc"
 root = "Stdlib.SmolAlloc.Test"
 

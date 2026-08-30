@@ -22,9 +22,25 @@ import Spikes.Spike3SortLines.NativeOutcome
 
 namespace Spikes.Spike3SortLines
 
-#eval emittedSpike3ResourceFailure (runSpike3LinuxWithGrant noNativeArenaGrant ByteArray.empty 30)
-#eval (runSpike3LinuxWithGrant spike3NativeReservationGrant ByteArray.empty 200).events
-#eval emittedSpike3ResourceFailure (runSpike3WindowsWithGrant noNativeArenaGrant ByteArray.empty 30)
-#eval (runSpike3WindowsWithGrant spike3NativeReservationGrant ByteArray.empty 220).events
+open Gasm.Effects
+
+/-- Literal operational probes remain outside the proof surface.  They exercise rejected and
+    sufficient reservations with the same empty stdin on both native targets. -/
+def nativeResourceRegressionPassed : Bool :=
+  emittedSpike3ResourceFailure (runSpike3LinuxWithGrant noNativeArenaGrant ByteArray.empty 30) &&
+  ((runSpike3LinuxWithGrant spike3NativeReservationGrant ByteArray.empty 200).events ==
+    [AnyEvent.of (ProcessEvent.exit 0)]) &&
+  emittedSpike3ResourceFailure (runSpike3WindowsWithGrant noNativeArenaGrant ByteArray.empty 30) &&
+  ((runSpike3WindowsWithGrant spike3NativeReservationGrant ByteArray.empty 220).events ==
+    [AnyEvent.of (ProcessEvent.exit 0)])
 
 end Spikes.Spike3SortLines
+
+/-- Explicit executable regression target for bounded native resource outcomes. -/
+def main : IO UInt32 := do
+  if Spikes.Spike3SortLines.nativeResourceRegressionPassed then
+    IO.println "[PASS] Spike 3 native resource outcomes"
+    return 0
+  else
+    IO.eprintln "[FAIL] Spike 3 native resource outcomes"
+    return 1
