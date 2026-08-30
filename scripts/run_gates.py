@@ -527,6 +527,13 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "the shrinking Law-10 debt ledger is the sole temporary exception",
          "cmd": [py, "scripts/check_no_exception_ledgers.py"], "slow": False,
          "tools": ["python"], "depends_on": []},
+        {"key": "check_verification_authority",
+         "desc": "python scripts/check_verification_authority.py",
+         "group": "linters",
+         "long": "ratchet: exactly one canonical VerifiedProgram authority and no retired "
+                 "target-specific program or environment-loader compatibility APIs",
+         "cmd": [py, "scripts/check_verification_authority.py"], "slow": False,
+         "tools": ["python"], "depends_on": []},
         {"key": "check_refs_coverage", "desc": "python scripts/run_full_refs_coverage.py --full-repository",
          "group": "proofs",
          "long": "Law 1 LOAD-BEARING declaration-coverage gate -- walks the compiled environment, "

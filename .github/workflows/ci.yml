@@ -74,6 +74,7 @@ jobs:
             --gate check_refs \
             --gate check_full_refs_gate_wiring \
             --gate check_no_exception_ledgers \
+            --gate check_verification_authority \
             --gate check_gates \
             --gate check_publishable \
             --gate check_licenses \
