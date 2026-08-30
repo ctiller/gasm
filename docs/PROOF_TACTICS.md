@@ -35,6 +35,11 @@ uses `Stdlib.Fmt.UInt64DecimalSchedule` for the one-to-twenty-digit schedule,
 `Gasm.Targets.X86_64.EventfulSegment` for production-prefix composition; instruction semantics and
 artifact authority remain with their target owners.  Reducing the closed 50,000-step native run
 with `native_decide` instead caused pathological time and memory use while hiding this induction.
+Optimize total proof-delivery cost first: an independently compiled `decide +kernel` proof can be
+the right completion for an exact closed proposition even when a structural library would be
+cleaner.  Build such memory-heavy proofs sequentially, extract the generic certificate bridge from
+working consumers afterward, and introduce semantic chunks only if one proof exceeds the resource
+envelope on its own.
 
 ## Prove layers, then compose
 
