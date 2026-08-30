@@ -417,7 +417,6 @@ private theorem spike2_extraction_branch_rip_fallthrough (initial : X86_64Machin
   rw [branchRip]
   exact spike2ExtractionLinkedLayout.falseFallthrough
 
-
 /-- The DIV successor is still ordinary Linux code: its read64 observation is the original
 ASCII instruction observation, proved via the concrete no-memory-write theorem. -/
 /- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
@@ -457,5 +456,33 @@ private theorem spike2_extraction_ascii_ordinary (initial : X86_64MachineState)
     exact extractionAfterDiv_preservesMemory initial
   · decide
   · exact authority.extractPush
+
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+theorem spike2ExtractionOrdinary_of_textAuthority {stackLower : UInt64}
+    (initial : X86_64MachineState) (entry : initial.rip = spike2ExtractionAddress .clearHigh)
+    (authority : Spike2DecimalTextAuthority initial) (safety : ExtractionSafety stackLower initial)
+    (safe : ExtractionExecutionSafety 236 initial)
+    (branch : X86BranchCondition.notEqual.holds (extractionStates initial).2.2.2.2.2 ∨
+      ¬ X86BranchCondition.notEqual.holds (extractionStates initial).2.2.2.2.2)
+    (writeNoWrap : (initial.rsp - 8).toNat + 8 ≤ 2 ^ 64)
+    (above : 4198635 ≤ (initial.rsp - 8).toNat) : Spike2ExtractionOrdinary 236 initial := by
+  refine ⟨spike2_extraction_xor_ordinary initial entry authority,
+    spike2_extraction_div_ordinary initial entry authority safe,
+    spike2_extraction_ascii_ordinary initial entry authority safe,
+    spike2_extraction_push_ordinary initial entry authority safety safe writeNoWrap above,
+    spike2_extraction_count_ordinary initial entry authority safety safe writeNoWrap above,
+    spike2_extraction_cmp_ordinary initial entry authority safety safe writeNoWrap above, ?_⟩
+  have memory := (extractionPassEffect 236 stackLower initial safety safe).memory
+  rcases branch with taken | fallthrough
+  · exact spike2_ordinary_from_stack_write initial _ (spike2ExtractionAddress .clearHigh)
+      (initial.rsp - 8) (UInt64.ofNat ((initial.gprs .rax).toNat % 10) + 0x30)
+      (spike2_extraction_branch_rip_taken initial entry safe taken) memory writeNoWrap
+      (spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress]))
+      (by decide) authority.extractClearHigh
+  · exact spike2_ordinary_from_stack_write initial _ (spike2ExtractionAddress .exit)
+      (initial.rsp - 8) (UInt64.ofNat ((initial.gprs .rax).toNat % 10) + 0x30)
+      (spike2_extraction_branch_rip_fallthrough initial entry safe fallthrough) memory writeNoWrap
+      (spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress]))
+      (by decide) authority.extractExit
 
 end Spikes.Spike2Fibonacci.Linux
