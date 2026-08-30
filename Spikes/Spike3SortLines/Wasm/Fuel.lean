@@ -98,7 +98,8 @@ theorem spike3InitialMemory_input_iovec :
     readCiovec (initWasmMemory spike3DataSegments) 0 = some (0x100, 512) :=
   readCiovec_encode _ _ _ _ spike3InitialMemory_input_iovec_bytes
 
-/-- The descriptor clause carried at the outer ingestion-loop re-entry. -/
+/-- The descriptor predicate intended for the future outer ingestion-loop re-entry proof.
+    The complete ingestion body does not yet establish this predicate at re-entry. -/
 def Spike3IngestionIovec (state : WasmMachineState) : Prop :=
   readCiovec state.memory 0 = some (0x100, 512)
 
