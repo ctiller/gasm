@@ -527,6 +527,13 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "the shrinking Law-10 debt ledger is the sole temporary exception",
          "cmd": [py, "scripts/check_no_exception_ledgers.py"], "slow": False,
          "tools": ["python"], "depends_on": []},
+        {"key": "check_no_ignored_lean_sources",
+         "desc": "python scripts/check_no_ignored_lean_sources.py",
+         "group": "linters",
+         "long": "fail-closed source-presence gate: no Lean proof source under an authoritative "
+                 "source root may be hidden by Git ignore rules and stale local build products",
+         "cmd": [py, "scripts/check_no_ignored_lean_sources.py"], "slow": False,
+         "tools": ["python"], "depends_on": []},
         {"key": "check_verification_authority",
          "desc": "python scripts/check_verification_authority.py",
          "group": "linters",
@@ -1625,4 +1632,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

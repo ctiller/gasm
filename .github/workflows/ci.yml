@@ -74,6 +74,7 @@ jobs:
             --gate check_refs \
             --gate check_full_refs_gate_wiring \
             --gate check_no_exception_ledgers \
+            --gate check_no_ignored_lean_sources \
             --gate check_verification_authority \
             --gate check_gates \
             --gate check_publishable \
@@ -137,6 +138,10 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Reject ignored or source-less cached Lean modules
+        shell: bash
+        run: python scripts/check_no_ignored_lean_sources.py
+
       - name: Memory-bounded build (all defaultTargets)
         shell: bash
         run: python scripts/build_full.py
@@ -197,6 +202,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Reject ignored or source-less cached Lean modules
+        shell: bash
+        run: python scripts/check_no_ignored_lean_sources.py
 
       - name: Install QEMU [Linux]
         if: runner.os == 'Linux'
@@ -308,6 +317,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Reject ignored or source-less cached Lean modules
+        shell: bash
+        run: python scripts/check_no_ignored_lean_sources.py
 
       - name: Install NASM (encoding_fuzzer oracle) [Windows]
         if: runner.os == 'Windows'

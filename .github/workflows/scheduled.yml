@@ -110,6 +110,10 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Reject ignored or source-less cached Lean modules
+        shell: bash
+        run: python scripts/check_no_ignored_lean_sources.py
+
       - name: Install NASM (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
