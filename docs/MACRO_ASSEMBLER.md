@@ -263,13 +263,41 @@ numeric distance is discarded: later insertion, component composition, and relay
 symbolic block/control-point identity and regenerate only layout/relocation evidence. This module
 adds no linker, execution, artifact, or `VerifiedProgram` authority.
 
-Recursive and mutually recursive components remain a later finite fixpoint-builder extension over
-the same nominal IDs. CALL/indirect forms remain unselected and therefore add no obligations in
-this slice. When added, CALL must carry return-continuation, ABI, obligation-transfer, and
+### Finite recursive CFG authoring
+
+`Gasm.Core.RecursiveCFGBuilder` adds the declaration-first path needed by compilers for forward
+edges, self loops, and mutually recursive JMP/JCC graphs. A finite `Scope` enumerates each index
+exactly once, assigns its exact dependent `BlockEntry`, and requires nominal block IDs to be
+injective. `Scope.fin` supplies the ordinary generated `Fin n` form. A pre-seal `DeclRef` contains
+only an index in one exact scope; it is deliberately not a `BlockRef`, because no body definition
+exists yet and entry equality must not masquerade as exact-definition identity.
+
+`Definitions` is a total dependent function over every declaration index. Exactly-one definition is
+therefore structural, not a caller-maintained list invariant. Its `RecursiveTerminator` accepts only
+same-scope declaration refs and retains the existing `BlockEdge` or `ConditionalBlockEdge`; JCC
+publishes both static successors while the core edge activates only the runtime-selected entry
+premise. Dangling or foreign-scope references cannot inhabit the expected type.
+
+`Definitions.toGraph` simultaneously generates the finite `BasicBlock` table and proves entry
+membership, unique IDs, and closure of every selected target, returning only the existing
+`TypedControlFlowGraph`. `sealDefinitions` additionally returns exact post-seal `BlockRef`s to the
+generated definitions. Neither result claims execution, layout, artifact identity, or program
+authority.
+
+Injective BlockId remapping reuses every body and has an exact generated-block correspondence
+theorem. `Scope.sum` and `Definitions.sum` compose closed independent components through collision-
+free `Sum` identities, with exact left/right definition correspondence. Such composition preserves
+each side's old targets; cross-component mutual recursion must instead be authored from the start
+against the combined declaration scope. The instruction-relative adapter is intentionally a later
+frontend commit.
+
+CALL/indirect forms remain unselected and therefore add no obligations in this slice. When added,
+CALL must carry return-continuation, ABI, obligation-transfer, and
 exceptional/cancellation contracts, while indirect edges must carry closed target-set resolution.
-An authoring form such as “back five instructions” must resolve immediately to a typed
-instruction-boundary/control-point identity; a raw `Nat` must never authorize entry into a block
-interior. The linker later proves that each encoded displacement resolves to that symbolic target.
+The existing “back five instructions” form resolves immediately to a typed control-point identity;
+adapting such a point to a recursive declaration remains separate, and a raw `Nat` never authorizes
+entry into a block interior. The linker later proves that each encoded displacement resolves to the
+symbolic target.
 
 ### Typed direct-jump linking
 

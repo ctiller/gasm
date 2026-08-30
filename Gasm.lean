@@ -23,6 +23,7 @@ import Gasm.Core.State
 import Gasm.Core.BlockM
 import Gasm.Core.CFG
 import Gasm.Core.CFGBuilder
+import Gasm.Core.RecursiveCFGBuilder
 import Gasm.Core.Callable
 import Gasm.Core.ABI
 import Gasm.Core.AbiContext
