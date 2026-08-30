@@ -117,30 +117,32 @@ theorem Spike2WriteOrdinary.runtimeEvidence (backDisp : UInt8)
 
 /-- Construct an actual-index selected extraction pass once the program invariant supplies its
 stateful stack/counter/fault and ordinary-code facts. -/
-theorem spike2ExtractionLinkedLayout_selectedPass (initial : X86_64MachineState)
+theorem spike2ExtractionLinkedLayout_selectedPass {stackLower : UInt64}
+    (initial : X86_64MachineState)
     (entry : initial.rip = spike2ExtractionLinkedLayout.address .clearHigh)
-    (safety : ExtractionSafety 0 initial)
+    (safety : ExtractionSafety stackLower initial)
     (executionSafety : ExtractionExecutionSafety 236 initial)
     (ordinary : Spike2ExtractionOrdinary 236 initial)
     (branch : X86BranchCondition.notEqual.holds (extractionStates initial).2.2.2.2.2 ∨
       ¬ X86BranchCondition.notEqual.holds (extractionStates initial).2.2.2.2.2) :
     Gasm.Targets.X86_64.DecimalSchedule.SelectedExtractionPass (Event := AnyEvent)
-      selectedNonInputPlatformCall spike2Indexed 236 0
+      selectedNonInputPlatformCall spike2Indexed 236 stackLower
       initial :=
   spike2ExtractionLinkedLayout.toSelectedPass initial entry safety executionSafety
     (ordinary.runtimeEvidence _ _) branch
 
 /-- Construct an actual-index selected write pass once the program invariant supplies its
 stateful stack/output/fault and ordinary-code facts. -/
-theorem spike2WriteLinkedLayout_selectedPass (initial : X86_64MachineState)
+theorem spike2WriteLinkedLayout_selectedPass {stackUpper outputLimit : UInt64}
+    (initial : X86_64MachineState)
     (entry : initial.rip = spike2WriteLinkedLayout.address .pop)
-    (safety : WriteSafety 0 0 initial)
+    (safety : WriteSafety stackUpper outputLimit initial)
     (executionSafety : WriteExecutionSafety 243 initial)
     (ordinary : Spike2WriteOrdinary 243 initial)
     (branch : X86BranchCondition.notEqual.holds (writeStates initial).2.2.2 ∨
       ¬ X86BranchCondition.notEqual.holds (writeStates initial).2.2.2) :
     Gasm.Targets.X86_64.DecimalSchedule.SelectedWritePass (Event := AnyEvent)
-      selectedNonInputPlatformCall spike2Indexed 243 0 0
+      selectedNonInputPlatformCall spike2Indexed 243 stackUpper outputLimit
       initial :=
   spike2WriteLinkedLayout.toSelectedPass initial entry safety executionSafety
     (ordinary.runtimeEvidence _ _) branch
