@@ -108,6 +108,23 @@ def boundary_source(row: int) -> str:
             f"\n\nopen {parent_namespace}.Row{row - 1}BoundaryData"
         ) + source[imports_end:]
     if row >= 8:
+        source = add_lookup_sequence(source, row, "IndexHeader",
+            "(spike2AfterMainHeader spike2Row7AfterRecurrence)", [
+                ("F", "mov_rsp_byte 0x40 0x46"), ("I", "mov_rsp_byte 0x41 0x69"),
+                ("B", "mov_rsp_byte 0x42 0x62"), ("Open", "mov_rsp_byte 0x43 0x28"),
+                ("Cmp", "cmp_r64_imm8 .r13 10"), ("Branch", "jge_rel8 41"),
+            ])
+        source = add_lookup_sequence(source, row, "Index", f"spike2Row{row}AfterIndexHeader", [
+            ("Move", "mov_r64 .rax .r13"), ("Ascii", "add_r64_imm8 .rax 0x30"),
+            ("Cursor", "lea_rsp .rdi 0x44"), ("Store", "mov_mem8 .rdi .rax"),
+            ("Close", "mov_rsp_byte 0x45 0x29"), ("Space", "mov_rsp_byte 0x46 0x20"),
+            ("Equals", "mov_rsp_byte 0x47 0x3d"), ("ValueSpace", "mov_rsp_byte 0x48 0x20"),
+            ("ValueCursor", "lea_rsp .rdi 0x49"), ("Join", "jmp_rel8 65"),
+        ])
+        source = add_lookup_sequence(source, row, "ValueSetup", f"spike2Row{row}AfterIndex", [
+            ("Move", "mov_r64 .rax .r14"), ("Base", "mov_r64_imm64 .r10 10"),
+            ("Count", "xor_r32 .ecx .ecx"),
+        ])
         source = add_extraction_observations(
             source, row, "ExtractionFirst", f"spike2Row{row}AfterValueSetup"
         )
@@ -121,6 +138,23 @@ def boundary_source(row: int) -> str:
             source, row, "WriteSecond", f"spike2Row{row}AfterWriteFirst"
         )
     return source
+
+
+def add_lookup_sequence(source: str, row: int, prefix: str, state: str,
+                        steps: list[tuple[str, str]]) -> str:
+    """Export exact instruction-index observations for a producer-local straight-line slice."""
+    end = f"end Spikes.Spike2Fibonacci.Linux.Row{row}BoundaryData\n"
+    if not source.endswith(end):
+        raise ValueError("boundary source lacks namespace terminator")
+    at = state
+    body: list[str] = []
+    for name, instr in steps:
+        body.append(
+            f"theorem spike2Row{row}{prefix}Lookup{name} : instructionAtRipIndexed spike2Indexed "
+            f"{at}.rip = some ({instr}) := by rfl\n"
+        )
+        at = f"(X86_64Instruction.step ({instr}) {at})"
+    return source[:-len(end)] + "\n" + "".join(body) + end
 
 
 def add_extraction_observations(source: str, row: int, pass_name: str, state: str) -> str:
