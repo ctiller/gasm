@@ -23,6 +23,8 @@ import Gasm.Targets.Linux.Syscall
 import Gasm.Targets.X86_64.Instructions.Syscall
 import Gasm.Targets.Windows.Win32API
 import Spikes.Spike3SortLines.Platform
+import Spikes.Spike3SortLines.Linux.Program
+import Spikes.Spike3SortLines.Windows.Program
 import Stdlib.SmolAlloc.Program
 
 /-! The ordinary Linux and Win32 host interceptors remain total simulation helpers for their
@@ -56,11 +58,30 @@ structure Spike3NativeExecutionContext where
   arenaGrant : Spike3NativeArenaGrant
   proofBudget : NativeProofBudget
 
+private def spike3ArenaRequestBytes (grant : Spike3NativeArenaGrant) : UInt32 :=
+  if grant.bytes < 65536 then 65536 else grant.bytes
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- The exact Linux artifact selected by a caller's native arena context.  The
+    requested mapping immediate is part of the linked text, so the grant cannot
+    be established for one artifact and realized against another. -/
+def spike3LinuxArtifactForContext (context : Spike3NativeExecutionContext) :
+    LinuxX86_64Artifact where
+  executable := Linux.spike3ExecutableWithArena (spike3ArenaRequestBytes context.arenaGrant)
+  instructions := Linux.spike3InstructionsWithArena (spike3ArenaRequestBytes context.arenaGrant)
+
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- The exact Win32 artifact selected by a caller's native arena context. -/
+def spike3WindowsArtifactForContext (context : Spike3NativeExecutionContext) :
+    WindowsX86_64Artifact where
+  executable := Windows.spike3ExecutableWithArena (spike3ArenaRequestBytes context.arenaGrant)
+  instructions := Windows.spike3InstructionsWithArena (spike3ArenaRequestBytes context.arenaGrant)
+
 /-- The emitted artifact asks for the grant's bounded amount, with a 64 KiB minimum so even an
     empty/insufficient grant follows the ordinary reservation-and-failure path rather than issuing
     an invalid zero-length OS request. -/
 def Spike3NativeArenaGrant.requestedBytes (grant : Spike3NativeArenaGrant) : UInt32 :=
-  if grant.bytes < 65536 then 65536 else grant.bytes
+  spike3ArenaRequestBytes grant
 
 /-- Exact admission check for a native virtual-memory reservation.  Zero-sized grants never
     satisfy a nonzero request, and requests cannot exceed the caller's capability. -/
@@ -167,7 +188,9 @@ def spike3WindowsRuntime (Event : Type) [Inject ConsoleEvent Event] [Inject Proc
 def spike3LinuxArenaCapability (Event : Type) : Capability (LinuxX86_64 Event) where
   Context := Spike3NativeExecutionContext
   providers := []
-  establishes := fun _ _ _ _ => True
+  establishes := fun artifact environment state context =>
+    artifact = spike3LinuxArtifactForContext context ∧
+      state = Platform.load artifact environment
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
 /-- Capability composition realizing a Linux Spike 3 finite grant as the operational runtime
@@ -187,7 +210,9 @@ def spike3LinuxArenaCapabilities (Event : Type) [Inject ConsoleEvent Event] [Inj
 def spike3WindowsArenaCapability (Event : Type) : Capability (WindowsX86_64 Event) where
   Context := Spike3NativeExecutionContext
   providers := []
-  establishes := fun _ _ _ _ => True
+  establishes := fun artifact environment state context =>
+    artifact = spike3WindowsArtifactForContext context ∧
+      state = Platform.load artifact environment
 
 /- REF: docs/ABI_CONTEXT.md#4-dependent-obligation-transitions -/
 /-- The grant-indexed Win32 runtime supports every provider in the standard table.  The only
