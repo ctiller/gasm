@@ -196,7 +196,8 @@ theorem fib_iter_wasm_soundness (n : Nat) (hn : n ≤ 99999974) :
     root is a symbolic control-flow calculation.  Keeping memory abstract here prevents the proof
     checker from ever traversing the installed 64-KiB page. -/
 private theorem spike2_wasm_root_execution
-    (memory writtenMemory : WasmMemory)
+    (fuel : Nat) (memory writtenMemory : WasmMemory)
+    (hfuel : 16 ≤ fuel)
     (hwrite :
       wasiHostCall ["fd_write", "proc_exit"] 0
           { stack := [.i32 8, .i32 1, .i32 0, .i32 1], memory := memory,
@@ -204,7 +205,7 @@ private theorem spike2_wasm_root_execution
         ({ stack := [.i32 0], memory := writtenMemory, memMax := some 65536,
             events := [Inject.inject (ConsoleEvent.out formattedFibonacciWasmOutput)] }, .next)) :
     (WasiRunOutcome.ofResult
-      (evalInstrs 100 spike2WasmInstructions
+      (evalInstrs fuel spike2WasmInstructions
         { memory := memory, memMax := some 65536 }
         (wasiHostCall ["fd_write", "proc_exit"]))).observable =
       .exited 0 (runModelTrace (fibonacciWasmSpec : TraceM AnyEvent Unit)) := by
@@ -215,8 +216,23 @@ private theorem spike2_wasm_root_execution
   rw [show spike2WasmInstructions =
     [.i32_const 1, .i32_const 0, .i32_const 1, .i32_const 8,
      .call 0, .drop, .i32_const 0, .call 1] from rfl]
-  rw [evalWasiWriteThenExit memory writtenMemory (some 65536)
-    formattedFibonacciWasmOutput hwrite]
+  have hproc :
+      wasiHostCall ["fd_write", "proc_exit"] 1
+          { stack := [.i32 0], memory := writtenMemory, memMax := some 65536,
+            events := [Inject.inject (ConsoleEvent.out formattedFibonacciWasmOutput)] } =
+        ({ stack := [], memory := writtenMemory, memMax := some 65536,
+            exitCode := some 0,
+            events := [Inject.inject (ConsoleEvent.out formattedFibonacciWasmOutput),
+              Inject.inject (ProcessEvent.exit 0)] }, .ret) := by
+    simpa using wasiHostCall_proc_exit_zero
+      ({ memory := writtenMemory, memMax := some 65536,
+         events := [Inject.inject (ConsoleEvent.out formattedFibonacciWasmOutput)] } : WasmMachineState)
+  let extra := fuel - 16
+  have hfuel' : fuel = extra + 16 := by
+    dsimp [extra]
+    omega
+  rw [hfuel']
+  simp [evalInstrs, evalInstrMatch, pushVal, hwrite, hproc]
   simp [hmodel, WasiRunOutcome.ofResult, WasiRunOutcome.observable]
 
 set_option maxRecDepth 10000 in
@@ -227,7 +243,7 @@ set_option maxRecDepth 10000 in
 theorem spike2_wasm_canonical_effect_trace_equivalence :
     (runWasiOutcome spike2WasmInstructions spike2DataSegments ByteArray.empty
       ["fd_write", "proc_exit"] []
-      { fuel := 100, memoryPages := 65536 }).observable =
+      { fuel := defaultWasmFuel, memoryPages := 65536 }).observable =
         .exited 0 (runModelTrace (fibonacciWasmSpec : TraceM AnyEvent Unit)) := by
   obtain ⟨writtenMemory, hwritten⟩ := spike2InitialMemory_nwritten
   have hwrite := wasiHostCall_fd_write_single
@@ -247,12 +263,12 @@ theorem spike2_wasm_canonical_effect_trace_equivalence :
   dsimp only
   simp only [initWasmMemory_size]
   simp
-  exact spike2_wasm_root_execution _ _ hwrite'
+  exact spike2_wasm_root_execution defaultWasmFuel _ _ (by decide) hwrite'
 
--- REF: wasm-exec-runtime#administrative-instructions -- Fuel-safety witness (see the identical
--- check and its rationale in Spikes/Spike1Hello/Wasm/Equivalence.lean): proves the actual Spike 2
--- program -- which DOES contain a real `.loop` (the iterative Fibonacci routine) -- never
--- exhausts `defaultWasmFuel` under `runWasiTraceState`, rather than merely assuming it.
+-- REF: wasm-exec-runtime#administrative-instructions -- Explicit regression check (see the
+-- identical check and its rationale in Spikes/Spike1Hello/Wasm/Equivalence.lean): evaluates the
+-- shipped Spike 2 root entry under `runWasiTraceState` and catches accidental fuel exhaustion.
+-- The load-bearing universal contract below is the structural root proof, not this sample check.
 #guard !Gasm.Targets.Wasm.WasmRunResult.isError
   (Gasm.Targets.WASI.runWasiTraceState spike2WasmInstructions spike2DataSegments)
 
@@ -342,7 +358,7 @@ theorem spike2_wasi_reference_outcome :
       ["fd_write", "proc_exit"] []
       { fuel := defaultWasmFuel, memoryPages := 65536 }).observable =
         .exited 0 (runModelTrace (fibonacciWasmSpec : TraceM AnyEvent Unit)) := by
-  native_decide
+  exact spike2_wasm_canonical_effect_trace_equivalence
 
 private def spike2WasiEmittedBytes : ByteArray :=
   match spike2WasmBinary with
