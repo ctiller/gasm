@@ -48,31 +48,30 @@ exactly -- see that file's header for the fuller rationale of each piece
 reused here): `discoverProjectModules` enumerates every TRACKED `.lean` file
 under `Gasm/`, `Stdlib/`, `Spikes/` via `git ls-files` (not via any import
 closure, and not via a filesystem walk -- see `enumerateProjectModules` in
-Tools/GateSubprocess.lean); `runGate`
-does the baseline `importModules #[Gasm, Stdlib, Spikes]` scan, then
-per-module standalone scans for whatever the baseline's closure did not
-reach, exactly as CheckGatesAxioms.lean does for Law 10 (same TC15 module-
-coverage gap, same fix). `Tools/` itself is excluded from scope, matching
+Tools/GateSubprocess.lean); `runGate` invokes three sequential, short-lived
+umbrella workers for `Gasm`, `Stdlib`, and `Spikes`, then per-module
+standalone workers for whatever those import closures did not reach (the
+same TC15 module-coverage gap and fix as CheckGatesAxioms.lean). The driver
+statically imports none of those roots, so building the gate does not build
+or elaborate their combined closure. `Tools/` itself is excluded from scope, matching
 `isProjectModule`'s existing Gasm/Stdlib/Spikes-only namespace scope -- this file's own
 declarations are therefore not gated by itself, though they still carry
 `REF:` citations as a matter of ordinary code quality.
 
-SUBPROCESS ISOLATION (identical fix to Tools/CheckGatesAxioms.lean's, see
-that file's header for the fuller rationale of why a fresh OS PROCESS per
-module -- not just a fresh `Environment` value in this same long-lived
-process -- is required): this tool originally scanned each of the ~33
+SUBPROCESS ISOLATION (same underlying fix as Tools/CheckGatesAxioms.lean's):
+the driver never owns a repository `Environment`. Each umbrella is imported
+by a sequential `--scan-root` worker that exits before the next starts, and
+each module outside those closures uses a `--scan-module` worker. This tool
+originally scanned each of the ~33
 disk-discovered-but-not-baseline modules with a per-module standalone
 `importModules` call INSIDE ITS OWN LOOP, all in this one process. That is
 exactly the pattern that drove Tools/CheckGatesAxioms.lean's memory to
 ~49GB and broke CI on both platforms before ITS fix; a contamination-checked
 measurement of this tool's own pre-fix binary (`Get-CimInstance` filtered to
 this process's own tree) confirmed the identical failure mode here too: a
-single process climbing to ~41GB working set over the run. The fix is the
-same shape: `runGate` now re-invokes this same executable as
-`--scan-module <dotted module name> <file path>` (`runScanWorker` below),
-one module at a time, sequentially, in its own fresh process -- never
-batched (batching would reintroduce the bare-`main` collision the isolation
-exists to dodge in the first place, per CheckGatesAxioms.lean's header). The
+single process climbing to ~41GB working set over the run. The current split
+also prevents a nominal `lake build check_refs_coverage_full` from compiling
+the combined repository closure inside this verifier's own Lean process. The
 spawn-and-capture-one-`GASM_SCAN_RESULT`-line plumbing itself
 (`spawnAndGetResultPayload`, `resultMarker`, `setupSearchPath`,
 `nameOfDotted`) is shared verbatim with Tools/CheckGatesAxioms.lean via
@@ -170,9 +169,7 @@ guess:
 -/
 import Lean
 import Lean.Data.Json
-import Gasm
-import Stdlib
-import Spikes
+import Lake.Build.Trace
 import Tools.GateSubprocess
 
 open Lean
@@ -418,7 +415,7 @@ def scanFileForCitedLines (filePath : System.FilePath) (declLines : Std.HashSet 
       pendingHasRef := false
   return cited
 
-/-- What a `--scan-module` worker process reported, once its one
+/-- What a `--scan-root` or `--scan-module` worker process reported, once its one
 `GASM_SCAN_RESULT` JSON line has been parsed. `loadFailed` mirrors the old
 in-process `catch` arm (the module's own `importModules` failed); the parent
 folds it into `unloadable` exactly as before. `scanned` carries every
@@ -430,7 +427,7 @@ scan and looked up its file via `discoverProjectModules`). -/
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
 inductive RefsWorkerResult where
   | loadFailed (msg : String)
-  | scanned (candidates : Array (String × Nat × Position × Position))
+  | scanned (modules : Array Name) (candidates : Array DeclCandidate)
 
 /-- Parses one worker's `GASM_SCAN_RESULT` JSON payload (everything after the
 marker). See `runScanWorker` for the shape this is the inverse of. `Position`
@@ -449,17 +446,44 @@ def parseRefsWorkerResult (payload : String) : Except String RefsWorkerResult :=
   else
     let candsJ ← j.getObjVal? "candidates"
     let candsArr ← candsJ.getArr?
+    let modulesJ ← j.getObjVal? "modules"
+    let modulesArr ← modulesJ.getArr?
+    let modules ← modulesArr.mapM fun item => do
+      let moduleS ← item.getStr?
+      pure (nameOfDotted moduleS)
     let cands ← candsArr.mapM fun item => do
       let fqnJ ← item.getObjVal? "fqn"
       let fqnS ← fqnJ.getStr?
+      let moduleJ ← item.getObjVal? "module"
+      let moduleS ← moduleJ.getStr?
+      let fileJ ← item.getObjVal? "file"
+      let fileS ← fileJ.getStr?
       let lineJ ← item.getObjVal? "anchorLine"
       let lineN ← lineJ.getNat?
       let rangeStartJ ← item.getObjVal? "rangeStart"
       let rangeStart ← FromJson.fromJson? (α := Position) rangeStartJ
       let rangeEndJ ← item.getObjVal? "rangeEnd"
       let rangeEnd ← FromJson.fromJson? (α := Position) rangeEndJ
-      pure (fqnS, lineN, rangeStart, rangeEnd)
-    return .scanned cands
+      pure {
+        fqn := fqnS, module := nameOfDotted moduleS, file := System.FilePath.mk fileS,
+        anchorLine := lineN, rangeStart := rangeStart, rangeEnd := rangeEnd
+      }
+    return .scanned modules cands
+
+private def scanResultJson (modules : Array Name) (cands : Array DeclCandidate) : Json :=
+  let modulesJson := modules.map (fun moduleName => (toString moduleName : Json))
+  let candsJson := cands.map (fun d => Json.mkObj [
+    ("fqn", (d.fqn : Json)),
+    ("module", (toString d.module : Json)),
+    ("file", (d.file.toString : Json)),
+    ("anchorLine", (d.anchorLine : Json)),
+    ("rangeStart", Lean.toJson d.rangeStart),
+    ("rangeEnd", Lean.toJson d.rangeEnd)
+  ])
+  Json.mkObj [
+    ("ok", (true : Json)), ("modules", Json.arr modulesJson),
+    ("candidates", Json.arr candsJson)
+  ]
 
 /-- The `--scan-module <dotted name> <file path>` worker entry point:
 standalone-imports EXACTLY ONE module into a fresh `Environment` -- in this
@@ -482,16 +506,234 @@ def runScanWorker (target : Name) (file : System.FilePath) : IO UInt32 := do
       let env2 ← importModules #[{module := target}] {} (trustLevel := 0) (loadExts := false)
       let cands ← collectCandidates env2 ctx
         (fun n i => isCoverageCandidateForModule env2 n i target) (fun _ => some file)
-      let candsJson := cands.map (fun d => Json.mkObj [
-        ("fqn", (d.fqn : Json)),
-        ("anchorLine", (d.anchorLine : Json)),
-        ("rangeStart", Lean.toJson d.rangeStart),
-        ("rangeEnd", Lean.toJson d.rangeEnd)
-      ])
-      pure (Json.mkObj [("ok", (true : Json)), ("candidates", Json.arr candsJson)])
+      pure (scanResultJson #[target] cands)
     catch e =>
       pure (Json.mkObj [("ok", (false : Json)), ("error", (e.toString : Json))])
   IO.println s!"{resultMarker}{result.compress}"
+  return 0
+
+/-- Imports one umbrella root in its own short-lived process and returns every project module and
+    declaration reached by that root.  Running the three roots sequentially retains the old
+    baseline efficiency without accumulating all three environments in the gate driver. -/
+/- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
+def runRootWorker (target : Name) : IO UInt32 := do
+  setupSearchPath
+  let ctx : Core.Context := { fileName := "CheckRefsCoverage", fileMap := default }
+  let result ←
+    try
+      let enumeration ← discoverProjectModules
+      let discovered := enumeration.files.map (fun p => (moduleNameOfPath p, p))
+      let fileOfModule : Std.HashMap Name System.FilePath :=
+        discovered.foldl (init := {}) (fun m (n, p) => m.insert n p)
+      let env2 ← importModules #[{module := target}] {} (trustLevel := 0) (loadExts := false)
+      let cands ← collectCandidates env2 ctx
+        (fun n i => isCoverageCandidate env2 n i) (fileOfModule[·]?)
+      let modules := env2.allImportedModuleNames.filter (fun n => (fileOfModule[n]?).isSome)
+      pure (scanResultJson modules cands)
+    catch e =>
+      pure (Json.mkObj [("ok", (false : Json)), ("error", (e.toString : Json))])
+  IO.println s!"{resultMarker}{result.compress}"
+  return 0
+
+private structure AuthorityStat where
+  size : Nat
+  mtimeSec : Nat
+  mtimeNsec : Nat
+
+private structure AuthorityContent where
+  path : String
+  hash : String
+  stat : AuthorityStat
+
+private structure AuthorityModule where
+  path : String
+  sourceHash : String
+  source : AuthorityStat
+  oleanPath : String
+  oleanHash : String
+  olean : AuthorityStat
+
+private structure AuthorityArtifact where
+  path : String
+  lakeHash : String
+  stat : AuthorityStat
+
+private structure BuildAuthority where
+  nonce : String
+  leanVersion : String
+  gate : AuthorityArtifact
+  inputs : Array AuthorityContent
+  entries : Array AuthorityModule
+
+private def parseAuthorityStat (json : Json) : Except String AuthorityStat := do
+  return {
+    size := ← (← json.getObjVal? "size").getNat?
+    mtimeSec := ← (← json.getObjVal? "mtimeSec").getNat?
+    mtimeNsec := ← (← json.getObjVal? "mtimeNsec").getNat?
+  }
+
+private def parseAuthorityContent (json : Json) : Except String AuthorityContent := do
+  return {
+    path := ← (← json.getObjVal? "path").getStr?
+    hash := ← (← json.getObjVal? "hash").getStr?
+    stat := ← parseAuthorityStat (← json.getObjVal? "stat")
+  }
+
+private def parseAuthorityModule (json : Json) : Except String AuthorityModule := do
+  return {
+    path := ← (← json.getObjVal? "path").getStr?
+    sourceHash := ← (← json.getObjVal? "sourceHash").getStr?
+    source := ← parseAuthorityStat (← json.getObjVal? "source")
+    oleanPath := ← (← json.getObjVal? "oleanPath").getStr?
+    oleanHash := ← (← json.getObjVal? "oleanHash").getStr?
+    olean := ← parseAuthorityStat (← json.getObjVal? "olean")
+  }
+
+private def parseAuthorityArtifact (json : Json) : Except String AuthorityArtifact := do
+  return {
+    path := ← (← json.getObjVal? "path").getStr?
+    lakeHash := ← (← json.getObjVal? "lakeHash").getStr?
+    stat := ← parseAuthorityStat (← json.getObjVal? "stat")
+  }
+
+private def parseBuildAuthority (text : String) : Except String BuildAuthority := do
+  let json ← Json.parse text
+  let version ← (← json.getObjVal? "version").getNat?
+  if version != 1 then throw s!"unsupported authority manifest version {version}"
+  let inputsJson ← (← json.getObjVal? "inputs").getArr?
+  let entriesJson ← (← json.getObjVal? "entries").getArr?
+  return {
+    nonce := ← (← json.getObjVal? "nonce").getStr?
+    leanVersion := ← (← json.getObjVal? "leanVersion").getStr?
+    gate := ← parseAuthorityArtifact (← json.getObjVal? "gate")
+    inputs := ← inputsJson.mapM parseAuthorityContent
+    entries := ← entriesJson.mapM parseAuthorityModule
+  }
+
+private def fnv1a64File (path : System.FilePath) : IO UInt64 := do
+  let bytes ← IO.FS.readBinFile path
+  let mut value : UInt64 := 14695981039346656037
+  for byte in bytes do
+    value := (value ^^^ UInt64.ofNat byte.toNat) * 1099511628211
+  return value
+
+private def statMatches (expected : AuthorityStat) (actual : IO.FS.Metadata) : Bool :=
+  expected.size == actual.byteSize.toNat &&
+    expected.mtimeSec == actual.modified.sec.toNat &&
+    expected.mtimeNsec == actual.modified.nsec.toNat
+
+private def canonicalPath (path : System.FilePath) : String :=
+  path.toString.replace "\\" "/"
+
+private def expectedOleanPath (source : System.FilePath) : System.FilePath :=
+  ".lake" / "build" / "lib" / "lean" / source.withExtension "olean"
+
+private def verifyContent (entry : AuthorityContent) : IO Bool := do
+  let path := System.FilePath.mk entry.path
+  let metadata ← path.metadata
+  if !statMatches entry.stat metadata then return false
+  return toString (← fnv1a64File path) == entry.hash
+
+private def verifyBuildAuthority (expectedNonce : String) (manifest : BuildAuthority) : IO Bool := do
+  if manifest.nonce != expectedNonce || manifest.leanVersion != Lean.versionString then
+    return false
+
+  let gatePath ← IO.appPath
+  if canonicalPath gatePath != manifest.gate.path then return false
+  let gateMetadata ← gatePath.metadata
+  if !statMatches manifest.gate.stat gateMetadata then return false
+  let gateHashPath := System.FilePath.mk (gatePath.toString ++ ".hash")
+  let recordedGateHash := (← IO.FS.readFile gateHashPath).trimAscii.toString
+  if recordedGateHash != manifest.gate.lakeHash ||
+      toString (← Lake.computeBinFileHash gatePath) != manifest.gate.lakeHash then
+    return false
+
+  let requiredInputs := #[
+    "lakefile.toml", "lake-manifest.json", "lean-toolchain",
+    "scripts/run_full_refs_coverage.py", "Tools/CheckRefsCoverage.lean",
+    "Tools/GateSubprocess.lean"
+  ]
+  let inputMap : Std.HashMap String AuthorityContent :=
+    manifest.inputs.foldl (init := {}) (fun map entry => map.insert entry.path entry)
+  if inputMap.size != manifest.inputs.size || inputMap.size != requiredInputs.size then
+    return false
+  for path in requiredInputs do
+    match inputMap[path]? with
+    | none => return false
+    | some entry => if !(← verifyContent entry) then return false
+  for toolSource in #["Tools/CheckRefsCoverage.lean", "Tools/GateSubprocess.lean"] do
+    if gateMetadata.modified < (← (System.FilePath.mk toolSource).metadata).modified then
+      return false
+
+  let enumeration ← discoverProjectModules
+  let moduleMap : Std.HashMap String AuthorityModule :=
+    manifest.entries.foldl (init := {}) (fun map entry => map.insert entry.path entry)
+  if moduleMap.size != manifest.entries.size || moduleMap.size != enumeration.files.size then
+    return false
+  for source in enumeration.files do
+    let sourceKey := canonicalPath source
+    match moduleMap[sourceKey]? with
+    | none => return false
+    | some entry =>
+      let sourceMetadata ← source.metadata
+      let oleanPath := expectedOleanPath source
+      let oleanKey := canonicalPath oleanPath
+      if entry.oleanPath != oleanKey || !statMatches entry.source sourceMetadata then
+        return false
+      if toString (← fnv1a64File source) != entry.sourceHash then
+        return false
+      let oleanMetadata ← oleanPath.metadata
+      if !statMatches entry.olean oleanMetadata || oleanMetadata.modified < sourceMetadata.modified then
+        return false
+      let hashPath := System.FilePath.mk (oleanPath.toString ++ ".hash")
+      let recordedHash := (← IO.FS.readFile hashPath).trimAscii.toString
+      if recordedHash != entry.oleanHash || toString (← Lake.computeBinFileHash oleanPath) != entry.oleanHash then
+        return false
+  return true
+
+private def validAuthorityNonce (nonce : String) : Bool :=
+  nonce.length ≥ 32 &&
+    nonce.all (fun c => c.isAlphanum || c == '-' || c == '_')
+
+private def consumeFreshBuildAuthority : IO Bool := do
+  match ← IO.getEnv "GASM_FULL_REFS_BUILD_AUTHORITY" with
+  | none =>
+    IO.eprintln "[!] REFUSED: raw declaration-coverage execution has no fresh-build authority."
+    IO.eprintln "    Use: python scripts/run_full_refs_coverage.py --full-repository"
+    return false
+  | some nonce =>
+    if !validAuthorityNonce nonce then
+      IO.eprintln "[!] REFUSED: malformed declaration-coverage build authority."
+      return false
+    let authorityPath : System.FilePath :=
+      ".lake" / "build" / "full_refs_authority" / s!"{nonce}.token"
+    try
+      let manifestText ← IO.FS.readFile authorityPath
+      let manifest ←
+        match parseBuildAuthority manifestText with
+        | .ok manifest => pure manifest
+        | .error error =>
+          IO.eprintln s!"[!] REFUSED: malformed declaration-coverage authority manifest: {error}"
+          return false
+      if !(← verifyBuildAuthority nonce manifest) then
+        IO.eprintln "[!] REFUSED: tracked sources, build inputs, toolchain, or olean outputs changed"
+        IO.eprintln "    after the full build; rerun the canonical launcher."
+        return false
+      -- Consume before scanning: one successful full build authorizes exactly one top-level run.
+      IO.FS.removeFile authorityPath
+      return true
+    catch _ =>
+      IO.eprintln "[!] REFUSED: declaration-coverage build authority is absent or already consumed."
+      IO.eprintln "    Use: python scripts/run_full_refs_coverage.py --full-repository"
+      return false
+
+private def printAuthorityModules : IO UInt32 := do
+  let enumeration ← discoverProjectModules
+  if !enumeration.errors.isEmpty then
+    for error in enumeration.errors do IO.eprintln error
+    return 1
+  let paths := enumeration.files.map (fun path => (canonicalPath path : Json))
+  IO.println s!"GASM_AUTHORITY_MODULES {(Json.arr paths).compress}"
   return 0
 
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
@@ -506,52 +748,42 @@ def runGate : IO UInt32 := do
   IO.println "[*] Enumerates every reportable project declaration from the COMPILED ENVIRONMENT"
   IO.println "    (not source-text pattern matching), then checks each for a preceding `REF:`."
 
-  let env ←
-    try
-      importModules #[{module := `Gasm}, {module := `Stdlib}, {module := `Spikes}]
-        {} (trustLevel := 0) (loadExts := false)
-    catch e =>
-      IO.eprintln s!"[!] ERROR: failed to import Gasm/Stdlib/Spikes: {e.toString}"
-      IO.eprintln "    Run the canonical full gate from the repo root: `python scripts/run_full_refs_coverage.py --full-repository`"
-      IO.Process.exit 1
-
-  let ctx : Core.Context := { fileName := "CheckRefsCoverage", fileMap := default }
-
   let enumeration ← discoverProjectModules
   let discovered := enumeration.files.map (fun p => (moduleNameOfPath p, p))
-  let fileOfModule : Std.HashMap Name System.FilePath :=
-    discovered.foldl (init := {}) (fun m (n, p) => m.insert n p)
+  let mut candidates : Array DeclCandidate := #[]
 
-  let mut candidates ←
-    collectCandidates env ctx (fun n i => isCoverageCandidate env n i) (fileOfModule[·]?)
-
-  -- TC15-style module-coverage closure: the baseline import above only sees
-  -- whatever Gasm/Stdlib/Spikes transitively `import`. Anything discovered
-  -- on disk but not reached that way is loaded standalone, mirroring
-  -- Tools/CheckGatesAxioms.lean's identical fix for the identical gap.
-  let mut baselineModules : Std.HashSet Name := {}
-  for m in env.allImportedModuleNames do
-    baselineModules := baselineModules.insert m
-  let missing := discovered.filter (fun (m, _) => !baselineModules.contains m)
-
-  -- SUBPROCESS ISOLATION (see this file's header): each `missing` module is
-  -- scanned by re-invoking THIS SAME executable as a `--scan-module` worker
-  -- in its own fresh OS process, one module at a time, sequentially -- never
-  -- batched, never in parallel. Same rationale as
-  -- Tools/CheckGatesAxioms.lean: batching would reintroduce the bare-`main`
-  -- collision this whole scheme exists to avoid, and running them in-process
-  -- (even one `Environment` value at a time, which is what this loop did
-  -- before this fix) is exactly what drove this tool's own peak working set
-  -- to ~41GB on a clean, contamination-checked measurement.
+  -- The three umbrella environments are loaded in separate, sequential workers.  The parent
+  -- retains only their compact JSON declaration summaries, so neither building nor running the
+  -- driver accumulates the full repository environment. Modules outside those import closures
+  -- keep the existing one-module worker path that closes the TC15-style coverage gap.
   let mut unloadable : Array (Name × String) := #[]
+  let mut baselineModules : Std.HashSet Name := {}
   let selfExe ← IO.appPath
   let cwd ← IO.currentDir
+  for root in #[`Gasm, `Stdlib, `Spikes] do
+    let payloadRes ← spawnAndGetResultPayload selfExe cwd #["--scan-root", toString root]
+    match payloadRes with
+    | .error spawnErr =>
+      IO.eprintln s!"[!] umbrella worker {root} failed; falling back to per-module scans: {spawnErr}"
+    | .ok payload =>
+      match parseRefsWorkerResult payload with
+      | .error parseErr =>
+        IO.eprintln s!"[!] umbrella worker {root} returned malformed data; falling back: {parseErr}"
+      | .ok (.loadFailed loadErr) =>
+        IO.eprintln s!"[!] umbrella worker {root} could not load; falling back: {loadErr}"
+      | .ok (.scanned modules cands) =>
+        for moduleName in modules do
+          baselineModules := baselineModules.insert moduleName
+        candidates := candidates ++ cands
+
+  let missing := discovered.filter (fun (moduleName, _) => !baselineModules.contains moduleName)
   let concurrency ← defaultScanConcurrency
   let workerResults ← runWorkerPool missing concurrency fun (target, targetFile) => do
     let payloadRes ← spawnAndGetResultPayload selfExe cwd #["--scan-module", toString target, targetFile.toString]
     pure (target, targetFile, payloadRes)
 
-  for (target, targetFile, payloadRes) in workerResults do
+  let mut coveredStandalone := 0
+  for (target, _targetFile, payloadRes) in workerResults do
     match payloadRes with
     | .error spawnErr =>
       unloadable := unloadable.push (target, spawnErr)
@@ -561,18 +793,13 @@ def runGate : IO UInt32 := do
         unloadable := unloadable.push (target, s!"malformed scan subprocess result: {parseErr}")
       | .ok (.loadFailed loadErr) =>
         unloadable := unloadable.push (target, loadErr)
-      | .ok (.scanned cands) =>
-        for (fqnS, anchorLine, rangeStart, rangeEnd) in cands do
-          candidates := candidates.push {
-            fqn := fqnS, module := target, file := targetFile,
-            anchorLine := anchorLine, rangeStart := rangeStart, rangeEnd := rangeEnd
-          }
+      | .ok (.scanned _ cands) =>
+        coveredStandalone := coveredStandalone + 1
+        candidates := candidates ++ cands
 
   let elapsedImportMs := (← IO.monoMsNow) - startTime
 
-  -- Containment filter is applied per-module across the FULL candidate set
-  -- (baseline + every standalone import), so it sees the same picture
-  -- regardless of which import produced which candidate.
+  -- Containment filtering remains per module across the full candidate set.
   let topLevel := dropContained candidates
 
   -- Group top-level candidates by file so each file is read and scanned
@@ -593,16 +820,17 @@ def runGate : IO UInt32 := do
         uncited := uncited.push d
 
   let elapsedMs := (← IO.monoMsNow) - startTime
-  let baselineProjectCount := (discovered.filter (fun (m, _) => baselineModules.contains m)).size
-  let coveredStandalone := missing.size - unloadable.size
+  let baselineProjectCount :=
+    (discovered.filter (fun (moduleName, _) => baselineModules.contains moduleName)).size
 
   IO.println ""
   IO.println "--- MODULE COVERAGE (TC15-style closure, mirrors CheckGatesAxioms.lean) ---"
   IO.println s!"[*] {discovered.size} tracked project module(s) under {projectRootDirs} are built by a"
   IO.println s!"    declared lakefile.toml target ({enumeration.libRoots} [[lean_lib]] root(s), \
 {enumeration.exeRoots} [[lean_exe]] root(s))."
-  IO.println s!"[*] {baselineProjectCount} reachable via the baseline Gasm/Stdlib/Spikes import graph;"
-  IO.println s!"    {coveredStandalone} more loaded standalone to close the blind spot."
+  IO.println s!"[*] {baselineProjectCount} reached through three sequential isolated umbrella workers;"
+  IO.println s!"    {coveredStandalone} more loaded in isolated per-module workers."
+  IO.println "[*] No process accumulates all three repository environments."
   IO.println s!"[*] Total in scope: {baselineProjectCount + coveredStandalone} / {discovered.size} in the build closure."
   IO.println s!"[*] Import phase: {elapsedImportMs}ms."
   -- See CheckGatesAxioms.lean's identical block: a tracked module no declared
@@ -662,14 +890,17 @@ def runGate : IO UInt32 := do
   IO.println sepLine
   return if failed then 1 else 0
 
-/-- CLI entry point. `--scan-module <dotted name> <file path>` is an
-internal, undocumented mode: it is how `runGate` re-invokes THIS SAME
-executable as a standalone-scan worker subprocess (see this file's header's
-SUBPROCESS ISOLATION section) and is never meant to be typed by a human.
+/-- CLI entry point. `--scan-root <dotted name>` and
+`--scan-module <dotted name> <file path>` are internal, undocumented modes:
+they are how `runGate` re-invokes this executable as isolated workers (see
+this file's header's SUBPROCESS ISOLATION section) and are never meant to be typed by a human.
 Any other argument list (including none) runs the gate itself, exactly as
 before this fix. -/
 /- REF: docs/REVIEW.md#412-reference-coverage-tooling-specification -/
 def main (args : List String) : IO UInt32 :=
   match args with
+  | ["--list-authority-modules"] => printAuthorityModules
+  | ["--scan-root", modStr] => runRootWorker (nameOfDotted modStr)
   | ["--scan-module", modStr, fileStr] => runScanWorker (nameOfDotted modStr) (System.FilePath.mk fileStr)
-  | _ => runGate
+  | _ => do
+    if ← consumeFreshBuildAuthority then runGate else return 2
