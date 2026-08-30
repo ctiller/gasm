@@ -49,6 +49,10 @@ structure ReadingState (LineId : Type) where
 
 namespace ReadingState
 
+/-- The only initial tokenizer state.  Read certificates below start here rather than merely
+    asserting a convenient `consumed` equality about an unrelated state. -/
+def initial : ReadingState LineId := {}
+
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- Erases nominal line identities to the existing byte-stream decoder representation. -/
 def decoder (lineUniverse : LineUniverse LineId) (state : ReadingState LineId) : ByteLineStream :=
@@ -95,6 +99,71 @@ theorem complete_projects_decoder (lineUniverse : LineUniverse LineId) (state : 
         completed := state.completed ++ [line] }) =
       (decoder lineUniverse state).step lineFeed := by
   simp [decoder, ByteLineStream.step, contents]
+
+/-- Reachability by the production byte tokenizer.  The byte list is part of the derivation, so
+    a completed-line certificate cannot be assembled from an independent partition of input. -/
+inductive Reaches (lineUniverse : LineUniverse LineId) :
+    ReadingState LineId → List UInt8 → ReadingState LineId → Prop where
+  | nil (state : ReadingState LineId) : Reaches lineUniverse state [] state
+  | byte {start before : ReadingState LineId} {bytes : List UInt8}
+      (reach : Reaches lineUniverse start bytes before) (byte : UInt8)
+      (notLineFeed : byte ≠ lineFeed) :
+      Reaches lineUniverse start (bytes ++ [byte])
+        { consumed := before.consumed ++ [byte]
+          pendingRev := byte :: before.pendingRev
+          completed := before.completed }
+  | complete {start before : ReadingState LineId} {bytes : List UInt8}
+      (reach : Reaches lineUniverse start bytes before) (line : LineId)
+      (fresh : line ∉ before.completed)
+      (contents : lineUniverse.bytes line = trimLineEnding before.pendingRev.reverse) :
+      Reaches lineUniverse start (bytes ++ [lineFeed])
+        { consumed := before.consumed ++ [lineFeed]
+          pendingRev := []
+          completed := before.completed ++ [line] }
+
+/-- Erasing a reachable nominal tokenizer run is exactly the existing streaming decoder. -/
+theorem reaches_projects_decoder {lineUniverse : LineUniverse LineId}
+    {start state : ReadingState LineId} {bytes : List UInt8}
+    (reach : Reaches lineUniverse start bytes state) :
+    decoder lineUniverse state = (decoder lineUniverse start).feed bytes := by
+  induction reach with
+  | nil => rfl
+  | byte reach byte notLineFeed ih =>
+    rw [byte_projects_decoder lineUniverse _ byte notLineFeed, ih, ByteLineStream.feed_append]
+    rfl
+  | complete reach line fresh contents ih =>
+    rw [complete_projects_decoder _ _ line fresh contents, ih, ByteLineStream.feed_append]
+    rfl
+
+/-- The reachable state's chronological byte log is exactly the tokenizer input. -/
+theorem reaches_consumed {lineUniverse : LineUniverse LineId}
+    {start state : ReadingState LineId} {bytes : List UInt8}
+    (reach : Reaches lineUniverse start bytes state) :
+    state.consumed = start.consumed ++ bytes := by
+  induction reach with
+  | nil => simp
+  | byte reach byte _ ih => simp [ih, List.append_assoc]
+  | complete reach _ _ _ ih => simp [ih, List.append_assoc]
+
+/-- Fresh allocation at every delimiter gives nominal line identities unique generations. -/
+theorem reaches_completed_nodup {lineUniverse : LineUniverse LineId}
+    {start state : ReadingState LineId} {bytes : List UInt8}
+    (reach : Reaches lineUniverse start bytes state) (initialNodup : start.completed.Nodup) :
+    state.completed.Nodup := by
+  induction reach with
+  | nil => exact initialNodup
+  | byte _ _ _ ih => simpa using ih
+  | complete _ line fresh _ ih =>
+    simp only [List.nodup_append, List.nodup_cons, List.not_mem_nil]
+    constructor
+    · exact ih
+    · constructor
+      · exact ⟨by simp, by simp⟩
+      · intro id hmem id' hmem' heq
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem'
+        subst id'
+        have hline : id = line := by simpa using hmem'
+        exact fresh (hline ▸ hmem)
 
 end ReadingState
 
@@ -197,20 +266,72 @@ theorem completed_emits_all (state : EmittingState LineId order) (done : state.r
 end EmittingState
 
 /- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
-/-- A read-side certificate is framed solely by a finite chunk sequence and the ghost tokenizer.
-    It deliberately says nothing about where those bytes were buffered. -/
+/-- A read-side certificate ranges over the exact input and a real bounded-read schedule.  Its
+    state is reachable by `ReadingState.Reaches`, which is the same byte-at-a-time tokenizer that
+    `ByteLineStream.feed` uses; it is therefore not an arbitrary partition with a matching total. -/
 structure ReadFragmentCertificate (LineId : Type) (lineUniverse : LineUniverse LineId)
-    (chunks : List (List UInt8)) where
+    (stdin : List UInt8) (capacity : Nat) (chunks : List (List UInt8)) where
+  chunksOf : Gasm.Effects.ChunksOf stdin capacity chunks
   state : ReadingState LineId
-  consumed_eq : state.consumed = chunks.flatten
+  reaches : ReadingState.Reaches lineUniverse ReadingState.initial chunks.flatten state
+
+/- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
+/-- A certificate's ghost decoder is exactly the production decoder fed by the logical stdin. -/
+theorem ReadFragmentCertificate.projects_stream
+    (certificate : ReadFragmentCertificate LineId lineUniverse stdin capacity chunks) :
+    ReadingState.decoder lineUniverse certificate.state =
+      (ReadingState.decoder lineUniverse ReadingState.initial).feed stdin := by
+  rw [ReadingState.reaches_projects_decoder certificate.reaches,
+    certificate.chunksOf.flatten_eq_total]
+
+/- REF: docs/READ_BINDER_CONTRACT.md#7-worked-example-chunk-robustness-as-a-corollary -/
+/-- Two legal chunk schedules for one finite input yield the same decoder observation. -/
+theorem ReadFragmentCertificate.chunk_boundary_independent
+    (left : ReadFragmentCertificate LineId lineUniverse stdin capacity leftChunks)
+    (right : ReadFragmentCertificate LineId lineUniverse stdin capacity rightChunks) :
+    ReadingState.decoder lineUniverse left.state = ReadingState.decoder lineUniverse right.state := by
+  rw [left.projects_stream, right.projects_stream]
+
+/-- The tokenizer-produced nominal IDs erase to precisely the completed records of the exact
+    logical stdin, not just to a list with the same length or an arbitrary partition. -/
+theorem ReadFragmentCertificate.completed_bytes
+    (certificate : ReadFragmentCertificate LineId lineUniverse stdin capacity chunks) :
+    certificate.state.completed.map lineUniverse.bytes =
+      ((ByteLineStream.feed {} stdin).completedLines) := by
+  have projection := congrArg ByteLineStream.completedLines certificate.projects_stream
+  simpa [ReadingState.decoder, ReadingState.initial, ByteLineStream.completedLines] using projection
+
+theorem ReadFragmentCertificate.completed_nodup
+    (certificate : ReadFragmentCertificate LineId lineUniverse stdin capacity chunks) :
+    certificate.state.completed.Nodup := by
+  simpa [ReadingState.initial] using
+    ReadingState.reaches_completed_nodup certificate.reaches (by simp [ReadingState.initial])
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
-/-- A storage-side certificate is parameterized by the concrete representation rather than
-    placing representation fields in the ghost world. -/
-structure StorageCertificate (Storage LineId : Type) (completed : List LineId) where
+/-- A concrete storage witness for the *exact* input-derived line universe.  `locate` is supplied
+    by a target bridge (for example descriptor-table lookup), while this layer checks that every
+    resident entry has its generation and immutable bytes, and that the storage exposes no stale
+    entry outside the tokenizer-produced source. -/
+structure StorageCertificate (Storage LineId : Type) (lineUniverse : LineUniverse LineId)
+    (stdin : List UInt8) (capacity : Nat) (chunks : List (List UInt8)) where
+  reading : ReadFragmentCertificate LineId lineUniverse stdin capacity chunks
   storage : Storage
-  realizes : Storage → List LineId → Prop
-  resident : realizes storage completed
+  locate : Storage → LineId → Option (Nat × List UInt8)
+  generation : LineId → Nat
+  source : List LineId
+  source_eq_completed : source = reading.state.completed
+  generation_exact : ∀ id, id ∈ source → source[(generation id)]? = some id
+  resident_exact : ∀ id, id ∈ source →
+    locate storage id = some (generation id, lineUniverse.bytes id)
+  no_stale_entry : ∀ id n bytes,
+    locate storage id = some (n, bytes) →
+      id ∈ source ∧ n = generation id ∧ bytes = lineUniverse.bytes id
+
+theorem StorageCertificate.source_nodup
+    (certificate : StorageCertificate Storage LineId lineUniverse stdin capacity chunks) :
+    certificate.source.Nodup := by
+  rw [certificate.source_eq_completed]
+  exact certificate.reading.completed_nodup
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 /-- A terminal sorting certificate layers orderedness over the permutation frame already carried
@@ -221,29 +342,67 @@ structure SortedCertificate (LineId : Type) (lineUniverse : LineUniverse LineId)
   ordered : SortingState.Ordered lineUniverse state.order
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
-/-- An emission certificate exposes an output prefix without choosing a concrete write buffer or
-    syscall representation. -/
-structure EmissionPrefixCertificate (LineId : Type) (order : List LineId) where
-  state : EmittingState LineId order
+/-- Emission keeps the sorted terminal fact and its exact source permutation in scope for every
+    write transition.  A write-buffer proof need only refine `emitting`; it cannot forget why the
+    selected order is sorted or which input-line multiset it came from. -/
+structure EmissionState (LineId : Type) (lineUniverse : LineUniverse LineId)
+    (source : List LineId) where
+  sorting : SortingState LineId source
+  ordered : SortingState.Ordered lineUniverse sorting.order
+  emitting : EmittingState LineId sorting.order
+
+namespace EmissionState
+
+def initial (sorting : SortedCertificate LineId lineUniverse source) :
+    EmissionState LineId lineUniverse source :=
+  { sorting := sorting.state
+    ordered := sorting.ordered
+    emitting := EmittingState.initial sorting.state.order }
+
+/-- A single logical write advances only the prefix.  Sortedness and exact source permutation
+    are retained definitionally from the state before the write. -/
+inductive Step (lineUniverse : LineUniverse LineId) (source : List LineId) :
+    EmissionState LineId lineUniverse source → EmissionState LineId lineUniverse source → Prop where
+  | emit (before : EmissionState LineId lineUniverse source)
+      (after : EmittingState LineId before.sorting.order)
+      (step : EmittingState.Step before.sorting.order before.emitting after) :
+      Step lineUniverse source before
+        { sorting := before.sorting, ordered := before.ordered, emitting := after }
+
+theorem Step.preserves_ordered {lineUniverse : LineUniverse LineId} {source : List LineId}
+    {before after : EmissionState LineId lineUniverse source}
+    (_step : Step lineUniverse source before after) :
+    SortingState.Ordered lineUniverse after.sorting.order := after.ordered
+
+theorem Step.preserves_source_permutation {lineUniverse : LineUniverse LineId} {source : List LineId}
+    {before after : EmissionState LineId lineUniverse source}
+    (_step : Step lineUniverse source before after) : after.sorting.order.Perm source :=
+  after.sorting.permutation
+
+/-- At completion the emitted IDs are exactly the sorted order, hence are sorted and preserve the
+    nominal input multiset. -/
+theorem completed_sorted_permutation (state : EmissionState LineId lineUniverse source)
+    (done : state.emitting.remaining = []) :
+    SortingState.Ordered lineUniverse state.emitting.emitted ∧ state.emitting.emitted.Perm source := by
+  rw [state.emitting.completed_emits_all done]
+  exact ⟨state.ordered, state.sorting.permutation⟩
+
+/-- The same conclusion after erasing nominal identities to their immutable byte records. -/
+theorem completed_bytes_permutation (state : EmissionState LineId lineUniverse source)
+    (done : state.emitting.remaining = []) :
+    (state.emitting.emitted.map lineUniverse.bytes).Perm (source.map lineUniverse.bytes) :=
+  (state.completed_sorted_permutation done).2.map lineUniverse.bytes
+
+end EmissionState
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 /-- The small cross-phase composition law: a completed emission of a sorted order preserves the
     original nominal line multiset. Orderedness and byte serialization remain independent facts. -/
 theorem completed_emission_permutation {lineUniverse : LineUniverse LineId}
-    {source : List LineId} (sorting : SortedCertificate LineId lineUniverse source)
-    (emission : EmissionPrefixCertificate LineId sorting.state.order)
-    (done : emission.state.remaining = []) :
-    emission.state.emitted.Perm source := by
-  rw [emission.state.completed_emits_all done]
-  exact sorting.state.permutation
-
-/- REF: docs/ABI_CONTEXT.md#7-finite-allocation-and-request-accounting -/
-/-- Linear cleanup and retry authority carried through every sorter phase. The model is generic
-    over obligation tokens so it composes with the shared obligation algebra when that algebra is
-    instantiated; it intentionally adds no concrete TLS, allocator, or machine field. -/
-structure ResourceFrame (Obligation : Type) where
-  cleanup : List Obligation := []
-  recovery : List Obligation := []
+    {source : List LineId} (emission : EmissionState LineId lineUniverse source)
+    (done : emission.emitting.remaining = []) :
+    emission.emitting.emitted.Perm source :=
+  (emission.completed_sorted_permutation done).2
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#4-current-memory-and-ingestion-boundary -/
 inductive Phase where
@@ -254,87 +413,72 @@ inductive FailedPhase where
   | reading | sorting | emitting
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
-/-- Phase-indexed world states. The lineUniverse is an invariant parameter, so implementations can
-    change storage pointers or sort-table layout only after proving they still realize these ghost
-    IDs and contents. -/
-inductive PhaseState (LineId Obligation : Type) (lineUniverse : LineUniverse LineId) :
+/-- Phase-indexed states for the line-content proof only.  This deliberately has no cleanup or
+    governor field: ownership transfer and discharge are supplied by the active obligation track,
+    which must prove its own laws when it connects a concrete target state to this ghost state. -/
+inductive PhaseState (LineId : Type) (lineUniverse : LineUniverse LineId) :
     Phase → Type where
-  | reading (resources : ResourceFrame Obligation) (state : ReadingState LineId) :
-      PhaseState LineId Obligation lineUniverse .reading
-  | sorting (resources : ResourceFrame Obligation) (source : List LineId)
+  | reading (state : ReadingState LineId) :
+      PhaseState LineId lineUniverse .reading
+  | sorting (source : List LineId)
       (state : SortingState LineId source) :
-      PhaseState LineId Obligation lineUniverse .sorting
-  | emitting (resources : ResourceFrame Obligation) (order : List LineId)
-      (state : EmittingState LineId order) :
-      PhaseState LineId Obligation lineUniverse .emitting
-  | resourceFailed (resources : ResourceFrame Obligation) (origin : FailedPhase) :
-      PhaseState LineId Obligation lineUniverse .resourceFailed
-  | completed (resources : ResourceFrame Obligation) (order : List LineId)
-      (emitted : EmittingState LineId order) (done : emitted.remaining = []) :
-      PhaseState LineId Obligation lineUniverse .completed
-
-namespace PhaseState
+      PhaseState LineId lineUniverse .sorting
+  | emitting (source : List LineId) (state : EmissionState LineId lineUniverse source) :
+      PhaseState LineId lineUniverse .emitting
+  | resourceFailed (origin : FailedPhase) :
+      PhaseState LineId lineUniverse .resourceFailed
+  | completed (source : List LineId) (emitted : EmissionState LineId lineUniverse source)
+      (done : emitted.emitting.remaining = []) :
+      PhaseState LineId lineUniverse .completed
 
 /- REF: docs/ABI_CONTEXT.md#7-finite-allocation-and-request-accounting -/
-def resources : PhaseState LineId Obligation lineUniverse phase → ResourceFrame Obligation
-  | .reading resources _ => resources
-  | .sorting resources _ _ => resources
-  | .emitting resources _ _ => resources
-  | .resourceFailed resources _ => resources
-  | .completed resources _ _ _ => resources
-
-end PhaseState
+/-- Honest integration seam for the separate obligation/governor proof.  This file imposes no
+    resource law on it; a native or WASI bridge must provide a concrete relation and establish
+    allocation, retry, and cleanup/discharge obligations in the obligation track. -/
+structure ResourceGovernorSeam (Concrete : Type) (LineId : Type) where
+  relates : Concrete → List LineId → Prop
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
-/-- Typed phase transitions. Reads, comparison swaps, and emission each retain their own local
-    proof obligations; only phase changes connect the layers. Resource failure preserves the
-    exact cleanup/recovery frame rather than discarding it on an error path. -/
+/-- Typed line-content transitions.  Reads, comparison swaps, and emission retain their local
+    evidence; phase changes are the only cross-layer coupling.  Resource failure is only a phase
+    marker here: its authority accounting is intentionally outside this logical layer. -/
 inductive PhaseTransition (lineUniverse : LineUniverse LineId) :
-    {origin to : Phase} → PhaseState LineId Obligation lineUniverse origin →
-      PhaseState LineId Obligation lineUniverse to → Prop where
-  | read {resources before after}
+    {origin to : Phase} → PhaseState LineId lineUniverse origin →
+      PhaseState LineId lineUniverse to → Prop where
+  | read {before after}
       (step : ReadingState.Step lineUniverse before after) :
-      PhaseTransition lineUniverse (.reading resources before) (.reading resources after)
-  | beginSorting {resources state} :
-      PhaseTransition lineUniverse (.reading resources state)
-        (.sorting resources state.completed (SortingState.initial state.completed))
-  | compareSwap {resources source before after}
+      PhaseTransition lineUniverse (.reading before) (.reading after)
+  | beginSorting {state} :
+      PhaseTransition lineUniverse (.reading state)
+        (.sorting state.completed (SortingState.initial state.completed))
+  | compareSwap {source before after}
       (step : SortingState.Step lineUniverse source before after) :
-      PhaseTransition lineUniverse (.sorting resources source before) (.sorting resources source after)
-  | beginEmitting {resources source state} :
-      PhaseTransition lineUniverse (.sorting resources source state)
-        (.emitting resources state.order (EmittingState.initial state.order))
-  | emit {resources order before after}
-      (step : EmittingState.Step order before after) :
-      PhaseTransition lineUniverse (.emitting resources order before) (.emitting resources order after)
-  | finish {resources order state} (done : state.remaining = []) :
-      PhaseTransition lineUniverse (.emitting resources order state) (.completed resources order state done)
-  | resourceFailureReading {resources state} :
-      PhaseTransition lineUniverse (.reading resources state) (.resourceFailed resources .reading)
-  | resourceFailureSorting {resources source state} :
-      PhaseTransition lineUniverse (.sorting resources source state) (.resourceFailed resources .sorting)
-  | resourceFailureEmitting {resources order state} :
-      PhaseTransition lineUniverse (.emitting resources order state) (.resourceFailed resources .emitting)
-
-/- REF: docs/ABI_CONTEXT.md#7-finite-allocation-and-request-accounting -/
-/-- Framing law shared by success and failure paths: this logical layer cannot silently consume,
-    fabricate, or forget cleanup/recovery authority. Concrete allocator and cancellation models
-    later refine this equality with their own linear transfer laws. -/
-theorem PhaseTransition.resources_preserved {lineUniverse : LineUniverse LineId}
-    {before : PhaseState LineId Obligation lineUniverse origin}
-    {after : PhaseState LineId Obligation lineUniverse to}
-    (_step : PhaseTransition lineUniverse before after) :
-    after.resources = before.resources := by
-  cases _step <;> rfl
+      PhaseTransition lineUniverse (.sorting source before) (.sorting source after)
+  | beginEmitting {source state}
+      (ordered : SortingState.Ordered lineUniverse state.order) :
+      PhaseTransition lineUniverse (.sorting source state)
+        (.emitting source
+          { sorting := state, ordered := ordered, emitting := EmittingState.initial state.order })
+  | emit {source before after}
+      (step : EmissionState.Step lineUniverse source before after) :
+      PhaseTransition lineUniverse (.emitting source before) (.emitting source after)
+  | finish {source state} (done : state.emitting.remaining = []) :
+      PhaseTransition lineUniverse (.emitting source state) (.completed source state done)
+  | resourceFailureReading {state} :
+      PhaseTransition lineUniverse (.reading state) (.resourceFailed .reading)
+  | resourceFailureSorting {source state} :
+      PhaseTransition lineUniverse (.sorting source state) (.resourceFailed .sorting)
+  | resourceFailureEmitting {source state} :
+      PhaseTransition lineUniverse (.emitting source state) (.resourceFailed .emitting)
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 /-- Starting the sorting phase carries exactly the tokenizer's completed nominal IDs as the source
     permutation. This is the sole reading-to-sorting coupling; byte fragmentation and storage
     layout do not reappear in compare/swap proofs. -/
 theorem PhaseTransition.beginSorting_source {lineUniverse : LineUniverse LineId}
-    {resources : ResourceFrame Obligation} {state : ReadingState LineId} :
-    PhaseTransition lineUniverse (.reading resources state)
-      (.sorting resources state.completed (SortingState.initial state.completed)) :=
+    {state : ReadingState LineId} :
+    PhaseTransition lineUniverse (.reading state)
+      (.sorting state.completed (SortingState.initial state.completed)) :=
   .beginSorting
 
 end Spikes.Spike3SortLines.LogicalWorld
