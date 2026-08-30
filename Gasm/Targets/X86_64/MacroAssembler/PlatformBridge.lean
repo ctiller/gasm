@@ -68,6 +68,15 @@ theorem mov_r32_sequential (dst : Reg32) (value : UInt32) :
     intro state _
     cases dst <;> rfl
 
+/-- The compact stack reservation form used by the Linux entry sequence is an ordinary,
+always-safe fallthrough instruction. -/
+theorem sub_rsp_sequential (value : UInt8) :
+    SequentialInstruction (sub_rsp value) where
+  encoding := .subRsp8 value
+  safeFallthrough := by
+    intro state _
+    rfl
+
 /- REF: docs/MACRO_ASSEMBLER.md#platform-execution-bridge -/
 /-- The selected full-width errno-range comparison is a safe fallthrough instruction.  The
     resource-rejection proof uses this one additional ordinary form; branch classification remains
