@@ -276,7 +276,9 @@ private def checkSurface (s : State) (h : SurfaceHandle) : Except Error Unit := 
   if h.scope != s.instanceScope then throw .wrongParent
   match (s.surfaceGenerations.find? (fun x => x.1 == h.slot)).map (fun x => x.2) with
   | none => throw .invalidSurface
-  | some generation => if generation == h.generation then pure () else throw .staleSurface
+  | some generation =>
+      if generation != h.generation then throw .staleSurface
+      if !(s.surfaces.any (fun surface => surface.handle == h)) then throw .invalidSurface
 
 private def operational (s : State) : Except Error Unit :=
   if s.deviceLost then .error .deviceLost else .ok ()
@@ -305,6 +307,23 @@ private def consumesActiveFrameSlot (frame : Frame) : Bool :=
   frame.imageAcquired || frame.renderSubmissionLease ||
     (frame.presentWaitRegistered && !frame.presentWaitConsumed) ||
     frame.releasedImageAwaitingAcquireDrain
+
+/-- Exact live WSI image and synchronization authority required before recording readiness. -/
+private def requireAcquiredFrameAuthority (s : State) (frame : Frame) : Except Error Unit := do
+  if !frame.imageAcquired || frame.releasedImageAwaitingAcquireDrain then
+    throw .invalidFrameState
+  check s .swapchain frame.swapchain
+  check s .image frame.image
+  let some image := s.images.find? (fun current => current.handle == frame.image)
+    | throw (.invalidHandle .image)
+  if image.swapchain != frame.swapchain || image.acquiredBy != some frame.handle then
+    throw .invalidFrameState
+  let some acquireSync := s.semaphores.find? (fun semaphore =>
+      semaphore.handle == frame.acquireSemaphore) | throw (.invalidHandle .semaphore)
+  let some renderSync := s.semaphores.find? (fun semaphore =>
+      semaphore.handle == frame.renderSemaphore) | throw (.invalidHandle .semaphore)
+  if acquireSync.use != .acquireSignaled frame.handle ||
+      renderSync.use != .renderReserved frame.handle then throw .invalidFrameState
 
 def initialState (instanceScope : Nat) (device : Vulkan.DeviceHandle) (uiThread : Nat) : State :=
   { instanceScope := instanceScope, device := device, uiThread := uiThread }
@@ -483,6 +502,7 @@ def recordFrame (frame : FrameHandle) (pipeline : PipelineHandle) (depth : Depth
   check s .pipeline pipeline
   check s .depth depth
   let some f := s.frames.find? (fun x => x.handle == frame) | throw (.invalidHandle .frame)
+  requireAcquiredFrameAuthority s f
   let some d := s.depths.find? (fun x => x.handle == depth) | throw (.invalidHandle .depth)
   let some sc := s.swapchains.find? (fun x => x.handle == f.swapchain) | throw (.invalidHandle .swapchain)
   if f.pipeline.isSome || f.submission.isSome || d.leasedBy.isSome || d.extent != sc.extent then throw .invalidFrameState
@@ -493,7 +513,9 @@ def declarePresentReady (frame : FrameHandle) : Transition PresentReadyHandle :=
   operational s
   check s .frame frame
   let some f := s.frames.find? (fun x => x.handle == frame) | throw (.invalidHandle .frame)
-  if f.submission.isSome || f.presentWaitRegistered ||
+  requireAcquiredFrameAuthority s f
+  if !f.imageAcquired || f.releasedImageAwaitingAcquireDrain ||
+      f.submission.isSome || f.presentWaitRegistered ||
       s.presentReady.any (fun witness => witness.frame == frame) then throw .invalidFrameState
   let some pipeline := f.pipeline | throw .presentReadyMissing
   let (h, s') := fresh s .presentReady
@@ -512,6 +534,7 @@ def submitFrame (frame : FrameHandle) (submission : Vulkan.SubmissionHandle) : T
   operational s
   check s .frame frame
   let some f := s.frames.find? (fun x => x.handle == frame) | throw (.invalidHandle .frame)
+  requireAcquiredFrameAuthority s f
   if f.pipeline.isNone || f.depth.isNone || f.submission.isSome then throw .invalidFrameState
   let some acquire := s.semaphores.find? (fun x => x.handle == f.acquireSemaphore) | throw (.invalidHandle .semaphore)
   let some rendered := s.semaphores.find? (fun x => x.handle == f.renderSemaphore) | throw (.invalidHandle .semaphore)
@@ -681,6 +704,7 @@ def releaseAcquiredImageExt (frame : FrameHandle) : Transition ReleaseResult := 
 /- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
 /-- Exact-owner wait consumes a released image's still-outstanding acquire semaphore payload. -/
 def drainReleasedAcquireSignal (frame : FrameHandle) : Transition Unit := fun s => do
+  operational s
   check s .frame frame
   let some f := s.frames.find? (fun current => current.handle == frame) | throw (.invalidHandle .frame)
   if !f.releasedImageAwaitingAcquireDrain || f.imageAcquired || f.submission.isSome then

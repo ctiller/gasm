@@ -223,6 +223,9 @@ def testCubePresentationClosure (surface : Presentation.SurfaceHandle)
   let (_, ps27) ← expectOk "orderly surface retirement" (Presentation.destroySurface surface ps26)
   expectError "retired surface generation is stale" Presentation.Error.staleSurface
     (Presentation.loseSurface surface ps27)
+  let forgedSuccessor := { surface with generation := surface.generation + 1 }
+  expectError "never-issued surface successor is not live" Presentation.Error.invalidSurface
+    (Presentation.loseSurface forgedSuccessor ps27)
 
 /- REF: docs/GRAPHICS_FOUNDATION.md#5-cube-and-presentation-prototype -/
 def testCubePresentation : IO Unit := do
@@ -275,6 +278,17 @@ def testCubePresentation : IO Unit := do
   expectError "parent destruction cannot immediately reuse acquire semaphore"
     Presentation.Error.invalidFrameState
     (Presentation.acquireNextImage replacementSwapchain acquire rendered false parent1)
+  expectError "parent-released frame cannot be recorded"
+    Presentation.Error.invalidFrameState
+    (Presentation.recordFrame frame pipeline depth parent1)
+  expectError "parent-released frame cannot mint readiness"
+    Presentation.Error.invalidFrameState
+    (Presentation.declarePresentReady frame parent1)
+  let (_, parentLost) ← expectOk "lose device with parent-released acquire payload"
+    (Presentation.loseDevice parent1)
+  expectError "device loss cannot invent parent-release drain completion"
+    Presentation.Error.deviceLost
+    (Presentation.drainReleasedAcquireSignal frame parentLost)
   let (_, parent2) ← expectOk "drain parent-released acquire signal"
     (Presentation.drainReleasedAcquireSignal frame parent1)
   let (parentAcquireResult, _) ← expectOk "reuse acquire semaphore after exact drain"
@@ -336,6 +350,14 @@ def testCubePresentation : IO Unit := do
       witnessReleased.generations.contains
         (.presentReady, ready.slot, ready.generation + 1) do
     throw (IO.userError "filtered present-ready witness generation was not retired")
+  expectError "released image cannot mint a new present-ready witness"
+    Presentation.Error.invalidFrameState
+    (Presentation.declarePresentReady frame witnessReleased)
+  let (_, witnessLost) ← expectOk "lose device with maintenance-release acquire payload"
+    (Presentation.loseDevice witnessReleased)
+  expectError "device loss cannot invent maintenance-release drain completion"
+    Presentation.Error.deviceLost
+    (Presentation.drainReleasedAcquireSignal frame witnessLost)
   let (_, _witnessDrained) ← expectOk "drain witness-release acquire signal"
     (Presentation.drainReleasedAcquireSignal frame witnessReleased)
   let (_, ps12) ← expectOk "submit cube frame" (Presentation.submitFrame frame fakeSubmission ps11)
