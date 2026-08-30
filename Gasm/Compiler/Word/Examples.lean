@@ -19,6 +19,7 @@ import Gasm.Compiler.Word.AArch64AAPCS64
 import Gasm.Compiler.Word.LeanReify
 import Gasm.Compiler.Word.Structured
 import Gasm.Compiler.Word.StructuredCFG
+import Gasm.Compiler.Word.StructuredLeanReify
 
 namespace Gasm.Compiler.Word.Examples
 
@@ -249,6 +250,107 @@ def firstTwoEqual : BoolFunction where
 
 end StructuredExamples
 
+namespace StructuredLeanReifyExamples
+
+open Gasm.Compiler.Word.Structured
+open Gasm.Compiler.Word.StructuredLeanReify
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def orderedChoice (a b _c _d : UInt64) : UInt64 :=
+  if decide (a < b) then a - b else b - a
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+#structured_word_reify orderedChoice as orderedChoiceWord
+
+example : orderedChoiceWord.body =
+    .ite (.ult (.var InputContext.a0) (.var InputContext.a1))
+      (.sub (.var InputContext.a0) (.var InputContext.a1))
+      (.sub (.var InputContext.a1) (.var InputContext.a0)) := rfl
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def equalityChoice (a b c d : UInt64) : UInt64 :=
+  if a == b then c else d
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+#structured_word_reify equalityChoice as equalityChoiceWord
+
+example : equalityChoiceWord.body =
+    .ite (.eq (.var InputContext.a0) (.var InputContext.a1))
+      (.var InputContext.a2) (.var InputContext.a3) := rfl
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+/-- Nested dependent lets include a Bool binding and shadow a source name without changing the
+    generated de Bruijn references. -/
+def nestedLetChoice (a b c d : UInt64) : UInt64 :=
+  let selected := a - b
+  let selected := selected &&& c
+  let isSmall := decide (selected < d)
+  if !isSmall then selected else
+    let selected := selected + b
+    if selected == a then selected else d
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+#structured_word_reify nestedLetChoice as nestedLetChoiceWord
+
+example (args : Args) :
+    nestedLetChoiceWord.fn args =
+      nestedLetChoiceWord.body.eval (InputContext.env args) :=
+  nestedLetChoiceWord.implements args
+
+#guard orderedChoiceWord.fn ⟨1, 3, 0, 0⟩ == 18446744073709551614
+#guard orderedChoiceWord.fn ⟨5, 2, 0, 0⟩ == 18446744073709551613
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def structuredHelper (value : UInt64) : UInt64 := value
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def unsupportedStructuredHelper (a _b _c _d : UInt64) : UInt64 := structuredHelper a
+/-- error: unsupported structured Word term `structuredHelper a` with inferred type `UInt64` -/
+#guard_msgs(error) in
+#structured_word_reify unsupportedStructuredHelper as unsupportedStructuredHelperWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def unsupportedBoolAnd (a b c _d : UInt64) : UInt64 :=
+  if decide (a < b) && decide (b < c) then a else c
+/-- error: unsupported structured Word term `decide (a < b) && decide (b < c)` with inferred type `Bool` -/
+#guard_msgs(error) in
+#structured_word_reify unsupportedBoolAnd as unsupportedBoolAndWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def wrongStructuredArity (a b : UInt64) : UInt64 := a + b
+/-- error: structured Word reification requires exactly four explicit UInt64 arguments; found 2 -/
+#guard_msgs(error) in
+#structured_word_reify wrongStructuredArity as wrongStructuredArityWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def wrongStructuredResult (a b _c _d : UInt64) : Bool := a == b
+/-- error: structured Word reification expected `UInt64` but term `a == b` has inferred type `Bool` -/
+#guard_msgs(error) in
+#structured_word_reify wrongStructuredResult as wrongStructuredResultWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def wrongStructuredWidth (a : UInt32) (_b _c _d : UInt64) : UInt64 := a.toUInt64
+/-- error: structured Word reification expected `UInt64` but term `a` has inferred type `UInt32` -/
+#guard_msgs(error) in
+#structured_word_reify wrongStructuredWidth as wrongStructuredWidthWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def wrongStructuredSigned (a : Int64) (_b _c _d : UInt64) : UInt64 := a.toUInt64
+/-- error: structured Word reification expected `UInt64` but term `a` has inferred type `Int64` -/
+#guard_msgs(error) in
+#structured_word_reify wrongStructuredSigned as wrongStructuredSignedWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+@[instance_reducible] def fakeAdd : HAdd UInt64 UInt64 UInt64 where
+  hAdd := fun lhs _rhs => lhs
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def unsupportedAddInstance (a b _c _d : UInt64) : UInt64 :=
+  @HAdd.hAdd UInt64 UInt64 UInt64 fakeAdd a b
+/-- error: unsupported structured Word term `a + b` with inferred type `UInt64` -/
+#guard_msgs(error) in
+#structured_word_reify unsupportedAddInstance as unsupportedAddInstanceWord
+
+end StructuredLeanReifyExamples
+
 namespace StructuredCFGExamples
 
 open Gasm.Compiler.Word.Structured
@@ -293,3 +395,82 @@ example : rootRole ∈ [falseRole, trueRole, rootRole] := symbolicChoice.root_me
 end StructuredCFGExamples
 
 end Gasm.Compiler.Word.Examples
+
+namespace StructuredReifyIdentityRegression
+
+namespace B
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def differing (a b _c _d : UInt64) : UInt64 := a - b
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+def coincident (a b _c _d : UInt64) : UInt64 := a + b
+
+end B
+
+namespace StructuredReifyIdentityRegression.B
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+/-- This shadow has different behavior, so accidental re-resolution also breaks the generated
+    kernel proof. -/
+def differing (a b _c _d : UInt64) : UInt64 := b - a
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+/-- This shadow deliberately has the same body; behavioral equality cannot detect wrong identity. -/
+def coincident (a b _c _d : UInt64) : UInt64 := a + b
+
+end StructuredReifyIdentityRegression.B
+
+open Gasm.Compiler.Word.StructuredLeanReify
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+#structured_word_reify B.differing as differingWord
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+#structured_word_reify B.coincident as coincidentWord
+
+end StructuredReifyIdentityRegression
+
+namespace StructuredReifyIdentityRegressionTest
+
+open Lean Elab Command
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+private def containsConstant (target : Name) : Lean.Expr → Bool
+  | .const name _ => name == target
+  | .app fn argument => containsConstant target fn || containsConstant target argument
+  | .lam _ type body _ | .forallE _ type body _ =>
+      containsConstant target type || containsConstant target body
+  | .letE _ type value body _ =>
+      containsConstant target type || containsConstant target value || containsConstant target body
+  | .mdata _ body | .proj _ _ body => containsConstant target body
+  | _ => false
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+syntax (name := guardGeneratedOriginalCmd)
+  "#guard_generated_original " ident " uses " ident " not " ident : command
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+elab_rules : command
+  | `(command| #guard_generated_original $generated:ident uses $original:ident not $shadow:ident) => do
+      let generatedName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo generated
+      let originalName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo original
+      let shadowName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo shadow
+      let info ← getConstInfo generatedName
+      let some value := info.value? |
+        throwErrorAt generated "generated structured Word declaration has no inspectable value"
+      unless containsConstant originalName value do
+        throwErrorAt generated "generated structured Word declaration does not retain exact original `{originalName}`"
+      if containsConstant shadowName value then
+        throwErrorAt generated "generated structured Word declaration captured shadow `{shadowName}`"
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+#guard_generated_original
+  StructuredReifyIdentityRegression.differingWord uses
+  StructuredReifyIdentityRegression.B.differing not
+  StructuredReifyIdentityRegression.StructuredReifyIdentityRegression.B.differing
+
+/- REF: docs/MACRO_ASSEMBLER.md#structured-lean-word-reification -/
+#guard_generated_original
+  StructuredReifyIdentityRegression.coincidentWord uses
+  StructuredReifyIdentityRegression.B.coincident not
+  StructuredReifyIdentityRegression.StructuredReifyIdentityRegression.B.coincident
+
+end StructuredReifyIdentityRegressionTest

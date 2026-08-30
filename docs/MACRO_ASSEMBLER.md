@@ -522,11 +522,9 @@ backend certificate, platform execution claim, artifact connection, export, or `
 The unchanged Microsoft x64 and AArch64 AAPCS64 lowerers consume the generated `Word.Function` and
 derive their existing local certificates in the ordinary way.
 
-This exact grammar boundary is intentional. Extending reification starts by extending the portable
-source IR and its structural correctness theorems; only then may the command recognize the new
-constructs. In particular, future `let`, Boolean comparison, and conditional forms will lower into
-the existing typed CFG and nominal target contracts rather than being silently reduced by the
-metaprogram.
+This exact grammar boundary is intentional. The command remains the stable frontend for the tiny
+straight-line IR. Structured `let`, comparison, and conditional forms use the separate reifier
+below; the tiny command is not silently broadened or reinterpreted.
 
 ## Structured Word source language
 
@@ -554,6 +552,33 @@ current proved straight-line leaf/backend language. Structured leaves may later 
 certified `Word.Function` payloads, while branches lower through the nominal typed-CFG frontend only
 when target-owned leaf and condition realizations are supplied. This module itself provides no
 flags, register, instruction, CFG, execution, ABI, artifact, export, or `VerifiedProgram` claim.
+
+## Structured Lean Word reification
+
+`Gasm.Compiler.Word.StructuredLeanReify` provides
+`#structured_word_reify original as generated`. It accepts exactly four explicit `UInt64`
+arguments and a `UInt64` result. The stored kernel body is inspected without general reduction or
+helper unfolding. Supported terms are argument and local variables, exact `UInt64` literals, the
+selected wrapping addition/subtraction and bitwise-AND instances, exact UInt64 Boolean equality,
+`decide` applied to exact UInt64 unsigned less-than, `Bool.not`, structural `let`, and typed Boolean
+`if`. Unsupported terms are rejected with their first unmatched term and inferred type. The
+generated call embeds the already-resolved constant identity hygienically; it is not looked up again
+relative to the namespace containing the generated declaration.
+
+Local bindings are preserved as `Expr.letE`; the frontend extends the intrinsic context and emits
+the corresponding typed de Bruijn reference. It neither substitutes nor duplicates a let RHS.
+Operator instances, operand order, comparison orientation, and true/false branch polarity are
+matched structurally. A helper call or overloaded lookalike is not accepted because it happens to
+compute the same value. The generated `Structured.WordFunction.fn` invokes the exact original
+declaration, while `body` contains the reified structured expression and `implements` is a normal
+kernel-checked proof. Existing declaration collisions fail during ordinary command elaboration;
+the command never replaces a prior generated definition.
+
+Reification establishes only source-expression correspondence. It creates no CFG plan, assignment,
+leaf or condition realization, target certificate, execution theorem, artifact, export, or
+`VerifiedProgram`. The reified expression and its `implements` theorem can remain fixed while later
+CFG assignments or hand-optimized target blocks are replaced, provided the replacement re-proves
+the properties selected by its consumers.
 
 ## Structured Word CFG plans
 
@@ -616,7 +641,7 @@ Such a claim additionally requires the applicable production outcome/terminator 
 are explicit and are not inferred through typeclass search.
 
 A `LocalBlockRun` is indexed by the selection policy and exact artifact instruction index. Its
-operational field is the shared `ExecutionCutpoint`, retaining the real selected prefix and therefore every instruction lookup,
+operational field is the shared `SelectedPrefix.Cutpoint`, retaining the real selected prefix and therefore every instruction lookup,
 classification, interceptor transition, safety premise, fuel count, final state, and event delta.
 The reverse-accumulator law retains the event observation even when that emitted delta is empty; no
 pilot may erase an explicit empty-event observation merely because it carries no payload.
