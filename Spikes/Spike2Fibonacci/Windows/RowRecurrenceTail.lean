@@ -72,6 +72,7 @@ theorem spike2_recurrence_tail_boundary (state : X86_64MachineState)
   have b6 := spike2_recurrence_backedge_boundary (spike2AfterRecurrenceIncrement
     (spike2AfterRecurrenceMove15 (spike2AfterRecurrenceMove14
       (spike2AfterRecurrenceAdd (spike2AfterRecurrenceMove state))))) b5.1 b5.2
-  simpa [spike2AfterRecurrenceTail] using b6
+  exact ⟨by simpa [spike2AfterRecurrenceTail] using b6.1,
+    by simpa [spike2AfterRecurrenceTail] using b6.2.1⟩
 
 end Spikes.Spike2Fibonacci.Windows

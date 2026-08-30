@@ -16,6 +16,20 @@ private theorem jmpRel32_preserves_fault (displacement : Int32) (state : X86_64M
     (X86_64Instruction.step (jmp_rel32 displacement) state).fault = state.fault := by
   rfl
 
+private theorem jmpRel32_preserves_rsp (displacement : Int32) (state : X86_64MachineState) :
+    (X86_64Instruction.step (jmp_rel32 displacement) state).rsp = state.rsp := by
+  rfl
+
+private theorem jmpRel32_preserves_gpr (displacement : Int32) (state : X86_64MachineState)
+    (register : Reg64) :
+    (X86_64Instruction.step (jmp_rel32 displacement) state).gprs register =
+      state.gprs register := by
+  rfl
+
+private theorem jmpRel32_preserves_memory (displacement : Int32) (state : X86_64MachineState) :
+    (X86_64Instruction.step (jmp_rel32 displacement) state).memory = state.memory := by
+  rfl
+
 private theorem selected_silent_unaligned (state : X86_64MachineState) (address : UInt64)
     (hrip : state.rip = address) (notLinux : address ≠ linuxSyscallEntry)
     (unaligned : address % 8 ≠ 0) :
@@ -64,13 +78,22 @@ theorem spike2_recurrence_backedge_selected_prefix (state : X86_64MachineState)
 theorem spike2_recurrence_backedge_boundary (state : X86_64MachineState)
     (hrip : state.rip = 5368713539) (hsafe : state.fault = none) :
     (spike2AfterRecurrenceBackedge state).rip = spike2WindowsMainLoopRip ∧
-    (spike2AfterRecurrenceBackedge state).fault = none := by
+    (spike2AfterRecurrenceBackedge state).fault = none ∧
+    (spike2AfterRecurrenceBackedge state).rsp = state.rsp ∧
+    (spike2AfterRecurrenceBackedge state).gprs .r13 = state.gprs .r13 ∧
+    (spike2AfterRecurrenceBackedge state).memory = state.memory := by
   constructor
   · change state.rip + 5 + signExtend32To64 4294967019 = spike2WindowsMainLoopRip
     rw [hrip]
     rfl
-  · unfold spike2AfterRecurrenceBackedge
-    rw [jmpRel32_preserves_fault]
-    exact hsafe
+  · constructor
+    · unfold spike2AfterRecurrenceBackedge
+      rw [jmpRel32_preserves_fault]
+      exact hsafe
+    · constructor
+      · exact jmpRel32_preserves_rsp 4294967019 state
+      · constructor
+        · exact jmpRel32_preserves_gpr 4294967019 state .r13
+        · exact jmpRel32_preserves_memory 4294967019 state
 
 end Spikes.Spike2Fibonacci.Windows
