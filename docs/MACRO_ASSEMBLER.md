@@ -196,6 +196,30 @@ segments and footprints (including NZCV rather than x86 RFLAGS), map arguments t
 X0, and prove its lowering against `AArch64Instruction.step`. This keeps the portable compiler shared
 without weakening target-specific contracts into a misleading lowest common denominator.
 
+## Typed control-flow compiler frontend
+
+`Gasm.Compiler.TypedCFG` is the first bulk control-flow frontend. A `SourceScope` declares a finite
+`Fin n` block index, one dependent `BlockEntry` contract per index, and injective nominal block IDs
+before any body is supplied. `SourceRef` retains that exact scope and index; it has no text label,
+raw offset, address, or post-hoc entry choice.
+
+A total `ProgramPlan` supplies exactly one `BlockPlan` for every declaration. A body plan is already-
+lowered logical body data ending in typed JMP, JCC, RET, process-exit, or halt. JMP and JCC retain the
+existing core edge contracts and exact target-entry equalities; JCC keeps its true and false refs in
+their original orientation. This initial interface is deliberately named a plan rather than an
+execution/compiler certificate: it contains no theorem connecting an instruction payload to target
+operational semantics. Handwritten macro lowering and later word-compiler lowering can both produce
+this same logical interface once they carry the appropriate local proofs.
+
+`ProgramPlan.lowerDefinitions` is a total structural function into the existing
+`RecursiveCFGBuilder.Definitions`, and `ProgramPlan.lower` delegates sealing to `sealDefinitions`.
+The correspondence theorems preserve source index, nominal BlockId, dependent entry contract,
+terminator constructor, target indices, and JCC polarity. Each sealed exact-definition ref is the
+same-index lowered source block, providing the blockwise handoff for later differential proofs.
+Injective BlockId remapping commutes with generated blocks. No alternate CFG, CALL/indirect or
+exception semantics, instruction layout, byte identity, native execution, artifact, ABI, or
+`VerifiedProgram` authority is introduced.
+
 ## Next control-flow slice
 
 ## Operational CFG realization
