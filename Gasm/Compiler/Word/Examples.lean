@@ -15,6 +15,8 @@ limitations under the License.
 -/
 
 import Gasm.Compiler.Word.MicrosoftX64
+import Gasm.Compiler.Word.AArch64AAPCS64
+import Gasm.Compiler.Word.LeanReify
 
 namespace Gasm.Compiler.Word.Examples
 
@@ -62,5 +64,146 @@ example (s : Gasm.Targets.X86_64.X86_64MachineState) :
 #guard addFirstTwoPortable.length == 2
 #guard addFirstTwoMacros.length == 3
 #guard addFirstTwoAssembly.length == 3
+
+namespace LeanReify
+
+open Gasm.Compiler.Word.LeanReify
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def firstArgument (a _b _c _d : UInt64) : UInt64 := a
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify firstArgument as firstArgumentWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def secondArgument (_a b _c _d : UInt64) : UInt64 := b
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify secondArgument as secondArgumentWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def thirdArgument (_a _b c _d : UInt64) : UInt64 := c
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify thirdArgument as thirdArgumentWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def fourthArgument (_a _b _c d : UInt64) : UInt64 := d
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify fourthArgument as fourthArgumentWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def repeatedArgument (a _b _c _d : UInt64) : UInt64 := a + a
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify repeatedArgument as repeatedArgumentWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def zeroConstant (_a _b _c _d : UInt64) : UInt64 := 0
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify zeroConstant as zeroConstantWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def maxConstant (_a _b _c _d : UInt64) : UInt64 := 18446744073709551615
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify maxConstant as maxConstantWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def wrapAdd (a _b _c _d : UInt64) : UInt64 := a + 18446744073709551615
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify wrapAdd as wrapAddWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def orderedSub (a b _c _d : UInt64) : UInt64 := a - b
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify orderedSub as orderedSubWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def wrapSub (a _b _c _d : UInt64) : UInt64 := a - 18446744073709551615
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify wrapSub as wrapSubWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def orderedAnd (a b _c _d : UInt64) : UInt64 := a &&& b
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+#word_reify orderedAnd as orderedAndWord
+
+example : orderedSubWord.body = .binary .sub (.arg .a0) (.arg .a1) := rfl
+example : orderedAndWord.body = .binary .bitAnd (.arg .a0) (.arg .a1) := rfl
+example : wrapAddWord.body =
+    .binary .add (.arg .a0) (.const (18446744073709551615 : UInt64)) := rfl
+example : wrapSubWord.body =
+    .binary .sub (.arg .a0) (.const (18446744073709551615 : UInt64)) := rfl
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+/-- Both existing backends consume the generated portable function without a special path. -/
+def generatedMicrosoftX64 : MicrosoftX64.LocalCertificate orderedSubWord :=
+  MicrosoftX64.lower orderedSubWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+/-- The same generated function is independently lowered by the AAPCS64 backend. -/
+def generatedAArch64 : AArch64AAPCS64.LocalCertificate orderedSubWord :=
+  AArch64AAPCS64.lower orderedSubWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def unsupportedMul (a b _c _d : UInt64) : UInt64 := a * b
+/-- error: unsupported Word atom `a * b`; expected one of the four arguments or a UInt64 literal -/
+#guard_msgs(error) in
+#word_reify unsupportedMul as unsupportedMulWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def unsupportedDiv (a b _c _d : UInt64) : UInt64 := a / b
+/-- error: unsupported Word atom `a / b`; expected one of the four arguments or a UInt64 literal -/
+#guard_msgs(error) in
+#word_reify unsupportedDiv as unsupportedDivWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def unsupportedShift (a _b _c _d : UInt64) : UInt64 := a <<< 1
+/-- error: unsupported Word atom `a <<< 1`; expected one of the four arguments or a UInt64 literal -/
+#guard_msgs(error) in
+#word_reify unsupportedShift as unsupportedShiftWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def unsupportedComparison (a b _c _d : UInt64) : Bool := a == b
+/-- error: Word reification requires a UInt64 result, but found `Bool` -/
+#guard_msgs(error) in
+#word_reify unsupportedComparison as unsupportedComparisonWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def unsupportedIf (a b c _d : UInt64) : UInt64 := if a == 0 then b else c
+/-- error: unsupported Word atom `if (a == 0) = true then b else c`; expected one of the four arguments or a UInt64 literal -/
+#guard_msgs(error) in
+#word_reify unsupportedIf as unsupportedIfWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def unsupportedLet (a b _c _d : UInt64) : UInt64 := let x := a; x + b
+/-- error: unsupported Word atom `have x := a;
+x + b`; expected one of the four arguments or a UInt64 literal -/
+#guard_msgs(error) in
+#word_reify unsupportedLet as unsupportedLetWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def wrapper (value : UInt64) : UInt64 := value
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def unsupportedWrapper (a _b _c _d : UInt64) : UInt64 := wrapper a
+/-- error: unsupported Word atom `wrapper a`; expected one of the four arguments or a UInt64 literal -/
+#guard_msgs(error) in
+#word_reify unsupportedWrapper as unsupportedWrapperWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def unsupportedNested (a b c _d : UInt64) : UInt64 := (a + b) + c
+/-- error: unsupported Word atom `a + b`; expected one of the four arguments or a UInt64 literal -/
+#guard_msgs(error) in
+#word_reify unsupportedNested as unsupportedNestedWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def wrongArity (a b : UInt64) : UInt64 := a + b
+/-- error: Word reification requires exactly four explicit UInt64 arguments; found 2 -/
+#guard_msgs(error) in
+#word_reify wrongArity as wrongArityWord
+
+/- REF: docs/MACRO_ASSEMBLER.md#lean-word-reification -/
+def wrongArgumentType (a : UInt32) (_b _c _d : UInt64) : UInt64 := a.toUInt64
+/-- error: Word reification requires every argument to have type UInt64, but found `UInt32` -/
+#guard_msgs(error) in
+#word_reify wrongArgumentType as wrongArgumentTypeWord
+
+end LeanReify
 
 end Gasm.Compiler.Word.Examples

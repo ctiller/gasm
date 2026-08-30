@@ -451,6 +451,30 @@ callable-export, OS, lookup/fuel, platform-execution, artifact-connection, `Veri
 `VerifiedProgram` claim. X0 is both the first input and result, so input preservation applies to
 the unmodified X1--X3 inputs; X0 and X9 form the conservative declared clobber set.
 
+## Lean Word reification
+
+`Gasm.Compiler.Word.LeanReify` provides `#word_reify original as generated`, a deliberately narrow
+entry point from ordinary Lean declarations into the portable Word frontend. The original must be a
+reducible declaration with exactly four explicit `UInt64` arguments and a `UInt64` result. Its
+kernel-visible body may be one argument, one `UInt64` literal, or exactly one addition, subtraction,
+or bitwise AND whose operands are arguments or literals. Operand order is preserved. Nested
+operations, local `let` bindings, conditionals, comparisons, shifts, multiplication, division,
+wrappers, and all other applications are rejected rather than normalized into a larger language.
+
+The generated `Word.Function.fn` calls the original declaration on `Args.a0` through `Args.a3`; it
+is not merely `Function.ofExpr`. Its `body` is the structurally reified `Word.Expr`, and its
+`implements` field is a normal proof term which must elaborate and pass the Lean kernel. The command
+is therefore syntax and proof-term production, not a proof authority or evaluator. It creates no
+backend certificate, platform execution claim, artifact connection, export, or `VerifiedProgram`.
+The unchanged Microsoft x64 and AArch64 AAPCS64 lowerers consume the generated `Word.Function` and
+derive their existing local certificates in the ordinary way.
+
+This exact grammar boundary is intentional. Extending reification starts by extending the portable
+source IR and its structural correctness theorems; only then may the command recognize the new
+constructs. In particular, future `let`, Boolean comparison, and conditional forms will lower into
+the existing typed CFG and nominal target contracts rather than being silently reduced by the
+metaprogram.
+
 ## Differential certificate transport
 
 Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,
