@@ -485,4 +485,41 @@ theorem spike2ExtractionOrdinary_of_textAuthority {stackLower : UInt64}
       (spike2_decimal_text_below _ above _ (by simp [spike2ExtractionAddress, spike2WriteAddress]))
       (by decide) authority.extractExit
 
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+private theorem spike2_ordinary_from_output_write (initial state : X86_64MachineState)
+    (address writeAddress value : UInt64) (rip : state.rip = address)
+    (memory : state.memory = X86_64Mem.write .w8 writeAddress value initial.memory)
+    (writeNoWrap : writeAddress.toNat + 1 ≤ 2 ^ 64)
+    (below : address.toNat + 8 ≤ writeAddress.toNat)
+    (notLinux : address ≠ Gasm.Targets.X86_64.Instructions.linuxSyscallEntry)
+    (notIat : initial.read64 address ≠ address) : Spike2OrdinaryCode state := by
+  constructor
+  · rw [rip]
+    exact notLinux
+  · rw [rip]
+    change X86_64Mem.read .w64 address state.memory ≠ address
+    rw [memory, spike2_read64_write_below .w8 initial.memory writeAddress address value writeNoWrap below]
+    exact notIat
+
+/- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
+private theorem spike2_write_reached_addresses (initial : X86_64MachineState)
+    (entry : initial.rip = spike2WriteAddress .pop) :
+    (writeStates initial).1.rip = spike2WriteAddress .store ∧
+    (writeStates initial).2.1.rip = spike2WriteAddress .advance ∧
+    (writeStates initial).2.2.1.rip = spike2WriteAddress .decrement ∧
+    (writeStates initial).2.2.2.rip = spike2WriteAddress .branch := by
+  have h1 : (writeStates initial).1.rip = spike2WriteAddress .store := by
+    rw [show (writeStates initial).1.rip = initial.rip + 1 by rfl, entry]
+    decide
+  have h2 : (writeStates initial).2.1.rip = spike2WriteAddress .advance := by
+    rw [show (writeStates initial).2.1.rip = (writeStates initial).1.rip + 2 by rfl, h1]
+    decide
+  have h3 : (writeStates initial).2.2.1.rip = spike2WriteAddress .decrement := by
+    rw [show (writeStates initial).2.2.1.rip = (writeStates initial).2.1.rip + 4 by rfl, h2]
+    decide
+  have h4 : (writeStates initial).2.2.2.rip = spike2WriteAddress .branch := by
+    rw [show (writeStates initial).2.2.2.rip = (writeStates initial).2.2.1.rip + 4 by rfl, h3]
+    decide
+  exact ⟨h1, h2, h3, h4⟩
+
 end Spikes.Spike2Fibonacci.Linux
