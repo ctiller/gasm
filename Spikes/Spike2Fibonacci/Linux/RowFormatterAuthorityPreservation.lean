@@ -38,6 +38,11 @@ set_option maxRecDepth 200000
 set_option maxHeartbeats 5000000
 namespace Row8Parametric
 
+private theorem decimalTextBelowRowText {address : Nat}
+    (above : spike2RowLinkedTextUpper ≤ address) : 4198635 ≤ address := by
+  unfold spike2RowLinkedTextUpper at above
+  omega
+
 /-- The accepted `Spike2DecimalTextAuthority` advances across the first extraction pass. -/
 theorem decimalAuthority_afterExtractionFirst {predecessor : X86_64MachineState}
     (formatter : FormatterFrame predecessor)
@@ -48,7 +53,7 @@ theorem decimalAuthority_afterExtractionFirst {predecessor : X86_64MachineState}
     formatter.extractionFirstSafety formatter.extractionFirstExecution
     formatter.extractionFirstOrdinary formatter.extractionFirstBranch
   exact physical.entry.afterExtraction pass physical.extractionFirstNoWrap
-    physical.extractionFirstAbove
+    (decimalTextBelowRowText physical.extractionFirstAbove)
 
 /-- Decimal text authority advances across the second extraction pass. -/
 theorem decimalAuthority_afterExtraction {predecessor : X86_64MachineState}
@@ -61,7 +66,7 @@ theorem decimalAuthority_afterExtraction {predecessor : X86_64MachineState}
     formatter.extractionSecondSafety formatter.extractionSecondExecution
     formatter.extractionSecondOrdinary formatter.extractionSecondBranch
   exact first.afterExtraction pass physical.extractionSecondNoWrap
-    physical.extractionSecondAbove
+    (decimalTextBelowRowText physical.extractionSecondAbove)
 
 /-- Decimal text authority advances across the first reverse-write pass. -/
 theorem decimalAuthority_afterWriteFirst {predecessor : X86_64MachineState}
@@ -72,7 +77,8 @@ theorem decimalAuthority_afterWriteFirst {predecessor : X86_64MachineState}
   have pass := spike2WriteLinkedLayout_selectedPass
     (afterExtraction predecessor) formatter.writeFirstEntry formatter.writeFirstSafety
     formatter.writeFirstExecution formatter.writeFirstOrdinary formatter.writeFirstBranch
-  exact extracted.afterWrite pass physical.writeFirstNoWrap physical.writeFirstAbove
+  exact extracted.afterWrite pass physical.writeFirstNoWrap
+    (decimalTextBelowRowText physical.writeFirstAbove)
 
 /-- Complete two-pass formatter preservation theorem. -/
 theorem decimalAuthority_afterFormatter {predecessor : X86_64MachineState}
@@ -83,7 +89,8 @@ theorem decimalAuthority_afterFormatter {predecessor : X86_64MachineState}
   have pass := spike2WriteLinkedLayout_selectedPass
     (afterWriteFirst predecessor) formatter.writeSecondEntry formatter.writeSecondSafety
     formatter.writeSecondExecution formatter.writeSecondOrdinary formatter.writeSecondBranch
-  exact first.afterWrite pass physical.writeSecondNoWrap physical.writeSecondAbove
+  exact first.afterWrite pass physical.writeSecondNoWrap
+    (decimalTextBelowRowText physical.writeSecondAbove)
 
 end Row8Parametric
 

@@ -28,6 +28,11 @@ set_option maxRecDepth 200000
 set_option maxHeartbeats 5000000
 namespace Row8Parametric
 
+private theorem decimalTextBelowRowText {address : Nat}
+    (above : spike2RowLinkedTextUpper ≤ address) : 4198635 ≤ address := by
+  unfold spike2RowLinkedTextUpper at above
+  omega
+
 private theorem decimalAuthority_afterMovRax (state : X86_64MachineState)
     (authority : Spike2DecimalTextAuthority state) (value : UInt64) :
     Spike2DecimalTextAuthority (X86_64Instruction.step (mov_r64_imm64 .rax value) state) :=
@@ -55,7 +60,8 @@ theorem decimalAuthority_afterCarriageReturn {predecessor : X86_64MachineState}
   change Spike2DecimalTextAuthority (X86_64Instruction.step (mov_mem8 .rdi .rax)
     (beforeCarriageReturnStore predecessor))
   have loaded := decimalAuthority_afterMovRax (afterWrite predecessor) authority 13
-  exact decimalAuthority_afterMovMem8 _ loaded physical.carriageNoWrap physical.carriageAbove
+  exact decimalAuthority_afterMovMem8 _ loaded physical.carriageNoWrap
+    (decimalTextBelowRowText physical.carriageAbove)
 
 /-- Both CR/LF writes preserve decimal text authority. -/
 theorem decimalAuthority_afterLineTerminator {predecessor : X86_64MachineState}
@@ -67,7 +73,7 @@ theorem decimalAuthority_afterLineTerminator {predecessor : X86_64MachineState}
     exact decimalAuthority_afterMovRax _
       (decimalAuthority_afterAddRdi _ carriage 1) 10
   have feed := decimalAuthority_afterMovMem8 _ beforeFeed physical.lineFeedNoWrap
-    physical.lineFeedAbove
+    (decimalTextBelowRowText physical.lineFeedAbove)
   exact decimalAuthority_afterAddRdi _ feed 1
 
 end Row8Parametric

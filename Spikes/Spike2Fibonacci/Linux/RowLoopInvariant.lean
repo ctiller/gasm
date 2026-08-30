@@ -42,25 +42,29 @@ set_option maxHeartbeats 5000000
 
 namespace Row8Parametric
 
+/-- One-past the final byte observed by a 64-bit read at the linked row back-edge.  Row-local
+writes must begin at or above this boundary before row-code observations can be immutable. -/
+def spike2RowLinkedTextUpper : Nat := 4198709
+
 /-- Projection-only physical bounds which advance the accepted decimal text authority through
 the concrete two extraction and two reverse-write passes. -/
 structure FormatterAuthorityFrame (predecessor : X86_64MachineState) : Prop where
   entry : Spike2DecimalTextAuthority (afterValueSetup predecessor)
   extractionFirstNoWrap : ((afterValueSetup predecessor).rsp - 8).toNat + 8 ≤ 2 ^ 64
-  extractionFirstAbove : 4198635 ≤ ((afterValueSetup predecessor).rsp - 8).toNat
+  extractionFirstAbove : spike2RowLinkedTextUpper ≤ ((afterValueSetup predecessor).rsp - 8).toNat
   extractionSecondNoWrap : ((afterExtractionFirst predecessor).rsp - 8).toNat + 8 ≤ 2 ^ 64
-  extractionSecondAbove : 4198635 ≤ ((afterExtractionFirst predecessor).rsp - 8).toNat
+  extractionSecondAbove : spike2RowLinkedTextUpper ≤ ((afterExtractionFirst predecessor).rsp - 8).toNat
   writeFirstNoWrap : ((afterExtraction predecessor).gprs .rdi).toNat + 1 ≤ 2 ^ 64
-  writeFirstAbove : 4198635 ≤ ((afterExtraction predecessor).gprs .rdi).toNat
+  writeFirstAbove : spike2RowLinkedTextUpper ≤ ((afterExtraction predecessor).gprs .rdi).toNat
   writeSecondNoWrap : ((afterWriteFirst predecessor).gprs .rdi).toNat + 1 ≤ 2 ^ 64
-  writeSecondAbove : 4198635 ≤ ((afterWriteFirst predecessor).gprs .rdi).toNat
+  writeSecondAbove : spike2RowLinkedTextUpper ≤ ((afterWriteFirst predecessor).gprs .rdi).toNat
 
 /-- Exact byte-write bounds for the CR/LF suffix. -/
 structure TailAuthorityFrame (predecessor : X86_64MachineState) : Prop where
   carriageNoWrap : ((beforeCarriageReturnStore predecessor).gprs .rdi).toNat + 1 ≤ 2 ^ 64
-  carriageAbove : 4198635 ≤ ((beforeCarriageReturnStore predecessor).gprs .rdi).toNat
+  carriageAbove : spike2RowLinkedTextUpper ≤ ((beforeCarriageReturnStore predecessor).gprs .rdi).toNat
   lineFeedNoWrap : ((beforeLineFeedStore predecessor).gprs .rdi).toNat + 1 ≤ 2 ^ 64
-  lineFeedAbove : 4198635 ≤ ((beforeLineFeedStore predecessor).gprs .rdi).toNat
+  lineFeedAbove : spike2RowLinkedTextUpper ≤ ((beforeLineFeedStore predecessor).gprs .rdi).toNat
 
 /-- The local instruction, safety, and physical authority projections consumed by a continuing
 one-digit/two-value-digit row.  This is the backward-collected weakest-premise boundary for
