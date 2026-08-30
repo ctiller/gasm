@@ -37,54 +37,6 @@ open Gasm.Targets.X86_64.DecimalSchedule
 set_option maxRecDepth 200000
 set_option maxHeartbeats 5000000
 
-/-- A caller-owned store leaves a lower, non-wrapping eight-byte text observation unchanged. -/
-/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
-theorem spike2_read64_write_below (width : MemWidth) (memory : X86_64Memory)
-    (writeAddress readAddress : UInt64) (value : UInt64)
-    (writeNoWrap : writeAddress.toNat + width.bytes ≤ 2 ^ 64)
-    (below : readAddress.toNat + 8 ≤ writeAddress.toNat) :
-    X86_64Mem.read .w64 readAddress (X86_64Mem.write width writeAddress value memory) =
-      X86_64Mem.read .w64 readAddress memory := by
-  have offset0 : readAddress.toNat < writeAddress.toNat := by omega
-  have offset1 : (readAddress + 1).toNat < writeAddress.toNat := by
-    simp [UInt64.toNat_add]
-    omega
-  have offset2 : (readAddress + 2).toNat < writeAddress.toNat := by
-    simp [UInt64.toNat_add]
-    omega
-  have offset3 : (readAddress + 3).toNat < writeAddress.toNat := by
-    simp [UInt64.toNat_add]
-    omega
-  have offset4 : (readAddress + 4).toNat < writeAddress.toNat := by
-    simp [UInt64.toNat_add]
-    omega
-  have offset5 : (readAddress + 5).toNat < writeAddress.toNat := by
-    simp [UInt64.toNat_add]
-    omega
-  have offset6 : (readAddress + 6).toNat < writeAddress.toNat := by
-    simp [UInt64.toNat_add]
-    omega
-  have offset7 : (readAddress + 7).toNat < writeAddress.toNat := by
-    simp [UInt64.toNat_add]
-    omega
-  unfold X86_64Mem.read
-  rw [X86_64Mem.readByte_write_disjoint width writeAddress value memory readAddress writeNoWrap
-    (Or.inl offset0)]
-  rw [X86_64Mem.readByte_write_disjoint width writeAddress value memory (readAddress + 1) writeNoWrap
-    (Or.inl offset1)]
-  rw [X86_64Mem.readByte_write_disjoint width writeAddress value memory (readAddress + 2) writeNoWrap
-    (Or.inl offset2)]
-  rw [X86_64Mem.readByte_write_disjoint width writeAddress value memory (readAddress + 3) writeNoWrap
-    (Or.inl offset3)]
-  rw [X86_64Mem.readByte_write_disjoint width writeAddress value memory (readAddress + 4) writeNoWrap
-    (Or.inl offset4)]
-  rw [X86_64Mem.readByte_write_disjoint width writeAddress value memory (readAddress + 5) writeNoWrap
-    (Or.inl offset5)]
-  rw [X86_64Mem.readByte_write_disjoint width writeAddress value memory (readAddress + 6) writeNoWrap
-    (Or.inl offset6)]
-  rw [X86_64Mem.readByte_write_disjoint width writeAddress value memory (readAddress + 7) writeNoWrap
-    (Or.inl offset7)]
-
 /-- An extraction pass cannot alter an eight-byte text observation below its stack scratch word. -/
 /- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/
 theorem spike2_extraction_pass_preserves_text_read64 {Event : Type}
@@ -100,7 +52,7 @@ theorem spike2_extraction_pass_preserves_text_read64 {Event : Type}
   change X86_64Mem.read .w64 readAddress (extractionFinal backDisp initial).memory =
     X86_64Mem.read .w64 readAddress initial.memory
   rw [pass.effect.memory]
-  apply spike2_read64_write_below .w64 initial.memory (initial.rsp - 8) readAddress
+  apply X86_64Mem.read64_write_below .w64 initial.memory (initial.rsp - 8) readAddress
     (UInt64.ofNat ((initial.gprs .rax).toNat % 10) + 0x30)
   · exact writeNoWrap
   · exact below
@@ -120,7 +72,7 @@ theorem spike2_write_pass_preserves_text_read64 {Event : Type}
   change X86_64Mem.read .w64 readAddress (writeFinal backDisp initial).memory =
     X86_64Mem.read .w64 readAddress initial.memory
   rw [pass.effect.memory]
-  apply spike2_read64_write_below .w8 initial.memory (initial.gprs .rdi) readAddress
+  apply X86_64Mem.read64_write_below .w8 initial.memory (initial.gprs .rdi) readAddress
     (initial.read64 initial.rsp).toUInt8.toUInt64
   · exact writeNoWrap
   · exact below
@@ -318,7 +270,8 @@ private theorem spike2_ordinary_from_stack_write (initial state : X86_64MachineS
     exact notLinux
   · rw [rip]
     change X86_64Mem.read .w64 address state.memory ≠ address
-    rw [memory, spike2_read64_write_below .w64 initial.memory writeAddress address value writeNoWrap below]
+    rw [memory, X86_64Mem.read64_write_below .w64 initial.memory writeAddress address value
+      writeNoWrap below]
     exact notIat
 
 /- The remaining extraction instructions and JNE do not write memory; this ties the PUSH
@@ -499,7 +452,8 @@ private theorem spike2_ordinary_from_output_write (initial state : X86_64Machine
     exact notLinux
   · rw [rip]
     change X86_64Mem.read .w64 address state.memory ≠ address
-    rw [memory, spike2_read64_write_below .w8 initial.memory writeAddress address value writeNoWrap below]
+    rw [memory, X86_64Mem.read64_write_below .w8 initial.memory writeAddress address value
+      writeNoWrap below]
     exact notIat
 
 /- REF: docs/MACRO_ASSEMBLER.md#decimal-extraction-and-write-passes -/

@@ -111,52 +111,6 @@ theorem outcome_complete {Event : Type}
       .returned state eventsRev.reverse := by
   simp [runProgramOutcomeLoop, hlookup]
 
-/- A call writes only its return slot.  This structural read-over-write lemma
-   is the memory-frame leaf used by every later Windows IAT edge. -/
-theorem X86_64Mem.read64_write64_disjoint_before
-    (readAddr writeAddr value : UInt64) (memory : X86_64Memory)
-    (hwrite : writeAddr.toNat + 8 ≤ 2 ^ 64)
-    (hread : readAddr.toNat + 8 ≤ writeAddr.toNat) :
-    X86_64Mem.read .w64 readAddr (X86_64Mem.write .w64 writeAddr value memory) =
-      X86_64Mem.read .w64 readAddr memory := by
-  simp only [X86_64Mem.read]
-  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory readAddr hwrite (by omega)]
-  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 1) hwrite (by
-    left
-    have hbound : readAddr.toNat + 1 < 2 ^ 64 := by omega
-    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
-    omega)]
-  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 2) hwrite (by
-    left
-    have hbound : readAddr.toNat + 2 < 2 ^ 64 := by omega
-    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
-    omega)]
-  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 3) hwrite (by
-    left
-    have hbound : readAddr.toNat + 3 < 2 ^ 64 := by omega
-    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
-    omega)]
-  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 4) hwrite (by
-    left
-    have hbound : readAddr.toNat + 4 < 2 ^ 64 := by omega
-    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
-    omega)]
-  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 5) hwrite (by
-    left
-    have hbound : readAddr.toNat + 5 < 2 ^ 64 := by omega
-    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
-    omega)]
-  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 6) hwrite (by
-    left
-    have hbound : readAddr.toNat + 6 < 2 ^ 64 := by omega
-    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
-    omega)]
-  rw [X86_64Mem.readByte_write_disjoint .w64 writeAddr value memory (readAddr + 7) hwrite (by
-    left
-    have hbound : readAddr.toNat + 7 < 2 ^ 64 := by omega
-    simp [UInt64.toNat_add, Nat.mod_eq_of_lt hbound]
-    omega)]
-
 theorem withPhase_call_rip_read64_preserved
     (state : X86_64MachineState) (displacement : Int32) (phase : UInt64)
     (readAddr : Address)
@@ -167,7 +121,7 @@ theorem withPhase_call_rip_read64_preserved
   change X86_64Mem.read .w64 readAddr
       (X86_64Mem.write .w64 (state.rsp - 8) (state.rip + 6) state.memory) =
     X86_64Mem.read .w64 readAddr state.memory
-  exact X86_64Mem.read64_write64_disjoint_before _ _ _ _ hwrite hread
+  exact X86_64Mem.read64_write_below .w64 _ _ _ _ hwrite hread
 
 /- Each native call edge is proved once from its source state to its destination
    state.  Whole-program certificates compose these local edges; they do not

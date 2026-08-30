@@ -224,6 +224,55 @@ theorem readByte_write_disjoint (w : MemWidth) (a : Address) (v : UInt64) (m : X
     simp [ha1, ha2, ha3, ha4, ha5, ha6, ha7, ha8]
 
 /- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- A non-wrapping write wholly above an eight-byte observation preserves that observation.
+    The write width remains explicit so the same frame law covers stack words and output bytes. -/
+theorem read64_write_below (width : MemWidth) (memory : X86_64Memory)
+    (writeAddress readAddress : Address) (value : UInt64)
+    (writeNoWrap : writeAddress.toNat + width.bytes ≤ 2 ^ 64)
+    (below : readAddress.toNat + 8 ≤ writeAddress.toNat) :
+    read .w64 readAddress (write width writeAddress value memory) =
+      read .w64 readAddress memory := by
+  have offset0 : readAddress.toNat < writeAddress.toNat := by omega
+  have offset1 : (readAddress + 1).toNat < writeAddress.toNat := by
+    simp [UInt64.toNat_add]
+    omega
+  have offset2 : (readAddress + 2).toNat < writeAddress.toNat := by
+    simp [UInt64.toNat_add]
+    omega
+  have offset3 : (readAddress + 3).toNat < writeAddress.toNat := by
+    simp [UInt64.toNat_add]
+    omega
+  have offset4 : (readAddress + 4).toNat < writeAddress.toNat := by
+    simp [UInt64.toNat_add]
+    omega
+  have offset5 : (readAddress + 5).toNat < writeAddress.toNat := by
+    simp [UInt64.toNat_add]
+    omega
+  have offset6 : (readAddress + 6).toNat < writeAddress.toNat := by
+    simp [UInt64.toNat_add]
+    omega
+  have offset7 : (readAddress + 7).toNat < writeAddress.toNat := by
+    simp [UInt64.toNat_add]
+    omega
+  unfold read
+  rw [readByte_write_disjoint width writeAddress value memory readAddress writeNoWrap
+    (Or.inl offset0)]
+  rw [readByte_write_disjoint width writeAddress value memory (readAddress + 1) writeNoWrap
+    (Or.inl offset1)]
+  rw [readByte_write_disjoint width writeAddress value memory (readAddress + 2) writeNoWrap
+    (Or.inl offset2)]
+  rw [readByte_write_disjoint width writeAddress value memory (readAddress + 3) writeNoWrap
+    (Or.inl offset3)]
+  rw [readByte_write_disjoint width writeAddress value memory (readAddress + 4) writeNoWrap
+    (Or.inl offset4)]
+  rw [readByte_write_disjoint width writeAddress value memory (readAddress + 5) writeNoWrap
+    (Or.inl offset5)]
+  rw [readByte_write_disjoint width writeAddress value memory (readAddress + 6) writeNoWrap
+    (Or.inl offset6)]
+  rw [readByte_write_disjoint width writeAddress value memory (readAddress + 7) writeNoWrap
+    (Or.inl offset7)]
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
 /-- Two byte offsets below 8 from the same base are distinct addresses, unconditionally. Unlike
     `readByte_write_disjoint`'s external `a'`, this needs no no-overflow side condition: the
     offsets are bounded constants `< 8`, so `a + i` and `a + j` cannot collide mod `2⁶⁴` for
