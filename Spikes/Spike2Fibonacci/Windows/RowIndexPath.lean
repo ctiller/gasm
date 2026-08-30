@@ -14,6 +14,7 @@ structure Spike2IndexPathResult (completed : Nat) (initial : X86_64MachineState)
     initial eventsRev final eventsRev []
   registers : Spike2RowRegisterFrame initial final
   lowMemory : Spike2RowLowMemory final
+  cursorAboveStack : final.rsp.toNat ≤ (final.gprs .rdi).toNat
   cursorAbove : spike2RowLowMemoryTop ≤ (final.gprs .rdi).toNat
   cursorRoom : (final.gprs .rdi).toNat + 22 < 2 ^ 64
 
@@ -33,6 +34,7 @@ opaque spike2_index_path (completed : Nat) (state : X86_64MachineState)
       certificate := by simpa using opening.certificate.append path.certificate
       registers := opening.registers.trans path.registers
       lowMemory := path.lowMemory
+      cursorAboveStack := path.cursorAboveStack
       cursorAbove := path.cursorAbove
       cursorRoom := path.cursorRoom }
   · have lower : 9 ≤ completed := by omega
@@ -49,6 +51,7 @@ opaque spike2_index_path (completed : Nat) (state : X86_64MachineState)
         simpa using (opening.certificate.append head.certificate).append tail.certificate
       registers := (opening.registers.trans head.registers).trans tail.registers
       lowMemory := tail.lowMemory
+      cursorAboveStack := tail.cursorAboveStack
       cursorAbove := tail.cursorAbove
       cursorRoom := tail.cursorRoom }
 

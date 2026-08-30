@@ -1,5 +1,6 @@
 /- Copyright 2026 Craig Tiller -/
 import Spikes.Spike2Fibonacci.Windows.RowOpening
+import Spikes.Spike2Fibonacci.Windows.RowRegisterCursor
 
 namespace Spikes.Spike2Fibonacci.Windows
 
@@ -18,6 +19,7 @@ structure Spike2CursorSliceResult (initial : X86_64MachineState)
     initial eventsRev final eventsRev []
   registers : Spike2RowRegisterFrame initial final
   lowMemory : Spike2RowLowMemory final
+  cursorAboveStack : final.rsp.toNat ≤ (final.gprs .rdi).toNat
   cursorAbove : spike2RowLowMemoryTop ≤ (final.gprs .rdi).toNat
   cursorRoom : (final.gprs .rdi).toNat + 22 < 2 ^ 64
 
@@ -67,6 +69,10 @@ opaque spike2_one_digit_slice (completed : Nat) (state : X86_64MachineState)
     certificate := headerPrefix.append indexPrefix
     registers := headerFrame.trans indexFrame
     lowMemory := indexLow
+    cursorAboveStack := by
+      rw [indexFrame.rsp, spike2_one_digit_cursor, headerRsp,
+        spike2_after_prologue_rsp_eq]
+      decide
     cursorAbove := bounds.1
     cursorRoom := bounds.2 }
 
