@@ -29,7 +29,6 @@ open Graph
 
 variable {EventId : Type u} {Location : Type v} {Value : Type w} {AtomicObject : Type x}
 variable {Agent : Type y}
-variable [DecidableEq EventId] [DecidableEq Location]
 variable {g : Graph EventId Location Value AtomicObject}
 
 /- REF: docs/MEMORY_MODEL.md#4-common-dynamic-memory-event-vocabulary -/
@@ -188,5 +187,38 @@ theorem po_missing_same_agent_order (p : g.ProgramOrderProjection Agent) {a b : 
     (hb : p.programPoint b = some (agent, sb))
     (hlt : sa < sb) (hmissing : ¬ g.po a b) : False :=
   hmissing (p.po_iff.mpr ⟨agent, sa, sb, ha, hb, hlt⟩)
+
+/-!
+Compile-time-only sentinels for the absence of an ambient equality-decision premise. They exercise
+the graph and program-order control families over hostile identities; they do not test the controls'
+semantics or construct a graph, projection, execution, fidelity, admission, or authority witness.
+-/
+
+private structure HostileEventId where
+  predicate : Nat → Prop
+
+private structure HostileLocation where
+  predicate : Nat → Prop
+
+private structure HostileAgent where
+  predicate : Nat → Prop
+
+private abbrev HostileGraph := Graph HostileEventId HostileLocation Unit Unit
+
+/- REF: docs/MEMORY_MODEL.md#4-common-dynamic-memory-event-vocabulary -/
+private theorem graph_control_has_no_equality_premise (g : HostileGraph)
+    {read : HostileEventId} {loc : HostileLocation}
+    (hread : g.readAt read loc) (hmissing : ∀ source, ¬ g.rf source read loc) :
+    ¬ g.WellFormed :=
+  missing_rf_source hread hmissing
+
+/- REF: docs/MEMORY_MODEL.md#4-common-dynamic-memory-event-vocabulary -/
+private theorem program_order_control_has_no_equality_premise (g : HostileGraph)
+    (p : g.ProgramOrderProjection HostileAgent) {a b : HostileEventId}
+    {firstAgent secondAgent : HostileAgent} {firstSeq secondSeq : Nat}
+    (hne : firstAgent ≠ secondAgent)
+    (ha : p.programPoint a = some (firstAgent, firstSeq))
+    (hb : p.programPoint b = some (secondAgent, secondSeq)) : ¬ g.po a b :=
+  po_cross_agent p hne ha hb
 
 end Gasm.MemoryModel.CpuGraph.NegativeControls
