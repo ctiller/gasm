@@ -728,7 +728,8 @@ def runGate : IO UInt32 := do
     failed := true
     IO.println ""
     IO.println s!"[!] FAILED: {offenders.size} declaration(s) depend on an axiom outside"
-    IO.println "    {propext, Classical.choice, Quot.sound} with no matching gate_allowlist.txt"
+    IO.println "    {propext, Classical.choice, Quot.sound}; replace the dependency constructively"
+    IO.println "    (the temporary debt ledger is migration-only and may not grow)"
     IO.println "    entry (matched by module-qualified fully-qualified name):"
     for o in offenders do
       let axiomStrs := o.axioms.toList.map (fun (a, lbl) => s!"{a} [{lbl}]")

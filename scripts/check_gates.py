@@ -729,7 +729,7 @@ def main():
         print(f"\n[!] FAILED: {len(not_allowlisted)} occurrence(s) are not in scripts/gate_allowlist.txt:")
         for occ in not_allowlisted:
             print(f"    - {occ.file}:{occ.line} ({occ.kind}) in '{occ.decl.name}'")
-        print("    -> Add a `<file>::<decl>::<fqn>::finite-forall|grandfathered::<justification>` entry.")
+        print("    -> Replace the occurrence with a kernel/constructive proof; the temporary debt ledger may not grow.")
 
     if forall_corroboration_failed:
         has_errors = True
@@ -749,7 +749,7 @@ def main():
 
     if not any_gate_failure:
         print("[+] Every native_decide/decide+native occurrence found in source text is attributed")
-        print("    to a named declaration with a valid, matching scripts/gate_allowlist.txt entry.")
+        print("    to a named declaration and remove the shortcut; new debt-ledger entries are forbidden.")
 
     print("\n--- FINITE-FORALL (shallow syntactic check passed -- not a proof) ---")
     print(f"[+] {len(finite_forall)} occurrence(s):")
