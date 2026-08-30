@@ -48,6 +48,32 @@ theorem spike3_evalInstrs_step
   simp only [evalInstrs, hbefore, hexit, Option.isSome_none, Bool.or_self,
     Bool.false_eq_true, if_false, hstep]
 
+/-- Exact production-loop re-entry.  A body which returns `br 0` is the one
+    Wasm signal that re-enters that same loop, and it consumes precisely the
+    outer `evalLoop` entry before continuing from the post-body state. -/
+theorem spike3_evalLoop_reenter
+    (fuel : Nat) (body : List WasmInstr) (before after : WasmMachineState)
+    (hbody : evalInstrs fuel body before
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) = .ok (after, .br 0)) :
+    evalLoop (fuel + 1) body before
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) =
+    evalLoop fuel body after
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) := by
+  rw [show fuel + 1 = Nat.succ fuel by rfl]
+  simp [evalLoop, hbody]
+
+/-- A branch that targets the enclosing block exits the current production
+    loop.  This is the EOF/finished-work shape used by every bounded Spike 3
+    loop; the parent block receives the decremented branch signal. -/
+theorem spike3_evalLoop_exit
+    (fuel depth : Nat) (body : List WasmInstr) (before after : WasmMachineState)
+    (hbody : evalInstrs fuel body before
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) = .ok (after, .br (depth + 1))) :
+    evalLoop (fuel + 1) body before
+      (wasiHostCall ["fd_read", "fd_write", "proc_exit"]) = .ok (after, .br depth) := by
+  rw [show fuel + 1 = Nat.succ fuel by rfl]
+  simp [evalLoop, hbody]
+
 /-- One production `fd_read` with Spike 3's statically installed single
     512-byte iovec consumes exactly the available prefix, advances `stdinPos`
     by that amount, and writes the corresponding `nread`.  The memory facts
