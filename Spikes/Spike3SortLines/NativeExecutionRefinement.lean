@@ -119,6 +119,82 @@ def NativePreparationPrefix (target : NativePreparationTarget)
       SelectedPrefix (nativePreparationSelected target)
         (nativePreparationIndex target context environment)
 
+/-- The selected target runtime's actual host dispatcher, retained in the
+certificate so a boundary cannot be replaced with a register-shaped hook
+lemma. -/
+def nativePreparationHostIntercept (target : NativePreparationTarget)
+    (context : Spike3NativeExecutionContext) (address : Gasm.Core.Address)
+    (state : X86_64MachineState) : Option (X86_64MachineState × Option AnyEvent) :=
+  match target with
+  | .linux => spike3LinuxCallIntercept context.arenaGrant address state
+  | .windows => spike3WindowsCallIntercept context.arenaGrant address state
+
+/-- Reusable one-instruction artifact block rule.  Target bodies prove only
+their indexed instruction, ABI-safe fallthrough, selection and absence of a
+host interception; the selected-prefix machinery then supplies the exact
+production transition.  This is intentionally target-owned, rather than a
+second interpreter or a whole-run trace. -/
+theorem nativePreparation_ordinaryBlock
+    {target : NativePreparationTarget} {context : Spike3NativeExecutionContext}
+    {environment : Environment} {instruction : X86_64Instr} {state : X86_64MachineState}
+    {events : List AnyEvent}
+    (encoding : SequentialInstruction instruction)
+    (lookup : instructionAtRipIndexed (nativePreparationIndex target context environment) state.rip =
+      some instruction)
+    (selected : nativePreparationSelected target (X86_64Instruction.step instruction state).rip
+      (X86_64Instruction.step instruction state) = true)
+    (unintercepted : nativePreparationHostIntercept target context
+      (X86_64Instruction.step instruction state).rip (X86_64Instruction.step instruction state) = none)
+    (safe : (X86_64Instruction.step instruction state).fault = none) :
+    NativePreparationPrefix target context environment 1 state events
+      (X86_64Instruction.step instruction state) events [] := by
+  cases target with
+  | linux =>
+      letI : ExternalCallInterceptor X86_64 AnyEvent := spike3LinuxRuntime AnyEvent context.arenaGrant
+      exact .ordinary encoding lookup selected unintercepted safe (.nil _ _)
+  | windows =>
+      letI : ExternalCallInterceptor X86_64 AnyEvent := spike3WindowsRuntime AnyEvent context.arenaGrant
+      exact .ordinary encoding lookup selected unintercepted safe (.nil _ _)
+
+/-- Reusable selected host-boundary block.  It retains the selected artifact
+index and the concrete target dispatcher in the conclusion, so callers must
+prove the actual ABI discriminator instead of supplying a register-shaped
+hook fact. -/
+theorem nativePreparation_hostBlock
+    {target : NativePreparationTarget} {context : Spike3NativeExecutionContext}
+    {environment : Environment} {state next : X86_64MachineState}
+    {events : List AnyEvent}
+    {instruction : X86_64Instr}
+    (encoding : HostInterceptEncoding instruction)
+    (lookup : instructionAtRipIndexed (nativePreparationIndex target context environment) state.rip =
+      some instruction)
+    (selected : nativePreparationSelected target (X86_64Instruction.step instruction state).rip
+      (X86_64Instruction.step instruction state) = true)
+    (intercepted : nativePreparationHostIntercept target context
+      (X86_64Instruction.step instruction state).rip (X86_64Instruction.step instruction state) = some (next, none))
+    (safe : next.fault = none) :
+    NativePreparationPrefix target context environment 1 state events next events [] := by
+  cases target with
+  | linux =>
+      letI : ExternalCallInterceptor X86_64 AnyEvent := spike3LinuxRuntime AnyEvent context.arenaGrant
+      change spike3LinuxCallIntercept context.arenaGrant
+        (X86_64Instruction.step instruction state).rip (X86_64Instruction.step instruction state) =
+          some (next, none) at intercepted
+      have hIntercept : ExternalCallInterceptor.interceptCall (Event := AnyEvent) (Arch := X86_64)
+          (X86_64Instruction.step instruction state).rip (X86_64Instruction.step instruction state) =
+          some (next, none) := by
+        exact intercepted
+      exact .hostIntercept encoding lookup selected hIntercept safe (.nil _ _)
+  | windows =>
+      letI : ExternalCallInterceptor X86_64 AnyEvent := spike3WindowsRuntime AnyEvent context.arenaGrant
+      change spike3WindowsCallIntercept context.arenaGrant
+        (X86_64Instruction.step instruction state).rip (X86_64Instruction.step instruction state) =
+          some (next, none) at intercepted
+      have hIntercept : ExternalCallInterceptor.interceptCall (Event := AnyEvent) (Arch := X86_64)
+          (X86_64Instruction.step instruction state).rip (X86_64Instruction.step instruction state) =
+          some (next, none) := by
+        exact intercepted
+      exact .hostIntercept encoding lookup selected hIntercept safe (.nil _ _)
 /-- A `smol_malloc` operation together with its actual placement and
     reachability in the selected final artifact.  `routinePrefix` executes the
     linked instructions, not a separately loaded allocator fixture. -/
@@ -154,16 +230,6 @@ def nativeReadRequestCapacity (target : NativePreparationTarget)
   match target with
   | .linux => state.gprs .rdx
   | .windows => state.gprs .r8
-
-/-- The selected target runtime's actual host dispatcher, retained in the
-certificate so a boundary cannot be replaced with a register-shaped hook
-lemma. -/
-def nativePreparationHostIntercept (target : NativePreparationTarget)
-    (context : Spike3NativeExecutionContext) (address : Gasm.Core.Address)
-    (state : X86_64MachineState) : Option (X86_64MachineState × Option AnyEvent) :=
-  match target with
-  | .linux => spike3LinuxCallIntercept context.arenaGrant address state
-  | .windows => spike3WindowsCallIntercept context.arenaGrant address state
 
 /-- Named control-flow nodes for the preparation artifact.  These are not a
 generic solver: each node carries the Spike3-specific phase, chunk cursor,
