@@ -273,30 +273,36 @@ structure NativePreparationBlockContract (target : NativePreparationTarget)
 and after stdin buffers expose precisely the bytes consumed by that call;
 the selected production segment retains its machine state, event continuation,
 and local fuel. -/
+inductive NativeReadBoundary : NativePreparationTarget → Nat → X86_64MachineState → Prop where
+  | linux {capacity : Nat} {state : X86_64MachineState}
+      (entry : state.rip = linuxSyscallEntry) (syscall : state.gprs .rax = SYS_read)
+      (stdin : state.gprs .rdi = 0) (count : state.gprs .rdx = capacity.toUInt64) :
+      NativeReadBoundary .linux capacity state
+  | windows {capacity : Nat} {state : X86_64MachineState}
+      (readFile : findIatIndex state state.rip = some 1) :
+      NativeReadBoundary .windows capacity state
+
 structure NativeProductionReadStep (target : NativePreparationTarget)
     (context : Spike3NativeExecutionContext) (environment : Environment)
     (readCapacity : Nat) (chunk : List UInt8)
     (before after : X86_64MachineState) (eventsBefore eventsAfter : List AnyEvent) where
   instruction : X86_64Instr
   hostEncoding : HostInterceptEncoding instruction
+  lookup : instructionAtRipIndexed (nativePreparationIndex target context environment) before.rip =
+    some instruction
   boundary : X86_64MachineState
   steppedIntoBoundary : boundary = X86_64Instruction.step instruction before
   /- The artifact reaches this host boundary by executing its selected
-      instruction; this is separate from the host interception which consumes
-      stdin after the instruction has established the ABI boundary. -/
-  artifactStep : NativePreparationPrefix target context environment 1 before eventsBefore
-    boundary eventsBefore []
+      instruction; `boundary` is an architectural decode observation only.
+      The actual selected production step is the host transition directly to
+      the dispatcher result, never a fictitious prefix ending at `boundary`. -/
+  hostTransition : NativePreparationPrefix target context environment 1 before eventsBefore
+    after eventsAfter []
   requestedCapacity : nativeReadRequestCapacity target boundary = readCapacity.toUInt64
   targetCapacity : readCapacity = 512
-  readEntry : match target with
-    | .linux => boundary.rip = linuxSyscallEntry ∧ boundary.gprs .rax = SYS_read ∧
-        boundary.gprs .rdi = 0 ∧ boundary.gprs .rdx = readCapacity.toUInt64
-    | .windows => findIatIndex boundary boundary.rip = some 1
+  readEntry : NativeReadBoundary target readCapacity boundary
   intercepted : nativePreparationHostIntercept target context boundary.rip boundary = some (after, none)
   consumed : before.stdinBuffer.toList = chunk ++ after.stdinBuffer.toList
-  fuel : Nat
-  selectedSegment : NativePreparationPrefix target context environment fuel before eventsBefore
-    after eventsAfter []
 
 /-- Ordered physical read calls of one production execution.  Adjacent states
 and event continuations are definitionally shared, so a `ChunksOf` witness can
@@ -319,7 +325,7 @@ inductive NativeProductionReadTrace (target : NativePreparationTarget)
 def NativeProductionReadTrace.totalFuel : NativeProductionReadTrace target context environment readCapacity
     initial initialEvents chunks final finalEvents → Nat
   | .empty .. => 0
-  | .read step rest => step.fuel + rest.totalFuel
+  | .read _ rest => 1 + rest.totalFuel
 
 /-- A chained production realization of an allocator plan.  Unlike the older
 reachability projection, each next call begins in the preceding call's exact
