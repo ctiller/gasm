@@ -275,6 +275,81 @@ theorem InvariantLoopStep.iterate {Event : Type}
 end ProductionPrefix
 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- A bounded production loop whose selected pass may consume a different number of instructions
+    on different iterations.  The bound is part of the contract: callers prove only reachable
+    passes, while the conclusion is still an equality for the unmodified production runner.
+
+    This is deliberately distinct from `InvariantLoopStep`: decimal codecs, streaming requests,
+    and resource-recovery paths often have value-dependent work per pass.  Requiring a fake
+    constant fuel for those paths would either overstate what an adapter proves or force it to
+    pad the actual instruction stream. -/
+structure BoundedInvariantLoopStep {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    (indexed : List (UInt64 × X86_64Instr)) (bound : Nat)
+    (invariant : Nat → X86_64MachineState → List Event → Prop) where
+  run : ∀ completed state eventsRev,
+    completed < bound → invariant completed state eventsRev →
+      ∃ fuel final finalEventsRev emitted,
+        ProductionPrefix indexed fuel state eventsRev final finalEventsRev emitted ∧
+        invariant (completed + 1) final finalEventsRev
+
+namespace BoundedInvariantLoopStep
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Compose a bounded, variable-fuel loop structurally.  Its event and outcome equations are
+    inherited from `ProductionPrefix`; no parallel evaluator and no global fixed fuel bound are
+    introduced. -/
+theorem iterateFrom {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {indexed : List (UInt64 × X86_64Instr)} {bound : Nat}
+    {invariant : Nat → X86_64MachineState → List Event → Prop}
+    (step : BoundedInvariantLoopStep indexed bound invariant) :
+    ∀ start iterations state eventsRev, start + iterations ≤ bound → invariant start state eventsRev →
+      ∃ final finalEventsRev emitted totalFuel,
+        invariant (start + iterations) final finalEventsRev ∧
+        finalEventsRev.reverse = eventsRev.reverse ++ emitted ∧
+        ∀ continuationFuel,
+          runProgramOutcomeLoop indexed (totalFuel + continuationFuel) state eventsRev =
+            runProgramOutcomeLoop indexed continuationFuel final finalEventsRev := by
+  intro start iterations
+  induction iterations generalizing start with
+  | zero =>
+      intro state eventsRev _ holds
+      exact ⟨state, eventsRev, [], 0, holds, by simp, by simp⟩
+  | succ iterations ih =>
+      intro state eventsRev hbound holds
+      rcases step.run start state eventsRev (by omega) holds with
+        ⟨firstFuel, middle, middleEventsRev, firstEvents, first, middleHolds⟩
+      rcases ih (start + 1) middle middleEventsRev (by omega) middleHolds with
+        ⟨final, finalEventsRev, secondEvents, secondFuel, finalHolds, events, runs⟩
+      refine ⟨final, finalEventsRev, firstEvents ++ secondEvents, firstFuel + secondFuel,
+        ?_, ?_, ?_⟩
+      · rw [show start + (iterations + 1) = start + 1 + iterations by omega]
+        exact finalHolds
+      · rw [events, first.events_reverse_append]
+        simp [List.append_assoc]
+      · intro continuationFuel
+        rw [show (firstFuel + secondFuel) + continuationFuel =
+          firstFuel + (secondFuel + continuationFuel) by omega]
+        rw [first.run (secondFuel + continuationFuel), runs continuationFuel]
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- The conventional zero-based view of `iterateFrom`, used by fixed-size native drivers. -/
+theorem iterate {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {indexed : List (UInt64 × X86_64Instr)} {bound : Nat}
+    {invariant : Nat → X86_64MachineState → List Event → Prop}
+    (step : BoundedInvariantLoopStep indexed bound invariant)
+    (state : X86_64MachineState) (eventsRev : List Event)
+    (holds : invariant 0 state eventsRev) :
+    ∃ final finalEventsRev emitted totalFuel,
+      invariant bound final finalEventsRev ∧
+      finalEventsRev.reverse = eventsRev.reverse ++ emitted ∧
+      ∀ continuationFuel,
+          runProgramOutcomeLoop indexed (totalFuel + continuationFuel) state eventsRev =
+          runProgramOutcomeLoop indexed continuationFuel final finalEventsRev := by
+  simpa using step.iterateFrom 0 bound state eventsRev (by omega) holds
+
+end BoundedInvariantLoopStep
+
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 /- A small executable-proof fixture: a not-taken JE fetches the following SYSCALL, whose selected
     production interceptor emits one event.  It is intentionally a branch-plus-event example,
     not a synthetic relation with no production lookup or host transition. -/
