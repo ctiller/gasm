@@ -128,6 +128,12 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**Spikes & Integration Roadmap**](SPIKES.md): Spike progression, continuous testing, and stop-and-design invariant.
 - [**Review Protocol & Citation Laws**](REVIEW.md): `REF:` syntax, repository laws, and automated backlog tool.
 - [**Continuous Integration**](CI.md): the GitHub Actions gate inventory, Windows/Linux platform matrix, caching soundness argument, and cost split.
+- [**Research Index**](RESEARCH_INDEX.md): durable candidate findings, evidence, ownership
+  boundaries, and the conditions for promotion into proof libraries or normative specifications.
+- [**Proof Machinery Index**](PROOF_MACHINERY_INDEX.md): accepted reusable proof paths and visibly
+  separated extraction candidates, indexed by proof need.
+- [**Win32 Windowing Source Intake**](WIN32_WINDOWING_INTAKE.md): nonnormative official-source and
+  first-model research for the future Win32 windowing target contract.
 - [**Software Modeling & Architecture SDLC**](SOFTWARE_MODELING_SDLC.md): Typeclasses, theorem weaving, seams, and lowering.
 - [**Global Architecture**](ARCHITECTURE.md): System architecture, vertical slices, and common helper libraries.
 - [**API State Models**](API_STATE_MODELS.md): Current state/contract substrate and the explicitly

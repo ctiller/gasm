@@ -213,7 +213,13 @@ A pull request or codebase component is evaluated through a strict synthesis of 
 The Lean 4 compiler provides the absolute baseline of logic. This is the merge-policy inventory,
 implemented by the unfiltered local runner. Hosted CI composes platform-specific subsets and is
 equivalent only when their aggregate rows cover this inventory; current exceptions are disclosed
-in `docs/CI.md` §7. If any required gate fails, the PR is instantly rejected:
+in `docs/CI.md` §7. Before cached compilation,
+`python scripts/check_no_ignored_lean_sources.py` must establish that the filesystem Lean-source
+census, unreplaced `HEAD`, and the sole ordinary stage-0 Git index contain the same sources and
+bytes, allowing only CRLF-to-LF normalization.  Hidden, untracked, staged, flagged, mode- or
+case-divergent sources; repository/index/object substitution; source indirection; and source-less
+stale `.olean` files are hard failures.  A compiler result without this source identity is not
+evidence about the commit under review.  If any required gate fails, the PR is instantly rejected:
 1. **Type & Proof Integrity:** `lake build` must pass. Zero `sorry` and zero unauthorized axioms
    are enforced by item 4's executed `check_gates_axioms` audit; `lake build` alone only compiles
    the configured `defaultTargets` and does not turn every warning into an error.

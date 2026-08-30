@@ -6,6 +6,22 @@ made real Gasm proofs smaller or more honest.  Add abstractions only after repea
 For a need-oriented map from these tactics to checked declarations, consumers, and deliberate
 negative boundaries, see the [proof machinery index](PROOF_MACHINERY_INDEX.md).
 
+## Bind proof authority to committed source bytes
+
+A green proof build is evidence only when Lean read the exact source under review.  Before any
+cached build, require the filesystem Lean-source census to equal unreplaced `HEAD` and the sole
+ordinary stage-0 Git index, with CRLF-to-LF conversion as the only permitted byte normalization.
+Reject ignored, untracked, staged, flagged, mode- or case-divergent sources; substituted Git
+repositories, indexes, or object stores; symlink, junction, nested-repository, and hidden-namespace
+source boundaries; and project `.olean` files with no corresponding authoritative source.
+
+`scripts/check_no_ignored_lean_sources.py` owns this repository boundary and exercises its failure
+classes with planted negative controls.  The motivating failure combined a broadly ignored Lean
+source with a stale `.olean`: local imports succeeded although a clean checkout lacked the proof
+text.  Running another compiler pass would not remove that delta; establishing source/build
+identity before compilation does.  An intentional scratch source may therefore make the local
+gate correctly red.  Report it; do not modify or delete someone else's work to obtain green.
+
 ## Start from the logical boundary
 
 State the caller-visible success, failure, resource, and cancellation outcomes before symbolically

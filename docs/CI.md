@@ -26,7 +26,7 @@ The current hosted selection is:
 
 | CI slice | Events | Platform | Commands selected |
 |---|---|---|---|
-| Linters | push, PR, manual | Ubuntu once | `check_refs`, `check_full_refs_gate_wiring`, `check_gates`, `check_publishable`, `check_licenses`, `check_doc_facade`, `check_orphan_modules`, `check_instructions_umbrella` |
+| Linters | push, PR, manual | Ubuntu once | `check_refs`, `check_full_refs_gate_wiring`, `check_no_exception_ledgers`, `check_no_ignored_lean_sources`, `check_verification_authority`, `check_gates`, `check_publishable`, `check_licenses`, `check_doc_facade`, `check_orphan_modules`, `check_instructions_umbrella` |
 | Proofs | push, PR, manual | Windows + Ubuntu | `python scripts/build_full.py`, then the complete `proofs` group: the explicitly opted-in full-repository `check_refs_coverage` launcher, `check_gates_axioms`, `test_roundtrip`, `check_x86_obligations`, `check_aarch64_obligations` |
 | Fast tests | push | Windows + Ubuntu | `python scripts/build_full.py`, then `test_zlib`, `test_png`, `test_smolalloc` |
 | Spike tests | PR, manual | Windows | the three Stdlib tests, Windows Spike 1–5 tests, and Wasm Spike 1–3 tests |
@@ -46,6 +46,12 @@ near 28 GiB aggregate memory with one Lean process near 17 GiB. Those observatio
 not fixed requirements; cost depends on tree, cache, machine, and concurrency. Focused commands
 such as `lake exe test_graphics_foundation` remain useful inner-loop checks but do not replace the
 full gate.
+
+Every Lean-bearing hosted job runs `python scripts/check_no_ignored_lean_sources.py` before its
+cached build.  The gate requires the filesystem source census, unreplaced `HEAD`, and the sole
+ordinary stage-0 index to identify the same Lean sources and bytes (apart from CRLF-to-LF
+normalization), and rejects source indirection plus source-less stale `.olean` files.  This ordering
+is load-bearing: cache validation cannot establish which source text a missing module came from.
 
 The canonical authoritative build command is `python scripts/build_full.py`. It reads the exact
 `defaultTargets` list from `lakefile.toml`, builds those roots sequentially in declared order, and
@@ -81,7 +87,7 @@ keeps proof gates sequential and caps other automatic worker pools at two; even 
 
 The unfiltered local command, `python scripts/run_gates.py` with no selection flags, is
 intentionally broader than any one hosted job. Its table currently contains one build gate,
-nine linters (including the cache-dependent `check_references_offline`), five proof gates,
+twelve linters (including the cache-dependent `check_references_offline`), five proof gates,
 nineteen spike/test gates, and eight fuzzers. Grouped, sharded, or `--gate`-filtered invocations
 return success for their selected subset; they are CI building blocks, not evidence that the
 unfiltered local gate ran. Section 7 records intentional CI omissions separately from wiring

@@ -22,6 +22,7 @@ diagnostic until repeated accepted cases justify new machinery.
 
 | Proof need | Reusable machinery | Owning layer | Demonstrated use | Deliberate boundary |
 |---|---|---|---|---|
+| Establish that a proof build reads the committed source under review | `scripts/check_no_ignored_lean_sources.py` | repository source/build boundary, before cached compilation | every hosted Lean-bearing build and the unfiltered local gate | it establishes source identity, not theorem correctness; an intentional uncommitted source remains a reported failure rather than something the gate may remove |
 | Execute a list of local steps and compose the result | `Gasm.Proof.LocalExecution.runSteps_append` | target-independent list algebra | x86-64 and AArch64 macro assemblers | fetch, faults, fuel, host effects, termination, instruction admission, and artifact identity stay target-owned |
 | Lift a one-step frame fact over a list | `runSteps_preserves`, `runSteps_preservesOutside` | target-independent observation algebra | AArch64 memory, SP, flags, fault, termination, and GPR frames; x86-64 composed GPR frames | the target supplies the one-step theorem and clobber classification |
 | Compose frame facts without clobber-order obligations | `preserves_comp`, `preservesOutside_comp`, `preservesOutside_comp_append` | target-independent observation algebra | x86-64 segment composition and the shared list-execution consumers | append is only a conservative union representation; uniqueness and order are irrelevant |
@@ -137,6 +138,31 @@ The following code shapes have enough evidence to investigate but are not canoni
   invalidated jobs, dependency closure, search depth, and ambiguity/coherence failures.  Do not
   extract a class unless two real blocks improve; Lean's compiled modules already avoid replaying
   imported proof bodies, so shorter call syntax alone is not evidence of proof-economy.
+- Open nominal type-family admission in SPIR-V is represented by provisional candidate `fa98935`
+  (the clean-lineage integration of `78b9397`), which supersedes the rejected public-`String`
+  design in `71e6991`.  A finite `TypeFamilyDescriptor` proves its role list has no duplicates;
+  `SelectedTypeFamilies` proves both unique family ownership and uniqueness of the flattened
+  type-kind vocabulary before physicalization.  Raster declarations and mixed-table
+  physicalization retain sealed-family inclusion evidence, so a public token alone grants no
+  authority.  The explicit collision control rejects duplicate ownership.  A downstream
+  pointer-family probe measured 28.51 seconds and eight prerequisite rebuilds with the closed role
+  enumeration, versus 0.74 seconds and one leaf rebuild with the candidate boundary (maximum RSS
+  1,635,992 KiB).  Real pointer-family consumer `b098734` adds no central type/role edit; its two
+  cached leaf controls completed together in 0.756 seconds.  Its roughly 36.1-second, 80-target
+  first root build is a one-time branch/object-lineage rebuild, not incremental pointer cost.
+  Repair `7fc7752` makes pointer physicalization retain exact pointee-kind selection and carries a
+  property-relative witness over only the sealed table's pointer declarations; its pointer-only
+  negative control closes the prior admission hole without burdening unused base families.  Keep
+  the family boundary provisional until ancestry and attribution review closes; it is not a
+  universal plugin registry.
+- The provisional SPIR-V value-family seam in `19d36fd` is an accepted staged migration shape, not
+  yet reusable machinery.  Its next consumer must replace the core value reference in place with
+  one descriptor-indexed nominal `ValueRef`, recover existing core instruction typing through
+  `CoreValueTyping`, and preserve a single value/physical identifier namespace.  Do not add a
+  parallel SSA namespace.  The migration must reject cross-family ordinal collisions, retain
+  selected-family evidence for every operand and result, and preserve current core behavior.  The
+  selected raw codec in `0a31cb8` is evidence for the target-owned encoding boundary; it does not
+  make family admission or final emission authority generic.
 - Bounded byte reads appear in ELF, x86-64, AArch64, PNG, Zlib, and Gzip.  A first cursor slice
   should validate against two consumers with the same offset/progress needs while keeping format
   errors and validation consumer-owned.
