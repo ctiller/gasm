@@ -446,6 +446,57 @@ theorem toProductionPrefix {Event : Type} [interceptor : ExternalCallInterceptor
   | hostIntercept encoding lookup _ intercept safe tail ih =>
       exact .hostIntercept encoding lookup intercept safe ih
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Rebase only the reverse event accumulator of an already-certified selected prefix.
+
+This theorem is intentionally *not* a trace constructor or a chaining shortcut: it keeps the
+same indexed instructions, fuel, initial/final machine states, selector evidence, and emitted
+chronological delta.  In particular it cannot turn a prefix with a missing lookup, unsafe step,
+or unselected host boundary into a certificate.  Its sole use is to place a concrete prefix
+proved from one accumulator beneath an already-established earlier prefix. -/
+theorem rebaseEvents {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {fuel : Nat}
+    {initial final : X86_64MachineState} {initialEventsRev finalEventsRev emitted : List Event}
+    (certificate : SelectedPrefix selected indexed fuel initial initialEventsRev
+      final finalEventsRev emitted)
+    (incoming : List Event) :
+    SelectedPrefix selected indexed fuel initial (initialEventsRev ++ incoming)
+      final (finalEventsRev ++ incoming) emitted := by
+  induction certificate with
+  | nil state eventsRev =>
+      simpa using SelectedPrefix.nil state (eventsRev ++ incoming)
+  | ordinary encoding lookup selectedAt silent safe tail ih =>
+      exact .ordinary encoding lookup selectedAt silent safe ih
+  | directBranch encoding lookup selectedAt silent safe tail ih =>
+      exact .directBranch encoding lookup selectedAt silent safe ih
+  | conditionalTaken encoding chosen lookup selectedAt silent safe tail ih =>
+      exact .conditionalTaken encoding chosen lookup selectedAt silent safe ih
+  | conditionalFallthrough encoding notChosen lookup selectedAt silent safe tail ih =>
+      exact .conditionalFallthrough encoding notChosen lookup selectedAt silent safe ih
+  | hostIntercept encoding lookup selectedAt intercept safe tail ih =>
+      rename_i event
+      cases event <;>
+        simpa [accumulateEvent, List.append_assoc] using
+          SelectedPrefix.hostIntercept encoding lookup selectedAt intercept safe ih
+
+/-- Exact empty-base specialization of `rebaseEvents`: an existing concrete row's final
+reverse accumulator is its emitted chronological delta in reverse order, followed by the
+incoming accumulator.  It has the same negative applicability boundary as `rebaseEvents`. -/
+theorem rebaseEvents_empty {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {fuel : Nat}
+    {initial final : X86_64MachineState} {finalEventsRev emitted : List Event}
+    (certificate : SelectedPrefix selected indexed fuel initial ([] : List Event)
+      final finalEventsRev emitted)
+    (incoming : List Event) :
+    SelectedPrefix selected indexed fuel initial incoming final
+      (emitted.reverse ++ incoming) emitted := by
+  have hfinalReverse := ProductionPrefix.events_reverse_append certificate.toProductionPrefix
+  have hfinal : finalEventsRev = emitted.reverse := by
+    simpa using congrArg List.reverse hfinalReverse
+  simpa [hfinal] using certificate.rebaseEvents incoming
+
 /-- A selected prefix unfolds the executable selected-call checker one certified instruction at a
     time.  It relates the checker to the unchanged continuation rather than replaying a closed
     evaluator. -/
