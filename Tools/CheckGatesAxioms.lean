@@ -246,13 +246,13 @@ environment's transitive closure includes every dependency of `target`
 too, and those dependencies are already counted by the baseline scan (or
 by whichever OTHER standalone import covers them) -- restricting to exact
 module identity is what keeps each declaration reported exactly once. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def isExactlyModule (env : Environment) (name : Name) (target : Name) : Bool :=
   match env.getModuleIdxFor? name with
   | none => false
   | some idx => env.allImportedModuleNames[idx.toNat]? == some target
 
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def isReportableForModule (env : Environment) (name : Name) (info : ConstantInfo) (target : Name) : Bool :=
   isExactlyModule env name target && isReportableKind info && !name.isInternal
 
@@ -260,7 +260,7 @@ def isReportableForModule (env : Environment) (name : Name) (info : ConstantInfo
 `isProjectModule`/`isExactlyModule` use. `none` only for a name outside any
 imported module (never called on a name that already passed `isReportable`
 or `isReportableForModule`, both of which imply `some`). -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def originatingModule (env : Environment) (name : Name) : Option Name :=
   match env.getModuleIdxFor? name with
   | none => none
@@ -282,20 +282,20 @@ computing the module side of an allowlist entry from its (already-recorded,
 already used by scripts/check_gates.py) `file` field via the same
 `moduleNameOfPath` disk enumeration uses -- so the file field, previously
 carried only for diagnostics, now also does load-bearing disambiguation. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def matchKey (moduleName : Name) (fqn : String) : String := s!"{moduleName}::{fqn}"
 
 /-- The project's own top-level source roots. `Tools/` (home of this very
 checker) is deliberately excluded, matching `isProjectModule`'s existing
 Gasm/Stdlib/Spikes-only namespace scope. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def projectRootDirs : List String := ["Gasm", "Stdlib", "Spikes"]
 
 /-- Turns a project-relative `.lean` file path (e.g.
 `Gasm/Targets/X86_64/NASM.lean`) into the dotted module `Name` Lean's own
 import resolution would assign it (`Gasm.Targets.X86_64.NASM`). Assumes the
 `.lean` extension is already present (callers filter on it first). -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def moduleNameOfPath (p : System.FilePath) : Name :=
   (p.withExtension "").components.foldl Name.mkStr Name.anonymous
 
@@ -324,11 +324,11 @@ Two defects were fixed here, both in `enumerateProjectModules`
 Neither fix weakens the module-coverage check below: a module in scope that
 loads into neither the baseline environment nor a standalone import is still
 a hard failure. That is TC15/T2 and it stays load-bearing. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def discoverProjectModules : IO ProjectModuleEnumeration :=
   enumerateProjectModules projectRootDirs
 
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/
 def sepLine : String :=
   "======================================================================"
@@ -412,7 +412,7 @@ boundary as JSON -- and printing a `String` looks identical to printing the
 is still in hand (in-process for the baseline scan, inside the worker
 process for a standalone module), and carried alongside the axiom's own
 string form from then on. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/
 structure Offender where
   declModule : Name
@@ -440,14 +440,14 @@ def collectAxiomsFor (env : Environment) (ctx : Core.Context) (name : Name) :
 `GASM_SCAN_RESULT` JSON line has been parsed. `loadFailed` mirrors the old
 in-process `catch` arm (the module's own `importModules` failed); the parent
 folds it into `unloadable` exactly as before. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 inductive WorkerResult where
   | loadFailed (msg : String)
   | scanned (count : Nat) (gated : Array (String × Array (String × String)))
 
 /-- Parses one worker's `GASM_SCAN_RESULT` JSON payload (everything after the
 marker). See `runScanWorker` for the shape this is the inverse of. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def parseWorkerResult (payload : String) : Except String WorkerResult := do
   let j ← Json.parse payload
   let okJ ← j.getObjVal? "ok"
@@ -488,7 +488,7 @@ unparseable result line, which the parent treats identically -- both are
 exactly the blind spot this whole gate exists to refuse to hide). Carries no
 allowlist knowledge; the parent alone does `byKey` matching, so N worker
 processes never need N copies of the allowlist parsed into them. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def runScanWorker (target : Name) : IO UInt32 := do
   setupSearchPath
   let ctx : Core.Context := { fileName := "CheckGatesAxioms", fileMap := default }
@@ -519,7 +519,7 @@ def runScanWorker (target : Name) : IO UInt32 := do
   return 0
 
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def runGate : IO UInt32 := do
   let startTime ← IO.monoMsNow
 
@@ -757,7 +757,7 @@ mode: it is how `runGate` re-invokes THIS SAME executable as a standalone-scan
 worker subprocess (see the header doc's SUBPROCESS ISOLATION section) and is
 never meant to be typed by a human. Any other argument list (including none)
 runs the gate itself, exactly as before this fix. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only -/
+/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def main (args : List String) : IO UInt32 :=
   match args with
   | ["--scan-module", modStr] => runScanWorker (nameOfDotted modStr)

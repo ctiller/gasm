@@ -24,6 +24,7 @@ allowances below.
 from __future__ import annotations
 
 import argparse
+from collections import Counter, defaultdict
 import re
 import subprocess
 import sys
@@ -35,7 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RATCHET_PATH = Path(__file__).relative_to(REPO_ROOT).as_posix()
 TEMPORARY_LEDGER = "scripts/gate_allowlist.txt"
 MAX_TEMPORARY_GATE_ENTRIES = 17
-HISTORICAL_GATE_KEYS = {
+PINNED_GATE_KEYS = {
     "Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3_canonical_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Windows.spike3_canonical_effect_trace_equivalence_inst",
     "Spikes/Spike2Fibonacci/Windows/Equivalence.lean::spike2VerifiedProgram::Spikes.Spike2Fibonacci.Windows.spike2VerifiedProgram",
     "Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3VerifiedProgram::Spikes.Spike3SortLines.Windows.spike3VerifiedProgram",
@@ -53,6 +54,20 @@ HISTORICAL_GATE_KEYS = {
     "Spikes/Spike3SortLines/Linux/Test.lean::main::main",
     "Spikes/Spike3SortLines/Linux/Test.lean::runTests::Spikes.Spike3SortLines.Linux.runTests",
     "Spikes/Spike2Fibonacci/Linux/Test.lean::main::main",
+}
+PINNED_GATE_ROWS = {
+    key: (
+        "grandfathered"
+        if "spike3_canonical_effect_trace_equivalence_inst" in key
+        or "spike3_empty_effect_trace_equivalence_inst" in key
+        else "axiom-only"
+    )
+    for key in PINNED_GATE_KEYS
+}
+PINNED_DIRECT_MECHANISMS = {
+    key: ({"native_decide": 1} if "spike3_canonical_effect_trace_equivalence_inst" in key
+          or "spike3_empty_effect_trace_equivalence_inst" in key else {})
+    for key in PINNED_GATE_ROWS
 }
 TEMPORARY_PARSER_FILES = {
     "scripts/check_gates.py",
@@ -147,53 +162,111 @@ def live_temporary_entries() -> int:
     return count_live_entries(path.read_text(encoding="utf-8"))
 
 
-def temporary_keys(text: str) -> set[str]:
-    keys = set()
+def temporary_rows(text: str) -> list[tuple[str, str]]:
+    rows = []
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
         parts = stripped.split("::")
-        if len(parts) >= 3:
-            keys.add("::".join(part.strip() for part in parts[:3]))
-    return keys
+        if len(parts) >= 4:
+            rows.append(("::".join(part.strip() for part in parts[:3]), parts[3].strip()))
+    return rows
 
 
-def unexpected_temporary_keys(keys: set[str]) -> list[str]:
-    return sorted(keys - HISTORICAL_GATE_KEYS)
+def row_identity_failures(
+    rows: list[tuple[str, str]], pinned: dict[str, str] = PINNED_GATE_ROWS
+) -> list[str]:
+    """Require the live debt inventory to equal this revision's exact pin."""
+    expected = Counter((key, category) for key, category in pinned.items())
+    actual = Counter(rows)
+    failures = []
+    for row, count in sorted((actual - expected).items()):
+        failures.append(f"unexpected row ({count}x): {row[0]}::{row[1]}")
+    for row, count in sorted((expected - actual).items()):
+        failures.append(f"pinned row missing ({count}x): {row[0]}::{row[1]}")
+    return failures
 
 
-def live_unexpected_temporary_keys() -> list[str]:
+def live_row_identity_failures() -> list[str]:
     path = REPO_ROOT / TEMPORARY_LEDGER
     if not path.is_file():
         return []
-    return unexpected_temporary_keys(temporary_keys(path.read_text(encoding="utf-8")))
+    return row_identity_failures(temporary_rows(path.read_text(encoding="utf-8")))
+
+
+def direct_mechanism_failures(actual: dict[str, Counter[str]]) -> list[str]:
+    """Pin tactic kind and occurrence count inside every debt declaration."""
+    failures = []
+    for key, expected_dict in sorted(PINNED_DIRECT_MECHANISMS.items()):
+        expected = Counter(expected_dict)
+        observed = actual.get(key, Counter())
+        if observed != expected:
+            failures.append(
+                f"{key}: expected {dict(expected)}, observed {dict(observed)}"
+            )
+    return failures
+
+
+def live_direct_mechanism_failures() -> list[str]:
+    # Reuse the gate's comment-aware declaration attribution instead of
+    # maintaining a second, weaker Lean source parser here.
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    from check_gates import collect_occurrences  # type: ignore
+
+    occurrences, _, _ = collect_occurrences()
+    by_source = {
+        "::".join(key.split("::")[:2]): key for key in PINNED_GATE_ROWS
+    }
+    actual: dict[str, Counter[str]] = defaultdict(Counter)
+    for occurrence in occurrences:
+        if occurrence.decl is None:
+            continue
+        source_key = f"{occurrence.file}::{occurrence.decl.name}"
+        pinned_key = by_source.get(source_key)
+        if pinned_key is not None:
+            actual[pinned_key][occurrence.kind] += 1
+    return direct_mechanism_failures(actual)
 
 
 def temporary_debt_exceeded(count: int) -> bool:
     return count > MAX_TEMPORARY_GATE_ENTRIES
 
 
+def ratchet_configuration_failures() -> list[str]:
+    if MAX_TEMPORARY_GATE_ENTRIES != len(PINNED_GATE_ROWS):
+        return [
+            "MAX_TEMPORARY_GATE_ENTRIES must equal the exact pinned inventory "
+            f"({MAX_TEMPORARY_GATE_ENTRIES} != {len(PINNED_GATE_ROWS)})"
+        ]
+    return []
+
+
 def has_failures(
     bad_paths: list[str], parser_leak_list: list[str], bad_references: list[str],
-    unexpected_keys: list[str], live_entries: int
+    row_failures: list[str], mechanism_failures: list[str],
+    configuration_failures: list[str], live_entries: int
 ) -> bool:
     return bool(
         bad_paths
         or parser_leak_list
         or bad_references
-        or unexpected_keys
+        or row_failures
+        or mechanism_failures
+        or configuration_failures
         or temporary_debt_exceeded(live_entries)
     )
 
 
-def run_check(paths: Iterable[str] | None = None) -> tuple[list[str], list[str], list[str], list[str], int]:
+def run_check(paths: Iterable[str] | None = None) -> tuple[list[str], list[str], list[str], list[str], list[str], list[str], int]:
     selected = list(paths) if paths is not None else tracked_files()
     return (
         forbidden_ledger_paths(selected),
         parser_leaks(selected),
         forbidden_ledger_references(selected),
-        live_unexpected_temporary_keys(),
+        live_row_identity_failures(),
+        live_direct_mechanism_failures(),
+        ratchet_configuration_failures(),
         live_temporary_entries(),
     )
 
@@ -219,20 +292,28 @@ def self_test() -> int:
     boundary_is_accepted = not temporary_debt_exceeded(MAX_TEMPORARY_GATE_ENTRIES)
     ceiling_rejects_growth = temporary_debt_exceeded(MAX_TEMPORARY_GATE_ENTRIES + 1)
     aggregate_rejects_each_kind = all([
-        has_failures(["path"], [], [], [], 0),
-        has_failures([], ["parser"], [], [], 0),
-        has_failures([], [], ["reference"], [], 0),
-        has_failures([], [], [], ["new-key"], 0),
-        has_failures([], [], [], [], MAX_TEMPORARY_GATE_ENTRIES + 1),
+        has_failures(["path"], [], [], [], [], [], 0),
+        has_failures([], ["parser"], [], [], [], [], 0),
+        has_failures([], [], ["reference"], [], [], [], 0),
+        has_failures([], [], [], ["row"], [], [], 0),
+        has_failures([], [], [], [], ["mechanism"], [], 0),
+        has_failures([], [], [], [], [], ["configuration"], 0),
+        has_failures([], [], [], [], [], [], MAX_TEMPORARY_GATE_ENTRIES + 1),
     ])
     aggregate_accepts_clean_boundary = not has_failures(
-        [], [], [], [], MAX_TEMPORARY_GATE_ENTRIES
+        [], [], [], [], [], [], MAX_TEMPORARY_GATE_ENTRIES
     )
-    sample_key = next(iter(HISTORICAL_GATE_KEYS))
-    identity_accepts_historical = unexpected_temporary_keys({sample_key}) == []
-    identity_rejects_replacement = unexpected_temporary_keys({"Gasm/New.lean::proof::Gasm.New.proof"}) == [
-        "Gasm/New.lean::proof::Gasm.New.proof"
-    ]
+    exact_rows = list(PINNED_GATE_ROWS.items())
+    identity_accepts_exact = row_identity_failures(exact_rows) == []
+    removal_without_update_rejected = bool(row_identity_failures(exact_rows[:-1]))
+    reduced_pin = dict(exact_rows[:-1])
+    retired_resurrection_rejected = bool(row_identity_failures(exact_rows, reduced_pin))
+    ceiling_must_follow_pin = MAX_TEMPORARY_GATE_ENTRIES == len(PINNED_GATE_ROWS)
+    sample_key = next(key for key, expected in PINNED_DIRECT_MECHANISMS.items() if expected)
+    expected_actual = {key: Counter(value) for key, value in PINNED_DIRECT_MECHANISMS.items()}
+    mechanism_accepts_exact = direct_mechanism_failures(expected_actual) == []
+    expected_actual[sample_key]["native_decide"] += 1
+    extra_occurrence_rejected = bool(direct_mechanism_failures(expected_actual))
     passed = (
         bad_paths == ["scripts/new_allowlist.txt", "scripts/waiver_ledger.toml"]
         and bad_references == [f"{reference_probe}: scripts/new_allowlist.txt"]
@@ -241,8 +322,12 @@ def self_test() -> int:
         and ceiling_rejects_growth
         and aggregate_rejects_each_kind
         and aggregate_accepts_clean_boundary
-        and identity_accepts_historical
-        and identity_rejects_replacement
+        and identity_accepts_exact
+        and removal_without_update_rejected
+        and retired_resurrection_rejected
+        and ceiling_must_follow_pin
+        and mechanism_accepts_exact
+        and extra_occurrence_rejected
     )
     print(f"synthetic path/reference/parser/identity/ceiling rejection: {'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1
@@ -255,8 +340,12 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
-    bad_paths, leaks, bad_references, unexpected_keys, live_entries = run_check()
-    failed = has_failures(bad_paths, leaks, bad_references, unexpected_keys, live_entries)
+    (bad_paths, leaks, bad_references, row_failures, mechanism_failures,
+     configuration_failures, live_entries) = run_check()
+    failed = has_failures(
+        bad_paths, leaks, bad_references, row_failures, mechanism_failures,
+        configuration_failures, live_entries
+    )
     print("=" * 72)
     print(" Exception-ledger removal ratchet")
     print("=" * 72)
@@ -266,8 +355,12 @@ def main() -> int:
         print(f"[!] exception parser outside temporary Law-10 tools: {leak}")
     for leak in bad_references:
         print(f"[!] retired exception ledger is still advertised: {leak}")
-    for key in unexpected_keys:
-        print(f"[!] new Law-10 debt identity is forbidden: {key}")
+    for failure in row_failures:
+        print(f"[!] Law-10 debt inventory differs from the exact pin: {failure}")
+    for failure in mechanism_failures:
+        print(f"[!] Law-10 debt mechanism changed: {failure}")
+    for failure in configuration_failures:
+        print(f"[!] Law-10 ratchet configuration drifted: {failure}")
     if temporary_debt_exceeded(live_entries):
         print(f"[!] temporary Law-10 debt grew: {live_entries} > {MAX_TEMPORARY_GATE_ENTRIES}")
     else:

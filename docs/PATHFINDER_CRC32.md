@@ -4,7 +4,7 @@
 - REF: docs/EQUIVALENCE_PROOFS.md#4-the-three-independent-split-theorems
 - REF: docs/REVIEW.md#law-7-target-separation-equivalence-proof-purity-the-authoring-ergonomics-mandate
 - REF: docs/REVIEW.md#law-9-universal-quantification-input-completeness-mandate-the-anti-pointwise-law
-- REF: docs/REVIEW.md#law-10-kernel-checked-gates-the-nativedecide-restriction-exhaustive-finite-domains-only
+- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt
 - REF: docs/REVIEW.md#law-12-connection-theorem-mandate-no-unlinked-twins
 - REF: docs/STDLIB_ZLIB.md#22-crc-32-iso-3309-ieee-8023
 - REF: docs/STDLIB_ZLIB.md#61-checksum-invariance-theorems
