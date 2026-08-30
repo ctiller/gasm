@@ -130,7 +130,7 @@ def spike1WindowsProviderCertificate :
     all_goals
       change (_ = _) ∧ _
       constructor
-      · native_decide
+      · decide
       · rfl
 
 def spike1WindowsEntryCertificate :
