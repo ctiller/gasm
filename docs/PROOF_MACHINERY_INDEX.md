@@ -44,6 +44,17 @@ candidate rather than widening the library speculatively.
   ghost state; `SequentialLocalBlockRuns.combinedPrefix` composes the real selected prefixes and
   event deltas.  The caller-logical `Result` classifies a proof phase only.  Native termination or a
   production outcome still needs separate target-owned terminal evidence.
+- For a repeated production pass, distinguish the state projections consumed by the next layer
+  from the larger state the proof currently computes.  Commit `25a375f` caches exact instruction
+  projections in `DecimalStepFacts`, packages the seven-step extraction and five-step write
+  contracts in `DecimalPass`, and leaves `DecimalSchedule` to compose phases.  Selected passes store
+  only irreducible safety and placement evidence and derive redundant architectural effects as
+  theorems.  The representative warm edit frontier fell from 12.64 seconds/seven rebuilds to 5.54
+  seconds/three rebuilds, and the pass module from 1.5 seconds to 0.761 seconds.  The negative
+  control matters: moving facts without reversing the dependency direction measured 12.65 seconds
+  versus 12.64 seconds.  The reusable pattern is an observation-shaped invalidation boundary, not
+  a new facts namespace.  Register-frame, `does_not_use_memory`, jump, and syscall summaries are
+  likely consumers; their instruction and platform semantics remain owner-local.
 
 ## Admission record
 
@@ -67,6 +78,10 @@ Two useful precedents are:
 - `7b89615` introduced the canonical x86 `SelectedPrefix.Cutpoint` cache without adding a second
   evaluator; `81cc49a` built the accepted `LocalBlockDischarge` body-hole mechanism over it, with
   exact-middle sequential composition and no termination or artifact claim.
+- `25a375f` separated x86 decimal instruction projections, one-pass contracts, and schedule
+  composition.  Its before/after and unchanged-direction control demonstrate that dependency
+  invalidation, rather than theorem relocation alone, produced the build improvement; the accepted
+  implementation is integrated as `cec7e8e`.
 
 Commit identifiers are provenance, not API names.  Follow the declarations above on current main;
 use the commits to inspect the reviewed extraction delta.

@@ -52,6 +52,14 @@ In particular, store safety and placement in a selected pass and derive its arch
 do not store the same large dependent effect proposition a second time.  This keeps layout and
 runtime consumers cached when only schedule composition changes.
 
+The measured invalidation boundary is part of the evidence.  On `25a375f`, a representative warm
+edit frontier fell from 12.64 seconds and seven rebuilt modules to 5.54 seconds and three modules on
+Polonius; the pass module fell from 1.5 seconds to 0.761 seconds, with no semantic or proof-authority
+change.  A facts-only extraction that retained the old dependency direction took 12.65 seconds
+versus 12.64 seconds: effectively no gain.  Use the same consumer-observation audit for cached
+`does_not_use_memory`/register-frame facts and jump or syscall boundary summaries; theorem movement
+without a narrower import frontier is not an optimization.
+
 Changing the evaluator does not rescue a proposition whose proof term is itself monolithic.  On the
 exact 90-row Spike 2 Windows certificate, `decide +kernel` exceeded 60 GB without producing an
 `.olean`; do not rerun that shape.  A 52-step first-row producer took about 19 seconds, while a
