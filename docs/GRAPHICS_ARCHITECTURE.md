@@ -1,7 +1,8 @@
 # Graphics Architecture Specification: GPU Compute Pipelines & Shader Lowering
 
-> **Status note (2026-08-27)**: This document was rewritten after a pre-build review found it,
-> before any graphics Lean code existed, in violation of Law 9 (pointwise Spike 6), the
+> **Status note (updated 2026-08-30)**: This document was rewritten after a pre-build review
+> found the earlier design, before any graphics Lean code existed, in violation of Law 9
+> (pointwise Spike 6), the
 > observation standard (`docs/EQUIVALENCE_PROOFS.md` §1.1), and the demand-driven-growth
 > decision in `docs/DECISIONS.md` §1 (six speculative targets, zero built). Two subsystems this
 > document previously asserted as settled design —
@@ -17,11 +18,14 @@ committed target slice** (§2.1) — with the remaining five target combinations
 demoted to a non-obligating "possible futures" appendix (§2.2), per `docs/VISION.md` §3.3's
 demand-driven-growth principle and `docs/DECISIONS.md` §1.
 
-**Present truth**: zero graphics Lean code exists in this repository. Every section below is
-unimplemented design — a specification for what will be built, not a description of anything
-built yet. No `/- REF: ... -/` annotation cites this document (verified: grepping the tree
-for citations into `GRAPHICS_ARCHITECTURE.md` returns nothing), so nothing here is yet a
-Law-2 implementation obligation.
+**Present truth**: `Spikes/GraphicsFoundation/` now contains the explicitly nonnormative prototype
+described by `docs/GRAPHICS_FOUNDATION.md`: frontend-local SPIR-V structure/serialization, Vulkan
+resource and submission lifecycle, Win32-style window/input lifecycle, and cube/WSI ownership
+models with focused positive and adversarial controls. It is not `Gasm.Targets.Spirv`,
+`Gasm.Targets.Vulkan`, a selected conformance profile, a public graphics semantic API, a native
+ABI/link realization, or `VerifiedProgram` authority. Every section below remains unimplemented
+target design rather than a description of accepted target mechanism. No `/- REF: ... -/`
+annotation cites this document, so nothing here is yet a Law-2 implementation obligation.
 
 ```mermaid
 graph TD
@@ -82,7 +86,9 @@ implemented by this document.
 Windowing/presentation (Spike 7) has its own prerequisite, independent of the graphics-API
 slices above: `docs/TARGETS/WIN32_WINDOWING.md` (`RegisterClassEx`/`CreateWindowEx`/
 `GetMessage`/`DispatchMessage`/`WM_*`) does not exist, and no windowing source is registered in
-`references.json`.
+`references.json`. The local `Spikes/GraphicsFoundation/Window.lean` and `Presentation.lean`
+models exercise ownership questions but do not satisfy either prerequisite or claim Win32/Vulkan
+conformance.
 
 The future Vulkan WSI profile is also independent of the committed compute-only profile. It must pin
 the exact surface/swapchain extensions and presentation platform, then model surface and swapchain

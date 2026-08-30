@@ -11,9 +11,15 @@ This document defines the binary generation model for **SPIR-V shaders** and the
 > is a separate design, not
 > authored in this document. A pointer to the floating-point determinism question is likewise
 > added rather than answered here. The `spirv-val`
-> "guarantee" claim at the end of §1.2 is marked **UNSUBSTANTIATED** (no validator exists);
+> "guarantee" claim at the end of §1.2 is marked **UNSUBSTANTIATED** (no target validator exists);
 > replacing it with a build-time Lean validator remains graphics-roadmap work, out of scope
 > for this rewrite (`docs/ROADMAP.md` §1).
+>
+> Main now contains an explicitly nonnormative executable model under
+> `Spikes/GraphicsFoundation/`, documented by `docs/GRAPHICS_FOUNDATION.md`. Its local structural
+> checks and serializers are design evidence only: they do not implement this target document,
+> select the missing immutable SPIR-V/Vulkan profile, establish Khronos conformance, connect an
+> emitted artifact, or confer `VerifiedProgram` authority.
 
 ---
 
@@ -75,8 +81,9 @@ inductive SpirvTerminator {S : Type} (s_exit : ComposedState spirv S) where
 
 The `gasm` SPIR-V DSL automatically generates and typechecks structured merge declarations.
 **UNSUBSTANTIATED** — the previous sentence claimed this "guarantee[s] that emitted SPIR-V
-passes Khronos validation (`spirv-val`)"; zero graphics Lean exists, so no DSL currently
-generates or typechecks anything, and no such guarantee is established. `spirv-val` is an
+passes Khronos validation (`spirv-val`)"; the nonnormative GraphicsFoundation spike now generates
+and structurally checks a deliberately small local grammar, but no target DSL or validator proves
+this Khronos property, and no such guarantee is established. `spirv-val` is an
 external cross-check, not a proof this codebase currently produces; a build-time Lean
 SPIR-V validator plus a ∀-registered-shaders validity theorem is future work in
 `docs/ROADMAP.md` §1 — until that validator lands, no validity claim for

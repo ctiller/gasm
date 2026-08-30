@@ -21,12 +21,12 @@ import Spikes.GraphicsFoundation.Cube
 
 namespace Spikes.GraphicsFoundation.Test
 
-/- REF: docs/GRAPHICS_FOUNDATION.md#6-promotion-gates -/
+/- REF: docs/GRAPHICS_FOUNDATION.md#7-promotion-gates -/
 def expectOk {ε α : Type} [Repr ε] (label : String) : Except ε α → IO α
   | .ok value => pure value
   | .error error => throw (IO.userError s!"{label}: expected success, got {repr error}")
 
-/- REF: docs/GRAPHICS_FOUNDATION.md#6-promotion-gates -/
+/- REF: docs/GRAPHICS_FOUNDATION.md#7-promotion-gates -/
 def expectError {ε α : Type} [Repr ε] [DecidableEq ε]
     (label : String) (expected : ε) : Except ε α → IO Unit
   | .error actual =>
@@ -420,7 +420,7 @@ def testCubePresentation : IO Unit := do
     (Presentation.retireFrame frame ps17)
   testCubePresentationClosure surface swapchain frame image ps17
 
-/- REF: docs/GRAPHICS_FOUNDATION.md#6-promotion-gates -/
+/- REF: docs/GRAPHICS_FOUNDATION.md#7-promotion-gates -/
 def runAll : IO UInt32 := do
   testSpirv
   IO.println "[+] SPIR-V local serialization/structural controls passed"
@@ -435,6 +435,6 @@ def runAll : IO UInt32 := do
 
 end Spikes.GraphicsFoundation.Test
 
-/- REF: docs/GRAPHICS_FOUNDATION.md#6-promotion-gates -/
+/- REF: docs/GRAPHICS_FOUNDATION.md#7-promotion-gates -/
 def main : IO UInt32 :=
   Spikes.GraphicsFoundation.Test.runAll
