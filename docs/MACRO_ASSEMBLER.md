@@ -412,6 +412,21 @@ fuel accounting, host interception, or termination; they establish no ABI, calla
 admissibility, artifact connection, `VerifiedExportSet`, or `VerifiedProgram` authority. A later
 target/linker bridge must connect selected instructions and exact bytes to those authorities.
 
+## AArch64 AAPCS64 backend
+
+`Gasm.Compiler.Word.AArch64AAPCS64` lowers the portable four-argument Word source language through
+its portable `Op` plan into proved AArch64 macro segments, exact selected instructions, and exact
+serialized bytes. It selects the AAPCS64 integer registers X0--X3 for the source language's four
+inputs, X0 for the result, and caller-saved X9 as its one scratch register. AAPCS64 provides more
+integer argument registers; they are intentionally outside this source subset. In a binary body the
+right atom is captured in X9 before X0 is overwritten, preserving the original X0 argument for
+either operand.
+
+The backend certificate is local body evidence only. It has no RET or stack frame and makes no
+callable-export, OS, lookup/fuel, platform-execution, artifact-connection, `VerifiedExportSet`, or
+`VerifiedProgram` claim. X0 is both the first input and result, so input preservation applies to
+the unmodified X1--X3 inputs; X0 and X9 form the conservative declared clobber set.
+
 ## Differential certificate transport
 
 Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,
