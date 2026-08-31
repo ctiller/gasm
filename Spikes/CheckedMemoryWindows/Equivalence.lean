@@ -43,6 +43,8 @@ open Gasm.Targets.Windows.ProcessEntryMemory
 open Spikes.CheckedMemoryWindows.Authority
 open Spikes.CheckedMemoryWindows.Realization
 
+variable [selectedHost : HostSelection]
+
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 abbrev Event := AnyEvent
 
@@ -197,8 +199,7 @@ def artifact : WindowsX86_64Artifact where
   instructions := instructions
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-/-- The world after the terminal event has invalidated the captured view but before the exclusive
-    access obligation is returned. -/
+/-- The world after view invalidation and before governed root-lifetime destruction. -/
 def afterInvalidationWorld (selected : InvocationId) (state : X86_64MachineState) :
     World ObligationId ObligationKind :=
   ⟨[accessEntry selected state], by simp [accessEntry]⟩
@@ -213,68 +214,93 @@ theorem invalidateRemoval :
   exact ⟨by rfl⟩
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-theorem accessRemoval :
+theorem accessDestructionRemoval :
     Removal (afterInvalidationWorld invocation entryState) completedWorld
       (accessEntry invocation entryState) := by
   exact ⟨by simp [afterInvalidationWorld, completedWorld, World.empty]⟩
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-/-- Target lifecycle authority for this exact invocation and production terminal execution. The
-    private constructor prevents structural removals from being repackaged as teardown authority. -/
+inductive RootDisposition where
+  | invalidateCapturedView
+  | destroyExclusiveWithRoot
+  | returnExclusive (recipient : InvocationId)
+  deriving DecidableEq
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- Profile-owned root-exit transition. The exact terminal occurrence causes page-table retirement
+    and gives each live obligation an explicit disposition; destruction is not called a return. -/
 structure LifecycleCompletion (selected : InvocationId)
-    (state : X86_64MachineState) : Prop where
+    (state : X86_64MachineState) (activeHost : WindowsHostState) where
   private mk ::
   exactInvocation : selected = invocation
   exactState : state = entryState
+  exactActiveHost : activeHost = processEntryLoad.afterHost
   terminal :
     (runProgramOutcomeLoop (Event := Event) (indexInstructions state.rip instructions) 4 state []).observable =
       .processExited 0 [Inject.inject (ProcessEvent.exit 0)]
-  rootTeardown : RootTeardown processEntryLoad 0 .retired
+  rootTeardown : RootTeardown processEntryLoad 0
+  dispositions : List RootDisposition
+  dispositionsExact : Eq dispositions
+    [RootDisposition.invalidateCapturedView, RootDisposition.destroyExclusiveWithRoot]
   invalidatesView : Removal (entryWorld selected state)
     (afterInvalidationWorld selected state) (invalidateEntry selected)
-  returnsExclusive : Removal (afterInvalidationWorld selected state) completedWorld
+  destroysExclusive : Removal (afterInvalidationWorld selected state) completedWorld
     (accessEntry selected state)
+  postHost : WindowsHostState
+  postHostExact : postHost = rootTeardown.afterHost
+  activeMappingGone : committedEntry processEntryLoad ∉ postHost.pageTable
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-theorem lifecycleCompletion : LifecycleCompletion invocation entryState where
+def lifecycleCompletion :
+    LifecycleCompletion invocation entryState processEntryLoad.afterHost where
   exactInvocation := rfl
   exactState := rfl
+  exactActiveHost := rfl
   terminal := canonicalObservable
   rootTeardown := rootTeardownAfterExitProcess processEntryLoad 0
+  dispositions := [.invalidateCapturedView, .destroyExclusiveWithRoot]
+  dispositionsExact := rfl
   invalidatesView := invalidateRemoval
-  returnsExclusive := accessRemoval
+  destroysExclusive := accessDestructionRemoval
+  postHost := (rootTeardownAfterExitProcess processEntryLoad 0).afterHost
+  postHostExact := rfl
+  activeMappingGone := committedEntry_not_active_after_teardown processEntryLoad 0
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Universe-erased evidence that the selected ordinary instruction was produced by the sealed
     checked authoring path for the same invocation and state. -/
-def AuthoringEstablished (selected : InvocationId) (state : X86_64MachineState) : Prop :=
-  ∃ checked : CheckedStore selected state,
+def AuthoringEstablished (selected : InvocationId) (state : X86_64MachineState)
+    (activeHost : WindowsHostState) : Prop :=
+  ∃ checked : CheckedStore selected state activeHost,
     checked.erase = mov_rsp_byte byteOffset storedValue
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Sole admission bundle for checked memory. Its indices force loader issuance, logical
     live/latest authority, physical mapping, checked authoring, terminal teardown, and evaluator
     fuel to describe one invocation and state. No proper subset grants admission. -/
-structure MemoryAdmission (selected : InvocationId) (state : X86_64MachineState) where
+structure MemoryAdmission (selected : InvocationId) (state : X86_64MachineState)
+    (activeHost : WindowsHostState) where
   private mk ::
   exactInvocation : selected = processEntryLoad.invocation
   exactLoadedState : state = processEntryLoad.machine
-  invocationIssued : InvocationIssuance initialInvocationWorld
-    processEntryLoad.afterInvocations selected
+  exactActiveHost : activeHost = processEntryLoad.afterHost
+  operationalLoad : processEntryLoad = loadProcessEntry executable selectedHost.beforeHost
   logical : TypedStoreView selected state
-  physical : X86StoreRealization selected state
-  authored : AuthoringEstablished selected state
-  lifecycle : LifecycleCompletion selected state
+  physical : X86StoreRealization selected state activeHost
+  authored : AuthoringEstablished selected state activeHost
+  lifecycle : LifecycleCompletion selected state activeHost
   proofFuel : Nat
   proofFuelExact : proofFuel = 4
   termination : selectedExecutionTerminates (Event := Event) false selectedNonInputWin32Call
     indexed proofFuel state = true
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-def memoryAdmission : MemoryAdmission invocation entryState where
+def memoryAdmission :
+    MemoryAdmission invocation entryState processEntryLoad.afterHost where
   exactInvocation := rfl
   exactLoadedState := rfl
-  invocationIssued := processEntryLoad.issuance
+  exactActiveHost := rfl
+  operationalLoad := rfl
   logical := typedStoreView
   physical := storeRealization
   authored := ⟨checkedStore, CheckedStore.erase_eq checkedStore⟩
@@ -290,12 +316,14 @@ structure CheckedMemoryContext where
   private mk ::
   selected : InvocationId
   state : X86_64MachineState
-  admission : MemoryAdmission selected state
+  activeHost : WindowsHostState
+  admission : MemoryAdmission selected state activeHost
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 def checkedEntryContext : CheckedMemoryContext where
   selected := invocation
   state := entryState
+  activeHost := processEntryLoad.afterHost
   admission := memoryAdmission
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
@@ -308,6 +336,7 @@ def CheckedMemoryEstablished (selectedArtifact : WindowsX86_64Artifact)
     loaded = entryState.withExternalInputs environment.stdin environment.incomingRequests ∧
     context.selected = invocation ∧
     context.state = entryState ∧
+    context.activeHost = processEntryLoad.afterHost ∧
     selectedArtifact.instructions =
       [sub_rsp frameSize, mov_rsp_byte byteOffset storedValue,
         xor_r32 .ecx .ecx, call_rip 8199]
@@ -386,7 +415,7 @@ def entryCertificate : ProgramEntryCertificate (WindowsX86_64 Event)
     intro environment
     constructor
     · trivial
-    · exact ⟨rfl, rfl, rfl, rfl, instructions_shape⟩
+    · exact ⟨rfl, rfl, rfl, rfl, rfl, instructions_shape⟩
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 theorem outcomeExternalInputFrame (environment : Environment) :
@@ -431,11 +460,20 @@ def behaviorCertificate : ProgramBehaviorCertificate (WindowsX86_64 Event)
     exact checkedEntryContext.admission.lifecycle.terminal
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-/-- Sole whole-program proof and emission authority for the checked-memory demonstration. -/
-def verifiedProgram : VerifiedProgram (WindowsX86_64 Event)
+/-- Whole-program proof under one platform-selected incoming host state. -/
+def selectedVerifiedProgram : VerifiedProgram (WindowsX86_64 Event)
     capabilities :=
   VerifiedProgram.compose "Checked x86 byte store to Windows process exit"
     artifactCertificate providerCertificate entryCertificate admissibilityCertificate
     behaviorCertificate
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- Sole public proof and emission authority for the demonstration. The caller must provide the
+    platform host state being consumed; this function does not reset a local invocation world. -/
+def verifiedProgram (beforeHost : WindowsHostState) :
+    letI : HostSelection := ⟨beforeHost⟩
+    VerifiedProgram (WindowsX86_64 Event) capabilities := by
+  letI : HostSelection := ⟨beforeHost⟩
+  exact selectedVerifiedProgram
 
 end Spikes.CheckedMemoryWindows
