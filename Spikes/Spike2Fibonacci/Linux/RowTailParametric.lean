@@ -153,6 +153,58 @@ theorem selectedPrefix {formatted : X86_64MachineState} {eventsRev : List AnyEve
   simpa [lineTerminatorCode, writeSetupCode, recurrenceHeadCode, afterLineTerminator,
     beforeWriteSyscall, beforeBackEdge, afterRecurrence] using beforeCall.append afterCall
 
+private theorem recurrence_counter_local (state : X86_64MachineState) :
+    (X86_64Instruction.step (jmp_rel32 4294967027)
+      (runLocalSteps recurrenceHeadCode state)).gprs .r13 = state.gprs .r13 + 1 := by
+  rfl
+
+private theorem recurrence_current_local (state : X86_64MachineState) :
+    (X86_64Instruction.step (jmp_rel32 4294967027)
+      (runLocalSteps recurrenceHeadCode state)).gprs .r14 = state.gprs .r15 := by
+  rfl
+
+private theorem recurrence_next_local (state : X86_64MachineState) :
+    (X86_64Instruction.step (jmp_rel32 4294967027)
+      (runLocalSteps recurrenceHeadCode state)).gprs .r15 =
+        state.gprs .r14 + state.gprs .r15 := by
+  rfl
+
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
+/-- The fixed recurrence tail re-establishes the typed entry for the next row without unfolding
+the variable-width decimal schedule or equating whole machine states. -/
+theorem afterRecurrence_entry {completed : Nat} {current next : UInt64}
+    {formatted : X86_64MachineState}
+    (entryCounter : formatted.gprs .r13 = (completed + 1).toUInt64)
+    (entryCurrent : formatted.gprs .r14 = current)
+    (entryNext : formatted.gprs .r15 = next)
+    (frame : Frame formatted)
+    (nextContinues : completed + 1 < 90) :
+    Spike2LinuxRowEntry (completed + 1) next (current + next)
+      (afterRecurrence formatted) where
+  completed_lt := nextContinues
+  rip := by
+    change (beforeBackEdge formatted).rip + 5 + signExtend32To64 4294967027 = _
+    rw [frame.backRip]
+    decide
+  counter := by
+    have h := recurrence_counter_local (afterWriteSyscall formatted)
+    rw [frame.liveR13, entryCounter] at h
+    rw [show afterRecurrence formatted = X86_64Instruction.step (jmp_rel32 4294967027)
+      (runLocalSteps recurrenceHeadCode (afterWriteSyscall formatted)) by rfl]
+    calc
+      _ = (completed + 1).toUInt64 + 1 := h
+      _ = ((completed + 1) + 1).toUInt64 := by
+        exact (UInt64.ofNat_add (completed + 1) 1).symm
+  current_value := by
+    have h := recurrence_current_local (afterWriteSyscall formatted)
+    rw [frame.liveR15, entryNext] at h
+    simpa only [afterRecurrence, beforeBackEdge] using h
+  next_value := by
+    have h := recurrence_next_local (afterWriteSyscall formatted)
+    rw [frame.liveR14, frame.liveR15, entryCurrent, entryNext] at h
+    simpa only [afterRecurrence, beforeBackEdge] using h
+  safe := frame.backSafe
+
 end RowTailParametric
 
 end Spikes.Spike2Fibonacci.Linux

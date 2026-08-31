@@ -73,7 +73,8 @@ theorem twoDigitRowPrefix {completed : Nat} {current next : UInt64}
       formatted.gprs .r14 =
         (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor).gprs .r14 ∧
       formatted.gprs .r15 =
-        (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor).gprs .r15 := by
+        (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor).gprs .r15 ∧
+      RowTailParametric.Frame formatted := by
   have opening := RowTwoDigitIndex.openingPrefix (eventsRev := eventsRev)
     entry twoDigit openingFrame
   have rest := RowTwoDigitIndex.openingRestPrefix (eventsRev := eventsRev) openingRestFrame
@@ -84,9 +85,49 @@ theorem twoDigitRowPrefix {completed : Nat} {current next : UInt64}
   subst finalEventsRev
   have tail := RowTailParametric.selectedPrefix (eventsRev := eventsRev) tailFrame
   refine ⟨26 + decimalFuel + 19, formatted, emitted, ?_, ?_, restoredRsp,
-    preservesR13, preservesR14, preservesR15⟩
+    preservesR13, preservesR14, preservesR15, tailFrame⟩
   · omega
   · simpa using ((opening.append rest).append decimalPrefix).append tail
+
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
+/-- The bounded arbitrary-digit row producer also exposes the typed successor entry.  The three
+opening projections are explicit because reducing the full two-digit opening merely to rediscover
+register preservation is itself an unbounded elaboration trap; concrete callers can establish
+these local facts once at their boundary. -/
+theorem twoDigitRowPrefix_successor {completed : Nat} {current next : UInt64}
+    {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
+    (entry : Spike2LinuxRowEntry completed current next predecessor)
+    (twoDigit : 10 ≤ completed + 1)
+    (nextContinues : completed + 1 < 90)
+    (openingFrame : OpeningFrame predecessor)
+    (openingRestFrame : RowTwoDigitIndex.TwoDigitOpeningRestFrame predecessor)
+    (setupCounter : (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor).gprs .r13 =
+      (completed + 1).toUInt64)
+    (setupCurrent : (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor).gprs .r14 = current)
+    (setupNext : (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor).gprs .r15 = next)
+    (realization : UInt64DecimalScheduleRealization selectedNonInputPlatformCall spike2Indexed 20
+      current (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor) eventsRev
+      TailReadyCallerFrame) :
+    ∃ requiredFuel formatted emitted,
+      requiredFuel ≤ 45 + 12 * decimalDigitCount current ∧
+      ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed requiredFuel
+        predecessor eventsRev (RowTailParametric.afterRecurrence formatted)
+        (accumulateEvent eventsRev (RowTailParametric.writeEvent formatted))
+        (emitted ++ emittedBy (RowTailParametric.writeEvent formatted)) ∧
+      Spike2LinuxRowEntry (completed + 1) next (current + next)
+        (RowTailParametric.afterRecurrence formatted) := by
+  rcases twoDigitRowPrefix entry twoDigit openingFrame openingRestFrame realization with
+    ⟨requiredFuel, formatted, emitted, fuelBound, rowCertificate, _rsp, preservesR13,
+      preservesR14, preservesR15, tailFrame⟩
+  have formattedCounter : formatted.gprs .r13 = (completed + 1).toUInt64 := by
+    exact preservesR13.trans setupCounter
+  have formattedCurrent : formatted.gprs .r14 = current := by
+    exact preservesR14.trans setupCurrent
+  have formattedNext : formatted.gprs .r15 = next := by
+    exact preservesR15.trans setupNext
+  exact ⟨requiredFuel, formatted, emitted, fuelBound, rowCertificate,
+    RowTailParametric.afterRecurrence_entry formattedCounter formattedCurrent formattedNext
+      tailFrame nextContinues⟩
 
 end RowDecimalSchedule
 
