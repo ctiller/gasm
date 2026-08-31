@@ -196,6 +196,12 @@ inductive TargetEvent where
   | exit (code : UInt32)
 deriving Repr
 
+def providerResponses : List TargetEvent → List ProviderResponse
+  | [] => []
+  | .isa :: rest => providerResponses rest
+  | .provider response :: rest => response :: providerResponses rest
+  | .exit _ :: rest => providerResponses rest
+
 def isBoundaryRip (rip : UInt64) : Prop :=
   ∃ site : BoundarySite, site.rip = some rip
 
@@ -327,6 +333,27 @@ theorem Execution.logicalPrefix {profile before events after}
   | refl => exact .refl _
   | tail step rest ih => exact logicalPrefix_trans step.logicalPrefix ih
 
+/-- Erasing ordinary ISA and exit events from an exact execution yields the source-labelled
+execution with precisely the provider responses that actually occurred. This is the automatic
+upward transfer used by source progress; callers cannot substitute a friendlier plan. -/
+theorem Execution.toLogicalExecution {profile before events after}
+    (execution : Execution profile before events after) :
+    RelationalExperiment.Execution before.logical (providerResponses events) after.logical := by
+  induction execution with
+  | refl => exact .refl _
+  | tail step rest ih =>
+      cases step with
+      | ordinary => exact ih
+      | boundary running atCall effect =>
+          cases effect with
+          | acquired site same logicalStep => exact .tail logicalStep ih
+          | noStdout site same logicalStep => exact .tail logicalStep ih
+          | accepted site same handle overlapped writtenSlot readable bytesExact logicalStep bounded =>
+              exact .tail logicalStep ih
+          | writeFailed failure site same handle overlapped writtenSlot readable logicalStep =>
+              exact .tail logicalStep ih
+      | exit => exact ih
+
 /-- The initial state is the exact PE loader state and exact data image. -/
 def initial : Config :=
   { machine := executable.load, emitted := [], logical := RelationalExperiment.initial }
@@ -348,6 +375,14 @@ theorem terminal_execution_refines {profile events after}
   have logicalPrefix : RelationalExperiment.Prefix RelationalExperiment.initial after.logical :=
     execution.logicalPrefix
   exact RelationalExperiment.terminal_sound logicalPrefix logicalTerminal
+
+/-- Source-level progress assumptions transfer automatically to the provider projection of the
+exact ISA execution. The conclusion is logical termination; the exact exit witnesses separately
+show that each selected terminal block reaches the corresponding `ExitProcess` occurrence. -/
+theorem eligible_execution_reaches_logical_terminal {profile events after}
+    (execution : Execution profile initial events after)
+    (eligible : EligiblePlan (providerResponses events)) : after.logical.IsTerminal := by
+  exact spike1VerifiedExperiment.conditionalTermination eligible execution.toLogicalExecution
 
 /-- An oversized success is absent at the actual provider seam, not converted by the common fatal
 machine label into a source failure. -/

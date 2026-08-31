@@ -41,6 +41,9 @@ structure VerifiedArtifact where
   terminalRefinement : ∀ {profile events after},
     Execution profile initial events after → after.terminalCause.isSome →
       ∃ observation, after.logical.block = .terminal observation ∧ Accepts observation
+  progressTransfer : ∀ {profile events after},
+    Execution profile initial events after → EligiblePlan (providerResponses events) →
+      after.logical.IsTerminal
   fullWriteReachable : ∃ after,
     Execution selectedProfile initial
       (List.replicate 2 .isa ++ [.provider .stdoutAcquired] ++
@@ -65,6 +68,7 @@ def verifiedArtifact : VerifiedArtifact where
   sourceProgressExact := rfl
   prefixSafety := fun execution => (execution.preservesAgreement initial_agrees).1
   terminalRefinement := terminal_execution_refines
+  progressTransfer := eligible_execution_reaches_logical_terminal
   fullWriteReachable := full_write_execution
   noStdoutReachable := no_stdout_execution
   shortWriteRetries := short_write_retries
