@@ -391,6 +391,10 @@ use the commits to inspect the reviewed extraction delta.
 
 The following code shapes have enough evidence to investigate but are not canonical generic APIs:
 
+- The blocked cross-consumer architecture dossier review is preserved in
+  [Cross-consumer proof-architecture dossier review](PROOF_ARCHITECTURE_DOSSIER_REVIEW.md).  It is a
+  pressure-test and correction checklist, not a second architecture owner or implementation seam.
+
 ### Memory-model carriers and provider worlds
 
 - Four isolated memory-model checkpoints demonstrate useful proof shapes but are not integrated and
