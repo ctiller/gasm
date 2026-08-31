@@ -362,8 +362,9 @@ The following code shapes have enough evidence to investigate but are not canoni
   key and generation must fail through `binding_key_generation_unique`; the existing duplicate-root
   fixture exercises only duplicate identity and `Nodup`.  Replacement
   `1cc0c4e5574eb21440e389df71b01d7bf9e64b94` adds both controls without changing the public
-  mechanism and is MP exact-hash accepted.  Reviewer verdict, Trust integration, and a canonical
-  landed hash remain pending.
+  mechanism and is MP+Reviewer exact-hash accepted with no P1.  Trust integration and a canonical
+  landed hash remain pending; chronology, liveness, alias, path, and composition semantics remain
+  nonclaims.
 
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
