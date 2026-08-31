@@ -96,6 +96,22 @@ source-discovery question, not the registry, profile-selection, or implementatio
 | Win-Compute (Vulkan/DX12 compute, no longer a distinct slice) | Absorbed | The Vulkan-compute half is already the committed target (§2.1); the DX12-compute half is blocked on Win-DX12's prerequisites above. |
 | Wasm-Compute (WebGPU compute, no longer a distinct slice) | Absorbed | Blocked on Wasm-WebGPU's prerequisites above; not an independent gap. |
 
+Cross-platform window/presentation research preserves specialization rather than making the current
+Vulkan `Presentation` prototype universal.  A Linux Vulkan profile should reuse SPIR-V, Vulkan, and
+Vulkan-WSI semantics, then add a target-local Wayland adapter first (or XCB when selected) and an
+ELF/System V Vulkan-loader boundary.  macOS has two distinct candidate profiles: a pragmatic
+MoltenVK compatibility profile with an explicitly pinned and certified
+MoltenVK-to-SPIRV-Cross-to-Metal chain, or a first-class Metal profile that directly refines the same
+high-level render, window, and frame demands.  The common layer may contain only demand and
+observation identities and their consequences.  Vulkan swapchains, layouts, queue families, and
+semaphores remain Vulkan-owned; Metal drawables, command buffers, and events remain Metal-owned.
+
+Each selected profile must keep configure/acknowledge, AppKit run-loop behavior, input projection,
+surface generations, completion, presentation, reuse, display visibility, and failure classes
+distinct.  Proof obligations are selected-profile and selected-feature driven: an unselected WSI,
+window system, compatibility translator, or native Metal path imposes no premise.  This is durable
+design research, not a committed target, accepted public interface, or `VerifiedProgram` claim.
+
 Windowing/presentation (Spike 7) has its own prerequisite, independent of the graphics-API
 slices above: `docs/TARGETS/WIN32_WINDOWING.md` (`RegisterClassEx`/`CreateWindowEx`/
 `GetMessage`/`DispatchMessage`/`WM_*`) does not exist, and no windowing source is registered in

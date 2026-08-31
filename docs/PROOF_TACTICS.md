@@ -212,6 +212,20 @@ and final artifact connection.  Give each layer a small contract and a frame law
 systems, prove chunk composition independently of chunk boundaries.  For sorting, keep immutable
 line contents separate from the mutable permutation and algorithm-specific ordered region.
 
+When a consumer needs a small observation refinement from a large evaluator, define the refinement
+over an abstract observation and prove its constructor equations once.  Canonical `a10c2700` makes
+WASI successful-exit normalization preserve completed, trapped, nonzero-exit, and memory-exhausted
+outcomes, while the consumer supplies only the exact successful payload and an explicit no-fuel
+premise.  Spike 3 then applies that theorem without unfolding the computation that produced the
+observation.  The refinement changes neither the evaluator nor final proof authority.
+
+For stable sorting by a projected preorder, state stability as equality of the filtered sequence for
+every mutual-preorder key class.  This observes the exact order of distinct records sharing a key,
+unlike permutation or sorting untagged values.  Canonical `ddab78cb` proves ordering, permutation,
+and `Stdlib.Sort.insertionSort_stableOn` independently, then uses tagged equal-key records separated
+by a smaller key as a nonvacuous regression.  The pure sorting laws do not establish target
+execution or artifact authority.
+
 ## Compose generated bodies with tiny authority tails
 
 Keep a generated straight-line body behind its local certificate, then connect it to the production

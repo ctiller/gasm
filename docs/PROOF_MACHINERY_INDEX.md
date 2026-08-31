@@ -29,6 +29,8 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Cache an exact selected x86 production prefix | `ProductionPrefix.SelectedPrefix.Cutpoint` | x86-64 eventful production semantics | canonical evidence carried by `LocalBlockRun` | a cutpoint proves an exact prefix only; it does not classify the caller's logical phase or prove termination |
 | Discharge and compose an x86 local body contract | `LocalBlockDischarge`, `LocalBlockDischarge.refine`, and `LocalBlockRun.then` | x86-64 local contract/production-prefix bridge | accepted implementation-hole mechanism for proof-directed blocks | contracts and middle-entry facts remain explicit; CFG identity, placement, terminal outcomes, and artifact authority are separate |
 | Stop a finite fold at the first refused input | `Stdlib.fallibleFold`, `fallibleFold_conservation`, `fallibleFold_acceptedPrefix`, and `fallibleFold_refused_boundary` | dependency-light pure control algebra | Zlib streaming plus Spike 5 accepted and zero-capacity refusal outcomes | resource identity, reclamation, cleanup, effects, target execution, and artifact authority remain consumer-owned |
+| Refine one successful observation without unfolding its producer | `WasiObservable.normalizeSuccessfulExit`, its constructor equations, and `WasiObservable.refines_normalizeSuccessfulExit` | WASI observation algebra | Spike 3 Wasm equivalence | the consumer must prove the exact success payload and exclude fuel exhaustion; evaluator, outcome vocabulary, runtime bounds, and `VerifiedProgram` authority are unchanged |
+| Prove projected-key insertion-sort stability | `Stdlib.Sort.StableOn` and `insertionSort_stableOn` | pure container algebra | Spike 3 byte-line model plus distinct tagged equal-key regression | ordering and permutation are separate theorems; target execution and artifact authority remain consumer-owned |
 | Lower bounded structured straight-line code to Microsoft x64 | `StructuredStraightLineMicrosoftX64Entry.lowerFunction` and its `LocalCertificate` | compiler's target-specific local lowering layer | canonical bounded Microsoft x64 entry backend | exact clobbers and local semantics are proved; process entry, non-return, platform outcome, PE placement, and `VerifiedProgram` authority remain separate |
 | Resume production execution after a proved local straight-line body | `ContextualStraightLinePlacement`, `RuntimeSilentOn`, and the target prefix-runner theorems | target production execution bridge | Microsoft x64 and AArch64 compiler-bulk spikes | the local certificate supplies no lookup, host-silence, ABI, outcome, artifact, admission, or `VerifiedProgram` authority |
 | Replace a compiler body while retaining one selected functional theorem | the AArch64 and Microsoft x64 differential modules' `FunctionalDelta` and `FunctionalDelta.realize` | each compiler target's local realization layer | runnable AArch64 and Windows x64 compiler-bulk spikes | only the named result property is transported; replacement bytes, frames, clobbers, classification, placement, runtime behavior, and final authority are regenerated or re-proved |
@@ -94,6 +96,17 @@ evidence, and negative boundary after that comparison; it does not own a second 
   replacement preserves linear accumulation.  The rejected generic count snapshot could not prove
   identity, reclamation, or cleanup; the first extensionally equal Zlib bridge used quadratic left
   append.  Those controls define the abstraction and cost boundaries.
+- For a small refinement over an expensive evaluator result, prove the transformation over an
+  abstract observation and make the consumer cross the evaluator boundary once.  Canonical
+  `a10c2700` adds `WasiObservable.refines_normalizeSuccessfulExit` and an abstract
+  `WasiRunOutcome.observable_ne_fuelExhausted`; Spike 3 supplies its existing no-fuel and exact
+  successful-payload facts.  Every other WASI outcome is preserved by constructor equations.  This
+  is observation-level proof reuse, not a new evaluator or an authority-bearing specification.
+- For stable projected-key sorting, separate pairwise order, permutation, and stability.
+  `Stdlib.Sort.StableOn` compares the exact filtered record sequence for every mutually related key;
+  canonical `ddab78cb` proves this for insertion sort and exercises it with distinct tagged records
+  sharing one byte key across a moving smaller record.  An identity-key test over untagged values is
+  a vacuous control because key equivalence may force the complete values equal.
 - For a bounded target backend, prove source evaluation, instruction effects, bytes, frames, exact
   clobbers, and control-flow freedom locally, but do not let metadata assert entry or callability.
   The rejected `60e744f` carried proof-free Boolean authority tags.  Accepted replacement
@@ -181,6 +194,12 @@ Two useful precedents are:
 - `51a8c766` kernel-checks the exact Spike 3 Linux empty-input regression with `decide +kernel`.
   The corresponding canonical-trace attempt exceeded its resource envelope and was reverted, so the
   admitted technique is small-vector closure only, not monolithic decision of large traces.
+- `a10c2700` promotes the archived observation-summary experiment into a dependency-light WASI
+  refinement theorem and consumes it in Spike 3.  It preserves every non-success outcome and
+  requires an explicit no-fuel premise; it changes no evaluator or proof authority.
+- `ddab78cb` adds universal projected-key insertion-sort stability beside the existing ordering and
+  permutation laws, plus a tagged nonvacuity control.  The Spike 3 model delegates its pure sort to
+  the library while retaining target and artifact obligations above it.
 
 Commit identifiers are provenance, not API names.  Follow the declarations above on current main;
 use the commits to inspect the reviewed extraction delta.
@@ -414,13 +433,17 @@ The following code shapes have enough evidence to investigate but are not canoni
   likewise proves no target fidelity, execution admission, binding, or aliasing law.  It does not
   complete M0 or the native-thread demonstration.
 
-  Reviewer accepts the next narrow M0 design boundary, `EnvelopeOccurrencePath`: derive an exact
-  occurrence edge from a carrier occurrence ID and its stored relation record, build labelled paths
-  from those edges, and provide only one-way erasure to the extensional label path.  It proves no
+  Archived experimental branch `archive/experimental/envelope-occurrence-path-f7250a` at
+  `f7250a57` implements the structurally approved narrow M0 boundary `EnvelopeOccurrencePath`:
+  derive an exact occurrence edge from a carrier occurrence ID and its stored relation record, build labelled paths
+  from those edges, append them, and erase them to the extensional label path.  It proves no
   envelope well-formedness, admission, observable-node coverage, selected path, projected-edge
-  identity, consequence, or reverse reconstruction.  Carrier-position multiplicity is not available
+  identity, consequence, or canonical, unique, or choice-preserving inverse.  An existential lift
+  from an extensional path is possible and remains required as the generic roundtrip before M0 exit.
+  The duplicate control retains `first ≠ duplicate` and both exact occurrence-path witnesses even
+  though they erase to the same extensional path.  Carrier-position multiplicity is not available
   without a separate well-formedness premise.  Observable projection and quotient choices remain M8.
-  Implementation is authorized, but no exact candidate or canonical hash exists yet.
+  This archive is reproducible research evidence, not a current-main API.
 
   Signature review accepted the layer split but held implementation for four failures.  An
   unrestricted `PathConsequence.value` could invent completion, visibility, or resource return
@@ -436,6 +459,15 @@ The following code shapes have enough evidence to investigate but are not canoni
   roundtrip separately before M0 exit.  These are structural obligations only--target consistency
   and admission remain above M0.  Multi must return the revised signatures before implementation;
   MP will author canonical `MEMORY_MODEL` interface text only after the shape stabilizes.
+
+  The next `BindingHistory` consumer is conditionally approved only as optional structural
+  correlation: exact use ID to stored use, stored capture, frontier-derived binding, and an exact
+  occurrence/label path between the stored events.  It is neither validity nor happens-before, and
+  not every use must have a nonempty path.  Envelope/history well-formedness stays separate;
+  chronology, latestness, liveness or invalidation, rights and footprints, alias semantics, and
+  admission remain profile proofs.  Required controls include an off-carrier but resolvable use,
+  wrong capture, wrong binding/frontier, endpoint or label mismatch, and a stale old capture after
+  rebind that still correlates structurally but grants no live authority.
 - Checked-x86-authoring proof brief `97595be15389e296addcb91f44e5680ef673c99b` is accepted
   design-only; implementation remains blocked until a canonical sound typed-`ObligationWorld`/M2-B
   seam lands.  Its decisive prototype is one real
@@ -561,11 +593,13 @@ The following code shapes have enough evidence to investigate but are not canoni
   +Spikes.Spike3SortLines.Wasm.Equivalence` passed in 0.973 seconds with one built job, 1,789.6 MiB
   aggregate process-tree peak, and 1,648.8 MiB Lean-child peak.  The direct-probe KiB figures are
   GNU `time -v` maximum RSS for the dominant Lean process; the focused-build MiB figure is the
-  sampler's root-plus-descendant maximum.  The commit remains experimental pending
-  Trust/current-base transplant.  The candidate technique is to prove the small transformation from
-  an abstract execution summary to the consumer's observation, then cross into total execution once
-  through an explicit equality.  Merely making the total producer irreducible can leave kernel
-  definitional equality equally expensive or worse.
+  sampler's root-plus-descendant maximum.  That archived commit remains experimental and is not a
+  transplant candidate.  Canonical `a10c2700` separately lands the demonstrated technique in
+  `Gasm.Targets.WASI.ObservableNormalization`: prove the small transformation over an abstract
+  observation, preserve every non-success outcome, and cross into total execution through explicit
+  success and no-fuel facts.  The archived branches remain negative and performance provenance;
+  they are not APIs.  Merely making the total producer irreducible can leave kernel definitional
+  equality equally expensive or worse.
 - Block-chain congruence and associativity, with fallthrough-versus-jump reasoning delayed until
   realization, is a candidate extracted from the Spike 2 Windows prefix chain (`75d01c8` and
   `f90bfc9`).  The accepted-in-practice consumer first proves one exact typed execution outcome,
