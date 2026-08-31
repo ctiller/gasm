@@ -733,6 +733,31 @@ the existing `StructuredCFG.RealizesLeaf` premise. It cannot hide JMP/JCC, manuf
 or establish emitted terminator semantics, layout, graph closure, artifact identity, platform
 admission, or `VerifiedProgram` authority.
 
+## Structured Microsoft x64 plan assembly
+
+`Gasm.Compiler.Word.StructuredMicrosoftX64CFG` is the finite compositional assembler that joins an
+existing stable `StructuredCFG.Plan` to exact Microsoft-x64 leaf and condition implementations.
+The plan's nominal `NodeId` is also the block ID. `Selected.leaf` accepts one reviewed leaf `Body`,
+entry contract, and target-free terminator. `Selected.branch` accepts two already selected child
+plans, one exact `LoweredCondition`, and caller-owned typed successors. It derives child block-ID
+disjointness and parent freshness from the symbolic plan laws and the exact child ID maps, rather
+than asking each implementation assignment to repeat freshness proofs.
+
+Every selected package proves that its exact postorder block IDs equal the plan's role list and that
+its root block ID equals the symbolic root. The branch constructor binds the portable condition,
+true and false child plans, exact definitions, and polarity in its dependent type. The focused
+control assembles a three-block decision tree whose true leaf is compiler-generated and whose false
+leaf is a one-instruction handwritten differential replacement; compile-time controls reject
+swapped child polarity and a leaf from a foreign nominal scope. Duplicate IDs are excluded by the
+derived exact role map and the existing plan/assignment uniqueness theorems.
+
+`Selected.lower` is exactly the existing `StructuredCFG.Realizes.lower`; it introduces no second
+CFG or finalization path. Its theorems expose only the existing exact graph blocks, entry, and
+symbolic root ID. This module is an internal prerequisite for the structured branch compiler, not a
+completed branch feature: comparison/JCC layout and production execution, terminal realization,
+artifact identity, ABI/export publication, admission, and the sole `VerifiedProgram` spike remain
+separate mandatory work.
+
 ## Structured Microsoft x64 process-entry backend
 
 `Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry` realizes the same bounded portable
