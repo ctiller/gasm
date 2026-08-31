@@ -42,41 +42,37 @@ build without this spike is development evidence, not feature completion.
 | AArch64 production prefix bridge | Exact indexed lookup, runtime silence, consumed fuel, and caller continuation | No terminal/admission claim by itself |
 | Compiler-bulk Linux AArch64 spike | Named Lean function through compiler and production `exit(42)` ELF | Sole `VerifiedProgram` authority |
 | Differential hand optimization | Nineteen-instruction baseline replaced by seven handwritten instructions | Transports only selected X0 functional output; regenerates placement and bytes |
+| Microsoft x64 bounded entry backend | Seven creation-order temporaries, exact RAX result/frame/clobber/instruction/byte evidence | Local non-calling process-entry body |
+| Compiler-bulk Windows x64 spike | Named Lean function through generated body and handwritten Win64 `ExitProcess(42)` tail | Production outcome, emitted PE, and sole `VerifiedProgram` authority |
 
-Canonical completion of this set is main commit `36771e2`. Commit hashes are provenance, not API
+Canonical completion of this set is main commit `8b39389`. Commit hashes are provenance, not API
 identity; declarations and current docs remain authoritative.
 
-## Active slice: Microsoft x64 process-entry lowering
+## Active slice: differential Microsoft x64 body replacement
 
-The current branch is implementing `StructuredStraightLineMicrosoftX64Entry` over the same portable
-bulk IR.
+The next narrow slice makes the hand-optimization seam demonstrated on AArch64 equally concrete for
+the accepted Microsoft x64 entry backend. The generated body remains the named-source baseline; a
+handwritten replacement must prove the exact selected properties consumed by the same runnable
+Windows `VerifiedProgram` spike.
 
 Selected design:
 
-- Microsoft x64 input registers RCX/RDX/R8/R9 and RAX result;
-- R10/R11 operand scratch;
-- bounded creation-order temporaries in RBX/RSI/RDI/R12--R15;
-- exact reporting of every nonvolatile clobber;
-- explicitly process-entry-only and non-callable;
-- no generic save/restore promise and no callable export claim.
+- stable identity is the original `Structured.WordFunction` plus its accepted generated
+  `LocalCertificate`, not a second source declaration;
+- the replacement is an exact list of existing proved x86 macro segments/instructions;
+- the first transport theorem is property-relative: it preserves the selected RAX functional
+  result and only the frame dimensions consumed by the entry-program spike;
+- clobbers, control-flow classification, instructions, bytes, placement, runtime silence, and final
+  artifact identity are regenerated for the exact replacement;
+- the handwritten call-frame/`ExitProcess` tail remains outside the replacement and is reconnected
+  to its proved result through the production runner;
+- no timing, callable ABI, branch, exception, cancellation, or generic observational-equivalence
+  claim is inferred from functional equality.
 
-MP ruled that these nonvolatile clobbers are admissible only under a target-owned entry contract
-proving that no ABI caller continuation observes them. The Windows spike must prove PE/process
-entry, non-returning `ExitProcess` (or another explicit terminal outcome) on every admitted path,
-and absence of fallthrough, return, unwind, callback, exception/fault continuation, teardown, and
-reentrant observers. The API name does not discharge this: every selected-profile continuation
-must be modeled and closed or universally excluded by target evidence. Differential
-replacement must preserve that exact entry/terminal/no-continuation boundary.
-
-Completion is two separately reviewed commits:
-
-1. backend: total bounded lowering, universal local result theorem, exact clobbers and frames,
-   control-flow-free classification, instructions, and bytes;
-2. spike: handwritten ExitProcess plumbing, exact PE linkage and production outcome, final
-   artifact certificates, and sole `VerifiedProgram` composition.
-
-Current status: structural lowering builds locally; semantic and frame proofs are in progress. It
-is intentionally uncommitted and unadvertised as delivered until those proofs pass.
+Completion requires both an additive differential module and an amended runnable Windows spike
+whose sole `VerifiedProgram` emits and natively executes the replacement. Until that gate lands,
+the existing generated x64 spike remains the completed feature and this optimization seam remains
+active work.
 
 ## Subsequent slices
 
