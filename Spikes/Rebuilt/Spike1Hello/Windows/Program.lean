@@ -40,6 +40,16 @@ open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.Assembler
 open Gasm.Targets.Windows.Linker
 
+/-- The first provider profile is intentionally narrow. Admission must carry a live writable handle
+opened for synchronous I/O. Handles requiring `OVERLAPPED`, including `ERROR_IO_PENDING`
+completion, are not implementations of this profile and must not be classified as write failure. -/
+inductive SelectedStdoutProfile where
+  | synchronousWritable
+deriving DecidableEq, Repr
+
+def selectedStdoutProfile : SelectedStdoutProfile :=
+  .synchronousWritable
+
 def messageBytes : ByteArray :=
   "Hello, World!\n".toUTF8
 
