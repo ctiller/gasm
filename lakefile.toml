@@ -215,6 +215,10 @@ name = "test_smolalloc"
 root = "Stdlib.SmolAlloc.Test"
 
 [[lean_exe]]
+name = "test_stdlib_vec"
+root = "Stdlib.Containers.VecTest"
+
+[[lean_exe]]
 name = "perf_fuzzer"
 root = "Gasm.Targets.X86_64.PerfFuzzerCLI"
 

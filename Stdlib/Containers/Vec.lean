@@ -259,6 +259,113 @@ theorem toList_swap_perm (values : Vec α n) (left right : Fin n) :
     exact Array.getElem_push_eq
 
 /- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+@[simp] theorem get_append_left (left : Vec α n) (right : Vec α m) (index : Fin n) :
+    (left.append right).get (Fin.castAdd m index) = left.get index := by
+  unfold append get
+  exact Array.getElem_append_left (by simp [left.size_eq])
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+@[simp] theorem get_append_right (left : Vec α n) (right : Vec α m) (index : Fin m) :
+    (left.append right).get (Fin.natAdd n index) = right.get index := by
+  cases left with
+  | mk leftData leftSize =>
+    cases right with
+    | mk rightData rightSize =>
+      cases leftSize
+      cases rightSize
+      simp [append, get, Array.getElem_append_right]
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+theorem get?_append_left (left : Vec α n) (right : Vec α m) {index : Nat}
+    (inLeft : index < n) : (left.append right).get? index = left.get? index := by
+  unfold append get?
+  apply Array.getElem?_append_left
+  simpa [left.size_eq] using inLeft
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+theorem get?_append_right (left : Vec α n) (right : Vec α m) {index : Nat}
+    (inRight : n ≤ index) :
+    (left.append right).get? index = right.get? (index - n) := by
+  unfold append get?
+  simpa [left.size_eq] using
+    (Array.getElem?_append_right (xs := left.data) (ys := right.data)
+      (i := index) (by simpa [left.size_eq] using inRight))
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+/-- Array-backed mapping implements the representation-free mapping operation. -/
+@[simp] theorem toModel_map (f : α → β) (values : Vec α n) :
+    (values.map f).toModel = VecSpec.map f values.toModel := by
+  apply VecSpec.Model.ext
+  intro index
+  simp only [toModel]
+  change (values.map f).get index = f (values.get index)
+  exact get_map f values index
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+/-- Array-backed replacement implements representation-free replacement. -/
+@[simp] theorem toModel_set (values : Vec α n) (index : Fin n) (value : α) :
+    (values.set index value).toModel = VecSpec.set values.toModel index value := by
+  apply VecSpec.Model.ext
+  intro current
+  simp only [toModel]
+  by_cases equal : current = index
+  · subst current
+    simp [VecSpec.set]
+  · rw [get_set_of_ne values equal]
+    simp [VecSpec.set, equal]
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+/-- Array-backed exchange implements representation-free exchange. -/
+@[simp] theorem toModel_swap (values : Vec α n) (left right : Fin n) :
+    (values.swap left right).toModel = VecSpec.swap values.toModel left right := by
+  apply VecSpec.Model.ext
+  intro current
+  simp only [toModel]
+  by_cases atLeft : current = left
+  · subst current
+    simp [VecSpec.swap]
+  · by_cases atRight : current = right
+    · subst current
+      simp [VecSpec.swap, atLeft]
+    · rw [get_swap_of_ne values atLeft atRight]
+      simp [VecSpec.swap, atLeft, atRight]
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+/-- Array concatenation implements representation-free vector concatenation. -/
+@[simp] theorem toModel_append (left : Vec α n) (right : Vec α m) :
+    (left.append right).toModel = VecSpec.append left.toModel right.toModel := by
+  apply VecSpec.Model.ext
+  intro index
+  simp only [toModel]
+  refine Fin.addCases ?_ ?_ index
+  · intro leftIndex
+    simp [VecSpec.append]
+  · intro rightIndex
+    simp [VecSpec.append]
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+/-- Array push implements representation-free extension by one final value. -/
+@[simp] theorem toModel_push (values : Vec α n) (value : α) :
+    (values.push value).toModel = VecSpec.push values.toModel value := by
+  apply VecSpec.Model.ext
+  intro index
+  simp only [toModel]
+  simp only [VecSpec.push, VecSpec.append]
+  refine Fin.addCases ?_ ?_ index
+  · intro prefixIndex
+    rw [Fin.addCases_left]
+    change (values.push value).get (Fin.castAdd 1 prefixIndex) = values.get prefixIndex
+    exact get_push_prefix values value prefixIndex
+  · intro finalIndex
+    rw [Fin.addCases_right]
+    have finalIndex_eq : finalIndex = (0 : Fin 1) := by
+      apply Fin.ext
+      omega
+    subst finalIndex
+    change (values.push value).get ⟨n, by omega⟩ = value
+    exact get_push_last values value
+
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
 theorem toModel_complete {left right : Vec α n}
     (equal : ∀ index, left.toModel index = right.toModel index) : left = right := by
   cases left with

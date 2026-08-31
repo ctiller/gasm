@@ -22,11 +22,25 @@ asymptotically optimal runtime.
 
 ## 3. Vector model
 
-`Stdlib.VecSpec.Model` is the representation-free semantic layer. `Stdlib.Vec` is the
-currently selected contiguous `Array` realization, and `ByteArray.toVec` relates
-Lean's specialized byte storage to the same model. Construction, indexing, update,
-append, mapping, swapping, and folds expose laws connecting execution to the model.
-Bounds-sensitive successful access uses `Fin`; `get?` exposes failure explicitly.
+`Stdlib.VecSpec.Model` is the representation-free finite-index semantic layer. It
+defines map, set, swap, append, and push without selecting storage and proves their
+index observations. `Stdlib.Vec` is the currently selected contiguous `Array`
+realization. Its `toModel_map`, `toModel_set`, `toModel_swap`, `toModel_append`, and
+`toModel_push` theorems prove that the executable operations implement those exact
+semantics. Bounds-sensitive successful access uses `Fin`; `get?` exposes failure
+explicitly, including lookup laws on both sides of append.
+
+`ByteArray.toVec` relates Lean's specialized byte storage to the same model through
+size, `get`, `get?`, and list observations. Converting an appended byte vector back
+to `ByteArray` agrees exactly with specialized ByteArray append, without requiring
+clients to use the reverse heterogeneous-equality theorem.
+
+The standalone `test_stdlib_vec` executable exercises append-boundary observations,
+set, swap, push, semantic-model agreement, and ByteArray conversion. This proves that
+the facilities execute together, but it is not an end-to-end program-consumer claim.
+During the VerifiedProgram proof-template reset, no new code is attached to the old
+Spike 3 proof tree. A rebuilt Spike consumer remains the completion gate, and no
+target decoder currently depends on the ByteVec bridge.
 
 The Array representation is certified but not opaque: Lean exposes the structure
 constructor even though its fields have private names. Clients should use the public

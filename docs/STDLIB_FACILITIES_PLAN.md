@@ -90,12 +90,17 @@ real consumers.
 
 ### 4.1 Sequences and finite tables
 
-- **Present:** representation-independent `Vec` model, Array-backed realization,
-  `ByteVec` bridge, executable operations, reference insertion sort, and stable
-  key-based sorting over a lawful total preorder. For the non-strict relation, keys
-  are equivalent when precedence holds in both directions; stability preserves the
-  exact original tagged-record sequence inside every such class.
-- **Next:** complete append lookup laws.
+- **Present:** representation-independent `Vec` map/set/swap/append/push semantics,
+  Array-backed realization proofs, append lookup laws, and executable operations.
+  A standalone runnable test exercises the operation/refinement surface. A rebuilt
+  Spike consumer remains required for end-to-end completion.
+- **Present:** `ByteVec` size/index/list and conversion bridge. Its runnable append,
+  set, swap, and push test validates the bridge surface, but no target decoder has
+  adopted it yet.
+- **Present:** reference insertion sort and stable key-based sorting over a lawful
+  total preorder. For the non-strict relation, keys are equivalent when precedence
+  holds in both directions; stability preserves the exact original tagged-record
+  sequence inside every such class.
 - **Candidate:** a dependent finite-table contract with semantic model
   `(i : Fin n) -> F i`, extensionality, tabulation, dependent mapping, reindexing by
   finite equivalences, and append/split roundtrips. Promotion requires a named
@@ -277,9 +282,11 @@ The plan borrows useful boundaries rather than copying APIs:
 
 Subject to higher-priority Trust/build repairs, the current sequence is:
 
-1. Land lawful stable key sorting with its tagged Spike 3 executable witness.
-2. Complete Vec append/index observation laws and exercise them through ByteVec and
-   Spike 3 Vec ingestion.
+1. **Landed:** lawful stable key sorting with its tagged Spike 3 executable witness.
+2. **Implemented library candidate:** complete Vec semantic/refinement and
+   append/index laws, with a standalone runnable Vec/ByteVec test. Do not attach new
+   corollaries or guards to the old Spike 3 proof tree during the VerifiedProgram
+   proof-template reset; a rebuilt Spike consumer remains the completion gate.
 3. Move import-light ByteArray lemmas atomically across their PNG/Zlib consumers.
 4. Add resource-count projections only after two accepted domain connections prove their meaning;
    the generic fallible fold itself is already present.
@@ -334,7 +341,9 @@ promotion requires filling any missing consumer, bound, and cost evidence.
 
 | Facility | Current spellings | Consumers / pressure | Required law or boundary | State |
 | --- | --- | --- | --- | --- |
-| Vec and stable key sort | `Stdlib/Containers/*` | Spike 3 model and tagged executable regression; MASM record sorting | exact class-projection stability within mutual-preorder equivalence `beforeKey a b = true` and `beforeKey b a = true` | Present; nonvacuous tagged demonstration |
+| Vec | `Stdlib/Containers/VecSpec.lean`, `Vec.lean` | Trust-requested foundation; future rebuilt Spike consumer | representation-free finite-index observations; Array map/set/swap/append/push refinement | Present library candidate and runnable test; end-to-end consumer pending |
+| ByteVec | `Stdlib/Containers/ByteVec.lean` | ByteArray bridge; prospective decoders | exact size/get/get?/list/conversion observations; append agreement without client HEq | Present bridge API and runnable test; target adoption not yet demonstrated |
+| Stable key sort | `Stdlib/Containers/Sort.lean` | Spike 3 model and tagged executable regression; MASM record sorting | exact class-projection stability within mutual-preorder equivalence `beforeKey a b = true` and `beforeKey b a = true` | Present; nonvacuous tagged demonstration |
 | Dependent finite table | function tables in RecursiveCFGBuilder and TypedCFG | prospective compiler role and definition tables | extensionality, dependent get/map, reindex, append/split | Candidate; named migration required |
 | Generic ByteArray lemmas | `Stdlib/Zlib/ByteArrayBridge.lean` | Zlib and PNG | exact list/array observation bridges; no Zlib dependency | Next |
 | Alignment arithmetic | Linux ELF and Windows PE emitters | two linker/emitter paths below Stdlib | preserve zero policy; positive-alignment divisibility and minimality | Candidate Gasm Core/Data leaf; ownership review required |

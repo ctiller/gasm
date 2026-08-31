@@ -78,4 +78,13 @@ theorem toVec_toByteArray (bytes : Vec UInt8 n) : HEq bytes.toByteArray.toVec by
 @[simp] theorem toByteArray_data_toList (bytes : Vec UInt8 n) :
     bytes.toByteArray.data.toList = bytes.toList := rfl
 
+/- REF: docs/STDLIB_CONTAINERS.md#3-vector-model -/
+/-- Vector concatenation agrees exactly with specialized `ByteArray` concatenation at the
+executable byte boundary; clients do not need a heterogeneous vector equality to use it. -/
+@[simp] theorem toByteArray_append (left : Vec UInt8 n) (right : Vec UInt8 m) :
+    (left.append right).toByteArray = left.toByteArray ++ right.toByteArray := by
+  apply ByteArray.ext
+  apply Array.toList_inj.mp
+  simp
+
 end Stdlib.Vec
