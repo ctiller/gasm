@@ -419,8 +419,8 @@ theorem encodeSLEB128List_exceeds_budget (val : Int) (h : (2 : Int) ^ 35 ≤ val
 /-- The original ground witness, now a corollary of `encodeSLEB128List_exceeds_budget`: `2 ^ 40 ≥
     2 ^ 35`, so `encodeI32SLEB128 (2 ^ 40)` -- an in-i64-range, out-of-i32-range value -- needs at
     least 6 bytes, one more than the 5-byte i32 budget the Wasm binary format allows for
-    `i32.const`. Kernel-checked (`decide`/structural proof only): no `native_decide`, no
-    `scripts/gate_allowlist.txt` entry needed at all. -/
+    `i32.const`. Kernel-checked (`decide`/structural proof only), with no native-evaluation
+    dependency. -/
 theorem encodeI32SLEB128_exceeds_i32_budget_inst :
     6 ≤ (encodeI32SLEB128 (2 ^ 40 : Int)).size := by
   have hbound : (2 : Int) ^ 35 ≤ (2 : Int) ^ 40 := by decide

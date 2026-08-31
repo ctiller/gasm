@@ -16,15 +16,10 @@
 """
 scripts/check_gates.py - Law 10 fast pre-check (defense-in-depth) for gasm
 
-Law 10 (kernel-checked gates; canonical text in docs/REVIEW.md on the
-integration branch) says: `native_decide` may discharge a verification
-obligation ONLY when the proposition is universally quantified over its
-entire finite domain. Single-ground-instance checks are regression tests,
-not verification, and every occurrence must be explicitly allowlisted in
-scripts/gate_allowlist.txt (no `_inst`-suffix-in-a-module-name auto-pass --
-that shortcut existed in an earlier revision and let new, unreviewed
-pointwise checks slip in silently; it has been removed). `bv_decide` is
-recognized and gated identically: it shares `native_decide`'s exact
+Law 10 now permits no native-evaluation exception ledger. Every
+`native_decide`, native-configured `decide`, or `bv_decide` occurrence in
+verification source is a hard failure until replaced by a kernel-checked or
+constructive proof. `bv_decide` is recognized and gated identically because it shares `native_decide`'s exact
 axiom-emission code path (`Lean.Meta.nativeEqTrue`, the same routine both
 tactics call to compile a closed term, run it, and assert the result as an
 axiom) -- see docs/PATHFINDER_CRC32.md #3.6-policy and docs/REVIEW.md Law 10's `bv_decide`
@@ -57,44 +52,14 @@ see Tools/CheckGatesAxioms.lean's header comment for how that was verified
 and why it is matched by namespace component rather than a fixed substring.
 
 This script still enforces, on the text it CAN see:
-1. Every `native_decide` / `decide +native` / `decide (native := true)` /
-   `bv_decide` occurrence must be allowlisted in scripts/gate_allowlist.txt,
-   classified:
-     - finite-forall : exhaustive over a finite domain (permanent). Given
-                        only a SHALLOW SYNTACTIC sanity check (not a proof):
-                        the declaration's statement must show a `∀`, a
-                        `for .. in [a:b]` bound, a `List.range N` with
-                        N > 1, a `.all`/`.any` NOT applied directly to an
-                        obvious bracketed literal list, OR -- specifically
-                        for a `bv_decide` occurrence, which (unlike
-                        native_decide/decide) proves a goal containing FREE,
-                        parameter-bound bitvector variables directly via
-                        bit-blasting rather than requiring the whole
-                        proposition closed into one `for`/`.all`/`List.range`
-                        term -- an explicit typed parameter over a finite
-                        bitvector-shaped type (`UInt8`/`UInt16`/`UInt32`/
-                        `UInt64`/`USize`/`BitVec`) in the declaration header.
-                        A stray `-- ∀` in a comment does not count, since
-                        comments are stripped before this check runs.
-     - grandfathered : predates Law 10, single-vector check (migration
-                       backlog). Reported every run, not hidden.
-     - axiom-only    : an entry that exists purely for
-                       Tools/CheckGatesAxioms.lean (a declaration that
-                       transitively depends on a native-evaluation axiom via
-                       citing another declaration, with no native_decide-
-                       shaped TEXT of its own for this script to ever find).
-                       Exempt from this script's stale-entry check by
-                       construction.
+1. Every native-evaluator occurrence is a hard failure.
 2. Any occurrence that cannot be unambiguously attributed to a named
    declaration (anonymous `example`, no preceding declaration, or an
    unresolved `set_option/open/variable ... in` prefix run) is a hard
    FAILURE -- attribution never falls back to an earlier, unrelated
    declaration.
-3. Allowlist integrity: duplicate keys and stale non-`axiom-only` entries
-   are hard failures; parsing tolerates `::` inside the justification text;
-   category comparison is case-insensitive.
-4. (Warning-only) A declaration that is a regression check -- allowlisted
-   as `grandfathered`, or `_inst`-suffixed -- should not be cited by name
+3. (Warning-only) A declaration that is a regression check with an
+   `_inst` suffix should not be cited by name
    inside another declaration's proof term/body.
 """
 
@@ -110,7 +75,6 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ALLOWLIST_PATH = REPO_ROOT / "scripts" / "gate_allowlist.txt"
 
 
 def git_tracked_files() -> List[str]:
@@ -153,7 +117,6 @@ def git_tracked_files() -> List[str]:
     raw = proc.stdout.decode("utf-8", errors="replace")
     return [p for p in raw.split("\0") if p]
 
-VALID_CATEGORIES = {"finite-forall", "grandfathered", "axiom-only"}
 
 # Declaration keywords that open a new attribution boundary. `example` and
 # anonymous `instance`/`def` blocks have no name -- they still open a new
@@ -197,16 +160,6 @@ DECIDE_NATIVE_REGEX = re.compile(
 # (`Lean.Meta.nativeEqTrue`) on this toolchain, so it is not a lesser or
 # separate restriction.
 BV_DECIDE_REGEX = re.compile(r'\bbv_decide\b')
-# A finite-forall `bv_decide` occurrence's declaration binds its universally-
-# quantified variable(s) as an ordinary typed Lean parameter (`bv_decide`
-# bit-blasts the OPEN goal directly, unlike native_decide/decide, which
-# require the whole proposition closed into one `for`/`.all`/`List.range`
-# term) -- so the shallow corroboration signal for it is "a parameter typed
-# over a finite bitvector-shaped type", not a `∀`/`for..in`/`List.range`/
-# `.all`/`.any` shape.
-BV_FINITE_TYPE_PARAM_REGEX = re.compile(
-    r'\([a-zA-Z_][a-zA-Z0-9_ ]*:\s*(?:UInt8|UInt16|UInt32|UInt64|USize|BitVec\b[^)]*)\)'
-)
 
 
 def strip_comments(text: str) -> str:
@@ -449,152 +402,14 @@ def collect_occurrences() -> Tuple[List[Occurrence], Dict[str, List[Decl]], Dict
     return occurrences, all_decls_by_file, all_lines_by_file
 
 
-class AllowlistEntry:
-    __slots__ = ("category", "justification", "line_num", "fqn")
-
-    def __init__(self, category: str, justification: str, line_num: int, fqn: str):
-        self.category = category
-        self.justification = justification
-        self.line_num = line_num
-        self.fqn = fqn
-
-
-def load_allowlist() -> Tuple[Dict[Tuple[str, str], AllowlistEntry], List[str]]:
-    """
-    Parses scripts/gate_allowlist.txt (5 `::`-delimited fields: file, decl,
-    fully-qualified name, category, justification). This script keys its own
-    matching on (file, decl) -- the bare, unqualified name it can actually
-    see in source text -- and only carries the `fqn` field through for
-    display/consistency; Tools/CheckGatesAxioms.lean is what authoritatively
-    matches on `fqn`.
-    Returns:
-      - entries: {(file, decl_name): AllowlistEntry}
-      - errors: human-readable parse/integrity error strings (each one is
-        a hard failure -- malformed lines and duplicate keys are never
-        silently tolerated).
-    """
-    entries: Dict[Tuple[str, str], AllowlistEntry] = {}
-    errors: List[str] = []
-
-    if not ALLOWLIST_PATH.exists():
-        return entries, errors
-
-    text = ALLOWLIST_PATH.read_text(encoding="utf-8")
-    for line_num, raw_line in enumerate(text.splitlines(), start=1):
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        # maxsplit=4 so a `::` inside the free-text justification field
-        # doesn't get mistaken for a delimiter.
-        parts = line.split("::", 4)
-        if len(parts) != 5:
-            errors.append(
-                f"gate_allowlist.txt:{line_num}: expected 5 '::'-delimited fields "
-                f"(file::decl::fqn::category::justification), got {len(parts)}: {raw_line!r}"
-            )
-            continue
-        file_path, decl_name, fqn, category_raw, justification = (
-            parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip(), parts[4].strip()
-        )
-        category = category_raw.lower()
-        if category not in VALID_CATEGORIES:
-            errors.append(
-                f"gate_allowlist.txt:{line_num}: unknown category '{category_raw}' (expected one of {sorted(VALID_CATEGORIES)})"
-            )
-            continue
-        if not fqn:
-            errors.append(f"gate_allowlist.txt:{line_num}: missing fully-qualified name (3rd field)")
-            continue
-        if not justification:
-            errors.append(f"gate_allowlist.txt:{line_num}: missing justification")
-            continue
-
-        key = (file_path, decl_name)
-        if key in entries:
-            errors.append(
-                f"gate_allowlist.txt:{line_num}: duplicate entry for '{file_path}::{decl_name}' "
-                f"(first defined at line {entries[key].line_num}) -- duplicates are a hard error, "
-                f"not silent last-wins; remove or merge one of them"
-            )
-            continue
-
-        entries[key] = AllowlistEntry(category, justification, line_num, fqn)
-
-    return entries, errors
-
-
-def corroboration_signal(text: str, kind: Optional[str] = None) -> Optional[str]:
-    """
-    Cheap, SHALLOW syntactic sanity check for a `finite-forall` allowlist
-    entry -- not a proof, just a sign the statement isn't a single hardcoded
-    value. Runs against comment-stripped text, so a `-- ∀` in a comment
-    cannot satisfy it. Rejects degenerate signals:
-      - `List.range 0` / `List.range 1` (checks nothing / one value).
-      - `.all` / `.any` applied directly to an obvious bracketed literal
-        list (e.g. `[1, 2, 3].all (...)`) -- that's a handful of hardcoded
-        vectors wearing a quantifier's clothes, not real exhaustion.
-    Returns a short description of the signal found, or None.
-
-    `kind` is the occurrence's tactic kind (see `find_occurrences_in_text`).
-    For `bv_decide` specifically, none of the shapes below ever appear:
-    `bv_decide` bit-blasts the goal directly, including any FREE (ordinary
-    Lean parameter-bound) bitvector variables in context, so a genuine
-    `bv_decide`-discharged finite-forall theorem is just `theorem foo (x :
-    UInt32) : P x := by bv_decide` -- no `∀`/`for..in`/`List.range`/`.all`/
-    `.any` text anywhere. (native_decide/decide cannot do this: `nativeEqTrue`
-    requires the whole proposition closed with no free variables, which is
-    exactly why THEIR finite-forall shape is always an explicit for-loop/
-    `.all`/`List.range` term packaging the universal claim into one closed
-    decidable `Bool`.) So a `bv_decide` occurrence is corroborated instead by
-    an explicit typed parameter over a finite bitvector-shaped type in the
-    declaration header -- the ordinary-math-notation equivalent of `∀` for
-    this mechanism.
-    """
-    if kind == "bv_decide":
-        m = BV_FINITE_TYPE_PARAM_REGEX.search(text)
-        if m:
-            return f"bv_decide over parameter {m.group(0)} (finite bitvector domain)"
-
-    if "∀" in text:
-        return "explicit ∀ quantifier"
-
-    if re.search(r"for\s+\w+\s+in\s+\[", text):
-        return "`for .. in [a:b]` range iteration"
-
-    for m in re.finditer(r"List\.range\s+(\d+)\b", text):
-        if int(m.group(1)) > 1:
-            return f"List.range {m.group(1)}"
-
-    for m in re.finditer(r"\.\s*(all|any)\b", text):
-        prefix = text[:m.start()]
-        bracket = re.search(r"(#?\[[^\[\]]*\])\s*$", prefix)
-        if bracket:
-            contents = bracket.group(1)
-            looks_literal = (
-                re.fullmatch(r"#?\[\s*[^\[\],]*(?:,\s*[^\[\],]*)*\s*\]", contents) is not None
-                and "range" not in contents.lower()
-                and ".." not in contents
-            )
-            if looks_literal:
-                continue  # disguised literal-list check; does not corroborate
-        if re.search(r"List\.range\s+[01]\b", prefix[-30:]):
-            continue  # `.all`/`.any` over a degenerate List.range 0/1; does not corroborate
-        return f".{m.group(1)}"
-
-    return None
-
-
 def check_regression_citations(
     all_decls_by_file: Dict[str, List[Decl]],
     all_lines_by_file: Dict[str, List[str]],
-    allowlist: Dict[Tuple[str, str], AllowlistEntry],
 ) -> List[str]:
     """
-    Warning-level heuristic (grep-level): a declaration that is a regression
-    check -- allowlisted as `grandfathered`, or `_inst`-suffixed -- should
-    not be cited by name inside another declaration's body. Keying on the
-    suffix alone let identically-non-compliant grandfathered checks with
-    "honest" names dodge the warning; keying on category closes that gap.
+    Warning-level heuristic (grep-level): a declaration with an `_inst`
+    regression-check suffix should not be cited by name inside another
+    declaration's body.
     Runs on comment-stripped lines, same as the occurrence scan.
     """
     protected: Dict[str, List[Tuple[str, int]]] = {}
@@ -602,10 +417,7 @@ def check_regression_citations(
         for decl in decls:
             if decl.anonymous:
                 continue
-            is_inst = decl.name.endswith("_inst")
-            entry = allowlist.get((rel_path, decl.name))
-            is_grandfathered = entry is not None and entry.category == "grandfathered"
-            if is_inst or is_grandfathered:
+            if decl.name.endswith("_inst"):
                 protected.setdefault(decl.name, []).append((rel_path, decl.line))
 
     if not protected:
@@ -653,69 +465,18 @@ def main():
           f"{bv_decide_count} bv_decide.")
     print("    (bare `decide` with no native config is unrestricted by Law 10)")
 
-    allowlist, allowlist_errors = load_allowlist()
-
-    has_errors = False
-
-    if allowlist_errors:
-        has_errors = True
-        print(f"\n[!] FAILED: {len(allowlist_errors)} allowlist integrity error(s) in scripts/gate_allowlist.txt:")
-        for err in allowlist_errors:
-            print(f"    - {err}")
-
-    finite_forall: List[Tuple[Occurrence, str]] = []
-    grandfathered: List[Tuple[Occurrence, str]] = []
     unattributable: List[Occurrence] = []
-    not_allowlisted: List[Occurrence] = []
-    forall_corroboration_failed: List[Tuple[Occurrence, str]] = []
-    matched_allowlist_keys = set()
+    forbidden: List[Occurrence] = []
 
     for occ in occurrences:
         if occ.decl is None or occ.decl.anonymous:
             unattributable.append(occ)
-            continue
-
-        key = (occ.file, occ.decl.name)
-        allow_entry = allowlist.get(key)
-
-        if allow_entry is None:
-            not_allowlisted.append(occ)
-            continue
-
-        matched_allowlist_keys.add(key)
-
-        if allow_entry.category == "finite-forall":
-            lines = all_lines_by_file.get(occ.file, [])
-            statement_text = "\n".join(lines[occ.decl.line - 1: occ.line])
-            signal = corroboration_signal(statement_text, occ.kind)
-            if signal:
-                finite_forall.append((occ, allow_entry.justification))
-            else:
-                forall_corroboration_failed.append((occ, allow_entry.justification))
         else:
-            # `grandfathered` and `axiom-only` occurrences (an `axiom-only`
-            # entry should never actually be hit by a text occurrence, by
-            # construction, but if one somehow is, treat it like any other
-            # allowlisted single-vector check rather than erroring).
-            grandfathered.append((occ, allow_entry.justification))
-
-    # `axiom-only` entries exist purely for Tools/CheckGatesAxioms.lean and
-    # are, by construction, never matched by a text-level occurrence here --
-    # exempt them from stale-entry detection.
-    stale_entries = sorted(
-        key for key in allowlist.keys()
-        if key not in matched_allowlist_keys and allowlist[key].category != "axiom-only"
-    )
-    axiom_only_entries = sorted(
-        key for key, entry in allowlist.items() if entry.category == "axiom-only"
-    )
+            forbidden.append(occ)
 
     print("\n--- LAW 10 GATE CHECK (pre-check) ---")
 
-    any_gate_failure = bool(unattributable or not_allowlisted or forall_corroboration_failed or stale_entries)
-
     if unattributable:
-        has_errors = True
         print(f"\n[!] FAILED: {len(unattributable)} occurrence(s) cannot be unambiguously attributed")
         print("    to a named declaration (anonymous `example`, unresolved `set_option/open/")
         print("    variable ... in` prefix, or no enclosing declaration at all) -- attribution")
@@ -724,75 +485,36 @@ def main():
             decl_desc = occ.decl.name if occ.decl else "<no enclosing declaration>"
             print(f"    - {occ.file}:{occ.line} ({occ.kind}) -- {decl_desc}")
 
-    if not_allowlisted:
-        has_errors = True
-        print(f"\n[!] FAILED: {len(not_allowlisted)} occurrence(s) are not in scripts/gate_allowlist.txt:")
-        for occ in not_allowlisted:
+    if forbidden:
+        print(f"\n[!] FAILED: {len(forbidden)} forbidden native evaluator occurrence(s):")
+        for occ in forbidden:
             print(f"    - {occ.file}:{occ.line} ({occ.kind}) in '{occ.decl.name}'")
-        print("    -> Replace the occurrence with a kernel/constructive proof; the temporary debt ledger may not grow.")
+        print("    -> Replace every occurrence with a kernel-checked or constructive proof.")
 
-    if forall_corroboration_failed:
-        has_errors = True
-        print(f"\n[!] FAILED: {len(forall_corroboration_failed)} `finite-forall` allowlist entr(y/ies) fail")
-        print("    even the shallow syntactic sanity check (no ∀ / `for..in [a:b]` / `List.range N>1` /")
-        print("    non-literal `.all`/`.any` found between the declaration header and the occurrence line):")
-        for occ, justification in forall_corroboration_failed:
-            print(f"    - {occ.file}:{occ.line} ({occ.decl.name}) -- allowlisted justification: {justification}")
-
-    if stale_entries:
-        has_errors = True
-        print(f"\n[!] FAILED: {len(stale_entries)} allowlist entr(y/ies) do not match any current occurrence")
-        print("    (stale entries are a hard failure, not a note -- prune them; `axiom-only` entries")
-        print("    are exempt from this check by construction):")
-        for file_path, decl_name in stale_entries:
-            print(f"    - {file_path}::{decl_name}")
-
-    if not any_gate_failure:
-        print("[+] Every native_decide/decide+native occurrence found in source text is attributed")
-        print("    to a named declaration and remove the shortcut; new debt-ledger entries are forbidden.")
-
-    print("\n--- FINITE-FORALL (shallow syntactic check passed -- not a proof) ---")
-    print(f"[+] {len(finite_forall)} occurrence(s):")
-    for occ, justification in finite_forall:
-        print(f"    - {occ.file}:{occ.line} ({occ.decl.name}) -- {justification}")
-
-    print("\n--- GRANDFATHERED (migration backlog, visible) ---")
-    print(f"[i] {len(grandfathered)} occurrence(s) predate Law 10 and remain single-vector checks:")
-    for occ, justification in grandfathered:
-        print(f"    - {occ.file}:{occ.line} ({occ.decl.name}) -- {justification}")
-
-    if axiom_only_entries:
-        print("\n--- AXIOM-ONLY (Tools/CheckGatesAxioms.lean's entries; invisible to this pre-check) ---")
-        print(f"[i] {len(axiom_only_entries)} entr(y/ies):")
-        for file_path, decl_name in axiom_only_entries:
-            print(f"    - {file_path}::{decl_name}")
+    if not occurrences:
+        print("[+] No forbidden native evaluator occurs in tracked Lean source.")
 
     print("\n--- REGRESSION-CHECK CITATION HEURISTIC (warning only) ---")
-    citation_warnings = check_regression_citations(all_decls_by_file, all_lines_by_file, allowlist)
+    citation_warnings = check_regression_citations(all_decls_by_file, all_lines_by_file)
     if citation_warnings:
-        print(f"[!] WARNING: {len(citation_warnings)} possible citation(s) of grandfathered/`_inst`")
+        print(f"[!] WARNING: {len(citation_warnings)} possible citation(s) of `_inst`")
         print("    regression declarations from other declarations' bodies:")
         for w in citation_warnings:
             print(w)
     else:
-        print("[+] No grandfathered or `_inst`-suffixed regression declaration appears to be")
+        print("[+] No `_inst`-suffixed regression declaration appears to be")
         print("    cited by name inside any other declaration's body.")
 
     print("\n" + "=" * 70)
     print(f" SUMMARY: {len(occurrences)} Law-10-gated occurrence(s) found in source text "
           f"({native_decide_count} native_decide, {decide_native_count} decide+native/(native := true), "
           f"{bv_decide_count} bv_decide).")
-    print(f"          {len(finite_forall)} finite-forall (shallow check passed)")
-    print(f"          {len(grandfathered)} grandfathered (migration backlog)")
-    print(f"          {len(axiom_only_entries)} axiom-only (defer to Tools/CheckGatesAxioms.lean)")
-    print(f"          {len(not_allowlisted)} FAILING: not allowlisted")
+    print(f"          {len(forbidden)} FAILING: forbidden evaluator")
     print(f"          {len(unattributable)} FAILING: unattributable")
-    print(f"          {len(forall_corroboration_failed)} FAILING: finite-forall corroboration failed")
-    print(f"          {len(stale_entries)} FAILING: stale allowlist entries")
     print(f"          {len(citation_warnings)} regression-citation warning(s)")
     print("=" * 70)
 
-    if has_errors:
+    if occurrences:
         sys.exit(1)
     else:
         sys.exit(0)

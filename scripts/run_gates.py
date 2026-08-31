@@ -83,7 +83,7 @@ Usage:
                                                      # killed and reported as TIMEOUT, not left
                                                      # to hang the runner forever)
     python scripts/run_gates.py --self-test       # docs/REVIEW.md Law 13 meta-gate fixture: plants each of 6
-                                                   # known defects (sorry / unallowlisted
+                                                   # known defects (sorry / forbidden
                                                    # native_decide / broken REF / a broken REF
                                                    # immediately preceding an anonymous instance
                                                    # (the case a regex-based checker used to
@@ -1038,23 +1038,23 @@ def _self_test_ref_before_anonymous_instance(py: str) -> Dict:
             "turned_red": red, "green_after_revert": green_after}
 
 
-def _self_test_unallowlisted_native_decide(py: str) -> Dict:
-    probe = REPO_ROOT / "Gasm" / "_TC5SelfTestUnallowlisted.lean"
+def _self_test_forbidden_native_decide(py: str) -> Dict:
+    probe = REPO_ROOT / "Gasm" / "_TC5SelfTestForbiddenNative.lean"
     content = (
         "/- TC5 --self-test scratch fixture (T4). Deleted immediately after this check. -/\n"
-        "theorem tc5SelfTestUnallowlistedNativeDecide : (1 : Nat) + 1 = 2 := by native_decide\n"
+        "theorem tc5SelfTestForbiddenNativeDecide : (1 : Nat) + 1 = 2 := by native_decide\n"
     )
     try:
         probe.write_text(content, encoding="utf-8")
         _git_stage(probe)  # must be tracked: check_gates.py enumerates via `git ls-files`
         code, out = _run_capture([py, "scripts/check_gates.py"], cwd=REPO_ROOT, timeout=60)
-        red = code != 0 and "tc5SelfTestUnallowlistedNativeDecide" in (out or "") and "not allowlisted" in (out or "").lower()
+        red = code != 0 and "tc5SelfTestForbiddenNativeDecide" in (out or "") and "forbidden" in (out or "").lower()
     finally:
         _git_unstage(probe)
         probe.unlink(missing_ok=True)
     code2, _ = _run_capture([py, "scripts/check_gates.py"], cwd=REPO_ROOT, timeout=60)
     green_after = code2 == 0
-    return {"defect": "unallowlisted_native_decide", "gate": "check_gates.py", "turned_red": red,
+    return {"defect": "forbidden_native_decide", "gate": "check_gates.py", "turned_red": red,
             "green_after_revert": green_after}
 
 
@@ -1202,7 +1202,7 @@ def run_self_test(json_mode: bool) -> int:
     for label, fn in [
         ("broken_ref", lambda: _self_test_broken_ref(py)),
         ("ref_before_anonymous_instance", lambda: _self_test_ref_before_anonymous_instance(py)),
-        ("unallowlisted_native_decide", lambda: _self_test_unallowlisted_native_decide(py)),
+        ("forbidden_native_decide", lambda: _self_test_forbidden_native_decide(py)),
         ("duplicate_heading", lambda: _self_test_duplicate_heading(py)),
         ("planted_sorry", lambda: _self_test_planted_sorry(lake)),
         ("uncited_anonymous_instance", lambda: _self_test_uncited_anonymous_instance(lake)),

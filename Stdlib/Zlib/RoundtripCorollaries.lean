@@ -20,8 +20,8 @@ import Stdlib.Zlib.DynamicRoundtrip
 /-
 ## PA16 retirement: the DEFLATE `*_inst` checks as corollaries of the universal theorem
 
-These four theorems used to be single-ground-instance `native_decide` checks
-(Law 10 `grandfathered` allowlist entries). With `deflate_roundtrip_soundness`
+These four theorems used to be single-ground-instance `native_decide` checks.
+With `deflate_roundtrip_soundness`
 kernel-checked and unconditional, each is now a one-line instantiation — no
 `native_decide`, no `decide`, no enumeration. Statements are byte-for-byte the
 originals from `Stdlib/Zlib/Equivalence.lean`; only the proofs changed.

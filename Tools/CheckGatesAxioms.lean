@@ -31,15 +31,14 @@ axiom-dependency machinery (`Lean.collectAxioms`, the same walk
 the repository" -- see isProjectModule's doc comment and docs/REVIEW.md
 §4.1.1 for the current coverage gap (tracked as TC15).
 
-WHAT COUNTS AS "NEEDS AN ALLOWLIST ENTRY": not just native-evaluation axioms.
 Lean's kernel trusts exactly three axioms as part of ordinary mathematics:
 `propext`, `Classical.choice`, `Quot.sound`. ANY other axiom a declaration
 depends on -- a native-evaluation axiom, `sorryAx`, or a hand-declared
 `axiom` -- is exactly what REVIEW.md's Pillar 1 ("zero sorry, zero
 unauthorized axioms") is about, and had NO enforcement anywhere before this
 tool. So the gate is: every declaration depending on anything outside that
-three-axiom standard set must have a matching scripts/gate_allowlist.txt
-entry, whatever the axiom's shape.
+three-axiom standard set fails. There is no exception-ledger parser or
+matching authority.
 
 Ground truth for the native-evaluation case specifically: on Lean toolchain
 v4.33.1, `native_decide` and `decide (native := true)` do NOT share a single
@@ -49,29 +48,6 @@ declaration-local axiom nested under a `_native` sub-namespace, e.g.
 (confirmed empirically via `lean` + `#print axioms` on a probe file). That
 distinction is used only to LABEL an offending axiom for the report below;
 the gate itself does not special-case it -- any non-standard axiom gates.
-
-ALLOWLIST KEYING: by (originating module, FULLY-QUALIFIED declaration name),
-not by bare name (what scripts/check_gates.py's source-text scan uses) and
-NOT by fqn alone either. A bare-name key is exploitable:
-`namespace Foo.Bar; theorem crc32_empty : ... := by native_decide` would
-collide with the real, unrelated `crc32_empty` and pass for free. The
-allowlist file's format is:
-  <file>::<declaration-name>::<fully-qualified-name>::<category>::<justification>
-The 3rd field (fully-qualified name, exactly as Lean's environment prints it,
-e.g. `Stdlib.Zlib.crc32_empty`) combined with the 1st field (source file,
-converted to the module it names -- see `matchKey`) is what THIS tool
-matches against; the 1st and 2nd fields alone are what scripts/check_gates.py
-matches against (it only ever sees unqualified source text). Malformed lines
-(wrong field count, unknown category, missing justification) are a hard
-parse failure here, not a silently-salvaged partial match.
-
-fqn ALONE is not enough (TC15 finding): every project module reachable
-before this task's fix happens to use a consistent `namespace` matching its
-file, so `fqn` alone was accidentally unique project-wide. 32 modules newly
-in scope break that -- every spike `Emit.lean`/`Test.lean` and every fuzzer
-CLI declares a bare, unnamespaced top-level `def main`, so `toString name =
-"main"` for over a dozen unrelated declarations. See `matchKey`'s doc
-comment below for the fix.
 
 SCOPE: a declaration is in scope if it was COMPILED FROM a project module
 (`env.getModuleIdxFor?` names a module under `Gasm`/`Stdlib`/`Spikes`), not
@@ -153,9 +129,8 @@ ITS import via a `GASM_SCAN_RESULT <json>` line on stdout (parsed by
 genuinely doesn't exist / failed to import" (a real, reportable finding)
 apart from "the OS process itself crashed, was killed, or emitted nothing
 parseable" (also folded into `unloadable`, since both are exactly the kind
-of blind spot this gate refuses to hide). The parent does its own allowlist
-matching (`byKey`) against whatever the worker reports; the worker itself
-carries no allowlist knowledge.
+of blind spot this gate refuses to hide). Every worker finding is appended
+directly to the parent's offender set.
 
 SHARED PLUMBING: `setupSearchPath`, `resultMarker`, `nameOfDotted`, and the
 spawn-a-worker-and-capture-its-result-line step (`spawnAndGetResultPayload`)
@@ -231,8 +206,8 @@ def isReportableKind : ConstantInfo → Bool
 
 /-- Skip Lean-generated auxiliary declarations (any name component starting
 with `_`: the `_native.*.ax_i_j` axioms themselves, a struct-field `by ...`
-block's synthesized `_proof_1`, ...): not something a human can name and
-allowlist. Their axiom dependencies are not lost -- they flow up into
+block's synthesized `_proof_1`, ...): not something a human can name. Their
+axiom dependencies are not lost -- they flow up into
 whichever non-internal parent declaration references them, which IS
 independently walked and reported. -/
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/
@@ -265,25 +240,6 @@ def originatingModule (env : Environment) (name : Name) : Option Name :=
   match env.getModuleIdxFor? name with
   | none => none
   | some idx => env.allImportedModuleNames[idx.toNat]?
-
-/-- TC15 finding: bare-`fqn` allowlist keying (the tool's ORIGINAL design,
-per the header doc above) silently assumes `fqn` uniquely identifies a
-declaration project-wide. That held for every declaration reachable before
-this fix -- all library code, consistently namespaced. It does NOT hold for
-the 32 newly-in-scope modules: every spike `Emit.lean`/`Test.lean` and every
-fuzzer CLI declares a BARE top-level `def main` with no enclosing
-`namespace`, so `toString name = "main"` for a dozen-plus unrelated
-declarations across different files. Keying the allowlist by `fqn` alone
-would let ONE `main`-keyed entry blanket-authorize every such declaration's
-axioms project-wide -- the exact "bare-name key is exploitable" failure
-mode this file's own header already calls out for scripts/check_gates.py,
-just newly reachable here too. Fix: key by `(originating module, fqn)`,
-computing the module side of an allowlist entry from its (already-recorded,
-already used by scripts/check_gates.py) `file` field via the same
-`moduleNameOfPath` disk enumeration uses -- so the file field, previously
-carried only for diagnostics, now also does load-bearing disambiguation. -/
-/- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
-def matchKey (moduleName : Name) (fqn : String) : String := s!"{moduleName}::{fqn}"
 
 /-- The project's own top-level source roots. `Tools/` (home of this very
 checker) is deliberately excluded, matching `isProjectModule`'s existing
@@ -332,72 +288,6 @@ def discoverProjectModules : IO ProjectModuleEnumeration :=
 /- REF: docs/REVIEW.md#411-gate-tooling-specification -/
 def sepLine : String :=
   "======================================================================"
-
-/-- One parsed, VALID line of scripts/gate_allowlist.txt. Fields beyond
-`fqn`/`category` are carried only for stale-entry / diagnostic reporting. -/
-/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
-structure AllowlistEntry where
-  file         : String
-  declName     : String
-  fqn          : String
-  category     : String
-  justification : String
-  lineNum      : Nat
-deriving Inhabited
-
-/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
-def validCategories : List String := ["finite-forall", "grandfathered", "axiom-only"]
-
-/-- Splits `s` on `sep`, but merges any parts beyond `maxParts` back into the
-final part (so a `::` inside a free-text justification field doesn't get
-mistaken for a delimiter). Mirrors scripts/check_gates.py's
-`line.split("::", maxParts - 1)`. -/
-/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
-def splitOnMax (s : String) (sep : String) (maxParts : Nat) : List String :=
-  let parts := s.splitOn sep
-  if parts.length ≤ maxParts then
-    parts
-  else
-    let head := parts.take (maxParts - 1)
-    let tail := parts.drop (maxParts - 1)
-    head ++ [String.intercalate sep tail]
-
-/-- Parses scripts/gate_allowlist.txt. A malformed line (wrong field count,
-unknown category, empty justification) is a HARD parse failure -- it is
-reported and the whole run fails, rather than being silently skipped or
-partially salvaged. -/
-/- REF: docs/REVIEW.md#411-gate-tooling-specification -/
-def parseAllowlist (contents : String) : List AllowlistEntry × List String := Id.run do
-  let mut entries : List AllowlistEntry := []
-  let mut errors : List String := []
-  let mut lineNum := 0
-  for rawLine in contents.splitOn "\n" do
-    lineNum := lineNum + 1
-    let line := rawLine.trimAscii.toString
-    if line.isEmpty || line.startsWith "#" then
-      continue
-    let parts := splitOnMax line "::" 5
-    if parts.length != 5 then
-      errors := errors ++
-        [s!"gate_allowlist.txt:{lineNum}: expected 5 '::'-delimited fields (file::decl::fqn::category::justification), got {parts.length}: {rawLine}"]
-      continue
-    let file := parts[0]!.trimAscii.toString
-    let declName := parts[1]!.trimAscii.toString
-    let fqn := parts[2]!.trimAscii.toString
-    let category := parts[3]!.trimAscii.toString.toLower
-    let justification := parts[4]!.trimAscii.toString
-    if !validCategories.contains category then
-      errors := errors ++
-        [s!"gate_allowlist.txt:{lineNum}: unknown category '{parts[3]!.trimAscii.toString}' (expected one of {validCategories})"]
-      continue
-    if fqn.isEmpty then
-      errors := errors ++ [s!"gate_allowlist.txt:{lineNum}: missing fully-qualified name (3rd field)"]
-      continue
-    if justification.isEmpty then
-      errors := errors ++ [s!"gate_allowlist.txt:{lineNum}: missing justification"]
-      continue
-    entries := entries ++ [(⟨file, declName, fqn, category, justification, lineNum⟩ : AllowlistEntry)]
-  return (entries, errors)
 
 /-- `declModule` is carried purely for reporting: since 32 modules (TC15)
 declare a bare top-level `def main`/`def runTests` with no namespace,
@@ -485,9 +375,7 @@ via process exit code -- that is what lets the parent tell "this module
 genuinely failed to import" (a real finding) apart from "this OS process
 itself crashed / was killed / printed nothing parseable" (a missing or
 unparseable result line, which the parent treats identically -- both are
-exactly the blind spot this whole gate exists to refuse to hide). Carries no
-allowlist knowledge; the parent alone does `byKey` matching, so N worker
-processes never need N copies of the allowlist parsed into them. -/
+exactly the blind spot this whole gate exists to refuse to hide). -/
 /- REF: docs/REVIEW.md#law-10-kernel-checked-gates-native-evaluation-debt -/
 def runScanWorker (target : Name) : IO UInt32 := do
   setupSearchPath
@@ -525,11 +413,6 @@ def runGate : IO UInt32 := do
 
   setupSearchPath
 
-  let allowlistPath : System.FilePath := "scripts" / "gate_allowlist.txt"
-  let allowlistText ←
-    if ← allowlistPath.pathExists then IO.FS.readFile allowlistPath else pure ""
-  let (allowlist, parseErrors) := parseAllowlist allowlistText
-
   IO.println sepLine
   IO.println " gasm Law 10 / Pillar 1 AXIOM-LEVEL Gate Verifier (Tools/CheckGatesAxioms.lean)"
   IO.println sepLine
@@ -537,16 +420,6 @@ def runGate : IO UInt32 := do
   IO.println "    graph (Lean.collectAxioms, the #print axioms machinery), not source text."
   IO.println "[*] Gates on ANY axiom outside {propext, Classical.choice, Quot.sound}, keyed"
   IO.println "    by fully-qualified declaration name."
-
-  if !parseErrors.isEmpty then
-    IO.println ""
-    IO.println s!"[!] FAILED: {parseErrors.length} malformed allowlist line(s):"
-    for e in parseErrors do
-      IO.println s!"    - {e}"
-    IO.println sepLine
-    return 1
-
-  IO.println s!"[*] Loaded {allowlist.length} valid allowlist entr(y/ies) from {allowlistPath}."
 
   let env ←
     try
@@ -559,20 +432,9 @@ def runGate : IO UInt32 := do
 
   let ctx : Core.Context := { fileName := "CheckGatesAxioms", fileMap := default }
 
-  -- (module, fqn) -> AllowlistEntry, for O(1) lookup during the scan. Keyed
-  -- by `matchKey` (module-qualified), not `fqn` alone -- see `matchKey`'s
-  -- doc comment for why bare-`fqn` keying is unsound now that 32 more
-  -- modules (many declaring an unnamespaced `main`) are in scope.
-  let mut byKey : Std.HashMap String AllowlistEntry := {}
-  for e in allowlist do
-    let entryModule := moduleNameOfPath (System.FilePath.mk e.file)
-    byKey := byKey.insert (matchKey entryModule e.fqn) e
-
   let mut scanned := 0
   let mut gated := 0
-  let mut compliant := 0
   let mut offenders : Array Offender := #[]
-  let mut matchedKeys : Std.HashSet String := {}
 
   for i in [:env.header.moduleNames.size] do
     let modName := env.header.moduleNames[i]!
@@ -586,15 +448,8 @@ def runGate : IO UInt32 := do
               let gatingAxs := axs.filter (fun a => !isStandardAxiom a)
               if gatingAxs.size > 0 then
                 gated := gated + 1
-                let declModule := modName
-                let key := matchKey declModule (toString name)
-                match byKey[key]? with
-                | some _ =>
-                  compliant := compliant + 1
-                  matchedKeys := matchedKeys.insert key
-                | none =>
-                  let axiomPairs := gatingAxs.map (fun a => (toString a, axiomLabel a))
-                  offenders := offenders.push { declModule := declModule, declName := toString name, axioms := axiomPairs }
+                let axiomPairs := gatingAxs.map (fun a => (toString a, axiomLabel a))
+                offenders := offenders.push { declModule := modName, declName := toString name, axioms := axiomPairs }
 
   -- docs/REVIEW.md §4.1.1: close the import-closure blind spot. `discovered` is
   -- the on-disk ground truth; `baselineModules` is what the single import
@@ -639,21 +494,7 @@ def runGate : IO UInt32 := do
         scanned := scanned + scannedN
         for (declS, axPairs) in gatedItems do
           gated := gated + 1
-          let key := matchKey target declS
-          match byKey[key]? with
-          | some _ =>
-            compliant := compliant + 1
-            matchedKeys := matchedKeys.insert key
-          | none =>
-            offenders := offenders.push { declModule := target, declName := declS, axioms := axPairs }
-
-  -- `axiom-only` entries exist purely for this tool (no source-text
-  -- occurrence will ever back them); one that matched NOTHING in this scan
-  -- is a stale pre-authorization of a name that turned out not to need it
-  -- (or never did) -- a hard failure, not a silent no-op.
-  let staleAxiomOnly := allowlist.filter (fun e =>
-    e.category == "axiom-only" &&
-    !matchedKeys.contains (matchKey (moduleNameOfPath (System.FilePath.mk e.file)) e.fqn))
+          offenders := offenders.push { declModule := target, declName := declS, axioms := axPairs }
 
   let elapsedMs := (← IO.monoMsNow) - startTime
 
@@ -688,7 +529,7 @@ def runGate : IO UInt32 := do
   IO.println ""
   IO.println "--- SCAN RESULT ---"
   IO.println s!"[*] Scanned {scanned} reportable project declaration(s) (scoped by originating module)."
-  IO.println s!"[*] {gated} depend on a non-standard axiom ({compliant} allowlisted, {offenders.size} NOT)."
+  IO.println s!"[*] {gated} depend on a non-standard axiom ({offenders.size} forbidden)."
 
   let mut failed := false
 
@@ -725,23 +566,13 @@ def runGate : IO UInt32 := do
     IO.println ""
     IO.println s!"[!] FAILED: {offenders.size} declaration(s) depend on an axiom outside"
     IO.println "    {propext, Classical.choice, Quot.sound}; replace the dependency constructively"
-    IO.println "    (the temporary debt ledger is migration-only and may not grow)"
-    IO.println "    entry (matched by module-qualified fully-qualified name):"
+    IO.println "    before this gate can pass:"
     for o in offenders do
       let axiomStrs := o.axioms.toList.map (fun (a, lbl) => s!"{a} [{lbl}]")
       IO.println s!"    - {o.declModule}::{o.declName} -- axiom(s): {String.intercalate ", " axiomStrs}"
 
-  if !staleAxiomOnly.isEmpty then
-    failed := true
-    IO.println ""
-    IO.println s!"[!] FAILED: {staleAxiomOnly.length} `axiom-only` allowlist entr(y/ies) matched no"
-    IO.println "    gated declaration in this scan (stale pre-authorization; prune or fix the fqn):"
-    for e in staleAxiomOnly do
-      IO.println s!"    - gate_allowlist.txt:{e.lineNum} {e.file}::{e.declName}::{e.fqn}"
-
   if !failed then
-    IO.println "[+] Every non-standard-axiom-dependent declaration in scope is allowlisted,"
-    IO.println "    and every `axiom-only` entry matched a real finding."
+    IO.println "[+] No reportable declaration in scope depends on a non-standard axiom."
 
   IO.println ""
   IO.println s!"[*] Wall time: {elapsedMs}ms (includes importing Gasm/Stdlib/Spikes)."

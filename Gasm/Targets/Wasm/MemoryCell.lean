@@ -61,7 +61,7 @@ def empty : WasmMemory := ⟨ByteArray.empty⟩
     `ByteArray` (an instantiated module's initial linear memory, a differential-fuzzer test
     fixture) as sealed `WasmMemory` in one step. This is the Wasm counterpart of
     `X86_64Mem.initRegion` -- installing a computed memory image is a legitimate bulk operation,
-    and naming it keeps callers inside the chokepoint instead of allowlisted around it. The bytes
+    and naming it keeps callers inside the chokepoint. The bytes
     themselves may be built with ordinary total `ByteArray` operations (`.set!`, `++`, ...)
     *before* this call, exactly as `X86_64Mem.initRegion`'s callers compute an arbitrary
     `Address → Byte` function before wrapping it -- what the seal forbids is touching the bytes of

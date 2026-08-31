@@ -40,9 +40,9 @@ module builds that connection:
 
 Everything here is kernel-checked structural proof on the standard three axioms; the two
 finite `decide` closures (288 and 32 symbols, 256 lengths) are exhaustive over their actual
-domains, so they are rung 2 of `docs/REVIEW.md` Law 10 and need no allowlist entry.
+domains, so they are rung 2 of `docs/REVIEW.md` Law 10 and introduce no native-evaluation axiom.
 
-This does NOT retire any `scripts/gate_allowlist.txt` entry. The seven Spike 5 entries need
+This does not by itself close any whole-program Spike 5 proof. Those theorems need
 the gzip *container* framing (PA16 L8) on top of this, and their pointwise `native_decide`
 form is additionally blocked from `decide` by `decompress`'s well-founded recursion, whose
 `Acc.rec` does not reduce in the kernel.

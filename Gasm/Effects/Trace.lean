@@ -32,7 +32,7 @@ structure TraceState (Event : Type) where
   -- F1 (Law 9 root fix): `List ByteArray`, not `List String`. A queue of `String`s cannot hold a
   -- non-UTF-8 request, so it cannot range over `∀ (request : ByteArray)` -- the real
   -- per-connection domain `docs/tasks/PA6-read-binder-contract.md` names. That is why Spike 4's
-  -- nine `grandfathered` entries were single-vector `native_decide` checks: the general statement
+  -- nine former single-vector `native_decide` checks could not express the general statement:
   -- had nowhere to live. See `Gasm.Effects.recvDeliver` and its `recvDeliver_lossless` law.
   incomingRequests : List ByteArray := []
 

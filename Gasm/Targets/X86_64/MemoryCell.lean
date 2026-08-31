@@ -145,8 +145,8 @@ def write (w : MemWidth) (a : Address) (v : UInt64) (m : X86_64Memory) : X86_64M
 /- REF: docs/MEMORY_HOOK.md#32-sealing-the-raw-field-what-makes-the-chokepoint-mechanical-not-conventional -/
 /-- Loader-facing bulk-install entry point: wraps an arbitrary total `Address → Byte` function
     (a computed image layout) as a sealed `X86_64Memory` in one step. Installing an executable
-    image is a legitimate bulk write; naming it keeps loaders inside the chokepoint instead of
-    allowlisted around it, per `docs/MEMORY_HOOK.md` §3.2. -/
+    image is a legitimate bulk write; naming it keeps loaders inside the chokepoint, per
+    `docs/MEMORY_HOOK.md` §3.2. -/
 def initRegion (f : Address → Byte) : X86_64Memory := ⟨f⟩
 
 /- REF: docs/MEMORY_HOOK.md#32-sealing-the-raw-field-what-makes-the-chokepoint-mechanical-not-conventional -/

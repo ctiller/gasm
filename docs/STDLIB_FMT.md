@@ -14,8 +14,8 @@ formatting" even means, let alone a proof that this two-loop, variable-trip-coun
 sequence computes it. The spike's whole-program trace-equivalence theorem
 (`spike2_canonical_effect_trace_equivalence`, `Spikes/Spike2Fibonacci/Windows/Equivalence.lean`)
 is consequently discharged by `native_decide` on a single concrete input trace, not a genuine
-structural argument -- exactly the oracle-dependence Law 10 (`scripts/gate_allowlist.txt`) exists
-to track down and retire. This library gives "the decimal representation of `n`" a real,
+structural argument -- exactly the oracle-dependence that Law 10 rejects. This library gives
+"the decimal representation of `n`" a real,
 structurally-recursive definition and a real correctness theorem, so a future connection proof
 between it and the assembly's itoa loops has something honest to be checked against, in the same
 role `Stdlib/Http11` now plays for `Spikes/Spike4HttpServer`'s request routing
@@ -172,9 +172,8 @@ equivalence` needs to change to retire its `native_decide`; the assembly side (b
 actual gap.
 
 **Assembly layer (not started; the concrete remaining work).** Retiring
-`spike2_canonical_effect_trace_equivalence`'s `native_decide` (`scripts/gate_allowlist.txt`'s
-`Spikes/Spike2Fibonacci/Windows/Equivalence.lean::spike2_canonical_effect_trace_equivalence`
-entry) needs a loop-invariant induction, in PA15's style
+the remaining Spike 2 termination theorem's `native_decide` needs a loop-invariant induction,
+in PA15's style
 (`Spikes/Spike2Fibonacci/Windows/LoopInvariant.lean`), over `spike2Instructions`' `digit_extract_
 loop`/`digit_write_loop` pair specifically -- proving that pair's effect on the stack buffer,
 starting from an arbitrary `UInt64` value in `r14`, equals `formatDecimal` applied to that value
@@ -204,7 +203,7 @@ Concretely, this needs:
 None of this is attempted in this change: it is a genuine, multi-loop, variable-trip-count
 induction (item 1 in particular has no direct PA15 precedent, since every prior loop-invariant
 proof in this tree closes over a fixed or externally-supplied iteration count, not one derived
-from the *value being processed*), estimated at PA15-or-greater scope on its own. **No allowlist
-entry is retired by this change.** What this change delivers is the proven target (§5) that a
+from the *value being processed*), estimated at PA15-or-greater scope on its own. What this
+change delivers is the proven target (§5) that a
 future connection proof would check the assembly against, plus this precise statement of what
 remains -- not an overstated claim that the connection itself is done.

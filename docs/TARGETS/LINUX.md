@@ -254,20 +254,20 @@ binary -- `Gasm/` never depends downward on `Spikes/` elsewhere in this tree, an
 **Status** (corrected 2026-08-28): this section previously read "All 5 Linux Spikes are fully
 implemented, verified via **constructive** `native_decide` proofs", attributing `native_decide`
 to all five uniformly. Two things were wrong. **`native_decide` is not constructive** — it is an
-oracle, evaluated by the compiler and not re-checked by the kernel, which is why Law 10 governs
-it, `docs/TECHNICAL_NOTES.md` §1 records it as trusted-but-unprovable, and every use needs a
-`scripts/gate_allowlist.txt` entry. Calling it constructive is the facade Law 8 exists to catch.
+oracle, evaluated by the compiler and not re-checked by the kernel, which is why Law 10 rejects
+it and `docs/TECHNICAL_NOTES.md` §1 records it as trusted-but-unprovable. Calling it constructive
+is the facade Law 8 exists to catch.
 The uniform attribution was also **wrong in the direction that undersells the best result here**:
-Spike 1's Linux proof is `decide`, fully kernel-checked, needing no oracle and no allowlist entry
+Spike 1's Linux proof is `decide`, fully kernel-checked, needing no oracle
 at all. Per spike, verified against the tree on 2026-08-28:
 
 | Spike | Equivalence theorem lives in | Proved by | Trust |
 | :-- | :-- | :-- | :-- |
-| 1 — Hello World | `Spikes/Spike1Hello/Linux/Equivalence.lean:39` | **`decide`** | kernel-checked; no oracle, no allowlist entry |
-| 2 — Fibonacci | `Spikes/Spike2Fibonacci/Linux/Equivalence.lean:44` | `native_decide` | oracle; allowlisted |
-| 3 — Sort Lines | `Spikes/Spike3SortLines/Linux/Equivalence.lean:63`, `:69` | `native_decide` ×2 | oracle; allowlisted. Both are `_inst`-suffixed — single-vector ground checks, not universal claims |
-| 4 — HTTP Server | `Spikes/Spike4HttpServer/Equivalence.lean:156`, `:163`, `:170` | `native_decide` ×3 | oracle; allowlisted. **Not** under `Linux/`, which holds only `Emit.lean`/`Program.lean` |
-| 5 — Gzip & Gunzip | `Spikes/Spike5Gzip/Equivalence.lean:77`, `:141` | `native_decide` ×2 | oracle; allowlisted. **Not** under `Linux/`, same as Spike 4 |
+| 1 — Hello World | `Spikes/Spike1Hello/Linux/Equivalence.lean:39` | **`decide`** | kernel-checked; no oracle |
+| 2 — Fibonacci | `Spikes/Spike2Fibonacci/Linux/Equivalence.lean:60` | `native_decide` | forbidden migration blocker |
+| 3 — Sort Lines | `Spikes/Spike3SortLines/Linux/Equivalence.lean:66`, `:72` | `native_decide` ×2 | forbidden migration blockers; both are `_inst`-suffixed single-vector ground checks |
+| 4 — HTTP Server | `Spikes/Spike4HttpServer/Equivalence.lean` | structural proof | kernel-checked; no native evaluator |
+| 5 — Gzip & Gunzip | `Spikes/Spike5Gzip/Equivalence.lean` | structural proof | kernel-checked; no native evaluator |
 
 All five are implemented, emitted as standalone ELF64 executables (`hello_linux`, `fib_linux`,
 `sort_lines_linux`, `spike4_http_linux`, `spike5_gzip_linux`/`spike5_gunzip_linux`) and tested
@@ -276,4 +276,3 @@ establish is trace equivalence between each lowering and its specification **at 
 inputs each proof evaluates**, not over an input domain — see
 `docs/SPIKES/SPIKE4_HTTP_SERVER.md#4-semantic-trace-equivalence-verifiedprogram-contract` for
 the worked statement of that limit, which applies to all five.
-

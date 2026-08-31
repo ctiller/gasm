@@ -134,8 +134,8 @@ def agreeOutsideMemory (s1 s2 : X86_64MachineState) : Prop :=
 -- four-rung trust-cost ordering, `bv_decide` is rung 4 (trusted, not kernel-checked: `docs/REVIEW.md`
 -- T14 established that `LratCert.toReflectionProof` asserts its result through the same
 -- `Lean.Meta.nativeEqTrue` routine `native_decide` uses, so the kernel never replays the LRAT
--- certificate). A structural proof is rung 1 and needs no `scripts/gate_allowlist.txt` entry at
--- all. This is the same `BitVec.eq_of_getLsbD_eq` playbook PA13/PA14 used to take
+-- certificate). A structural proof is rung 1 and carries no native-evaluation dependency. This
+-- is the same `BitVec.eq_of_getLsbD_eq` playbook PA13/PA14 used to take
 -- `Stdlib/Zlib/CRC32Equivalence.lean` to zero `bv_decide`, applied at 64 bits.
 --
 -- The route deliberately avoids per-bit-index case analysis over all 64 positions (the
@@ -216,7 +216,7 @@ theorem le_bytes_reassemble (v : UInt64) :
     of `a`'s value -- each such disequality is discharged by `simp` (via `UInt64.add_right_inj`)
     inline in the `simp only` set below, which collapses `write`'s eight-way `if` ladder to the
     byte each read position actually selects. What remains is `le_bytes_reassemble`. Structural
-    throughout: no `bv_decide`, hence no `scripts/gate_allowlist.txt` entry (Law 10 rung 1). -/
+    throughout: no `bv_decide` and no native-evaluation dependency (Law 10 rung 1). -/
 theorem X86_64Mem.read64_write64_same (a : Address) (v : UInt64) (m : X86_64Memory) :
     X86_64Mem.read .w64 a (X86_64Mem.write .w64 a v m) = v := by
   simp only [X86_64Mem.read, X86_64Mem.write, X86_64Mem.readByte,

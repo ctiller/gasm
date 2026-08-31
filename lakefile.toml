@@ -57,7 +57,7 @@ roots = ["Gasm.Targets.X86_64.RoundtripGate.DispatchExhaustive"]
 
 # Law 10 axiom-level gate verifier: walks every compiled declaration in
 # Gasm/Stdlib/Spikes and cross-checks its axiom dependencies (Lean's own
-# `#print axioms` machinery) against scripts/gate_allowlist.txt. See
+# `#print axioms` machinery) with zero exception-ledger support. See
 # Tools/CheckGatesAxioms.lean for why this, and not the Python regex
 # pre-check, is the load-bearing gate.
 [[lean_exe]]
