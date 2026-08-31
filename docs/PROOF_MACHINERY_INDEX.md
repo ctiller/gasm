@@ -192,11 +192,15 @@ The following code shapes have enough evidence to investigate but are not canoni
   landed provider machinery.
 
   Provider identity has a separate generativity control.  Namespace-only checkpoint `d9685b5` does
-  not obtain freshness merely from a sealed existential or rank-2 interface.  Production requires a
-  runner-allocated generative `ExecutionInstanceId` root with uniqueness evidence, independent
-  root-indexed operation and response sequences, opaque provider mutation, and target-specific
-  transitions.  It must not expose a globally comparable erased correlation token.  Reviewer is
-  actively attacking this proposed boundary; it is not established machinery.
+  not obtain freshness merely from a sealed existential or rank-2 interface.  Reviewer blocked the
+  proposed root under the current pure `Platform.load`: no state-threaded target world exists against
+  which the loader can establish freshness.  A realizable version must thread a target-owned load
+  world through the sole `VerifiedProgram` boundary, allocate `ExecutionInstanceId` fresh relative to
+  that world, preserve the root through opaque target transitions, and quantify behavior over every
+  well-formed input world.  `BoundaryWorld` or capability establishment is insufficient unless it
+  participates in that load transition.  Only then can independent root-indexed operation/response
+  sequences avoid a globally comparable erased correlation token.  This is a blocked design
+  boundary, not established machinery.
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
