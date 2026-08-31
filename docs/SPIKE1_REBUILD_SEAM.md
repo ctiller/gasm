@@ -38,9 +38,34 @@ The rebuild preserves these meanings, not current datatypes:
 
 No result transcript, artifact fact or successful test mints source authority.
 
-## 3. Source operation contract
+## 3. Source operation and continuation contract
 
-Spike 1 lowers this result-indexed operation tree:
+The ergonomic source boundary is an abstract operation with a typed fatal continuation:
+
+```text
+writeAll text onFatal
+```
+
+`writeAll`, not Windows `WriteFile`, promises to absorb every short or zero write. `onFatal` is a
+target-independent function/abstract block receiving the error and exact committed-prefix evidence;
+its result type is terminal, so it cannot accidentally return into the success continuation. A
+convenience surface may spell the common policy as `writeAll text orFatal`.
+
+Conceptually:
+
+```text
+OutputFailure text =
+  { error, committed, proof committed.IsPrefix text }
+
+writeAll
+  (text : Bytes)
+  (onFatal : OutputFailure text -> Program Terminal)
+  : Program Unit
+```
+
+The next lowering rung turns the success and fatal continuations into typed abstract basic blocks.
+Only the selected Windows realization turns those into concrete target blocks. Spike 1 lowers this
+result-indexed operation tree:
 
 ```text
 acquireStdout
@@ -81,9 +106,12 @@ directional realization theorem. It does not define a universal provider-result 
 ## 5. Stronger relational `VerifiedProgram` authority
 
 Moving from one deterministic evaluator result to relational execution must strengthen the final
-gate, not replace equality by a permissive predicate. In particular, an arbitrary
-`Spec : Observation -> Prop`, an empty execution relation, `fun _ => True`, an omitted result branch,
-or an existentially selected convenient execution must be unrepresentable as verified.
+gate, not replace equality by a permissive predicate. An empty execution relation, omitted result
+branch, post-hoc root substitution or existentially selected convenient execution must be
+unrepresentable as verified. Generic machinery cannot prove that an owner authored a meaningful
+product specification; that remains an explicit reviewed trust boundary. For Spike 1 the accepted
+root constructor is sealed around the exact output/fatal contract, so the implementation cannot
+replace it with `fun _ => True`.
 
 The information content is:
 
@@ -143,6 +171,29 @@ For a deterministic target, the old equality theorem is recovered as a special c
 execution plus soundness and completeness. The rebuilt gate therefore loses no currently valid
 fact and additionally prevents deterministic-success narrowing from hiding real provider branches.
 
+### 5.1 Obligation discharge
+
+The final gate composes certificates; it does not ask each program to replay their proofs.
+
+| Obligation | Discharging owner/construction | Spike 1 residual |
+|---|---|---|
+| Exact closure | Linker, provider registry, ABI and artifact certificates | Select exact PE/provider/profile |
+| Execution existence | Target relation constructors plus provider transition totality | None after selection |
+| Provider-result soundness | Windows provider realization, target transition to one typed result | None |
+| Provider conditional coverage | Windows provider realization under its exact environment premise | None |
+| Instruction/access safety | ISA, memory and ABI libraries over the derived selected tree | Local representation relation only if unavoidable |
+| Branch/path coverage | Proof-producing lowering of success, retry and fatal continuations | Supply the two continuations |
+| Output split | Source `writeAll` invariant/combinator | Exact message/root mapping |
+| Backward soundness | Structural lowering induction over actual states/results | Connect accepted results to sealed root |
+| Required behavior | Selected implementation plus provider implementability theorem | Choose claimed behavior class |
+| Progress | Separate provider/fairness theorem | Choose whether termination is claimed |
+
+Provider realization has two distinct directions. Mandatory soundness classifies every concrete
+target call transition as exactly one typed provider result and proves its source transition.
+Conditional coverage says that each result enabled by the pinned provider/environment profile has a
+corresponding target transition. It does not require Windows to realize impossible results, and it
+does prevent a proof author from narrowing the profile to deterministic success.
+
 ## 6. Windows realization
 
 The first artifact must:
@@ -199,8 +250,8 @@ ownership/spec/lowering review before proposing further shared machinery.
    namespace; do not preserve old APIs.
 3. Demonstrate positive paths for full and repeated short writes, plus fatal missing-stdout and
    fatal-after-prefix paths.
-4. Demonstrate falsifiers: empty execution relation, always-true root, existential execution
-   selection, omitted provider branch, successful early exit, dropped/duplicated bytes, oversized
+4. Demonstrate falsifiers: empty execution relation, substituted/overbroad root, existential
+   execution selection, omitted provider branch, successful early exit, dropped/duplicated bytes, oversized
    returned count, requested-buffer rather than accepted-prefix event, unclassified fault/fuel, and
    deterministic-success narrowing.
 5. Close the exact Windows artifact through the sole experimental universal root and emit/test it on
