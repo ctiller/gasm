@@ -27,6 +27,7 @@ open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.Targets.WASI
 open Spikes.Spike5Gzip
+open Stdlib.Zlib
 
 /- REF: docs/SPIKES/SPIKE5_GZIP.md#5-semantic-trace-equivalence-verification-contract -/
 /-- CLI Test Target for Dual-Target Spike 5 GZIP/GUNZIP Utility (x86_64 Windows & WebAssembly). -/
@@ -36,7 +37,7 @@ def main : IO UInt32 := do
   IO.println "[*] ==================================================================="
 
   -- 1. Verify VerifiedProgram Windows Contract & Binary Emission
-  IO.println "[*] [1/5] Verifying x86_64 Windows VerifiedProgram Contract..."
+  IO.println "[*] [1/6] Verifying x86_64 Windows VerifiedProgram Contract..."
   let winExeBytes ← IO.ofExcept (emitVerifiedProgram spike5WindowsVerifiedProgram)
   let winExePath := "spike5_gzip.exe"
   IO.FS.writeBinFile winExePath winExeBytes
@@ -60,12 +61,40 @@ def main : IO UInt32 := do
   IO.FS.writeBinFile wasmPath wasmBytes
   IO.println s!"[+] WebAssembly binary generated: {wasmPath} ({wasmBytes.size} bytes)"
 
-  -- 4. The imported contracts carry universal trace equivalence for both
+  -- 4. Demonstrate both outcomes of the fold-backed streaming contract used
+  -- by the emitted VerifiedProgram.
+  IO.println "[*] [4/6] Demonstrating fallible-fold streaming outcomes..."
+  match compressAll bufferedStreamingZlibCapability spike5AllocationScope canonicalSampleData with
+  | .success compressed _ =>
+      IO.println s!"    ✓ Accepted: {canonicalSampleData.size} bytes -> {compressed.size} bytes"
+  | .rejected _ _ =>
+      IO.println "[!] FAIL: compression unexpectedly rejected"
+      return 1
+  | .resourceExhausted _ =>
+      IO.println "[!] FAIL: normal-capacity compression exhausted its scope"
+      return 1
+
+  let zeroScope : AllocationScope := { capacity := 0 }
+  match compressAll bufferedStreamingZlibCapability zeroScope canonicalSampleData with
+  | .resourceExhausted finalScope =>
+      if finalScope = zeroScope then
+        IO.println "    ✓ Refused: zero-capacity scope produced exact resourceExhausted outcome"
+      else
+        IO.println "[!] FAIL: refusal did not preserve the exact failed allocation scope"
+        return 1
+  | .success _ _ =>
+      IO.println "[!] FAIL: zero-capacity compression unexpectedly succeeded"
+      return 1
+  | .rejected _ _ =>
+      IO.println "[!] FAIL: zero-capacity compression returned the wrong refusal kind"
+      return 1
+
+  -- The imported contracts carry universal trace equivalence for both
   -- directions on all three targets; elaboration of this executable is the proof gate.
-  IO.println "[*] [4/6] Six universal streaming trace contracts elaborated."
+  IO.println "    ✓ Six universal streaming trace contracts elaborated."
 
   -- 4. Verify GZIP Roundtrip on Multiple Inputs
-  IO.println "[*] [4/5] Verifying GZIP / GUNZIP Invertibility & Checksum Invariants..."
+  IO.println "[*] [5/6] Verifying GZIP / GUNZIP Invertibility & Checksum Invariants..."
   let repeatedStr := (String.pushn "" 'A' 500) ++ (String.pushn "" 'B' 500)
   let inputs : List (String × ByteArray) := [
     ("Empty Data", ByteArray.empty),
@@ -96,7 +125,7 @@ def main : IO UInt32 := do
   IO.println s!"    ✓ Verified Compression: 251 bytes of repetitive 'a' -> {compressedAs.size} bytes ({100 - (compressedAs.size * 100 / repeatingAs.size)}% size reduction)"
 
   -- 5. Verify CLI Flag Parsing
-  IO.println "[*] [5/5] Verifying CLI Flag Parsing..."
+  IO.println "[*] [6/6] Verifying CLI Flag Parsing..."
   if parseGzipFlags ["-d", "file.gz"] != GzipMode.Decompress then
     IO.println "[!] FAIL: -d flag parsing"
     return 1

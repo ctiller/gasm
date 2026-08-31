@@ -184,8 +184,8 @@ concrete realization where it is useful.
 ## 6. Fallible streaming and base I/O
 
 This program is split into a pure finite-input fold and effectful source/sink I/O.
-The highest-priority **Next** primitive requested by Trust is the pure fold. Before
-implementation its step algebra must fix these semantics:
+The pure finite-input fold requested by Trust is **Present**. Its step algebra fixes
+these semantics:
 
 - acceptance commits exactly one input unit and returns the next fold state;
 - refusal is atomic with respect to the fold state;
@@ -203,6 +203,14 @@ accepted prefix ++ refused input ++ unconsumed tail
 
 If the stop reason is refusal, the remainder is `refused :: unconsumedTail`; no state
 delta from that refused step is committed.
+
+Zlib streaming is the first production realization and runnable demonstration. Its
+fold state uses a linear difference-list output accumulator, while domain rejection
+and resource exhaustion carry the exact post-attempt allocation scope. Compression
+and decompression refine the former structural driver by exact equality. Spike 5
+emits its closed Windows, Linux, and WASI `VerifiedProgram` artifacts and exercises
+both an accepted compression and a zero-capacity `resourceExhausted` outcome in the
+same executable verification target.
 
 Generic resource-count accounting remains **Candidate** until it has connection
 theorems to two accepted domain states. A count projection may prove conservation,
@@ -323,7 +331,7 @@ promotion requires filling any missing consumer, bound, and cost evidence.
 | Generic ByteArray lemmas | `Stdlib/Zlib/ByteArrayBridge.lean` | Zlib and PNG | exact list/array observation bridges; no Zlib dependency | Next |
 | `Nat.alignUp` | Linux ELF and Windows PE emitters | two linker/emitter paths | preserve zero policy; positive-alignment divisibility and minimality | Next |
 | UInt64 decimal bridge | present Fmt UInt64 writer/bounds and HTTP decimal handling | Fmt, HTTP, Spike 2 | connection theorem and behavior-preserving HTTP migration; add only a demonstrated missing partition lemma | Next bridge; re-check ownership |
-| Fallible finite fold | Trust streaming request | Zlib streaming demonstration planned | atomic refusal, retained remainder, prefix conservation, committed-state chain | Next pending runnable demonstration |
+| Fallible finite fold | Trust streaming request | Zlib streaming and Spike 5 | atomic refusal, retained remainder, prefix conservation, committed-state chain, exact legacy refinement | Present; runnable accepted/refused demonstration |
 | Resource count projection | SmolAlloc and WASI retain distinct executable states | connection consumers not yet landed | count conservation and historical peak bounds without claiming ownership identity | Candidate; connections required |
 | Byte cursor | ELF parser and x86 decoding | two parsing paths | no overread, monotone cursor, exact consumed slice | Candidate |
 | Endian primitives | ELF, x86 encoding, PNG big-endian emission | multiple byte formats | read/write roundtrip under exact width bounds | Candidate |
