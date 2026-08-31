@@ -72,10 +72,6 @@ def spike1BareMetalCapabilities : CapabilityComposition (BareMetalX86_64 AnyEven
     intro _ _ provider membership
     exact nomatch provider
 
-def spike1BareMetalSpecification :
-    ProgramSpecification (BareMetalX86_64 AnyEvent) spike1BareMetalCapabilities where
-  observe := fun _ _ => .debugExited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
-
 theorem spike1_baremetal_outcome :
     runBareMetalOutcome spike1BareMetalInstructions spike1BareMetalExecutable.load =
       .debugExited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)) := by
@@ -98,30 +94,37 @@ def spike1BareMetalProviderCertificate :
     intro provider h
     exact nomatch provider
 
+def spike1BareMetalEntryCertificate :
+    ProgramEntryCertificate (BareMetalX86_64 AnyEvent)
+      spike1BareMetalCapabilities spike1BareMetalArtifact where
+  entryContext := fun _ => ()
+  entryEstablished := by
+    intro environment
+    rfl
+
 def spike1BareMetalAdmissibilityCertificate :
     ProgramAdmissibilityCertificate (BareMetalX86_64 AnyEvent)
-      spike1BareMetalCapabilities spike1BareMetalArtifact where
+      spike1BareMetalCapabilities spike1BareMetalArtifact spike1BareMetalEntryCertificate where
   platformAdmissible := by
-    intro _ context _
-    rcases context with ⟨⟩
+    intro environment
     change (runBareMetalOutcome spike1BareMetalInstructions spike1BareMetalExecutable.load).isAdmissible
     rw [spike1_baremetal_outcome]
     trivial
 
 def spike1BareMetalBehaviorCertificate :
     ProgramBehaviorCertificate (BareMetalX86_64 AnyEvent)
-      spike1BareMetalCapabilities spike1BareMetalArtifact spike1BareMetalSpecification where
+      spike1BareMetalCapabilities spike1BareMetalArtifact spike1BareMetalEntryCertificate where
+  spec := fun _ => .debugExited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
   traceEquivalence := by
-    intro _ context _
-    rcases context with ⟨⟩
+    intro environment
     exact spike1_baremetal_outcome
 
 /-- Sole universal verified authority for the x86 bare-metal image. -/
 def spike1VerifiedBareMetalProgram :
-    VerifiedProgram (BareMetalX86_64 AnyEvent) spike1BareMetalCapabilities
-      spike1BareMetalSpecification :=
+    VerifiedProgram (BareMetalX86_64 AnyEvent) spike1BareMetalCapabilities :=
   VerifiedProgram.compose "Spike 1: Bare Metal x86-64 Hello World"
-    spike1BareMetalSpecification spike1BareMetalArtifactCertificate spike1BareMetalProviderCertificate
-    spike1BareMetalAdmissibilityCertificate spike1BareMetalBehaviorCertificate
+    spike1BareMetalArtifactCertificate spike1BareMetalProviderCertificate
+    spike1BareMetalEntryCertificate spike1BareMetalAdmissibilityCertificate
+    spike1BareMetalBehaviorCertificate
 
 end Spikes.Spike1Hello.BareMetal
