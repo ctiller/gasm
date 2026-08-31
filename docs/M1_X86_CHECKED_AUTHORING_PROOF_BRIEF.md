@@ -96,6 +96,18 @@ prototype therefore depends on a distinct
 `M2-B[Windows-x64-process-entry]` loader-established stack grant; `X86StoreRealization` consumes
 that profile evidence rather than deriving physical access from the generic machine state.
 
+The registered supporting sources are `windows-thread-stack-size`
+([Thread Stack Size](https://learn.microsoft.com/en-us/windows/win32/procthread/thread-stack-size)),
+`windows-x64-stack-usage`
+([x64 stack usage](https://learn.microsoft.com/en-us/cpp/build/stack-usage?view=msvc-170)), and
+`windows-x64-calling-convention`
+([x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention?view=msvc-170)).
+They establish the selected platform's reserve/commit/guard/lifetime, stack-allocation/alignment,
+and call-boundary premises. They do not, separately or together, prove that an arbitrary numeric
+range around an observed `rsp` is mapped and writable in one modeled load state. The M2-B profile
+must derive that exact relational grant from its selected loader/process-entry rule and connect it
+to the exact artifact and `Platform.load` result.
+
 The grant is tied to a pinned official Windows loader/ABI source and proves:
 
 - the exact emitted artifact and `Platform.load` state to which the grant applies;
