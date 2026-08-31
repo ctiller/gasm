@@ -253,9 +253,9 @@ The following code shapes have enough evidence to investigate but are not canoni
   `native_decide` controls, projecting `.cpu` through the old runner, `spec := run`, and central
   value-type edits that invalidate the target closure.  Keep this as a worklist until checked
   consumers and dependency/build evidence identify reusable declarations.
-- Graphics tractability candidate `007212fd127c4e88d408aafb72cf4c643e4124b0` is re-authored directly
-  on `a62ca53` and received a fresh Reviewer exact-hash ACCEPT/no P1, but remains MP-blocked on its
-  environment-prefix theorem; its other proof-economy layers conform.  The canonical finite
+- Graphics tractability candidate `007212fd127c4e88d408aafb72cf4c643e4124b0` was re-authored directly
+  on `a62ca53` and received a Reviewer exact-hash ACCEPT/no P1, but MP blocked its environment-prefix
+  theorem; its other proof-economy layers conform.  The canonical finite
   Environment response list is replay input, not an appendable observation prefix: exhaustion has an
   explicit operation history, and loading a longer Environment may allocate a new root.  Therefore
   same-state continuation and prefix preservation across reloads are false.  The current theorem must
@@ -264,8 +264,9 @@ The following code shapes have enough evidence to investigate but are not canoni
   separate design gate.  Outcome reasoning must distinguish normal, blocked, continuing-divergent,
   and failure cases, and separate fairness-free cleanup safety from fairness-dependent eventual
   cleanup.  Replacement `c178dd7424f5535d295ba449da97404b68398184` on `a62ca53` corrects
-  these semantics and is MP exact-hash accepted.  Reviewer verdict and integration remain pending;
-  it is not established machinery.
+  these semantics and is MP+Reviewer exact-hash accepted with no P1.  Trust integration and a landed
+  hash remain pending, so it is not established machinery.  Rejected `007212f` is superseded and is
+  not an ancestor of the accepted replacement.
 - Compiler-roadmap candidate `ee11b405b36c48fca1ebbcd6f4bf9f17c3fa2d0a` contains supported
   evidence but is MP-blocked as a design document.  Its replacement must classify SPIR-V as a
   first-class target ISA while separating shader frontends from platform APIs; scope exception,
