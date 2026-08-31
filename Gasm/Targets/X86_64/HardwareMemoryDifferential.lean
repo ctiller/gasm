@@ -37,6 +37,8 @@ private def firstByteMismatch (expected actual : ByteArray) : Option Nat :=
     status, and every byte of both canaries plus payload are checked. -/
 def compare (observation : Observation) : Except String Unit := do
   let plan := observation.plan
+  if observation.result.caseId != plan.caseId then
+    throw s!"case {plan.caseId}: native result identity disagrees with the checked plan"
   let native := observation.result.machine
   let decoded ← plan.decodeAndStep
   let model := decoded.state
