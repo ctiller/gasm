@@ -355,8 +355,13 @@ The following code shapes have enough evidence to investigate but are not canoni
   cannot repair a malformed envelope carrier or confer execution authority.  Later consumers must
   require both facts separately, or use a thin nonduplicating private bundle when a concrete consumer
   earns it; a fixture may construct both independently.  There is no public bundle or derivation
-  between them.  This is accepted design guidance only: no exact implementation candidate or
-  canonical landed hash exists yet.
+  between them.  This layer boundary is accepted design guidance.  Exact implementation candidate
+  `27685ea` conforms to the public root/frontier, unique-introduction, exact capture/use, and
+  independent-envelope structure, but MP blocked it for two missing private controls.  Distinct root
+  IDs with the same key must fail through `root_key_unique`, and distinct binding IDs with the same
+  key and generation must fail through `binding_key_generation_unique`; the existing duplicate-root
+  fixture exercises only duplicate identity and `Nodup`.  No public API expansion is requested.
+  Await a replacement exact hash, Reviewer verdict, and canonical landed hash.
 
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
@@ -394,8 +399,11 @@ The following code shapes have enough evidence to investigate but are not canoni
   clobber set; target-owned entry evidence may connect it later.  Replacement prose and comments must
   state the complete applicability exclusions: fallthrough, return, unwind, callback, reentrancy,
   exception or fault continuation, teardown, and caller observation.  No additional platform proof
-  is required by this finding.  Await a replacement exact hash and Reviewer verdict before treating
-  any implementation from this candidate as reusable machinery.
+  is required by this finding.  Replacement `dfead99b5441c6b78398bc4f2f3c13720a5c7582` removes the
+  proof-free entry/callable tags and restores the full observer exclusions without changing the
+  substantive local proofs; MP and Reviewer accept the exact hash with no P1.  Trust integration
+  remains pending, so it is not yet reusable machinery.  This local backend alone does not complete
+  or deliver the compiler slice; a PE terminal `VerifiedProgram` spike remains required.
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
   Spike 3 still needs a theorem over every finite stdin with explicit reservation, allocation,
   read, output, exhaustion, and cleanup outcomes before its downstream production certificates can
