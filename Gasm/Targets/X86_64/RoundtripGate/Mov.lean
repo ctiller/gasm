@@ -37,6 +37,7 @@ def movFamilyCases : List AnyX86_64Instruction :=
   ((X86_64Instruction.roundtripCases : List MovMem64DispImm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovReg64Mem64Disp).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovReg32Mem32Disp).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List MovReg8Mem8Disp).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovzxR64Mem8).map fun i => (⟨i⟩ : AnyX86_64Instruction))
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
@@ -65,6 +66,50 @@ private def movDecodesExactlyAs (bytes : ByteArray) (expected : AnyX86_64Instruc
       consumed == bytes.size &&
       X86_64Instruction.encode decoded == bytes &&
       X86_64Instruction.toLean decoded == X86_64Instruction.toLean expected
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Direct reverse controls for every canonical REX/SIB corner of the exact-disp8 low-byte load.
+    In particular, SPL requires a bare REX prefix, while r8b-r15b and r8-r15 bases independently
+    select REX.R and REX.B. -/
+theorem mov8mem_canonical_reverse_controls :
+    [(ByteArray.mk #[0x8A, 0x40, 0x7F], mov_reg8_mem8_disp .al .rax 0x7F),
+     (ByteArray.mk #[0x40, 0x8A, 0x60, 0x00], mov_reg8_mem8_disp .spl .rax 0x00),
+     (ByteArray.mk #[0x44, 0x8A, 0x78, 0x80], mov_reg8_mem8_disp .r15b .rax 0x80),
+     (ByteArray.mk #[0x8A, 0x44, 0x24, 0x00], mov_reg8_mem8_disp .al .rsp 0x00),
+     (ByteArray.mk #[0x41, 0x8A, 0x44, 0x24, 0x00], mov_reg8_mem8_disp .al .r12 0x00),
+     (ByteArray.mk #[0x8A, 0x45, 0x00], mov_reg8_mem8_disp .al .rbp 0x00),
+     (ByteArray.mk #[0x41, 0x8A, 0x45, 0x00], mov_reg8_mem8_disp .al .r13 0x00),
+     (ByteArray.mk #[0x45, 0x8A, 0x7C, 0x24, 0x7F],
+       mov_reg8_mem8_disp .r15b .r12 0x7F)].all
+      (fun pair => movDecodesExactlyAs pair.1 pair.2) = true := by
+  decide
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- The low-byte decoder fails closed on legacy high-byte aliases and every shape outside its
+    exact mod01+disp8 identity. -/
+theorem mov8mem_hostile_bytes_rejected :
+    [ByteArray.mk #[0x8A, 0x60, 0x00],
+     ByteArray.mk #[0x8A, 0x68, 0x00],
+     ByteArray.mk #[0x8A, 0x70, 0x00],
+     ByteArray.mk #[0x8A, 0x78, 0x00],
+     ByteArray.mk #[0x8A, 0x00],
+     ByteArray.mk #[0x8A, 0x05, 0x00, 0x00, 0x00, 0x00],
+     ByteArray.mk #[0x8A, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00],
+     ByteArray.mk #[0x8A, 0x80, 0x00, 0x00, 0x00, 0x00],
+     ByteArray.mk #[0x8A, 0xC0],
+     ByteArray.mk #[0x8A, 0x44, 0x00, 0x7F],
+     ByteArray.mk #[0x8A, 0x44, 0x64, 0x7F],
+     ByteArray.mk #[0x8A, 0x44, 0x20, 0x7F],
+     ByteArray.mk #[0x42, 0x8A, 0x44, 0x24, 0x7F],
+     ByteArray.mk #[0x48, 0x8A, 0x40, 0x7F],
+     ByteArray.mk #[0x40, 0x8A, 0x40, 0x7F],
+     ByteArray.mk #[0x40, 0x40, 0x8A, 0x60, 0x00],
+     ByteArray.mk #[0x67, 0x8A, 0x40, 0x7F],
+     ByteArray.mk #[0x2E, 0x8A, 0x40, 0x7F],
+     ByteArray.mk #[0x8A],
+     ByteArray.mk #[0x8A, 0x44],
+     ByteArray.mk #[0x8A, 0x44, 0x24]].all movDecodeRejects = true := by
+  decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Direct reverse controls for every canonical length/identity corner of the exact-disp8 W32

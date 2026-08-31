@@ -241,6 +241,38 @@ theorem MovReg32Mem32Disp.readsWithin (i : MovReg32Mem32Disp) : ReadsWithin i :=
       simp [X86_64MachineState.setGpr32, hrip, hgprs, hflags, hstdin, hreq, hfault]
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+@[simp] theorem MovReg8Mem8Disp.loadFootprint_eq (i : MovReg8Mem8Disp)
+    (s : X86_64MachineState) :
+    loadFootprint (X86_64Instruction.memAccesses i) s =
+      [s.gprs i.basePtr + signExtend8To64 i.disp] := by
+  simp [X86_64Instruction.memAccesses, loadFootprint, footprintFor,
+    MemAccessSpec.addresses, MemRef.effectiveAddress, MemWidth.bytes]
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovReg8Mem8Disp.writesWithin (i : MovReg8Mem8Disp) : WritesWithin i := by
+  apply registerOnly_writesWithin i
+  intro s
+  rfl
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovReg8Mem8Disp.readsWithin (i : MovReg8Mem8Disp) : ReadsWithin i := by
+  apply singleLoad_readsWithin i .w8
+    ⟨some i.basePtr, none, signExtend8To64 i.disp⟩
+    (fun s v => { s.setGpr8 i.dstReg v.toUInt8 with
+      rip := s.rip + (movReg8Mem8DispEncodedLength i).toUInt64 })
+  · rfl
+  · intro s1 s2 hout
+    simp [MemRef.effectiveAddress, hout.2.1]
+  · intro s
+    simp [X86_64Instruction.step, MemRef.effectiveAddress,
+      X86_64MachineState.setGpr8]
+  · intro s1 s2 v hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+      simp [X86_64MachineState.setGpr8, X86_64MachineState.setGpr64,
+        hrip, hgprs, hflags, hstdin, hreq, hfault]
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- Uses the same `write64` call `MovRspDispImm64`'s `step` was migrated onto (its own comment
     explains the byte-for-byte equivalence with the pre-hook inline sign-extension ladder), so
     this proof is identical in shape to `MovMem64DispReg64`'s below rather than needing the old

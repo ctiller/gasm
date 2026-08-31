@@ -741,6 +741,146 @@ def mov_reg32_mem32_disp (dstReg : Reg32) (basePtr : Reg64) (disp : UInt8) :
     AnyX86_64Instruction :=
   ⟨MovReg32Mem32Disp.mk dstReg basePtr disp⟩
 
+/- REF: intel-sdm#vol=2;instr=MOV;part=description -/
+/-- MOV dstReg8, BYTE PTR [basePtr + disp8].  This low-byte-only family deliberately excludes
+    the legacy high-byte registers AH/CH/DH/BH.  Its canonical identity always uses mod=01 and
+    carries an explicit signed disp8, including zero. -/
+structure MovReg8Mem8Disp where
+  dstReg  : Reg8
+  basePtr : Reg64
+  disp    : UInt8
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+@[simp] def movReg8Mem8DispAccesses (i : MovReg8Mem8Disp) : List MemAccessSpec :=
+  [⟨.load, .w8, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
+
+structure MovReg8Mem8DispEncodingShape where
+  rexPresent : Bool
+  sibPresent : Bool
+  deriving DecidableEq, Repr
+
+def movReg8Mem8DispEncodingShape (i : MovReg8Mem8Disp) :
+    MovReg8Mem8DispEncodingShape :=
+  { rexPresent := (reg8Code i.dstReg).2.2 || (reg64Code i.basePtr).2
+    sibPresent := (reg64Code i.basePtr).1 == 4 }
+
+def movReg8Mem8DispEncodedLength (i : MovReg8Mem8Disp) : Nat :=
+  let shape := movReg8Mem8DispEncodingShape i
+  3 + (if shape.rexPresent then 1 else 0) + (if shape.sibPresent then 1 else 0)
+
+def encodeMovReg8Mem8Disp (i : MovReg8Mem8Disp) : ByteArray :=
+  let (dstCode, dstExt, _) := reg8Code i.dstReg
+  let (baseCode, baseExt) := reg64Code i.basePtr
+  let shape := movReg8Mem8DispEncodingShape i
+  let rexPrefix := if shape.rexPresent then #[makeRex false dstExt false baseExt] else #[]
+  let sib := if shape.sibPresent then #[makeSIB 0 4 4] else #[]
+  ByteArray.mk rexPrefix ++
+    ByteArray.mk (#[0x8A, makeModRM 1 dstCode baseCode] ++ sib ++ #[i.disp])
+
+theorem encodeMovReg8Mem8Disp_size (i : MovReg8Mem8Disp) :
+    (encodeMovReg8Mem8Disp i).size = movReg8Mem8DispEncodedLength i := by
+  simp [encodeMovReg8Mem8Disp, movReg8Mem8DispEncodedLength,
+    movReg8Mem8DispEncodingShape] <;>
+    split <;> simp_all <;> split <;> simp_all <;> rfl
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
+instance : X86_64Instruction MovReg8Mem8Disp where
+  encode := encodeMovReg8Mem8Disp
+
+  step i s :=
+    let addr := s.gprs i.basePtr + signExtend8To64 i.disp
+    let value := (s.read8 addr).toUInt8
+    let s' := s.setGpr8 i.dstReg value
+    { s' with rip := s.rip + (movReg8Mem8DispEncodedLength i).toUInt64 }
+
+  toUops i := derivedMemUops (movReg8Mem8DispAccesses i) defaultMemCostModel
+  -- The inner `byte` is NASM's displacement-size qualifier.  It forces the exact mod01 identity
+  -- even when the displacement is zero, rather than letting NASM shorten `[base + 0]` to mod00.
+  toNASM i := s!"mov {i.dstReg}, byte [byte {i.basePtr} {formatDisp8 i.disp}]"
+  toLean i := s!"mov_reg8_mem8_disp .{i.dstReg} .{i.basePtr} {formatHex8 i.disp}"
+  canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "exact mod01+disp8 byte load; this slice adds no guarded native scratch class, so the claim is encoding-only"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; see docs/RDTSC_HARNESS.md section 8"
+  generateFuzzStates _ rng := ([], rng)
+  roundtripCases :=
+    (allReg8List.map (MovReg8Mem8Disp.mk · .rax 0)) ++
+    (allReg64List.map (MovReg8Mem8Disp.mk .al · 0)) ++
+    (curatedUInt8Cases.map (MovReg8Mem8Disp.mk .al .rax ·)) ++
+    (extendedReg8Pairs.map fun p => MovReg8Mem8Disp.mk p.1 (reg8To64 p.2) 0) ++
+    [⟨.r15b, .r12, 0x7F⟩, ⟨.spl, .r13, 0x80⟩]
+  memAccesses := movReg8Mem8DispAccesses
+
+theorem MovReg8Mem8Disp.step_rip (i : MovReg8Mem8Disp) (s : X86_64MachineState) :
+    (X86_64Instruction.step i s).rip =
+      s.rip + (X86_64Instruction.encode i).size.toUInt64 := by
+  change s.rip + (movReg8Mem8DispEncodedLength i).toUInt64 =
+    s.rip + (encodeMovReg8Mem8Disp i).size.toUInt64
+  rw [encodeMovReg8Mem8Disp_size]
+
+theorem MovReg8Mem8Disp.step_preserves_other_projections (i : MovReg8Mem8Disp)
+    (s : X86_64MachineState) :
+    let s' := X86_64Instruction.step i s
+    s'.memory = s.memory ∧
+    s'.flags = s.flags ∧
+    s'.stdinBuffer = s.stdinBuffer ∧
+    s'.incomingRequests = s.incomingRequests ∧
+    s'.fault = s.fault ∧
+    (∀ r, r ≠ reg8To64 i.dstReg → s'.gprs r = s.gprs r) := by
+  dsimp
+  refine ⟨rfl, rfl, rfl, rfl, rfl, ?_⟩
+  intro r hne
+  exact X86_64MachineState.setGpr8_gpr_other _ _ _ _ hne
+
+theorem MovReg8Mem8Disp.step_destination_exact (i : MovReg8Mem8Disp)
+    (s : X86_64MachineState) :
+    (X86_64Instruction.step i s).gprs (reg8To64 i.dstReg) =
+      (s.gprs (reg8To64 i.dstReg) &&& 0xFFFFFFFFFFFFFF00) |||
+        (s.read8 (s.gprs i.basePtr + signExtend8To64 i.disp)).toUInt8.toUInt64 := by
+  simp [X86_64Instruction.step, X86_64MachineState.setGpr8,
+    X86_64MachineState.setGpr64]
+
+/- REF: intel-sdm#vol=1;sec=3.3.7;part=address-calculations-in-64-bit-mode -/
+theorem movReg8Mem8Disp_effective_address_wrap_controls :
+    let positiveSeed :=
+      ((default : X86_64MachineState).setGpr64 .rax 0xffffffffffffffff).write8 0 0xA5
+    let positive := X86_64Instruction.step
+      (MovReg8Mem8Disp.mk .cl .rax 1) positiveSeed
+    let negativeSeed :=
+      ((default : X86_64MachineState).setGpr64 .rax 0).write8 0xffffffffffffffff 0x5A
+    let negative := X86_64Instruction.step
+      (MovReg8Mem8Disp.mk .cl .rax 0xff) negativeSeed
+    positive.readGpr8 .cl = 0xA5 ∧ negative.readGpr8 .cl = 0x5A := by
+  decide
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+/-- Destination/base aliasing uses the pre-state effective address and preserves bits 63:8. -/
+theorem movReg8Mem8Disp_alias_and_partial_register_control :
+    let seed :=
+      ((default : X86_64MachineState).setGpr64 .r9 0x0000000010000080).write8
+        0x0000000010000000 0xA5
+    let final := X86_64Instruction.step
+      (MovReg8Mem8Disp.mk .r9b .r9 0x80) seed
+    final.gprs .r9 = 0x00000000100000A5 ∧
+      final.memory = seed.memory := by
+  constructor
+  · decide
+  · rfl
+
+/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
+/-- Locks the NASM displacement-size qualifier that preserves the exact mod01 identity at zero. -/
+theorem movReg8Mem8Disp_nasm_disp8_qualifier_controls :
+    X86_64Instruction.toNASM (MovReg8Mem8Disp.mk .al .rax 0) =
+        "mov al, byte [byte rax + 0x0]" ∧
+      X86_64Instruction.toNASM (MovReg8Mem8Disp.mk .r15b .r12 0x80) =
+        "mov r15b, byte [byte r12 - 0x80]" := by
+  decide
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+def mov_reg8_mem8_disp (dstReg : Reg8) (basePtr : Reg64) (disp : UInt8) :
+    AnyX86_64Instruction :=
+  ⟨MovReg8Mem8Disp.mk dstReg basePtr disp⟩
+
 /- REF: intel-sdm#vol=2;instr=MOVZX;part=description -/
 /-- MOVZX dstReg64, BYTE PTR [basePtr + disp8]: Moves 8-bit byte from memory with zero-extension into 64-bit register. -/
 structure MovzxR64Mem8 where
@@ -840,7 +980,8 @@ theorem mov_mem64_disp_imm_sign_extension_soundness :
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the MOV/MOVZX family: `0xB8..0xBF` (MOV reg, imm — 32-bit or 64-bit
-    depending on REX.W), `0x88` (MOV byte ptr [mem], reg8), `0x89` (MOV r64, r64 or MOV
+    depending on REX.W), `0x88` (MOV byte ptr [mem], reg8), `0x8A` (MOV low reg8,
+    byte ptr [base+disp8], exact mod01 identity), `0x89` (MOV r64, r64 or MOV
     [base+disp], reg64 when REX.W=1; MOV [base+disp], reg32 when REX.W=0), `0x8B`
     (MOV r64, [base+disp] when REX.W=1, or MOV r32, [base+disp] when REX.W=0),
     `0xC6` (MOV byte ptr [RSP+disp8], imm8, RSP-only), `0xC7`
@@ -887,6 +1028,37 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
           .ok (mov_mem8 dstPtr srcReg, modPos - offset)
         else
           .error "movTryDecode: unsupported mod field for 0x88 MOV"
+    else if opcode == 0x8A then
+      if rexW || rexX then
+        .error "movTryDecode: unsupported REX.W/REX.X form for 0x8A MOV"
+      else
+        match readModRM bytes opOffset with
+        | .error e => .error e
+        | .ok (mod, reg, rm, modPos) =>
+          let needsRex := rexR || rexB || reg >= 4
+          if hasRex != needsRex then
+            .error "movTryDecode: noncanonical or legacy high-byte REX identity for 0x8A MOV"
+          else if mod != 1 then
+            .error "movTryDecode: unsupported mod field for exact-disp8 0x8A MOV"
+          else
+            let dstReg := codeToReg8 reg rexR
+            let basePtr := codeToReg64 rm rexB
+            if rm == 4 then
+              match readUInt8 bytes modPos with
+              | .error e => .error e
+              | .ok sib =>
+                if sib == makeSIB 0 4 4 then
+                  match readUInt8 bytes (modPos + 1) with
+                  | .error e => .error e
+                  | .ok disp8 =>
+                    .ok (mov_reg8_mem8_disp dstReg basePtr disp8, (modPos + 2) - offset)
+                else
+                  .error "movTryDecode: unsupported indexed/noncanonical SIB for 0x8A MOV"
+            else
+              match readUInt8 bytes modPos with
+              | .error e => .error e
+              | .ok disp8 =>
+                .ok (mov_reg8_mem8_disp dstReg basePtr disp8, (modPos + 1) - offset)
     else if opcode == 0x89 then
       match readModRM bytes opOffset with
       | .error e => .error e
