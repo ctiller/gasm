@@ -542,6 +542,16 @@ The following code shapes have enough evidence to investigate but are not canoni
   binding still needs an explicit address-domain/page-map association; nonempty binding-change or
   rebind histories remain unexercised; fixed stack addresses remain a synthetic profile assumption;
   and generic CPU steps must eventually distinguish instructions that change host/interceptor state.
+
+  Canonical follow-up `ad43d10d` has the same stable patch as independently accepted experimental
+  `423f371ad38ea43f5d06965155a2cd3ab0446237`.  Within the sealed single-invocation spike, decoder
+  roundtrip, MOV footprint, target/host identity, binding authority and origin, and their negative
+  controls are load-bearing.  Do not promote that consumer's exact codec, frame, or alignment fields
+  into a universal production-use API.  Reusable consumers should derive instruction-shape facts
+  from the selected instruction-family certificate or registry and require alignment only for
+  operations whose semantics need it.  A generalized execution-parameterized rebind-rejection
+  theorem is deliberately deferred until a real consumer justifies the public seam and recurring
+  proof burden.
 ### Proof delivery, termination, and CFG composition
 
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
