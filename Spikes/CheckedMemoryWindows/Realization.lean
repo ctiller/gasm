@@ -197,6 +197,13 @@ theorem selectedByteWithinCommitted :
   decide
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#windows-process-entry-grant-prerequisite -/
+theorem selectedFrameWithinCommitted :
+    stackCommittedRange.Contains (frameRange entryState) := by
+  change 0x7FFFFFFEF000 ≤ (entryState.rsp - 40).toNat ∧
+    (entryState.rsp - 40).toNat + 40 ≤ 0x7FFFFFFEF000 + 0x2000
+  decide
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#windows-process-entry-grant-prerequisite -/
 theorem selectedMappedWritable :
     MappedWritable processEntryLoad processEntryLoad.afterHost (byteRange entryState) :=
   mappedWritable selectedHost.beforeHost executable (byteRange entryState)
@@ -208,15 +215,146 @@ def selectedDescriptor : MemAccessSpec :=
   ⟨.store, .w8, ⟨some .rsp, none, signExtend8To64 byteOffset⟩⟩
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-/-- Independent physical realization of the same invocation, state, production descriptor, and
-    one-byte range used by the logical refinement. -/
+/-- Operationally generated association between the selected logical binding and the exact
+    Windows address-domain mapping used by the production store. This is an indexed relation, not
+    a caller-filled record of desired equalities: its only constructor consumes the already-proved
+    live target execution and active mapping at the same use host, and its result indices are fixed
+    by those operational witnesses. -/
+inductive StoreBindingAssociation :
+    WindowsHostState → BindingInstance → BindingGeneration → AddressDomainGeneration →
+      PageMapping → AddressRange → AddressRange → Prop where
+  | processEntry
+      (live : LiveLatestStoreRefinement invocation entryState)
+      (mapped : MappedWritable processEntryLoad processEntryLoad.afterHost
+        (byteRange entryState)) :
+      StoreBindingAssociation processEntryLoad.afterHost
+        (entryBinding invocation) (entryGeneration invocation)
+        processEntryLoad.addressDomain (committedEntry processEntryLoad)
+        (byteRange entryState) (frameRange entryState)
+
+namespace StoreBindingAssociation
+
+theorem hostExact
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    current = processEntryLoad.afterHost := by
+  cases association
+  rfl
+
+theorem bindingExact
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    binding = entryBinding invocation := by
+  cases association
+  rfl
+
+theorem generationExact
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    generation = entryGeneration invocation := by
+  cases association
+  rfl
+
+theorem generationDomainAgreement
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    generation.invocation = domain.invocation ∧
+      domain.generation = generation.invocation.generation := by
+  cases association
+  exact ⟨rfl, rfl⟩
+
+theorem domainExact
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    domain = processEntryLoad.addressDomain := by
+  cases association
+  rfl
+
+theorem mappingExact
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    mapping = committedEntry processEntryLoad := by
+  cases association
+  rfl
+
+theorem logicalExact
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    logical = byteRange entryState := by
+  cases association
+  rfl
+
+theorem backingExact
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    backing = frameRange entryState := by
+  cases association
+  rfl
+
+theorem mapped
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    MappedWritable processEntryLoad current logical := by
+  cases association with
+  | processEntry _ mapped => exact mapped
+
+theorem bindingRecordExact
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    (history entryState).bindingRecord binding = some (entryBindingRecord entryState) := by
+  cases association with
+  | processEntry live _ => exact live.bindingRecordExact
+
+theorem bindingLiveAtUse
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    productionBindingExecution.binding = some domain := by
+  cases association with
+  | processEntry live _ => exact live.targetBindingLive
+
+theorem targetHostAtUse
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    productionBindingExecution.host = current := by
+  cases association with
+  | processEntry live _ => exact live.targetHostExact
+
+theorem productionUse
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    ProductionStoreUse invocation entryState := by
+  cases association with
+  | processEntry live _ => exact live.production
+
+theorem logicalWithinBinding
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    (entryBindingRecord entryState).logicalFootprint.Contains logical := by
+  cases association with
+  | processEntry live _ => exact live.logicalByteWithinBinding
+
+theorem backingIdentity
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    (entryBindingRecord entryState).backingFootprint = backing := by
+  cases association
+  rfl
+
+theorem backingWithinMapping
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    mapping.range.Contains backing := by
+  cases association
+  exact selectedFrameWithinCommitted
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#windows-process-entry-grant-prerequisite -/
+/-- Target translation for the selected logical byte: the associated address domain translates
+    its exact logical start to the exact physical store descriptor address. -/
+theorem selectedAddressTranslated
+    (association : StoreBindingAssociation current binding generation domain mapping logical backing) :
+    domain.translate logical.start =
+      (selectedDescriptor.addressRange (afterAllocate entryState)).start := by
+  cases association
+  rfl
+
+end StoreBindingAssociation
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- Physical realization of the same invocation, state, production descriptor, and one-byte
+    range used by the logical refinement. `association` is the operational bridge: the physical
+    mapping is no longer merely conjoined later with an unrelated logical view. -/
 structure X86StoreRealization (selected : InvocationId)
     (state : X86_64MachineState) (currentHost : WindowsHostState) : Prop where
   private mk ::
   exactInvocation : selected = processEntryLoad.invocation
   exactLoadedState : state = processEntryLoad.machine
-  exactCurrentHost : currentHost = processEntryLoad.afterHost
-  mapped : MappedWritable processEntryLoad currentHost (byteRange state)
+  association : StoreBindingAssociation currentHost
+    (entryBinding selected) (entryGeneration selected) processEntryLoad.addressDomain
+    (committedEntry processEntryLoad) (byteRange state) (frameRange state)
   descriptorExact : X86_64Instruction.memAccesses
     (mov_rsp_byte byteOffset storedValue) = [selectedDescriptor]
   descriptorRange : selectedDescriptor.addressRange (afterAllocate state) = byteRange state
@@ -224,23 +362,19 @@ structure X86StoreRealization (selected : InvocationId)
   naturallyAligned :
     (selectedDescriptor.addressRange (afterAllocate state)).start.toNat %
       selectedDescriptor.width.bytes = 0
-  backingTranslation : ∀ address, (byteRange state).ContainsAddress address →
-    processEntryLoad.addressDomain.translate address = address
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 theorem storeRealization :
     X86StoreRealization invocation entryState processEntryLoad.afterHost where
   exactInvocation := rfl
   exactLoadedState := rfl
-  exactCurrentHost := rfl
-  mapped := selectedMappedWritable
+  association := .processEntry liveLatestStoreRefinement selectedMappedWritable
   descriptorExact := rfl
   descriptorRange := by rfl
   descriptorStore := by rfl
   naturallyAligned := by
     change _ % 1 = 0
     exact Nat.mod_one _
-  backingTranslation := selectedMappedWritable.backingTranslation
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- The logical view is constructible only from the structural certificate plus its production
