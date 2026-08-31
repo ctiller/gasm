@@ -33,6 +33,57 @@ prohibitively expensive for humans (exploring many low-level implementations, wr
 simulation proofs, re-deriving code after a spec change) is cheap for agents, provided
 the framework gives them fast, sound, mechanical feedback.
 
+### Rebuild is the verb
+
+The normal response to a poor implementation or proof architecture is to **rebuild it from its
+stable formal boundary**, not to preserve and refactor its accidental shape. This applies
+fractally: to one instruction leaf, a basic block, a lowering stage, a proof library, a spike, and
+eventually a large system. Work top down from the semantics and currently accepted interfaces.
+Mine prior work for reviewed lemmas, models, counterexamples, measurements, and implementation
+ideas as spare parts; do not grant its module boundaries, representations, emitted code, or proof
+structure an automatic right to survive.
+
+Strong mechanical checking makes this replacement strategy safe. A clean implementation earns its
+place by satisfying the same or a deliberately strengthened boundary, not by preserving textual
+continuity. History remains valuable evidence, but compatibility with discarded proof architecture
+is not itself a requirement.
+
+The accepted semantic boundary is the starting requirement, not a frozen syntactic interface. If
+its formulation accidentally overconstrains implementations, restate and prove the same top-level
+meaning, then rebuild dependents. If the meaning itself changes, that is an explicit owner-visible
+requirements decision. Previous proofs, code, tests, and counterexamples remain evidence and spare
+parts, not preservation obligations.
+
+Rebuild does not mean framework proliferation. The default failure mode is overengineering, so new
+shared/public proof machinery—generic frameworks, generators, checkers, certificate layers,
+registries, and speculative cross-module abstractions—requires explicit owner escalation before
+implementation. The proposal must name the concrete burden, smallest interface, and immediate
+consumers. Ordinary local lemmas, direct proofs, target-local witnesses, and implementation of an
+approved interface proceed normally. Prefer a small direct proof when it is the easiest sound
+argument. Shared libraries should be un-gameable at their admission boundary and fast to author
+against, while remaining only as general as demonstrated demand requires.
+
+Large-program construction therefore alternates top-down generation and bottom-up learning:
+
+```text
+spec₀ → asm₀ → revised intermediate spec₁ → asm₁ → spec₂ → asm₂ → ...
+```
+
+Each correctness edge still points from an independently stated specification to its
+implementation. The reverse-looking steps are engineering feedback: generated assembly exposes bad
+representations, missing operations, poor block boundaries, and absent performance contracts; the
+next round rebuilds the affected intermediate boundary and regenerates everything below it.
+Unaffected proofs should transport across an explicit refinement/equivalence theorem. At millions
+of lines, this repeatable derivation replaces the impossible task of mentally reverse-engineering
+assembly back into intent.
+
+Proof ownership should be as high-level and instruction-independent as the property permits.
+Source invariants, algebraic laws, effect meaning, and functional arguments then survive rebuilds of
+instruction selection, register allocation, layout, and targets. Machine and platform layers prove
+only their irreducible refinement, artifact-identity, ABI, and physical-authority delta. This is the
+main source of proof reuse under the rebuild law: durable semantics above, cheaply regenerated
+evidence below.
+
 ### Bound the solution; do not prescribe the implementation
 
 A high-level specification defines the exact **admissible set** of implementations, not a
@@ -250,7 +301,7 @@ back to fix the model was more expensive than rebuilding the project from scratc
 - **Every increment is validated before anything is built on it.** New model surface gets
   differential validation (against silicon, engines, the OS) in the same change that
   introduces it, and spike-by-spike development exercises each increment end-to-end while
-  the dependent-code surface is still small enough to repair cheaply.
+  the dependent-code surface is still small enough to rebuild cheaply.
 
 An incomplete, validated model is an asset. A complete, unvalidated one is a liability.
 
