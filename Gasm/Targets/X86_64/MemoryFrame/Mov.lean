@@ -286,68 +286,51 @@ theorem MovRspDispImm64.readsWithin (i : MovRspDispImm64) : ReadsWithin i := by
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 theorem MovMem32DispReg32.writesWithin (i : MovMem32DispReg32) : WritesWithin i := by
-  intro s a ha
-  simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
-    MemAccessSpec.addresses, MemRef.effectiveAddress] at ha
-  have h0 : s.gprs i.basePtr + signExtend8To64 i.disp ≠ a := by simpa using ha 0 (by decide)
-  have h1 : s.gprs i.basePtr + signExtend8To64 i.disp + 1 ≠ a := by simpa using ha 1 (by decide)
-  have h2 : s.gprs i.basePtr + signExtend8To64 i.disp + 2 ≠ a := by simpa using ha 2 (by decide)
-  have h3 : s.gprs i.basePtr + signExtend8To64 i.disp + 3 ≠ a := by simpa using ha 3 (by decide)
-  show X86_64Mem.read .w8 a (X86_64Instruction.step i s).memory = X86_64Mem.read .w8 a s.memory
-  simp only [X86_64Instruction.step, X86_64Mem.read, X86_64Mem.readByte,
-    X86_64MachineState.write32, X86_64Mem.write, beq_self_eq_true, if_true]
-  simp [Ne.symm h0, Ne.symm h1, Ne.symm h2, Ne.symm h3]
+  apply singleStore_writesWithin i .w32
+    ⟨some i.basePtr, none, signExtend8To64 i.disp⟩
+    (fun s => (s.gprs (reg32To64 i.srcReg)).toUInt32.toUInt64)
+  · rfl
+  · intro s
+    simp [X86_64Instruction.step, MemRef.effectiveAddress]
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 theorem MovMem32DispReg32.readsWithin (i : MovMem32DispReg32) : ReadsWithin i := by
-  intro s1 s2 hout _
-  obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
-  constructor
-  · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
-      simp only [X86_64Instruction.step] <;>
-      simp_all
-  · intro a ha
-    simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
-      MemAccessSpec.addresses, MemRef.effectiveAddress] at ha
-    obtain ⟨k, hk, hak⟩ := ha
-    subst hak
-    simp only [X86_64Instruction.step, X86_64MachineState.write32, X86_64Mem.read, hgprs]
-    exact congrArg UInt8.toUInt64 (X86_64Mem.readByte_write_inside .w32 _ _ _ _ k hk)
+  apply singleStore_readsWithin i .w32
+    ⟨some i.basePtr, none, signExtend8To64 i.disp⟩
+    (fun s => (s.gprs (reg32To64 i.srcReg)).toUInt32.toUInt64)
+  · rfl
+  · intro s
+    simp [X86_64Instruction.step, MemRef.effectiveAddress]
+  · intro s1 s2 hout
+    simp [MemRef.effectiveAddress, hout.2.1]
+  · intro s1 s2 hout
+    simp [hout.2.1]
+  · intro s1 s2 hout
+    simp [X86_64Instruction.step, hout.1]
+  all_goals intro s <;> rfl
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 theorem MovMem64DispReg64.writesWithin (i : MovMem64DispReg64) : WritesWithin i := by
-  intro s a ha
-  simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
-    MemAccessSpec.addresses, MemRef.effectiveAddress] at ha
-  have h0 : s.gprs i.basePtr + signExtend8To64 i.disp ≠ a := by simpa using ha 0 (by decide)
-  have h1 : s.gprs i.basePtr + signExtend8To64 i.disp + 1 ≠ a := by simpa using ha 1 (by decide)
-  have h2 : s.gprs i.basePtr + signExtend8To64 i.disp + 2 ≠ a := by simpa using ha 2 (by decide)
-  have h3 : s.gprs i.basePtr + signExtend8To64 i.disp + 3 ≠ a := by simpa using ha 3 (by decide)
-  have h4 : s.gprs i.basePtr + signExtend8To64 i.disp + 4 ≠ a := by simpa using ha 4 (by decide)
-  have h5 : s.gprs i.basePtr + signExtend8To64 i.disp + 5 ≠ a := by simpa using ha 5 (by decide)
-  have h6 : s.gprs i.basePtr + signExtend8To64 i.disp + 6 ≠ a := by simpa using ha 6 (by decide)
-  have h7 : s.gprs i.basePtr + signExtend8To64 i.disp + 7 ≠ a := by simpa using ha 7 (by decide)
-  show X86_64Mem.read .w8 a (X86_64Instruction.step i s).memory = X86_64Mem.read .w8 a s.memory
-  simp only [X86_64Instruction.step, X86_64Mem.read, X86_64Mem.readByte,
-    X86_64MachineState.write64, X86_64Mem.write, beq_self_eq_true, if_true]
-  simp [Ne.symm h0, Ne.symm h1, Ne.symm h2, Ne.symm h3, Ne.symm h4, Ne.symm h5, Ne.symm h6,
-    Ne.symm h7]
+  apply singleStore_writesWithin i .w64
+    ⟨some i.basePtr, none, signExtend8To64 i.disp⟩ (fun s => s.gprs i.srcReg)
+  · rfl
+  · intro s
+    simp [X86_64Instruction.step, MemRef.effectiveAddress]
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 theorem MovMem64DispReg64.readsWithin (i : MovMem64DispReg64) : ReadsWithin i := by
-  intro s1 s2 hout _
-  obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
-  constructor
-  · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
-      simp only [X86_64Instruction.step] <;>
-      simp_all
-  · intro a ha
-    simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
-      MemAccessSpec.addresses, MemRef.effectiveAddress] at ha
-    obtain ⟨k, hk, hak⟩ := ha
-    subst hak
-    simp only [X86_64Instruction.step, X86_64MachineState.write64, X86_64Mem.read, hgprs]
-    exact congrArg UInt8.toUInt64 (X86_64Mem.readByte_write_inside .w64 _ _ _ _ k hk)
+  apply singleStore_readsWithin i .w64
+    ⟨some i.basePtr, none, signExtend8To64 i.disp⟩ (fun s => s.gprs i.srcReg)
+  · rfl
+  · intro s
+    simp [X86_64Instruction.step, MemRef.effectiveAddress]
+  · intro s1 s2 hout
+    simp [MemRef.effectiveAddress, hout.2.1]
+  · intro s1 s2 hout
+    simp [hout.2.1]
+  · intro s1 s2 hout
+    simp [X86_64Instruction.step, hout.1]
+  all_goals intro s <;> rfl
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 theorem MovMem64DispImm32.writesWithin (i : MovMem64DispImm32) : WritesWithin i := by
