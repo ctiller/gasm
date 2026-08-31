@@ -302,6 +302,15 @@ The following code shapes have enough evidence to investigate but are not canoni
   acceptance plus Trust semantic-queue verification.  Binding-history design may begin from this
   base; its implementation and later projection layers remain design/review-gated.
 
+  The first binding-history proposal is not accepted: an arbitrary strict order grants excess
+  authority, and its live-resolution rule did not identify the exact later use occurrence.  MP's
+  provisional replacement uses nominal `BindingRecord`s, a transition predecessor/rank chain,
+  capture at one frontier transition, and an exact use-to-capture map, all represented by finite exact
+  carriers and maps.  A captured binding is derived from `frontier.after` and cannot redirect after a
+  later rebind.  Temporal latest/liveness properties wait for exact `Envelope` relation-path
+  witnesses; alias semantics wait for profile evidence.  Reviewer design verdict is pending and no
+  code is authorized.
+
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
   event-agent and relation-endpoint laws, nonsemantic carrier-list order, proportionate eliminators,
