@@ -53,4 +53,28 @@ def spike2_exit_tail : SelectedProcessExitTail selectedNonInputPlatformCall spik
       exitStep := spike2_exit_syscall_selected_step state exitRip holds.fault },
       Nat.le_refl 4⟩
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Close any structural prefix which reaches the ninety-row boundary into the unchanged public
+    50,000-step termination judgment.  This is the final composition seam: the remaining row proof
+    need only produce the prefix and the three boundary projections above. -/
+theorem spike2_selected_termination_of_prefix {fuel : Nat} {state : X86_64MachineState}
+    {eventsRev emitted : List AnyEvent}
+    (certificate : ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed fuel
+      spike2Executable.load ([] : List AnyEvent) state eventsRev emitted)
+    (holds : Spike2LinuxExitInvariant state eventsRev)
+    (within : fuel + 5 ≤ 50000) :
+    selectedExecutionTerminates (Event := AnyEvent) true selectedNonInputPlatformCall
+      spike2Indexed 50000 spike2Executable.load = true := by
+  rcases spike2_exit_tail.run state eventsRev holds with ⟨result, tailBound⟩
+  have usedWithin : fuel + result.fuel + 1 ≤ 50000 := by
+    have : result.fuel ≤ 4 := tailBound
+    omega
+  let slack := 50000 - (fuel + result.fuel + 1)
+  have totalFuel : fuel + result.fuel + 1 + slack = 50000 := by
+    dsimp [slack]
+    omega
+  rw [← totalFuel]
+  exact (certificate.append result.certificate).selectedExecutionTerminates_of_processExit_with_slack
+    result.exitStep slack
+
 end Spikes.Spike2Fibonacci.Linux
