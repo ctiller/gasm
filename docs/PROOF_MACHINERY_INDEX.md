@@ -115,7 +115,22 @@ The following code shapes have enough evidence to investigate but are not canoni
   theorems.  Spike 3's additive bridge preserves its existing pure ingestion and classified sort
   results by equality; resource identity, unique reclamation, cleanup, target execution, and final
   artifact authority remain consumer-owned.  The focused fold-plus-bridge build completed warm in
-  1.7 seconds over 24 jobs.  The negative control is equally important: a proposed generic
+  1.7 seconds over 24 jobs.  A second materially different candidate consumer now exists in
+  `Stdlib.Zlib.Streaming`: the fold commits codec state, `AllocationScope`, and emitted chunks, while
+  a domain refusal returns its post-attempt `AllocationScope` inside the consumer-owned error
+  payload.  Thus generic refusal still commits no successor state, but the domain can account
+  exactly for resources touched by the failed attempt.  `driveStreamingViaFallibleFold_eq` preserves
+  the legacy driver for arbitrary push function, state, scope, and input; compression and
+  decompression both consume it.  Its focused build completed green in about 2.3 seconds over 23
+  jobs.  The successful induction generalizes over the accumulated output prefix, splits both the
+  recursive fold result and legacy driver result, uses associativity on success, and eliminates
+  incompatible failure equalities.  Direct rewriting beneath the fold's accepted-prefix
+  reconstruction match did not fire; splitting the recursive fold result is the useful negative
+  proof control.  A runnable Spike 5 connection remains blocked by a pre-existing `Runtime.lean`
+  `RuntimeContext` mismatch, so the second library consumer is not a whole-program completion claim.
+  Independent review and that runnable connection still precede canonical promotion.
+
+  The abstraction negative control is equally important: a proposed generic
   `ResourceAccounting` count snapshot was removed because it had neither two domain connections nor
   enough identity to prove unique reclamation or terminal cleanup.  Counts alone are not resource
   accounting when aliasing and ownership determine correctness.  A later single-job focused Spike 3
