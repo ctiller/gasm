@@ -270,8 +270,11 @@ The following code shapes have enough evidence to investigate but are not canoni
   cancellation, allocation, cleanup, termination, ranking, and resource proofs to selected claims
   while reusing canonical ownership; add fault continuation/fallthrough and selected
   teardown/callback honesty to the Microsoft x64 entry gate; and state governance as MP design,
-  Reviewer falsification, and Trust integration.  Await a current-base superseding hash and Reviewer
-  verdict.
+  Reviewer falsification, and Trust integration.  Actual follow-up
+  `933efba56baa6793dda7336a424410c90d115d79` closes all four content findings, but the exact
+  candidate remains blocked: its reported `933efba340...` hash is invalid and its actual parent is
+  stale `36771e2`, not canonical `a62ca53`.  No content amendment remains; re-author the exact delta
+  on the canonical base and obtain a fresh Reviewer verdict.
 - Graphics candidates `733501b`, `6044dad`, and `5c405ca` remain integration-blocked on old base
   `da60357`: rebasing them would resurrect noncanonical `WINDOWS_VULKAN_PROFILE.md`.  Any retained
   mechanism must be re-authored on canonical `a62ca53` and independently reviewed again.
