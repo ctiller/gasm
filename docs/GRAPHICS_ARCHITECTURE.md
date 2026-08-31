@@ -112,9 +112,12 @@ outcomes. None of these consequences is implied by the current headless dispatch
 
 Presentation retirement must remain evidence-bearing after API handles are destroyed. Before
 enqueue, an opaque present-ready witness ties one exact image and swapchain generation to the
-render-completion and present-wait facts that make it eligible for `queuePresent`. Successful enqueue
-consumes and retires that one-shot readiness witness; it does not preserve the witness as post-enqueue
-evidence. Instead, enqueue creates a durable registered-wait/presentation lease carrying the exact
+selected profile's `queuePresent` preconditions. Those preconditions may establish that rendering is
+already complete, or may identify an exact registered wait whose later consumption orders rendering
+before presentation; the witness does not imply render completion before enqueue unless the selected
+profile requires it. Successful enqueue consumes and retires that one-shot readiness witness; it does
+not preserve the witness as post-enqueue evidence. Instead, enqueue creates a durable
+registered-wait/presentation lease carrying the exact
 image generation, wait consumption, presentation operation, and implementation-owned backing-ledger
 entry. That durable lease survives API-handle destruction until the presentation agent records its
 explicit completion/retirement event and every queued wait has its specified disposition.
@@ -215,11 +218,15 @@ Callbacks and asynchronous device work are separate profiles, but deferring expl
 model the ordered transcript of sent-message callbacks that the provider can invoke while a
 `GetMessage` retrieval is in progress. The target-owned decoder obtains that transcript from the
 matching raw response; runtime consumption mints a distinct occurrence identity for each callback;
-`run` executes each callback transition under its exact reentrant authority/obligation world before
-returning the terminal `message` / `quit` / `error` result. A narrower no-callback profile is
-admissible only if pinned Win32 sources and target entry/interference proofs establish that exclusion
-for every environment in the profile—not because the demonstration happened to receive no sent
-message.
+and `run` executes each callback transition under its exact reentrant authority/obligation world.
+Each callback occurrence has a result-indexed outcome: normal return continues the transcript,
+whereas a fault, thread or process termination, unwind or other nonlocal escape, or nonreturn ends
+that execution branch at the callback occurrence. `run` returns the terminal `message` / `quit` /
+`error` result only after every selected callback returns normally; it must not invent that result or
+later callback occurrences on a terminal callback branch. A narrower no-callback or total-return
+profile is admissible only if pinned Win32 sources and target entry/interference proofs establish
+that exclusion for every environment in the profile—not because the demonstration happened to
+receive no sent message or its observed callbacks happened to return.
 
 An application-authored `DispatchMessage` remains a separate callback/reentrancy transition with its
 own occurrence identity and authority boundary; it is not definitional continuation, visibility, or
