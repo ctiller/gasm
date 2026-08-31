@@ -1007,6 +1007,44 @@ The following code shapes have enough evidence to investigate but are not canoni
   Proven composition patterns above.  Keep `58a624ff` as the defective-fixture checkpoint, not an
   accepted implementation.
 
+  Design-approved target-owned experiment from canonical `aa80e2b1` reserves a new ISA-only MOV
+  r32,[base+disp8] family; its type/name is a provisional spare-part API, not a frozen shared
+  interface.  The authoritative owner ruling supersedes an interim disjoint-domain proposal: one
+  `MovReg32Mem32Disp { dstReg : Reg32, basePtr : Reg64, disp : UInt8 }` production identity absorbs
+  and retires `MovReg32RspDisp32`.  An optional `mov_r32_rsp` convenience constructor may return the
+  general form, but it is not a second type, instance, registry entry, or compatibility authority.
+  Existing frame proofs, roundtrip cases, census/registry entries, controls, comments, and downstream
+  references migrate rather than preserve duplicate identities.
+
+  Semantics computes effective address from the pre-state base plus signed disp8 modulo 2^64 before
+  the destination update, including destination/base aliasing, then applies 32-bit GPR update
+  semantics with cleared upper bits and unchanged memory.  RIP advances by
+  `3 + rexPresent + sibPresent`, where the fixed bytes are opcode, ModRM, and disp8; REX is present
+  exactly when destination REX.R or base REX.B is required, and SIB exactly when the low base code is
+  4.  Encode and step must share one encoding-shape helper, or prove this length equal to encoded
+  size, while preserving every other non-memory projection.
+
+  Canonical encoding is always mod=01 with an explicit disp8, including zero, preserving existing
+  RSP bytes.  Non-SIB rm values decode through REX.B; rm=4 requires exactly scale=0, index=4, base=4,
+  with REX.B distinguishing RSP/R12.  Admission rejects REX.W, REX.X, redundant REX/prefix aliases,
+  mod=00/10/11, RIP-relative, address-size and segment prefixes, indexed or no-base SIB, and
+  noncanonical SIB spellings; decoded bytes must re-encode exactly.  Roundtrip and hostile controls
+  cover all sixteen destination/base identities; destination=base; RSP/R12; RBP/R13; zero, +127,
+  and -128; required REX.R/B combinations; truncation; forbidden W/X; all three instruction-length
+  classes (3 without REX/SIB, 4 with exactly one, and 5 with both); and model-only modular EA wrap
+  examples even when native scratch preparation excludes those host addresses.
+
+  `memAccesses` is exactly one ordinary `.load`/`.w32` reference and `toUops` derives from it.  Frame
+  proofs reuse `registerOnly_writesWithin` plus `singleLoad_readsWithin` without a second memory
+  premise.  A supplemental `HardwareMemoryPlan` extension requires separate Trust acceptance, a
+  distinct closed scratch class threaded through every exhaustive classifier/control, exact
+  production byte/identity comparison pointing only to the new general identity, every GPR
+  consequence including zero-extension, and the unchanged guarded region; native host-address
+  limits remain non-admission, not a weakened form.
+  The slice must replace brittle current inventory counts in `MEMORY_HOOK.md`,
+  `X86_ISA_EXPANSION_PREREQUISITES.md`, and any exact-initial-family hardware prose with qualitative
+  mechanically audited language.  It broadens no World, ABI, CFG, shared-memory, or authority layer.
+
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
   precondition-indexed `SafeUnder` is the right proof-economical goal shape.  But public
