@@ -23,6 +23,10 @@ open Gasm.Targets.X86_64.Instructions
 set_option maxRecDepth 2000000
 set_option maxHeartbeats 5000000
 
+def spike2IndexPrefixBytes (completed : Nat) : List UInt8 :=
+  [0x46, 0x69, 0x62, 0x28] ++ Stdlib.Fmt.formatDecimal (completed + 1) ++
+    [0x29, 0x20, 0x3d, 0x20]
+
 structure Spike2CursorSliceResult (initial : X86_64MachineState)
     (eventsRev : List AnyEvent) (maxFuel : Nat) where
   fuel : Nat
@@ -57,6 +61,71 @@ private theorem index_one_rip (state : X86_64MachineState)
   change state.rip + 4 + 2 = 5368713303
   rw [hrip]
   rfl
+
+theorem spike2_one_digit_index_buffer (completed : Nat) (state : X86_64MachineState)
+    (within : completed < 9)
+    (counter : state.gprs .r13 = UInt64.ofNat (completed + 1))
+    (rsp : state.rsp = spike2AfterPrologue.rsp)
+    (holds : BufHolds state.memory (state.rsp + 64) [0x46, 0x69, 0x62, 0x28]) :
+    BufHolds (spike2AfterOneDigitIndex state).memory (state.rsp + 64)
+      ([0x46, 0x69, 0x62, 0x28] ++ Stdlib.Fmt.formatDecimal (completed + 1) ++
+        [0x29, 0x20, 0x3d, 0x20]) := by
+  have finalMemory : (spike2AfterOneDigitIndex state).memory =
+      X86_64Mem.write .w8 (state.rsp + 72) 0x20
+        (X86_64Mem.write .w8 (state.rsp + 71) 0x3d
+          (X86_64Mem.write .w8 (state.rsp + 70) 0x20
+            (X86_64Mem.write .w8 (state.rsp + 69) 0x29
+              (X86_64Mem.write .w8 (state.rsp + 68)
+                (state.gprs .r13 + 0x30).toUInt8.toUInt64 state.memory)))) := by rfl
+  have formatted : Stdlib.Fmt.formatDecimal (completed + 1) =
+      [Stdlib.Fmt.byteOfDigit (completed + 1)] := by
+    unfold Stdlib.Fmt.formatDecimal
+    rw [Stdlib.Fmt.digits_single _ (by omega)]
+    rfl
+  have digit := digit_byte_toUInt64 (completed + 1) (by omega)
+  have digit8 : ((UInt64.ofNat (completed + 1) + 0x30).toUInt8).toUInt64 =
+      (Stdlib.Fmt.byteOfDigit (completed + 1)).toUInt64 := by
+    have := congrArg (fun value : UInt64 => value.toUInt8.toUInt64) digit
+    simpa using this
+  rw [finalMemory, counter, digit8, formatted]
+  let start := state.rsp + 64
+  have noWrap (n : Nat) (bound : n ≤ 9) : start.toNat + n < 2 ^ 64 := by
+    dsimp [start]
+    rw [rsp, spike2_after_prologue_rsp_eq, UInt64.toNat_add]
+    simp
+    omega
+  let m1 := X86_64Mem.write .w8 (state.rsp + 68)
+    (Stdlib.Fmt.byteOfDigit (completed + 1)).toUInt64 state.memory
+  let m2 := X86_64Mem.write .w8 (state.rsp + 69) (0x29 : UInt8).toUInt64 m1
+  let m3 := X86_64Mem.write .w8 (state.rsp + 70) (0x20 : UInt8).toUInt64 m2
+  let m4 := X86_64Mem.write .w8 (state.rsp + 71) (0x3d : UInt8).toUInt64 m3
+  have h1 : BufHolds m1 start
+      ([0x46, 0x69, 0x62, 0x28] ++ [Stdlib.Fmt.byteOfDigit (completed + 1)]) := by
+    apply BufHolds_write8_append _ _ _ _ _ holds
+    · dsimp [start]; simp [Nat.toUInt64]; bv_decide
+    · exact noWrap 4 (by decide)
+  have h2 : BufHolds m2 start
+      ([0x46, 0x69, 0x62, 0x28] ++ [Stdlib.Fmt.byteOfDigit (completed + 1)] ++ [0x29]) := by
+    apply BufHolds_write8_append m1 start (state.rsp + 69) (0x29 : UInt8) _ h1
+    · dsimp [start]; simp [Nat.toUInt64]; bv_decide
+    · simpa using noWrap 5 (by decide)
+  have h3 : BufHolds m3 start
+      ([0x46, 0x69, 0x62, 0x28] ++ [Stdlib.Fmt.byteOfDigit (completed + 1)] ++
+        [0x29] ++ [0x20]) := by
+    apply BufHolds_write8_append m2 start (state.rsp + 70) (0x20 : UInt8) _ h2
+    · dsimp [start]; simp [Nat.toUInt64]; bv_decide
+    · simpa using noWrap 6 (by decide)
+  have h4 : BufHolds m4 start
+      ([0x46, 0x69, 0x62, 0x28] ++ [Stdlib.Fmt.byteOfDigit (completed + 1)] ++
+        [0x29] ++ [0x20] ++ [0x3d]) := by
+    apply BufHolds_write8_append m3 start (state.rsp + 71) (0x3d : UInt8) _ h3
+    · dsimp [start]; simp [Nat.toUInt64]; bv_decide
+    · simpa using noWrap 7 (by decide)
+  have h5 := BufHolds_write8_append m4 start (state.rsp + 72) (0x20 : UInt8)
+    ([0x46, 0x69, 0x62, 0x28] ++ [Stdlib.Fmt.byteOfDigit (completed + 1)] ++
+      [0x29] ++ [0x20] ++ [0x3d]) h4 (by dsimp [start]; simp [Nat.toUInt64]; bv_decide)
+      (by simpa using noWrap 8 (by decide))
+  simpa [start, m1, m2, m3, m4, List.append_assoc] using h5
 
 opaque spike2_one_digit_slice (completed : Nat) (state : X86_64MachineState)
     (eventsRev : List AnyEvent) (within : completed < 9)
