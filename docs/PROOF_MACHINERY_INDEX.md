@@ -360,8 +360,10 @@ The following code shapes have enough evidence to investigate but are not canoni
   independent-envelope structure, but MP blocked it for two missing private controls.  Distinct root
   IDs with the same key must fail through `root_key_unique`, and distinct binding IDs with the same
   key and generation must fail through `binding_key_generation_unique`; the existing duplicate-root
-  fixture exercises only duplicate identity and `Nodup`.  No public API expansion is requested.
-  Await a replacement exact hash, Reviewer verdict, and canonical landed hash.
+  fixture exercises only duplicate identity and `Nodup`.  Replacement
+  `1cc0c4e5574eb21440e389df71b01d7bf9e64b94` adds both controls without changing the public
+  mechanism and is MP exact-hash accepted.  Reviewer verdict, Trust integration, and a canonical
+  landed hash remain pending.
 
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
