@@ -97,6 +97,12 @@ def spike3WasmRunFor (environment : Environment) : WasiRunOutcome :=
 def spike3WasmTraceFor (environment : Environment) : WasiObservable AnyEvent :=
   (spike3WasmRunFor environment).observable
 
+/-- The sole explicit bridge from the proof-facing observation to the artifact evaluator. -/
+theorem spike3WasmTraceFor_eq (environment : Environment) :
+    spike3WasmTraceFor environment = (spike3WasmRunFor environment).observable := rfl
+
+attribute [irreducible] spike3WasmTraceFor
+
 /- REF: docs/SYSTEM_EFFECTS.md#5-formal-simulation-proof-bridge -/
 /-- The exact byte-level input observation which the whole-program sort specification consumes. -/
 def spike3WasmInputFor (environment : Environment) : List (List UInt8) :=
@@ -180,13 +186,14 @@ theorem Spike3WasmBehavior.noFuelExhausted
     (behavior : Spike3WasmBehavior environment) :
     spike3WasmTraceFor environment ≠ .fuelExhausted := by
   intro exhausted
+  rw [spike3WasmTraceFor_eq] at exhausted
   cases hrun : spike3WasmRunFor environment with
-  | completed state signal => simp [spike3WasmTraceFor, hrun] at exhausted
-  | exited state code => simp [spike3WasmTraceFor, hrun] at exhausted
-  | trapped state => simp [spike3WasmTraceFor, hrun] at exhausted
+  | completed state signal => simp [hrun] at exhausted
+  | exited state code => simp [hrun] at exhausted
+  | trapped state => simp [hrun] at exhausted
   | fuelExhausted partialState => exact behavior.productionRunWithinFuel partialState hrun
   | memoryExhausted state requested available =>
-      simp [spike3WasmTraceFor, hrun] at exhausted
+      simp [hrun] at exhausted
 
 /-- The verified post-seal contract normalizes exactly the successful-exit payload and excludes
     fuel exhaustion through the separately proved per-environment grant.  The raw finite
