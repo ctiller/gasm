@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -/
 
+import Stdlib.Control.FallibleFold
 import Stdlib.Zlib.ContainerRoundtrip
 
 namespace Stdlib.Zlib
@@ -107,6 +108,170 @@ def driveStreaming {Error State : Type}
       | .rejected error finalScope => .rejected error finalScope
       | .resourceExhausted finalScope => .resourceExhausted finalScope
 
+/- REF: docs/STDLIB_FACILITIES_PLAN.md#6-fallible-streaming-and-base-io -/
+/- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
+/-- Committed state for the generic fallible-fold realization of a streaming
+    driver. `emitOutput` is a difference list, so accepting a step does not
+    copy output retained by earlier steps. Apply it to `[]` to observe output
+    in input order. -/
+structure StreamingFoldState (State : Type) where
+  state : State
+  scope : AllocationScope
+  emitOutput : List ByteArray → List ByteArray
+
+namespace StreamingFoldState
+
+/- REF: docs/STDLIB_FACILITIES_PLAN.md#6-fallible-streaming-and-base-io -/
+/- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
+/-- Output committed by accepted steps, in input order. -/
+def output (current : StreamingFoldState State) : List ByteArray :=
+  current.emitOutput []
+
+end StreamingFoldState
+
+/- REF: docs/STDLIB_FACILITIES_PLAN.md#6-fallible-streaming-and-base-io -/
+/- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
+/-- A refused streaming step carries its post-attempt accounting scope. The
+    generic fold state remains the last committed state. -/
+inductive StreamingFoldFailure (Error : Type) where
+  | rejected (error : Error) (scope : AllocationScope)
+  | resourceExhausted (scope : AllocationScope)
+
+/- REF: docs/STDLIB_FACILITIES_PLAN.md#6-fallible-streaming-and-base-io -/
+/- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
+def streamingFoldStep {Error State : Type}
+    (push : State → AllocationScope → ByteArray →
+      StreamingResult Error (State × List ByteArray))
+    (current : StreamingFoldState State) (chunk : ByteArray) :
+    Stdlib.FallibleStep (StreamingFoldState State) (StreamingFoldFailure Error) :=
+  match push current.state current.scope chunk with
+  | .success (next, emitted) updated =>
+      .accepted (StreamingFoldState.mk next updated fun tail =>
+        current.emitOutput (emitted ++ tail))
+  | .rejected error updated => .refused (.rejected error updated)
+  | .resourceExhausted updated => .refused (.resourceExhausted updated)
+
+/- REF: docs/STDLIB_FACILITIES_PLAN.md#6-fallible-streaming-and-base-io -/
+/- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
+/-- Project an exact fold boundary to the legacy streaming outcome. -/
+def streamingFoldResultToResult {Error State : Type} :
+    Stdlib.FallibleFoldResult (StreamingFoldState State) ByteArray
+      (StreamingFoldFailure Error) → StreamingResult Error (State × List ByteArray)
+  | .completed final _ => .success (final.state, final.output) final.scope
+  | .refused _ _ _ _ (.rejected error updated) => .rejected error updated
+  | .refused _ _ _ _ (.resourceExhausted updated) => .resourceExhausted updated
+
+/- REF: docs/STDLIB_FACILITIES_PLAN.md#6-fallible-streaming-and-base-io -/
+/- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
+/-- Execute a streaming driver and retain the accepted prefix, exact first
+    refused chunk, untouched tail, committed state, and domain failure scope. -/
+def driveStreamingFoldResult {Error State : Type}
+    (push : State → AllocationScope → ByteArray →
+      StreamingResult Error (State × List ByteArray))
+    (state : State) (scope : AllocationScope) (input : List ByteArray) :
+    Stdlib.FallibleFoldResult (StreamingFoldState State) ByteArray
+      (StreamingFoldFailure Error) :=
+  Stdlib.fallibleFold (streamingFoldStep push)
+      { state := state,
+        scope := scope,
+        emitOutput := id } input
+
+/- REF: docs/STDLIB_FACILITIES_PLAN.md#6-fallible-streaming-and-base-io -/
+/- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
+/-- Compatibility projection used by existing streaming programs. Proof-facing
+    callers may use `driveStreamingFoldResult` to retain boundary evidence. -/
+def driveStreamingViaFallibleFold {Error State : Type}
+    (push : State → AllocationScope → ByteArray →
+      StreamingResult Error (State × List ByteArray))
+    (state : State) (scope : AllocationScope) (input : List ByteArray) :
+    StreamingResult Error (State × List ByteArray) :=
+  streamingFoldResultToResult <|
+    driveStreamingFoldResult push state scope input
+
+private def mapStreamingOutput {Error State : Type}
+    (emitOutput : List ByteArray → List ByteArray) :
+    StreamingResult Error (State × List ByteArray) →
+      StreamingResult Error (State × List ByteArray)
+  | .success (state, emitted) scope => .success (state, emitOutput emitted) scope
+  | .rejected error scope => .rejected error scope
+  | .resourceExhausted scope => .resourceExhausted scope
+
+private theorem driveStreamingViaFallibleFold_from {Error State : Type}
+    (push : State → AllocationScope → ByteArray →
+      StreamingResult Error (State × List ByteArray))
+    (state : State) (scope : AllocationScope)
+    (emitOutput : List ByteArray → List ByteArray)
+    (input : List ByteArray) :
+    streamingFoldResultToResult
+        (Stdlib.fallibleFold (streamingFoldStep push)
+          { state := state,
+            scope := scope,
+            emitOutput := emitOutput } input) =
+      mapStreamingOutput emitOutput (driveStreaming push state scope input) := by
+  induction input generalizing state scope emitOutput with
+  | nil => simp [Stdlib.fallibleFold, driveStreaming, streamingFoldResultToResult,
+      StreamingFoldState.output, mapStreamingOutput]
+  | cons chunk rest ih =>
+      cases hp : push state scope chunk with
+      | rejected error updated =>
+          simp [Stdlib.fallibleFold, driveStreaming, streamingFoldStep, hp,
+            streamingFoldResultToResult, mapStreamingOutput]
+      | resourceExhausted updated =>
+          simp [Stdlib.fallibleFold, driveStreaming, streamingFoldStep, hp,
+            streamingFoldResultToResult, mapStreamingOutput]
+      | success value updated =>
+          rcases value with ⟨next, emitted⟩
+          simp only [Stdlib.fallibleFold, driveStreaming, streamingFoldStep, hp]
+          have hi := ih next updated (fun tail => emitOutput (emitted ++ tail))
+          cases hf : Stdlib.fallibleFold (streamingFoldStep push)
+              { state := next, scope := updated,
+                emitOutput := fun tail => emitOutput (emitted ++ tail) } rest with
+          | completed final accepted =>
+              rw [hf] at hi
+              cases hd : driveStreaming push next updated rest with
+              | rejected error finalScope =>
+                  simp [hd, streamingFoldResultToResult,
+                    StreamingFoldState.output, mapStreamingOutput] at hi ⊢
+              | resourceExhausted finalScope =>
+                  simp [hd, streamingFoldResultToResult,
+                    StreamingFoldState.output, mapStreamingOutput] at hi ⊢
+              | success value finalScope =>
+                  rcases value with ⟨finished, tail⟩
+                  simpa [hf, hd, streamingFoldResultToResult,
+                    StreamingFoldState.output, mapStreamingOutput] using hi
+          | refused final accepted first tail failure =>
+              rw [hf] at hi
+              cases failure with
+              | rejected error finalScope =>
+                  cases hd : driveStreaming push next updated rest with
+                  | rejected => simpa [hd, streamingFoldResultToResult,
+                      mapStreamingOutput] using hi
+                  | resourceExhausted => simp [hd, streamingFoldResultToResult,
+                      mapStreamingOutput] at hi
+                  | success => simp [hd, streamingFoldResultToResult,
+                      mapStreamingOutput] at hi
+              | resourceExhausted finalScope =>
+                  cases hd : driveStreaming push next updated rest with
+                  | rejected => simp [hd, streamingFoldResultToResult,
+                      mapStreamingOutput] at hi
+                  | resourceExhausted => simpa [hd, streamingFoldResultToResult,
+                      mapStreamingOutput] using hi
+                  | success => simp [hd, streamingFoldResultToResult,
+                      mapStreamingOutput] at hi
+
+/- REF: docs/STDLIB_FACILITIES_PLAN.md#6-fallible-streaming-and-base-io -/
+/-- The generic fallible-fold realization is extensionally identical to the
+    original structural streaming driver, including failure scopes. -/
+theorem driveStreamingViaFallibleFold_eq {Error State : Type}
+    (push : State → AllocationScope → ByteArray →
+      StreamingResult Error (State × List ByteArray))
+    (state : State) (scope : AllocationScope) (input : List ByteArray) :
+    driveStreamingViaFallibleFold push state scope input =
+      driveStreaming push state scope input := by
+  unfold driveStreamingViaFallibleFold driveStreamingFoldResult
+  rw [driveStreamingViaFallibleFold_from]
+  cases driveStreaming push state scope input <;> simp [mapStreamingOutput]
+
 /- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
 /-- Primitive operations in both directions. A target is free to emit zero,
     one, or many chunks from each push and finish operation. -/
@@ -144,7 +309,7 @@ def runCompression (operations : StreamingZlibOperations)
   | .resourceExhausted updated => .resourceExhausted updated
   | .success initial updated =>
     completeStreaming operations.finishCompression
-      (driveStreaming operations.pushCompression initial updated input)
+      (driveStreamingViaFallibleFold operations.pushCompression initial updated input)
 
 /- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
 def runDecompression (operations : StreamingZlibOperations)
@@ -155,7 +320,7 @@ def runDecompression (operations : StreamingZlibOperations)
   | .resourceExhausted updated => .resourceExhausted updated
   | .success initial updated =>
     completeStreaming operations.finishDecompression
-      (driveStreaming operations.pushDecompression initial updated input)
+      (driveStreamingViaFallibleFold operations.pushDecompression initial updated input)
 
 /- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
 /-- Proof-carrying streaming Zlib ABI. Compression correctness is stated by
@@ -336,14 +501,14 @@ private theorem runCompression_buffered (scope : AllocationScope) (input : List 
     runCompression bufferedStreamingOperations scope input =
       completeStreaming bufferedFinishCompression
         (driveStreaming (bufferChunk Empty) [] scope input) := by
-  rfl
+  simp [runCompression, bufferedStreamingOperations, driveStreamingViaFallibleFold_eq]
 
 set_option maxHeartbeats 1000000 in
 private theorem runDecompression_buffered (scope : AllocationScope) (input : List ByteArray) :
     runDecompression bufferedStreamingOperations scope input =
       completeStreaming bufferedFinishDecompression
         (driveStreaming (bufferChunk String) [] scope input) := by
-  rfl
+  simp [runDecompression, bufferedStreamingOperations, driveStreamingViaFallibleFold_eq]
 
 /- REF: docs/STDLIB_ZLIB.md#52-gzip-format-rfc-1952 -/
 set_option maxHeartbeats 1000000 in
