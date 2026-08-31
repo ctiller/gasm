@@ -239,6 +239,10 @@ name = "x86_fuzzer"
 root = "Gasm.Targets.X86_64.SemanticsFuzzerCLI"
 
 [[lean_exe]]
+name = "test_x86_memory_harness"
+root = "Gasm.Targets.X86_64.HardwareMemoryHarnessCLI"
+
+[[lean_exe]]
 name = "wasm_fuzzer"
 root = "Gasm.Targets.Wasm.SemanticsFuzzerCLI"
 

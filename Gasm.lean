@@ -104,6 +104,10 @@ import Gasm.Targets.X86_64.DecimalMacro
 import Gasm.Targets.X86_64.DecimalMacroSelectedPrefix
 import Gasm.Targets.X86_64.VerifiedProgramCFG
 import Gasm.Targets.X86_64.HardwareHarness
+import Gasm.Targets.X86_64.HardwareMemoryPlan
+import Gasm.Targets.X86_64.HardwareMemoryProtocol
+import Gasm.Targets.X86_64.HardwareMemoryHarness
+import Gasm.Targets.X86_64.HardwareMemoryDifferential
 import Gasm.Targets.X86_64.SemanticsFuzzer
 -- Imported for elaboration-time compiled-environment audits: memory-hook sealing, exact frame
 -- theorem types, live instruction-family witness population, and exact local round-trip gates.
