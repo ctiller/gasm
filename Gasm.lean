@@ -51,6 +51,8 @@ import Gasm.MemoryModel.EnvelopeControls
 import Gasm.MemoryModel.EnvelopeOccurrencePath
 import Gasm.MemoryModel.EnvelopeOccurrencePathControls
 import Gasm.MemoryModel.BindingHistory
+import Gasm.MemoryModel.ObligationWorld
+import Gasm.MemoryModel.ObligationWorldControls
 import Gasm.MemoryModel.BindingHistoryControls
 import Gasm.MemoryModel.ProgramOrderPath
 import Gasm.MemoryModel.ProgramOrderPathControls

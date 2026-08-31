@@ -44,10 +44,12 @@ introducing a parallel permission ledger or region-identity namespace.
    `UseOccurrenceId`. These are execution-local nominal identities until a target load/world
    relation establishes freshness.
 2. Represent exclusive memory access as an `ObligationKind`. Its value names the exact binding
-   instance, generation/locator, logical footprint, and owning relation. Dynamic authority is only
-   `ObligationWorld.Owns world token`. Its protocol discriminator comes only from the canonical
-   discriminator governance accepted with the typed world; this slice allocates no ad hoc numeric
-   protocol constant.
+   instance, generation/locator, logical footprint, and owning relation. Every dynamic obligation
+   occurrence has a distinct governed identity, and the structural world is a finite partial map
+   whose `World.Binds` relation preserves that identity's immutable payload. The generic world
+   grants no lifecycle authority merely because an entry or proof can be copied in Lean. Its
+   protocol discriminator comes only from the canonical discriminator governance accepted with
+   the typed world; this slice allocates no ad hoc numeric protocol constant.
 3. Define a typed memory view as a relational witness over one envelope execution, one well-formed
    binding history, and one canonical world. Because `BindingHistory.WellFormed` intentionally
    proves neither temporal latestness nor liveness, a profile-owned occurrence/path certificate
@@ -58,11 +60,12 @@ introducing a parallel permission ledger or region-identity namespace.
    selected exclusive rights; and the world owns the access obligation and exact view-invalidation
    obligation.
 4. Represent view invalidation/return as another `ObligationKind` in the same world. View
-   destruction discharges that exact token through `ObligationTransition`; return or exit must
-   discharge it or explicitly deliver it. `CanDischarge` is provided only by a concrete
-   lifecycle-derived capability tied to the exact binding/view owner and terminal result; it is not
-   `Unit`, a blanket instance, or a freely constructible witness. There is no arbitrary world
-   replacement.
+   destruction removes that exact identity and payload through structural `Removal`; return or
+   exit must remove it or explicitly deliver it. Authorization is proved only by a concrete
+   lifecycle transition in the profile's full indexed state, tied to the exact binding/view owner
+   and terminal result. It is not a generic `CanDischarge` predicate, `Unit`, a blanket instance,
+   or a freely constructible witness. The structural relation alone grants no authority and there
+   is no arbitrary world replacement.
 5. Select only exclusive byte-store authority in this slice. Shared-read and atomic obligation
    kinds are unselected and impose no obligations.
 6. A provisional, profile-local checked MOV wrapper contains the ordinary instruction, typed view,
@@ -80,8 +83,9 @@ introducing a parallel permission ledger or region-identity namespace.
 8. The demonstration capability context contains the exact entry world and binding/view evidence.
    Establishment connects it to the actual loaded Windows state. Platform admissibility requires
    the logical and physical evidence but does not consume the world. The exact indexed
-   `ObligationTransition` chain retains authority across the store and later discharges or delivers
-   every selected token. Behavior proves execution of the erased instruction. Completion is one
+   profile lifecycle chain retains authority across the store and later justifies the exact
+   structural removals or delivery of every selected identity. Behavior proves execution of the
+   erased instruction. Completion is one
    real `VerifiedProgram.compose` value for the exact artifact.
 
 All checked MOV, typed-view, lifecycle, and x86 realization declarations in this prototype are
@@ -150,8 +154,10 @@ backing footprints, non-wrapping address arithmetic below `2^64`, one-instructio
 and finite binding/event/use carrier membership. It claims no global generation bound.
 
 The existing `MovMem8Reg8.writesWithin` and `MovMem8Reg8.readsWithin` theorems remain the machine
-memory-frame authority. The instruction retains the logical world; unrelated world entries frame
-exactly. View invalidation and exclusive return discharge only their exact entries.
+memory-frame authority. The instruction retains the logical world; unrelated identity-disjoint
+world entries frame exactly. View invalidation and exclusive return remove only their exact
+identity-and-payload entries, while the profile lifecycle certificate—not the generic structural
+world—proves those removals are authorized.
 
 ## Proof applicability and burden
 
@@ -161,7 +167,7 @@ exactly. View invalidation and exclusive return discharge only their exact entri
 | Exclusive byte-store authoring | Exact exclusive-access and view-invalidation entries in the canonical world; exact use/capture/binding resolution | Checked instruction author | Required only for the selected checked store occurrence |
 | Windows x86 physical realization | M2-B process-entry stack grant, effective address after explicit frame allocation, mapped+writable byte, nonwrap, alignment one, view containment/backing translation, exact dynamic event origin, descriptor footprint, emitted/decode connection | Windows x86 profile and straight-line demonstration artifact proof | No burden on Linux, AArch64, Wasm, graphics, or non-CPU events |
 | Existing MOV operational semantics | Existing `step`, `writesWithin`, and `readsWithin` theorems | x86 instruction family | Reused without a new per-caller proof |
-| View invalidation and exclusive return | Exact canonical-world transitions or explicit terminal delivery through a lifecycle-derived capability | Demonstration lifecycle/terminal proof | No arbitrary cleanup or token deletion |
+| View invalidation and exclusive return | Exact structural removals or explicit terminal delivery, authorized by the full profile lifecycle state | Demonstration lifecycle/terminal proof | No arbitrary cleanup or token deletion |
 | Shared-read authority | Not selected | Future M1/M4 profile | No typeclass, world-entry, or proof obligation in this slice |
 | Atomic-object authority and ordering | Not selected | Future M2-X/M4 profile | No atomic compatibility, coherence, or TSO burden in this slice |
 | Device/platform memory domains | Not selected | Their future target profiles | No CPU footprint or authority projection imposed |
@@ -186,7 +192,7 @@ force unrelated instruction families to construct empty evidence.
 - reliance on total memory or a nonexistent Windows red zone as physical-access evidence;
 - entry grant that does not cover the post-`sub rsp` selected byte or survive through its use;
 - omitted view-invalidation obligation;
-- freely fabricated or wrong-lifecycle discharge capability;
+- a structural removal cited as discharge authority without the exact profile lifecycle/terminal evidence;
 - platform admissibility that ignores either the logical or physical witness.
 
 ## Completion gate
@@ -194,7 +200,7 @@ force unrelated instruction families to construct empty evidence.
 The smallest decisive prototype constructs the checked existing MOV store from a real
 binding/history/world, latest-live path, and target entry state; proves erasure/encoding/decoding,
 exact dynamic-origin, containment/translation, and step/frame connections; connects it to the
-emitted straight-line Windows artifact; proves the exact retain/discharge transition chain; and
+emitted straight-line Windows artifact; proves the exact profile-authorized retain/removal chain; and
 constructs that artifact's sole production-platform `VerifiedProgram.compose` instance. A detached
 checked constructor, mock platform, or plan to add `VerifiedProgram` later does not complete the
 slice.
@@ -211,7 +217,7 @@ presenting them as capability-checked.
 - identifying one static loop instruction with only one dynamic use occurrence;
 - whole-view equality with the containing allocation footprint;
 - ad hoc numeric obligation protocol discriminators;
-- freely constructible lifecycle discharge authority;
+- freely constructible lifecycle authority for structural removal;
 - total-memory execution presented as proof of a mapped writable Windows page;
 - implicit use of a Windows red zone;
 - authority fields in decoded instruction structures;

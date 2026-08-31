@@ -33,6 +33,11 @@ import Spikes.CompilerBulk.AArch64Linux.Program
 import Spikes.CompilerBulk.AArch64Linux.Equivalence
 import Spikes.CompilerBulk.WindowsX64.Program
 import Spikes.CompilerBulk.WindowsX64.Equivalence
+import Spikes.CheckedMemoryWindows.Program
+import Spikes.CheckedMemoryWindows.Authority
+import Spikes.CheckedMemoryWindows.Realization
+import Spikes.CheckedMemoryWindows.Equivalence
+import Spikes.CheckedMemoryWindows.Controls
 
 import Spikes.Spike2Fibonacci.Spec
 import Spikes.Spike2Fibonacci.NativeLoop
