@@ -53,7 +53,7 @@ are explicitly historical measurements, not a live registry census.
 
 | Fact | Evidence |
 | :-- | :-- |
-| 14 of 88 instruction forms touch memory | `MovRspDispByte`, `MovRspDispImm32`, `MovRspDispImm64`, `MovMem8Reg8`, `MovMem64DispReg64`, `MovMem64DispImm32`, `MovReg64Mem64Disp`, `MovzxR64Mem8`, `MovReg32RspDisp32`, `PushR64`, `PopR64`, `CallRipRel`, `CallRel32`, `RetOp` — enumerated from `Gasm/Targets/X86_64/Registry.lean` + each `step`'s body |
+| 14 of 88 instruction forms touch memory | `MovRspDispByte`, `MovRspDispImm32`, `MovRspDispImm64`, `MovMem8Reg8`, `MovMem64DispReg64`, `MovMem64DispImm32`, `MovReg64Mem64Disp`, `MovzxR64Mem8`, `MovReg32Mem32Disp` (the current canonical successor to the snapshot's RSP-specific form), `PushR64`, `PopR64`, `CallRipRel`, `CallRel32`, `RetOp` — historical inventory, reconciled to the current production type name |
 | The machine model's only memory primitives are five helpers + raw field access | `X86_64MachineState.read64`/`write8`/`write64`/`push64`/`pop64` (`Gasm/Targets/X86_64/Registers.lean:226-265`); the field itself is `memory : Address → Byte`, total, public |
 | Instruction steps already bypass even those helpers | `MovRspDispImm32.step` inlined a raw 4-byte store lambda (no `write32` helper existed); `MovzxR64Mem8.step` and the former RSP-specific W32 MOV load read raw memory bytes inline. The missing widths already caused the exact per-instruction re-implementation this hook exists to end |
 | Non-instruction code also writes memory raw | `Gasm/Targets/Windows/Win32API.lean` hooks (`readFileHook`/`recvHook` write destination buffers via raw `memory := fun a => ...` lambdas, lines 112–136, 214–217); the linkers' `loadMemory` installs the image raw |

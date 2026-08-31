@@ -558,8 +558,9 @@ instance : X86_64Instruction MovReg64Mem64Disp where
   memAccesses := movReg64Mem64DispAccesses
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
-/-- MOV dstReg32, DWORD PTR [basePtr + disp8]: Reads a 32-bit value from general user-space
-    memory and zero-extends it into the architectural 64-bit destination register. -/
+/-- MOV dstReg32, DWORD PTR [basePtr + disp8]: Reads a 32-bit value from memory at `basePtr` plus
+    sign-extended `disp8` and zero-extends it into the architectural 64-bit destination register.
+    Mapping and memory-type admission belong to the selected target/profile boundary. -/
 structure MovReg32Mem32Disp where
   dstReg  : Reg32
   basePtr : Reg64
