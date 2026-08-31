@@ -521,6 +521,37 @@ The following code shapes have enough evidence to investigate but are not canoni
   only; it does not repair one monolithic multi-gigabyte proof.  Warm success is therefore not
   evidence for generated build tooling unless an enforced cold integration path exercises its real
   runtime layout.
+- Spike 3 Wasm observation-summary experiments are remotely archived evidence, not APIs or
+  integration candidates.  Baseline `e2f3892` with warm direct imports ran
+  `lake env lean -M 12288 Spikes/Spike3SortLines/Wasm/Equivalence.lean` under the repository
+  process lease, GNU `time -v`, and a nonfiring 600-second timeout; it failed after 80.96 seconds at
+  12,585,228 KiB maximum RSS.  Archive branch
+  `archive/experimental/non-integrable-spike3-sort-seal-e2f3892` (`c4881bf`) adds an exact equation
+  then marks `sortByteLines` irreducible; it still failed at 88.17 seconds/12,584,580 KiB.  Branch
+  `archive/experimental/non-integrable-spike3-trace-seal-e2f3892` (`d621ed1`) similarly seals
+  `spike3WasmTraceFor` behind one exact bridge and worsened to 176.43 seconds/12,584,732 KiB plus a
+  later recursion failure.  Opacity did not change the consumer proposition's dependency on the
+  evaluator-produced value.
+
+  Archive branch `archive/experimental/non-integrable-spike3-summary-red-e2f3892` (`9a35ff2`)
+  instead factors a pure `normalizeWasmObservation` over abstract input, proves its constructor and
+  refinement theorems once, and lets artifact proofs supply exact observation equalities.  Under the
+  stricter otherwise-identical `-M 4096` command it reached only the base's pre-existing failures in
+  `spike3WasmFiniteSpec_preparationExhausted` and `Spike3WasmBehavior.noFuelExhausted` in 0.80
+  seconds/1,708,400 KiB, with no memory or recursion error; it is intentionally non-integrable and
+  not green.  Stronger archive branch `archive/experimental/spike3-summary-green-88edac5`
+  (`ffee141`, exact parent `88edac5`) also abstracts the outcome-to-observation no-fuel theorem and
+  repairs those drifted proofs.  Its complete direct module check passed in 0.90 seconds/
+  1,681,788 KiB under `-M 4096`; edit-triggered
+  `python3 scripts/measure_process_tree.py --sample-ms 100 -- lake build
+  +Spikes.Spike3SortLines.Wasm.Equivalence` passed in 0.973 seconds with one built job, 1,789.6 MiB
+  aggregate process-tree peak, and 1,648.8 MiB Lean-child peak.  The direct-probe KiB figures are
+  GNU `time -v` maximum RSS for the dominant Lean process; the focused-build MiB figure is the
+  sampler's root-plus-descendant maximum.  The commit remains experimental pending
+  Trust/current-base transplant.  The candidate technique is to prove the small transformation from
+  an abstract execution summary to the consumer's observation, then cross into total execution once
+  through an explicit equality.  Merely making the total producer irreducible can leave kernel
+  definitional equality equally expensive or worse.
 - Block-chain congruence and associativity, with fallthrough-versus-jump reasoning delayed until
   realization, is a candidate extracted from the Spike 2 Windows prefix chain (`75d01c8` and
   `f90bfc9`).  The accepted-in-practice consumer first proves one exact typed execution outcome,
