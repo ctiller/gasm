@@ -22,6 +22,10 @@ namespace Gasm.Targets.AArch64.MacroAssembler
 open Gasm.Targets.AArch64
 open Gasm.Targets.AArch64.Instructions
 
+attribute [local simp] instAArch64InstructionAnyAArch64Instruction
+  instAArch64InstructionMovReg instAArch64InstructionMovz instAArch64InstructionMovk
+  instAArch64InstructionAddReg instAArch64InstructionSubReg instAArch64InstructionAndReg
+
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 /-- A data-processing GPR, restricted to architectural X0--X30.  Register encoding 31 is
     deliberately absent: these instruction forms interpret it as XZR, while other machine-model
@@ -100,22 +104,37 @@ def Instruction.emit : Instruction → AnyAArch64Instruction
   | .bitAnd dst lhs rhs => .mk (andReg64 dst lhs rhs)
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
-/-- Direct constructor-local semantics for the admitted form. This deliberately does not invoke
-    the platform's open-instruction wrapper or host interception. -/
+/-- Constructor-local semantics for the admitted form, using the exact production instruction
+    wrapper but no lookup, host interception, fault-stop loop, fuel, or outcome classification. -/
 def Instruction.step : Instruction → AArch64MachineState → AArch64MachineState
   | .movReg dst src =>
-      AArch64Instruction.step (movReg64 (reg64OfFin31 dst) (reg64OfFin31 src))
+      AArch64Instruction.step (AnyAArch64Instruction.mk
+        (movReg64 (reg64OfFin31 dst) (reg64OfFin31 src)))
   | .movz dst imm lane =>
-      AArch64Instruction.step (movz64 (reg64OfFin31 dst) imm lane.encoding)
+      AArch64Instruction.step (AnyAArch64Instruction.mk
+        (movz64 (reg64OfFin31 dst) imm lane.encoding))
   | .movk dst imm lane =>
-      AArch64Instruction.step (movk64 (reg64OfFin31 dst) imm lane.encoding)
+      AArch64Instruction.step (AnyAArch64Instruction.mk
+        (movk64 (reg64OfFin31 dst) imm lane.encoding))
   | .add dst lhs rhs =>
-      AArch64Instruction.step (addReg64 (reg64OfFin31 dst) (reg64OfFin31 lhs)
-        (reg64OfFin31 rhs) .LSL 0)
+      AArch64Instruction.step (AnyAArch64Instruction.mk
+        (addReg64 (reg64OfFin31 dst) (reg64OfFin31 lhs)
+          (reg64OfFin31 rhs) .LSL 0))
   | .sub dst lhs rhs =>
-      AArch64Instruction.step (subReg64 (reg64OfFin31 dst) (reg64OfFin31 lhs)
-        (reg64OfFin31 rhs) .LSL 0)
-  | .bitAnd dst lhs rhs => AArch64Instruction.step (andReg64 dst lhs rhs)
+      AArch64Instruction.step (AnyAArch64Instruction.mk
+        (subReg64 (reg64OfFin31 dst) (reg64OfFin31 lhs)
+          (reg64OfFin31 rhs) .LSL 0))
+  | .bitAnd dst lhs rhs =>
+      AArch64Instruction.step (AnyAArch64Instruction.mk (andReg64 dst lhs rhs))
+
+/- REF: docs/MACRO_ASSEMBLER.md#aarch64-platform-execution-bridge -/
+/-- The production open-instruction wrapper agrees with the local semantics for every admitted
+    ordinary constructor. The proof is constructor-owned: these instructions neither observe nor
+    mutate the host input queues sealed by the wrapper. -/
+@[simp] theorem Instruction.step_emit (instruction : Instruction)
+    (state : AArch64MachineState) :
+    AArch64Instruction.step instruction.emit state = instruction.step state := by
+  cases instruction <;> rfl
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-macro-segments -/
 /-- Target-owned constructor classification of the emitted straight-line forms. This classification
