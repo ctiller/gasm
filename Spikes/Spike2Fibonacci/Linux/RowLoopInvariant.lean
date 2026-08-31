@@ -78,6 +78,21 @@ structure Spike2RowCodeAuthority (state : X86_64MachineState) : Prop where
   ordinary : ∀ address : UInt64,
     address ∈ spike2RowObservedRips → state.read64 address ≠ address
 
+/-- At a reviewed linked-text successor, finite code authority is exactly the physical fact
+needed by the shared x86 dispatcher: the state is neither the Linux syscall pseudo-address nor
+a dynamically discovered Win32 IAT slot.  This packages no platform execution claim; concrete
+prefix constructors still supply the exact reached RIP and instruction lookup. -/
+theorem Spike2RowCodeAuthority.ordinaryAt (state : X86_64MachineState)
+    (authority : Spike2RowCodeAuthority state)
+    (observed : state.rip ∈ spike2RowObservedRips) :
+    Spike2OrdinaryCode state where
+  notLinuxEntry := by
+    have bounded := spike2RowObservedRips_bounded observed
+    intro atEntry
+    rw [atEntry] at bounded
+    simp [linuxSyscallEntry, spike2RowLinkedTextUpper] at bounded
+  notWin32Iat := authority.ordinary state.rip observed
+
 /-- Transport row-code authority across a projection-wise read frame. -/
 theorem Spike2RowCodeAuthority.transportRead64 (before after : X86_64MachineState)
     (authority : Spike2RowCodeAuthority before)
