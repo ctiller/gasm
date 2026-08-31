@@ -69,6 +69,52 @@ private def movDecodesExactlyAs (bytes : ByteArray) (expected : AnyX86_64Instruc
       X86_64Instruction.toLean decoded == X86_64Instruction.toLean expected
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Direct reverse controls for the existing low-byte store identity.  The vectors distinguish
+    the legacy no-REX register bank from SPL/R15B, exercise independent REX.R/B extension, and
+    lock the exact no-index SIB and forced-zero-displacement encodings for RSP/R12 and RBP/R13. -/
+theorem movMem8Reg8_canonical_reverse_controls :
+    [(ByteArray.mk #[0x88, 0x00], mov_mem8 .rax .rax),
+     (ByteArray.mk #[0x40, 0x88, 0x20], mov_mem8 .rax .rsp),
+     (ByteArray.mk #[0x44, 0x88, 0x38], mov_mem8 .rax .r15),
+     (ByteArray.mk #[0x41, 0x88, 0x00], mov_mem8 .r8 .rax),
+     (ByteArray.mk #[0x88, 0x04, 0x24], mov_mem8 .rsp .rax),
+     (ByteArray.mk #[0x45, 0x88, 0x3C, 0x24], mov_mem8 .r12 .r15),
+     (ByteArray.mk #[0x88, 0x45, 0x00], mov_mem8 .rbp .rax),
+     (ByteArray.mk #[0x41, 0x88, 0x45, 0x00], mov_mem8 .r13 .rax),
+     (ByteArray.mk #[0x44, 0x88, 0x7D, 0x00], mov_mem8 .rbp .r15)].all
+      (fun pair => movDecodesExactlyAs pair.1 pair.2) = true := by
+  decide
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- The existing store decoder fails closed rather than relabeling high-byte sources or an
+    unrepresented address as the low-byte, base-only semantic identity. -/
+theorem movMem8Reg8_hostile_bytes_rejected :
+    [ByteArray.mk #[0x88, 0x20],
+     ByteArray.mk #[0x88, 0x28],
+     ByteArray.mk #[0x88, 0x30],
+     ByteArray.mk #[0x88, 0x38],
+     ByteArray.mk #[0x88, 0x04, 0x00],
+     ByteArray.mk #[0x88, 0x04, 0x64],
+     ByteArray.mk #[0x88, 0x04, 0x25, 0, 0, 0, 0],
+     ByteArray.mk #[0x42, 0x88, 0x04, 0x24],
+     ByteArray.mk #[0x88, 0x05, 0, 0, 0, 0],
+     ByteArray.mk #[0x41, 0x88, 0x05, 0, 0, 0, 0],
+     ByteArray.mk #[0x88, 0x45, 0x7F],
+     ByteArray.mk #[0x41, 0x88, 0x45, 0x80],
+     ByteArray.mk #[0x48, 0x88, 0x00],
+     ByteArray.mk #[0x40, 0x88, 0x00],
+     ByteArray.mk #[0x40, 0x40, 0x88, 0x20],
+     ByteArray.mk #[0x67, 0x88, 0x00],
+     ByteArray.mk #[0x2E, 0x88, 0x00],
+     ByteArray.mk #[0x88, 0x40, 0x00],
+     ByteArray.mk #[0x88, 0x80, 0, 0, 0, 0],
+     ByteArray.mk #[0x88, 0xC0],
+     ByteArray.mk #[0x88],
+     ByteArray.mk #[0x88, 0x04],
+     ByteArray.mk #[0x88, 0x45]].all movDecodeRejects = true := by
+  decide
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Direct controls for both architectural destination widths of `0F B6`, including all
     independent REX.R/B combinations, canonical RSP/R12 SIB, and the forced zero disp8 for
     RBP/R13.  These pairs make a decoder that ignores REX.W observably fail. -/
