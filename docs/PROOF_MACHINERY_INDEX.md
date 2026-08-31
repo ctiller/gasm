@@ -936,6 +936,24 @@ The following code shapes have enough evidence to investigate but are not canoni
   all nine independent probes succeeded.  This closes the Milestone 1 slice only; the supplemental
   harness's existing nonclaims and final-authority boundary remain in force.
 
+  Provisional extraction scope from canonical `5fbf3f3d` permits a dependency-light
+  `MemoryFrame.Common` experiment for exactly `MovMem32DispReg32` and `MovMem64DispReg64`.  It may
+  contain plain theorem helpers only: `readByte_write_outside_addresses` over the exact modular
+  address list without a no-wrap premise; exact singleton `.store` descriptor equality; exact
+  post-step memory equality to writing the descriptor address/value into pre-memory; and derivations
+  of `WritesWithin` from outside-address preservation and `StoreAgreeOn` from
+  `readByte_write_inside`.  The `ReadsWithin` helper must additionally receive effective-address,
+  stored-value, and post-step non-memory congruence under `agreeOutsideMemory`; the exact store
+  descriptor makes the load footprint empty.
+
+  Both W32 and W64 consumers must instantiate the unchanged theorem signature while preserving
+  their public theorem names/types and `MemoryFrameAudit`; every other form remains untouched.  If
+  W64 needs an instruction-specific exception or signature widening, stop rather than generalize.
+  No record, typeclass, interface, negative fixture, admission, platform, carrier, atomic, CFG,
+  authority, or ratio machinery is authorized; the existing `NegativeControl` remains authoritative.
+  This is an approved experiment boundary, not reusable machinery, until an exact implementation,
+  two-consumer burden delta, validation, and review are available.
+
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
   precondition-indexed `SafeUnder` is the right proof-economical goal shape.  But public
