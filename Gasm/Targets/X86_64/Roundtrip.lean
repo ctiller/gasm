@@ -81,14 +81,39 @@ theorem roundtrip_ja_rel8 : ∀ d : UInt8, DecodesTo (ja_rel8 d) := by intro d; 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Universal: JBE rel8 (0x76) decodes back for every displacement byte (same rationale as JA rel8). -/
 theorem roundtrip_jbe_rel8 : ∀ d : UInt8, DecodesTo (jbe_rel8 d) := by intro d; rfl
+
+private def decodersBeforeMov :
+    List (ByteArray → Nat → Except String (AnyX86_64Instruction × Nat)) :=
+  [retTryDecode, pushTryDecode, popTryDecode, jccTryDecode]
+
+private def decodersAfterMov :
+    List (ByteArray → Nat → Except String (AnyX86_64Instruction × Nat)) :=
+  [callTryDecode, syscallTryDecode, imulTryDecode, cmovTryDecode, addTryDecode,
+   orTryDecode, andTryDecode, subTryDecode, xorTryDecode, cmpTryDecode, testTryDecode,
+   xchgTryDecode, leaTryDecode, shiftTryDecode, notTryDecode, negTryDecode, divTryDecode,
+   inTryDecode, outTryDecode, hltTryDecode]
+
+private theorem decodersBeforeMov_reject_c6 (bytes : ByteArray)
+    (parsed : parseRexAndOpcode bytes 0 =
+      .ok (false, false, false, false, false, 0xC6, 1)) :
+    ∀ decoder ∈ decodersBeforeMov, DecoderRouting.RejectsAt decoder bytes 0 := by
+  intro decoder member
+  simp only [decodersBeforeMov, List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl
+  all_goals
+    simp [DecoderRouting.RejectsAt, retTryDecode, pushTryDecode, popTryDecode,
+      jccTryDecode, parsed]
+
 private theorem decode_mov_rsp_byte_zero (val : UInt8) :
     decodeX86_64Instr (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
       .ok (mov_rsp_byte 0 val, 4) := by
+  have parsed : parseRexAndOpcode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
+      .ok (false, false, false, false, false, 0xC6, 1) := by
+    rfl
   have hlocal : movTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
       .ok (mov_rsp_byte 0 val, 4) := by
     unfold movTryDecode
-    rw [show parseRexAndOpcode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
-      .ok (false, false, false, false, false, 0xC6, 1) by rfl]
+    rw [parsed]
     simp only
     rw [show readModRM (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 1 =
       .ok (0, 0, 4, 2) by
@@ -98,30 +123,19 @@ private theorem decode_mov_rsp_byte_zero (val : UInt8) :
           (extractModRM 0x04).2.2, 2) = .ok (0, 0, 4, 2)
         rw [show extractModRM 0x04 = (0, 0, 4) by decide]]
     rfl
-  have hret : ∃ e, retTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 = .error e :=
-    ⟨_, rfl⟩
-  have hpush : ∃ e, pushTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 = .error e :=
-    ⟨_, rfl⟩
-  have hpop : ∃ e, popTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 = .error e :=
-    ⟨_, rfl⟩
-  have hjcc : ∃ e, jccTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 = .error e :=
-    ⟨_, rfl⟩
-  rcases hret with ⟨_, hret⟩
-  rcases hpush with ⟨_, hpush⟩
-  rcases hpop with ⟨_, hpop⟩
-  rcases hjcc with ⟨_, hjcc⟩
-  unfold decodeX86_64Instr
-  simp only [allTryDecoders, tryDecoders]
-  rw [hret, hpush, hpop, hjcc, hlocal]
+  exact DecoderRouting.decode_of_registered_success decodersBeforeMov decodersAfterMov
+    movTryDecode _ 0 _ (by rfl) (decodersBeforeMov_reject_c6 _ parsed) hlocal
 
 private theorem decode_mov_rsp_byte_disp (disp val : UInt8) :
     decodeX86_64Instr (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
       .ok (mov_rsp_byte disp val, 5) := by
+  have parsed : parseRexAndOpcode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
+      .ok (false, false, false, false, false, 0xC6, 1) := by
+    rfl
   have hlocal : movTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
       .ok (mov_rsp_byte disp val, 5) := by
     unfold movTryDecode
-    rw [show parseRexAndOpcode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
-      .ok (false, false, false, false, false, 0xC6, 1) by rfl]
+    rw [parsed]
     simp only
     rw [show readModRM (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 1 =
       .ok (1, 0, 4, 2) by
@@ -131,21 +145,8 @@ private theorem decode_mov_rsp_byte_disp (disp val : UInt8) :
           (extractModRM 0x44).2.2, 2) = .ok (1, 0, 4, 2)
         rw [show extractModRM 0x44 = (1, 0, 4) by decide]]
     rfl
-  have hret : ∃ e, retTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 = .error e :=
-    ⟨_, rfl⟩
-  have hpush : ∃ e, pushTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 = .error e :=
-    ⟨_, rfl⟩
-  have hpop : ∃ e, popTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 = .error e :=
-    ⟨_, rfl⟩
-  have hjcc : ∃ e, jccTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 = .error e :=
-    ⟨_, rfl⟩
-  rcases hret with ⟨_, hret⟩
-  rcases hpush with ⟨_, hpush⟩
-  rcases hpop with ⟨_, hpop⟩
-  rcases hjcc with ⟨_, hjcc⟩
-  unfold decodeX86_64Instr
-  simp only [allTryDecoders, tryDecoders]
-  rw [hret, hpush, hpop, hjcc, hlocal]
+  exact DecoderRouting.decode_of_registered_success decodersBeforeMov decodersAfterMov
+    movTryDecode _ 0 _ (by rfl) (decodersBeforeMov_reject_c6 _ parsed) hlocal
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Universal production-decoder roundtrip for the byte-store form selected by the checked
