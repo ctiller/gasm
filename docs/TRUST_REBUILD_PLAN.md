@@ -10,9 +10,10 @@ counterexamples, and spare parts.
 
 ## 1. Outcome and quantitative target
 
-Rebuild Spikes 1 through 5 so each emitted artifact obtains the sole universal
-`Gasm.Core.Platform.VerifiedProgram` through reusable proof-producing libraries and a small local
-refinement delta.
+Rebuild Spikes 1 through 5 so authors begin with an independent specification and typed abstract
+program, while proof-producing lowering derives the instructions, artifacts, and certificates
+consumed by the sole universal `Gasm.Core.Platform.VerifiedProgram`. Program authors supply a small
+source-level refinement delta, not an instruction trace proof.
 
 The program-authoring target is:
 
@@ -40,24 +41,32 @@ to hide the proof in another spike-local file.
 - Every cutover records old and new proof lines, assembly statements, ratio, focused build time, and
   peak memory when available.
 
-The ratio measures author burden, not soundness. Universal inputs, exact artifact identity,
+The initial ratio measures the fallback assembly-authoring boundary. The end-state source path
+should require no instruction-level proof from an ordinary program author: instruction evidence is
+derived by the selected lowering implementation. Universal inputs, exact artifact identity,
 production execution, outcomes, frames, authority, lifecycle, and cleanup remain mandatory even
 when the budget is missed.
 
 ## 2. Replacement proof architecture — MP review surface
 
-The required dependency direction is:
+The required authoring and dependency direction is:
 
 ```text
 independent logical specification
         ↓
-proof-carrying source / typed blocks and terminators
+typed abstract basic blocks over required operation typeclasses
         ↓
-exact closed execution over the production instruction index
+explicit selected implementation dictionaries with refinement theorems
+        ↓
+more abstract typed blocks (another lowering stage)
+                 or
+certified target straight-line instruction runs and typed terminators
+        ↓
+closed typed CFG plus exact linked instruction/artifact certificates
         ↓
 target-owned load, linker, provider, frame, and admissibility adapters
         ↓
-explicit execution-to-spec refinement
+composed source-to-execution-to-spec refinement
         ↓
 ProgramArtifact / Provider / Entry / Admissibility / Behavior certificates
         ↓
@@ -66,9 +75,37 @@ VerifiedProgram.compose
 
 `VerifiedProgram` is the derived root, never an input to the machinery intended to construct it.
 The current post-hoc `VerifiedProgramCFGArtifactCertificate` direction is not the rebuild template.
+Likewise, an `instructions → VerifiedProgram` helper is a backend completion theorem, not the public
+authoring architecture.
 
-### 2.1 Library ownership
+### 2.1 Abstract blocks and implementation selection
 
+- A source block is defined over typeclasses describing the operations and contracts it requires,
+  not over one target instruction vocabulary. Examples include word arithmetic, checked memory,
+  formatted output, streaming reads, process termination, and calls to typed capabilities.
+- An implementation dictionary supplies each required operation together with its refinement,
+  effects, clobbers, frame, obligations, failure outcomes, and cost/bound contribution.
+- Lowering is staged. One implementation may replace an operation with more abstract typed basic
+  blocks; another may close it as a target straight-line instruction run. Both cases return the same
+  composable block contract and preserve the source meaning.
+- The selected dictionaries are explicit data in the compilation/artifact certificate. Lean
+  typeclass search may synthesize a dictionary locally, but global instance search may not silently
+  choose the platform, weaken a contract, or become hidden proof authority.
+- Recursive lowering carries a checked stage/rank or another structural termination argument. It
+  cannot loop between mutually lowering abstract interfaces or stop at an unproved opaque block.
+- Direct hand-authored assembly remains a supported leaf/fallback. It pays the 10:1 local burden
+  budget and produces the same certified straight-line-run interface as a compiler-selected leaf.
+- The source-to-block and block-to-block lowering theorems compose transitively, so final behavior
+  is refinement of the independent source spec rather than a specification reconstructed from the
+  emitted instructions.
+
+### 2.2 Library ownership
+
+- **Source/abstract-block libraries** own typed operation contracts, source semantics, control-flow
+  topology, and source-level composition independently of target layout.
+- **Implementation/lowering libraries** own total source-operation refinement into another abstract
+  block layer or a certified target straight-line run. Rebuilt spikes select implementations and
+  prove only source-specific invariants or stronger advertised guarantees.
 - **Instruction families** own codec, decoder routing, operational step, fault, exact memory-access
   descriptors, and frame laws. Programs do not re-prove these for concrete operands.
 - **Proof-carrying block/CFG libraries** own sequential composition, exact middle-state transfer,
@@ -84,7 +121,7 @@ The current post-hoc `VerifiedProgramCFGArtifactCertificate` direction is not th
   cleanup obligations arise only from reachable selected features. No catch-all typeclass or empty
   decorative evidence is permitted.
 
-### 2.2 Shared exact execution object
+### 2.3 Shared exact execution object
 
 Artifact, instruction index, environment, loaded state, runtime/interceptor, entry context, proof
 budget, ghost world, and host state must agree through one indexed object or minimal named bridge.
@@ -95,7 +132,7 @@ The first accepted lower-layer candidate is `Gasm.Targets.X86_64.ClosedExecution
 exact selected production prefix and typed process-exit step. It deliberately supplies no behavioral
 specification. Platform adapters above it remain under review.
 
-### 2.3 Clean-slate consumers
+### 2.4 Clean-slate consumers
 
 New work is authored in fresh namespaces:
 
@@ -109,12 +146,13 @@ Spikes/Rebuilt/Spike5Gzip/
 
 `Spikes/Rebuilt/CheckedMemoryWindows/` is a temporary template/pathfinder, not a sixth product spike.
 
-Rebuilt proof modules import stable `Gasm`/`Stdlib` libraries, not old spike proof modules. A
+Rebuilt consumers state their specification and abstract program before selecting target
+implementations. Rebuilt proof modules import stable `Gasm`/`Stdlib` libraries, not old spike proof modules. A
 temporary dependency on an old source/spec definition must be listed as cutover debt and removed
 before acceptance. There are no compatibility aliases, dual verified emitters, or parallel proof
 authorities.
 
-### 2.4 Soundness rejection rules
+### 2.5 Soundness rejection rules
 
 Reject a candidate immediately if it uses or enables:
 
@@ -126,33 +164,45 @@ Reject a candidate immediately if it uses or enables:
 - generic ghost ownership as physical or lifecycle authority;
 - caller-forgeable provider, discharge, cleanup, or terminal evidence;
 - proof relocation without a second materially different consumer.
+- a public authoring API whose primary input is an already emitted instruction list rather than an
+  independent spec/abstract program, except for the explicit hand-assembly fallback;
+- a typeclass instance that silently selects target semantics, invents authority, or lowers an
+  operation without a named refinement theorem.
 
 ## 3. Execution plan — Reviewer review surface
 
 ### Phase A — establish the template
 
-1. Land the independently accepted exact closed-execution combinator.
-2. Build target-owned Windows non-input adapters that:
+1. Land the independently accepted exact closed-execution combinator as a backend leaf.
+2. Define the smallest typed abstract-block interface and explicit implementation dictionary needed
+   by the four-instruction pathfinder. Its selected Windows implementation must produce the accepted
+   closed-execution leaf; the pathfinder author starts from the logical block, not its instruction
+   list.
+3. Build target-owned Windows non-input adapters that:
    - derive provider linkage from the linker;
    - use the standard target-owned runtime/capability realization;
    - centralize external-input framing;
    - accept an independent specification and refinement theorem.
-3. Build `Spikes/Rebuilt/CheckedMemoryWindows` from blank as the four-instruction pathfinder.
-4. Require MP soundness review and Reviewer proof-economy review.
-5. Validate the same shared path on rebuilt Spike 1 before declaring a template.
+4. Build `Spikes/Rebuilt/CheckedMemoryWindows` from blank as the four-instruction pathfinder.
+5. Require MP soundness review and Reviewer proof-economy review.
+6. Validate the same spec-to-block-to-lowering path on rebuilt Spike 1 before declaring a template.
 
 ### Phase B — rebuild Spike 1
 
-Reauthor the simple platform artifacts first. Required libraries are straight-line/terminal
-composition, linker certificates, standard provider/runtime adapters, and independent trace/outcome
-refinement. The local proof should mostly state the intended output and terminal result.
+Reauthor the simple platform artifacts first. Required libraries are a target-neutral output/exit
+abstract block, target implementations that lower it to certified straight-line runs,
+straight-line/terminal composition, linker certificates, standard provider/runtime adapters, and
+independent trace/outcome refinement. The local proof should state the intended output and terminal
+result, then select implementations.
 
 ### Phase C — rebuild Spike 2
 
-Build one parameterized Fibonacci row certificate and structural bounded iterator. Reuse decimal
-schedule, exact prefix, frame, recurrence, event, and typed exit libraries; do not preserve the
-old per-row proof forest. Linux is the first acceptance target, followed by Windows and Wasm through
-the same logical iteration theorem and target-specific lowering adapters.
+Define Fibonacci as typed abstract loop blocks over formatting/output/exit operations. Build one
+parameterized source-level row certificate and structural bounded iterator. Formatting and output
+implementations lower into more abstract blocks or certified target runs. Reuse decimal schedule,
+frame, recurrence, event, and typed exit libraries at their owning lowering stages; do not preserve
+the old per-row proof forest. Linux is the first acceptance target, followed by Windows and Wasm
+through the same logical iteration theorem and target-specific implementation dictionaries.
 
 ### Phase D — rebuild Spike 3
 
