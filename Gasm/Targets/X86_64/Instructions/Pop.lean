@@ -76,8 +76,10 @@ def pop_r64 (r : Reg64) : AnyX86_64Instruction :=
 def popTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
   match parseRexAndOpcode bytes offset with
   | .error e => .error e
-  | .ok (_, _, _, _, rexB, opcode, pos) =>
-    if opcode >= 0x58 && opcode <= 0x5F then
+  | .ok (hasRex, rexW, rexR, rexX, rexB, opcode, pos) =>
+    if rexW || rexR || rexX || hasRex != rexB then
+      .error "popTryDecode: noncanonical REX prefix for POP r64"
+    else if opcode >= 0x58 && opcode <= 0x5F then
       let r := codeToReg64 (opcode - 0x58) rexB
       .ok (pop_r64 r, pos - offset)
     else

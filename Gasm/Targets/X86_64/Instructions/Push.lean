@@ -76,8 +76,10 @@ def push_r64 (r : Reg64) : AnyX86_64Instruction :=
 def pushTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
   match parseRexAndOpcode bytes offset with
   | .error e => .error e
-  | .ok (_, _, _, _, rexB, opcode, pos) =>
-    if opcode >= 0x50 && opcode <= 0x57 then
+  | .ok (hasRex, rexW, rexR, rexX, rexB, opcode, pos) =>
+    if rexW || rexR || rexX || hasRex != rexB then
+      .error "pushTryDecode: noncanonical REX prefix for PUSH r64"
+    else if opcode >= 0x50 && opcode <= 0x57 then
       let r := codeToReg64 (opcode - 0x50) rexB
       .ok (push_r64 r, pos - offset)
     else
