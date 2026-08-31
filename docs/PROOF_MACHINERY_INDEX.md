@@ -13,6 +13,31 @@ consumers, and the facts that deliberately remain local.
 > Publication requires an exact integrated commit, two clean-slate consumers, and explicit
 > nonclaims; archive the old path rather than blending both designs.
 
+## Accepted replacement-track building blocks
+
+These declarations are accepted, landed components of the clean-slate direction.  They are
+individually reusable only within their stated ownership boundary; together they do **not** yet
+constitute the validated replacement template.
+
+| Need | Owning machinery | Landed evidence | Deliberate boundary |
+|---|---|---|---|
+| Independent Spike 2 source meaning | `Spikes/Rebuilt/Spike2Fibonacci/Spec.lean`: `runModelTrace_spec`; `Blocks.lean`: `rowBlock_source`, `loopBlock_source`, `loopBlock_fibonacci_state`, `programBlock_state`, `programBlock_events` | source rebuild `3b22faf6` (reviewed candidate `ea5757ae`) | no ISA, target, linker, artifact, or execution authority |
+| Exact x86 body plus terminal exit | `Gasm/Targets/X86_64/ClosedExecution.lean`: `ClosedExecution`, `.run`, `.terminates`, `.admissible`, `.observable`, `.terminationCertificate` | `ae22a008` (reviewed candidate `1e47693c`) | process-exit backend leaf only; no independent behavior specification |
+| Sealed Windows linkage and independent behavior refinement | `Gasm/Targets/Windows/ProgramCertificates.lean`: `StandardProviderLinkCertificate.ofLinkedProgram`, `standardProviderCertificate`, `NonInputStandardNativeProgram.externalInputFrame`, `.admissibilityCertificate`, `.behaviorCertificate` | `4574db1b` (corrected reviewed candidate `4e502c88`; abstract `spec := run` predecessor `357b9640` was blocked) | non-input standard runtime only; behavior comes from the caller's independent spec/refinement, never from execution |
+| Certified finite container semantics | `Stdlib/Containers/VecSpec.lean`, `Vec.lean`, and `ByteVec.lean`: model/representation laws, indexed get/set/swap/append laws, `Vec.toModel_complete`, and the ByteArray/Vec bridge | `2f359da5` (reviewed candidate `762f4b0`) | container representation only; no program invariant, target memory authority, or artifact claim |
+
+The corresponding negative index entry is isolated Spike 2 backend `84a52476` with children
+`791d5980` and `41601644`.  Its `RowProducer.produce` requires the consumer to supply the full exact
+`SelectedPrefix`, then packages that premise without deriving the Fibonacci state/event relation.
+It is evidence that a proposition field is not an abstraction: do not integrate it, use it as a
+template, or count moved proof text as reduced burden.
+
+The next candidate direction remains design-only: owner-local, exact-index, kernel-derived action,
+frame, event, transfer, and result attributes may compose into the consequence needed by the next
+boundary.  No public arbitrary proposition/Boolean constructors, universal attribute or obligation
+world, trusted evaluator, artifact-as-authority shortcut, or absent-feature tax is permitted.
+Shared machinery still requires a materially different second consumer and Craig's approval.
+
 The first replacement-plan revision is reproducibly preserved at
 `archive/design/trust-rebuild-plan-f3af290c` (`f3af290c5b9271bb0119bce4caac4fba65f64f8c`).
 Primary design and independent Reviewer approve its spec-directed staged-lowering direction but

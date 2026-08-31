@@ -44,6 +44,29 @@ executing instructions.  Factor a reusable library contract when the hard loop i
 the program using it.  Spike 2 became simpler once decimal formatting stopped being part of the
 Fibonacci driver proof.
 
+## Own source meaning before sealing target realization
+
+Prove algorithm state, exact source events, and terminal source meaning in a target-free package,
+then ask each lowering layer only for its irreducible realization delta.  Rebuilt Spike 2 does this
+in `Spikes.Rebuilt.Spike2Fibonacci.Spec` and `.Blocks`: `programBlock_state` proves the ninety-row
+Fibonacci endpoint and `programBlock_events` connects the pure typed blocks to the independently
+authored trace specification.  Neither module imports an ISA, linker, or production evaluator.
+
+At the target leaf, compose exact facts without inventing behavior.  X86
+`ClosedExecution` joins one exact `SelectedPrefix` to one typed process-exit step while retaining
+the selected index, initial/final states, event accumulator, and fuel.  Windows
+`NonInputStandardNativeProgram.behaviorCertificate` transports that closed observation only after
+the caller supplies an independent specification and refinement.  Provider linkage, artifact
+identity, interceptor selection, fuel, admissibility, and source behavior remain separate evidence.
+
+The failed control is a certificate field that asks the consumer for the whole result and merely
+repackages it.  The isolated Spike 2 `RowProducer.produce` attempt required each consumer to provide
+the exact `SelectedPrefix`, omitted the Fibonacci/event relation, and therefore moved rather than
+removed the hard proof.  A useful producer derives its certificate from owner semantics and leaves
+the consumer only the source invariant connection and root-specific consequence.  These accepted
+pieces are replacement-track building blocks, not yet a validated whole-program template or a
+shared iteration API.
+
 ## Eliminate the burden delta
 
 Treat the exact caller-visible obligation as the proof's speed of light: the irreducible theorem and
