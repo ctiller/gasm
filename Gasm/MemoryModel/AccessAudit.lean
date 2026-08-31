@@ -34,7 +34,10 @@ memory effect.
 the computation must produce a clean successful outcome. This module does not change
 `VerifiedProgram`, grant target fidelity, decide authority, or admit an execution. A later
 Trust-reviewed platform bridge must connect the real reachable execution relation to this audit
-and make absence of violations a mandatory whole-program condition.
+and make absence of violations a mandatory whole-program condition. That bridge must also prove
+coverage: every memory access in the target semantics is represented by an `execute` node with
+its exact origin and access metadata. Sealing prevents denial laundering, but cannot by itself
+prove that a target lowering did not omit a semantic access.
 -/
 
 namespace Gasm.MemoryModel.AccessAudit
@@ -117,39 +120,48 @@ def Clean (outcome : Outcome d Machine Value) : Prop := outcome.finalState.Clean
 end Outcome
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
-/-- A checked computation consumes and returns the proof-audited semantic state. -/
-abbrev Checked (d : Domains) (Machine : Type v) (Value : Type w) :=
-  State d Machine → Outcome d Machine Value
+/-- Constructor-controlled checked computation. Its evaluator and constructor are private;
+    public clients compose only through `pure`, `execute`, and `bind`. Consequently clients cannot
+    inspect an intermediate denial, truncate its audit, or manufacture a successful result. -/
+structure Checked (d : Domains) (Machine : Type v) (Value : Type w) where
+  private ofEvaluator ::
+  private evaluator : State d Machine → Outcome d Machine Value
+
+/- REF: docs/MEMORY_MODEL.md#62-authority-states -/
+/-- The sole evaluator for a constructor-controlled checked computation. -/
+def run (computation : Checked d Machine Value) (state : State d Machine) :
+    Outcome d Machine Value :=
+  computation.evaluator state
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- Lift one profile decision into fail-closed audit semantics. The decision returns the complete
     allowed machine/value pair or the exact refusal reason. -/
 def execute (attempt : Attempt d)
     (decision : Machine → Except d.Reason (Machine × Value)) : Checked d Machine Value :=
-  fun state =>
-    match decision state.machine with
-    | .ok (machine, value) =>
-        .allowed { machine := machine, violations := state.violations } value
-    | .error reason =>
-        .denied {
-          machine := state.machine
-          violations := state.violations ++ [{ attempt := attempt, reason := reason }]
-        }
+  ⟨fun state =>
+      match decision state.machine with
+      | .ok (machine, value) =>
+          .allowed { machine := machine, violations := state.violations } value
+      | .error reason =>
+          .denied {
+            machine := state.machine
+            violations := state.violations ++ [{ attempt := attempt, reason := reason }]
+          }⟩
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- Successful checked computation with no machine effect or audit effect. -/
 def pure (value : Value) : Checked d Machine Value :=
-  fun state => .allowed state value
+  ⟨fun state => .allowed state value⟩
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
-/-- Sequential composition stops at the first refusal. In particular, the continuation cannot
-    manufacture a value for a denied read or apply an effect after a denied write. -/
+/-- Sequential composition stops at the first refusal. The sealed representation has no catch:
+    the continuation cannot observe denial, manufacture a read value, or erase its audit. -/
 def bind (first : Checked d Machine Value)
     (next : Value → Checked d Machine Result) : Checked d Machine Result :=
-  fun state =>
-    match first state with
-    | .allowed state value => next value state
-    | .denied state => .denied state
+  ⟨fun state =>
+    match run first state with
+    | .allowed state value => run (next value) state
+    | .denied state => .denied state⟩
 
 namespace execute
 
@@ -159,49 +171,49 @@ variable {d : Domains} {Machine : Type v} {Value : Type w}
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 theorem of_ok (allowed : decision state.machine = .ok (machine, value)) :
-    execute attempt decision state =
+    run (execute attempt decision) state =
       .allowed { machine := machine, violations := state.violations } value := by
-  simp [execute, allowed]
+  simp [run, execute, allowed]
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 theorem of_error (denied : decision state.machine = .error reason) :
-    execute attempt decision state = .denied {
+    run (execute attempt decision) state = .denied {
       machine := state.machine
       violations := state.violations ++ [{ attempt := attempt, reason := reason }]
     } := by
-  simp [execute, denied]
+  simp [run, execute, denied]
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- Refusal leaves the underlying semantic/architectural machine exactly at its pre-access value. -/
 theorem denied_preserves_machine (denied : decision state.machine = .error reason) :
-    (execute attempt decision state).finalState.machine = state.machine := by
-  simp [execute, denied, Outcome.finalState]
+    (run (execute attempt decision) state).finalState.machine = state.machine := by
+  simp [run, execute, denied, Outcome.finalState]
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- Refusal extends rather than replaces the prior diagnostic history. -/
 theorem denied_appends_exactly (denied : decision state.machine = .error reason) :
-    (execute attempt decision state).finalState.violations =
+    (run (execute attempt decision) state).finalState.violations =
       state.violations ++ [{ attempt := attempt, reason := reason }] := by
-  simp [execute, denied, Outcome.finalState]
+  simp [run, execute, denied, Outcome.finalState]
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- A refused access is observably non-clean even when it was the first access in the prefix. -/
 theorem denied_not_clean (denied : decision state.machine = .error reason) :
-    ¬ (execute attempt decision state).Clean := by
-  simp [execute, denied, Outcome.Clean, Outcome.finalState, State.Clean]
+    ¬ (run (execute attempt decision) state).Clean := by
+  simp [run, execute, denied, Outcome.Clean, Outcome.finalState, State.Clean]
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- Success preserves the complete prior audit, including any earlier diagnostic prefix. -/
 theorem allowed_preserves_violations (allowed : decision state.machine = .ok (machine, value)) :
-    (execute attempt decision state).finalState.violations = state.violations := by
-  simp [execute, allowed, Outcome.finalState]
+    (run (execute attempt decision) state).finalState.violations = state.violations := by
+  simp [run, execute, allowed, Outcome.finalState]
 
 end execute
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- One computation succeeds and leaves an empty audit from this exact clean-prefix state. -/
 def SafeFrom (computation : Checked d Machine Value) (state : State d Machine) : Prop :=
-  ∃ final value, computation state = .allowed final value ∧ final.Clean
+  ∃ final value, run computation state = .allowed final value ∧ final.Clean
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- Capability/frame-indexed no-bad-access certificate. Real lowering normally proves this form:
@@ -234,7 +246,14 @@ theorem bind {first : Checked d Machine Value} {next : Value → Checked d Machi
   intro state clean
   obtain ⟨middle, value, firstResult, middleClean⟩ := firstSafe state clean
   obtain ⟨final, result, nextResult, finalClean⟩ := nextSafe value middle middleClean
-  exact ⟨final, result, by simp [AccessAudit.bind, firstResult, nextResult], finalClean⟩
+  exact ⟨final, result,
+    by
+      change (match run first state with
+        | .allowed state value => run (next value) state
+        | .denied state => .denied state) = .allowed final result
+      rw [firstResult]
+      simpa using nextResult,
+    finalClean⟩
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- A profile decision that is constructively successful for every machine automatically yields
@@ -282,7 +301,7 @@ theorem bind {first : Checked d Machine Value} {next : Value → Checked d Machi
     (nextSafe : ∀ value, SafeUnder middleCondition (next value))
     (handoff : ∀ initial middle value,
       initial.Clean → precondition initial →
-      first initial = .allowed middle value → middleCondition middle) :
+      run first initial = .allowed middle value → middleCondition middle) :
     SafeUnder precondition (AccessAudit.bind first next) := by
   intro initial clean precondition
   obtain ⟨middle, value, firstResult, middleClean⟩ :=
@@ -291,7 +310,13 @@ theorem bind {first : Checked d Machine Value} {next : Value → Checked d Machi
   obtain ⟨final, result, nextResult, finalClean⟩ :=
     nextSafe value middle middleClean middleCondition
   exact ⟨final, result,
-    by simp [AccessAudit.bind, firstResult, nextResult], finalClean⟩
+    by
+      change (match run first initial with
+        | .allowed state value => run (next value) state
+        | .denied state => .denied state) = .allowed final result
+      rw [firstResult]
+      simpa using nextResult,
+    finalClean⟩
 
 end SafeUnder
 

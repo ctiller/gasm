@@ -75,7 +75,7 @@ private def incrementOnlyAtTen (machine : Machine) : Except Reason (Machine × N
 /-- Positive baseline: an allowed access changes the semantic machine, returns its value, and
     leaves the initially empty audit exactly empty. -/
 private theorem allowed_baseline :
-    execute attempt increment initial =
+    run (execute attempt increment) initial =
       .allowed { machine := 11, violations := [] } 10 := by
   rfl
 
@@ -83,7 +83,7 @@ private theorem allowed_baseline :
 /-- Refusal retains the complete attempted access and reason while preserving the pre-access
     machine. -/
 private theorem denied_baseline :
-    execute attempt refuse initial = .denied {
+    run (execute attempt refuse) initial = .denied {
       machine := 10
       violations := [{ attempt := attempt, reason := .staleGeneration }]
     } := by
@@ -91,23 +91,42 @@ private theorem denied_baseline :
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 private theorem denied_machine_unchanged :
-    (execute attempt refuse initial).finalState.machine = 10 := by
+    (run (execute attempt refuse) initial).finalState.machine = 10 := by
   rfl
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
-private theorem denied_is_not_clean : ¬ (execute attempt refuse initial).Clean := by
-  simp [execute, refuse, initial, Outcome.Clean, Outcome.finalState, State.initial, State.Clean]
+private theorem denied_is_not_clean : ¬ (run (execute attempt refuse) initial).Clean := by
+  simp [run, execute, refuse, initial, Outcome.Clean, Outcome.finalState,
+    State.initial, State.Clean]
 
 private def forbiddenContinuation (_ : Nat) : Checked domains Machine Nat :=
-  fun state => .allowed { state with machine := 999 } 999
+  pure 999
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- A denied access is terminal: sequential composition cannot run a continuation that mutates the
     machine or fabricates a read value. -/
 private theorem denied_stops_composition :
-    bind (execute attempt refuse) forbiddenContinuation initial =
-      execute attempt refuse initial := by
+    run (bind (execute attempt refuse) forbiddenContinuation) initial =
+      run (execute attempt refuse) initial := by
   rfl
+
+private def launderingAttempt : Checked domains Machine Nat :=
+  bind (execute attempt refuse) fun value => pure (value + 1000)
+
+/- REF: docs/MEMORY_MODEL.md#62-authority-states -/
+/-- Public composition cannot catch a refusal, discard its trace, and replace the missing access
+    value. The only continuation constructor is skipped on the denied path. -/
+private theorem refusal_cannot_be_laundered :
+    run launderingAttempt initial = run (execute attempt refuse) initial := by
+  rfl
+
+/- REF: docs/MEMORY_MODEL.md#62-authority-states -/
+/-- Sealing is load-bearing: even the attempted laundering program cannot acquire a safety proof. -/
+private theorem laundering_attempt_not_safe : ¬ Safe launderingAttempt := by
+  intro safe
+  obtain ⟨final, value, outcome, clean⟩ := safe initial (by rfl)
+  simp [launderingAttempt, AccessAudit.run, AccessAudit.bind,
+    AccessAudit.execute, refuse] at outcome
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 private theorem increment_safe : Safe (execute attempt increment) := by
@@ -149,13 +168,13 @@ private def dirty : State domains Machine := {
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- A later successful access cannot erase an earlier violation. -/
 private theorem success_cannot_clean_dirty_prefix :
-    (execute attempt increment dirty).finalState.violations = dirty.violations := by
+    (run (execute attempt increment) dirty).finalState.violations = dirty.violations := by
   rfl
 
 /- REF: docs/MEMORY_MODEL.md#62-authority-states -/
 /-- A later refusal appends after rather than replacing an earlier diagnostic. -/
 private theorem refusal_preserves_dirty_prefix :
-    (execute attempt refuse dirty).finalState.violations =
+    (run (execute attempt refuse) dirty).finalState.violations =
       dirty.violations ++ [{ attempt := attempt, reason := .staleGeneration }] := by
   rfl
 
@@ -165,6 +184,6 @@ private theorem refusal_preserves_dirty_prefix :
 private theorem refusal_not_safe : ¬ Safe (execute attempt refuse) := by
   intro safe
   obtain ⟨final, value, outcome, clean⟩ := safe initial (by rfl)
-  simp [execute, refuse] at outcome
+  simp [run, execute, refuse] at outcome
 
 end Gasm.MemoryModel.AccessAuditControls
