@@ -102,6 +102,27 @@ its next proof obligation.  This pattern establishes forward fact transfer acros
 boundary; it does not yet supply generic forward/backward CFG contract derivation, loop-invariant
 discovery, termination, or final artifact authority.
 
+## Classify exact outcomes before platform admission
+
+Keep a constructive prefix-chain theorem focused on one exact typed execution outcome.  At the
+platform boundary, classify that abstract `NativeRunOutcome` with a cheap proposition, then apply a
+named theorem such as `...Admissible_of_execution` that consumes both the exact-outcome equality
+and its classification.  Spike 2 Windows commits `75d01c8` and `f90bfc9` use this shape to avoid
+eliminating a large dependent prefix witness directly into the platform's admissibility predicate.
+
+The failed alternatives are useful controls.  Projecting `run.isAdmissible` directly from the
+dependent execution witness, or invoking a general fuel-recursive admissibility theorem at a
+concrete 50,000-step budget, forced weak-head normalization of the runner; attempts timed out and
+one Lean process reached approximately 19.2 GiB before cancellation.  With exact execution hidden
+behind an opaque theorem and classification kept independent, the focused final equivalence target
+built in approximately 4.4 seconds warm.  The classification theorem preserves the exact execution
+claim while moving only the small platform-admission delta to the layer that owns it.
+
+Host-runtime typeclass instances used by this boundary must be module-local or indexed by the
+platform.  A high-priority global x86 interceptor silently contaminated Linux and generic proofs.
+Instance search may deliver a stable proof dictionary, but it must not select an unrequested host
+semantic model.
+
 ## Prove layers, then compose
 
 Separate logical transformation, physical representation, algorithmic progress, host interaction,

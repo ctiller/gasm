@@ -138,6 +138,17 @@ The following code shapes have enough evidence to investigate but are not canoni
   invalidated jobs, dependency closure, search depth, and ambiguity/coherence failures.  Do not
   extract a class unless two real blocks improve; Lean's compiled modules already avoid replaying
   imported proof bodies, so shorter call syntax alone is not evidence of proof-economy.
+- Block-chain congruence and associativity, with fallthrough-versus-jump reasoning delayed until
+  realization, is a candidate extracted from the Spike 2 Windows prefix chain (`75d01c8` and
+  `f90bfc9`).  The accepted-in-practice consumer first proves one exact typed execution outcome,
+  classifies that outcome cheaply, and crosses the platform boundary through a named opaque
+  admissibility predicate.  Do not generalize the chain algebra until a second consumer preserves
+  the same exact outcome strength.  Negative controls are direct projection of platform
+  admissibility from the dependent prefix witness and application of a fuel-recursive theorem at a
+  concrete 50,000-step budget: both unfold the runner, timed out, and one attempt reached roughly
+  19.2 GiB before cancellation.  The separated final equivalence target built in approximately
+  4.4 seconds warm.  Host-runtime instances remain module-local or platform-indexed so an x86
+  interceptor cannot enter Linux or generic instance search.
 - Open nominal type-family admission in SPIR-V is represented by provisional candidate `fa98935`
   (the clean-lineage integration of `78b9397`), which supersedes the rejected public-`String`
   design in `71e6991`.  A finite `TypeFamilyDescriptor` proves its role list has no duplicates;
