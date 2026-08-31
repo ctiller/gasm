@@ -500,6 +500,48 @@ The following code shapes have enough evidence to investigate but are not canoni
   checked family.  Neither total x86 memory nor the logical world derives the grant.  Prototype
   declarations remain provisional and profile-local; commit `934d39a` is only a temporary
   integration repair, not the stable M1 implementation base.
+
+  The structural `ObligationWorld` design uses a finite partial map from governed nominal IDs to
+  typed issued payloads; a list with projected-ID `Nodup` is sufficient before any quotient, but it
+  needs a permutation-invariance theorem.  Same-kind debts retain distinct IDs.  Issuance adds one
+  fresh governed ID and payload while preserving every lookup; discharge removes exactly one ID
+  while preserving every surviving payload.  Length or ID-set conservation alone is insufficient.
+  Sequential composition uses exact boundary equality; independent composition needs disjoint
+  namespaces or injective renaming.  Occurrence-ID uniqueness is generic, while resource/generation
+  uniqueness is profile-owned.  Duplicable propositions are not linear authority: discharge
+  prerequisites live in the full indexed authority state and are explicitly consumed, transformed,
+  or transferred.  No caller-authored droppable Boolean or frozen public `CanDischarge` belongs in
+  this layer.
+
+  Archived branch `archive/experimental/checked-memory-admission-da8d836c` preserves three exact
+  review states.  `dd245279` has sound generic ledger laws but its concrete checked-memory consumer
+  is blocked: M2-B admission must join same-invocation fresh issuance, target-owned Windows
+  load/stack mapping and lifetime, the exact production store occurrence with latest/live rights,
+  containment and backing translation, and real terminal disposition for every resource and debt.
+  Total-memory reflexivity, structural BindingHistory paths, fixed IDs, or decorative removal prove
+  none of these; the final admission alone may feed `VerifiedProgram.compose` and must reject mixed
+  artifact, invocation, domain, event, or world evidence.
+
+  `0012b674` makes all admission legs load-bearing but remains blocked.  Its timeless
+  `MappedWritable` survives a separate teardown; fixed page state is authored rather than produced
+  by loader/page-map transitions; a resettable invocation world reissues generation zero; the
+  SUB/MOV marker and empty history do not project complete production binding events; and terminal
+  removals conflate return, discharge, and root destruction instead of following an indexed policy.
+  `ProductionStoreUse` aligns the exact prefix, fetch, step, descriptor, and ghost payload, but still
+  needs a real target dynamic-occurrence projection.
+
+  Latest archive tip `da8d836cfa88d9fc9e2927520abd6bf364815327` is MP+Reviewer accepted for one exact,
+  selected, single-invocation, noncomposed, model-relative checked-store spike.  The mapped-writable
+  grant is host-state-indexed; teardown retains the page-table record as retired and makes the active
+  committed entry unavailable.  Lifecycle
+  dispositions distinguish invalidation/destruction/return, the target projection preserves the
+  live binding, and every leg reaches the final `VerifiedProgram`.  This acceptance does not freeze
+  an interface or make the archive a generalization base.  Caller-mintable namespaces do not justify
+  independent composition; `verifiedProgram beforeHost` does not expose linear `afterHost`
+  threading; whole-host equality in `MappedWritable` is an excessive future frame burden; logical
+  binding still needs an explicit address-domain/page-map association; nonempty binding-change or
+  rebind histories remain unexercised; fixed stack addresses remain a synthetic profile assumption;
+  and generic CPU steps must eventually distinguish instructions that change host/interceptor state.
 ### Proof delivery, termination, and CFG composition
 
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
