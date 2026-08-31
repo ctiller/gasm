@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Require Instructions.lean to import every instruction-directory module.
+"""Require Instructions.lean to reach every recursively nested instruction-directory module.
 
 The compiled x86 registry audit can inspect every form of instance declaration -- anonymous,
 named, parameterized, parenthesized, or `@[instance] def` -- but only after the module containing
@@ -21,7 +21,7 @@ that declaration enters its import environment. Source-level classification of "
 recreates the blind spot: any declaration syntax the classifier misses can be hidden by omitting
 the same file from the umbrella.
 
-This gate therefore does no declaration parsing. Every `Instructions/*.lean` file, including
+This gate therefore does no declaration parsing. Every `Instructions/**/*.lean` file, including
 shared infrastructure, must be reachable through the local import graph rooted at
 `Instructions.lean`, and every local import must name a file on disk. A future infrastructure
 module pays one cheap import edge rather than becoming a new syntax/exclusion case. Compiled
@@ -50,7 +50,14 @@ IMPORT_PREFIX = "Gasm.Targets.X86_64.Instructions."
 def modules_on_disk() -> set[str]:
     if not INSTRUCTIONS_DIR.is_dir():
         raise FileNotFoundError(INSTRUCTIONS_DIR)
-    return {path.stem for path in INSTRUCTIONS_DIR.glob("*.lean")}
+    return {
+        ".".join(path.relative_to(INSTRUCTIONS_DIR).with_suffix("").parts)
+        for path in INSTRUCTIONS_DIR.rglob("*.lean")
+    }
+
+
+def module_path(name: str) -> Path:
+    return (INSTRUCTIONS_DIR.joinpath(*name.split("."))).with_suffix(".lean")
 
 
 def local_imports(path: Path) -> set[str]:
@@ -69,7 +76,7 @@ def local_imports(path: Path) -> set[str]:
 
 def compute() -> dict[str, object]:
     modules = modules_on_disk()
-    graph = {name: local_imports(INSTRUCTIONS_DIR / f"{name}.lean") for name in modules}
+    graph = {name: local_imports(module_path(name)) for name in modules}
     roots = local_imports(UMBRELLA_FILE)
     reachable: set[str] = set()
     frontier = list(roots)
@@ -94,7 +101,7 @@ def result_exit_code(result: dict[str, object]) -> int:
 def print_report(result: dict[str, object]) -> None:
     if result_exit_code(result) == 0:
         print(
-            f"OK: Instructions.lean reaches all {result['modules']} Instructions/*.lean "
+            f"OK: Instructions.lean reaches all {result['modules']} Instructions/**/*.lean "
             "modules through local imports; no stale imports."
         )
         return
@@ -113,29 +120,13 @@ def print_report(result: dict[str, object]) -> None:
 
 
 SELF_TEST_MODULES = {
-    "_UmbrellaAnonymousInstance": """\
-structure UmbrellaAnonymousInstruction where
-instance : X86_64Instruction UmbrellaAnonymousInstruction where
-""",
-    "_UmbrellaNamedInstance": """\
-structure UmbrellaNamedInstruction where
-instance namedInstruction : X86_64Instruction UmbrellaNamedInstruction where
-""",
-    "_UmbrellaParameterizedInstance": """\
-structure UmbrellaParameterizedInstruction (width : Nat) where
-instance (width : Nat) : X86_64Instruction (UmbrellaParameterizedInstruction width) where
-""",
-    "_UmbrellaAttributeDefInstance": """\
-structure UmbrellaAttributeDefInstruction where
-@[instance] def attributeInstruction :
-    X86_64Instruction UmbrellaAttributeDefInstruction where
-""",
     "_UmbrellaInfrastructure": "def umbrellaInfrastructureHelper : Nat := 0\n",
+    "_UmbrellaNested.Hidden": "def nestedUmbrellaInfrastructureHelper : Nat := 0\n",
 }
 
 
 def run_self_test(json_mode: bool) -> int:
-    paths = [INSTRUCTIONS_DIR / f"{name}.lean" for name in SELF_TEST_MODULES]
+    paths = [module_path(name) for name in SELF_TEST_MODULES]
     if any(path.exists() for path in paths):
         collisions = [str(path) for path in paths if path.exists()]
         print(f"self-test scratch path already exists: {collisions}", file=sys.stderr)
@@ -144,7 +135,9 @@ def run_self_test(json_mode: bool) -> int:
     red = False
     try:
         for name, content in SELF_TEST_MODULES.items():
-            (INSTRUCTIONS_DIR / f"{name}.lean").write_text(content, encoding="utf-8")
+            path = module_path(name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
         red_result = compute()
         expected = sorted(SELF_TEST_MODULES)
         red = red_result["missing_from_umbrella"] == expected
@@ -152,10 +145,13 @@ def run_self_test(json_mode: bool) -> int:
     finally:
         for path in paths:
             path.unlink(missing_ok=True)
+        nested_dir = INSTRUCTIONS_DIR / "_UmbrellaNested"
+        if nested_dir.is_dir() and not any(nested_dir.iterdir()):
+            nested_dir.rmdir()
     green_result = compute()
     green = result_exit_code(green_result) == 0
     result = {
-        "alternate_forms": sorted(SELF_TEST_MODULES),
+        "planted_modules": sorted(SELF_TEST_MODULES),
         "red_exit_code": red_exit,
         "named_exactly": red,
         "green_after_revert": green,
@@ -164,8 +160,8 @@ def run_self_test(json_mode: bool) -> int:
     if json_mode:
         print(json.dumps({"self_test": "PASS" if result["passed"] else "FAIL", **result}, indent=2))
     else:
-        print("# Instructions umbrella form-independent planted controls")
-        print(f"  alternate forms named exactly: {result['named_exactly']}")
+        print("# Instructions umbrella recursive planted controls")
+        print(f"  top-level and nested modules named exactly: {result['named_exactly']}")
         print(f"  red exit code: {result['red_exit_code']}")
         print(f"  green after revert: {result['green_after_revert']}")
         print(f"SELF-TEST: {'PASS' if result['passed'] else 'FAIL'}")
