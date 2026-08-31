@@ -99,6 +99,20 @@ use the commits to inspect the reviewed extraction delta.
 
 The following code shapes have enough evidence to investigate but are not canonical generic APIs:
 
+- Exact fallible-fold candidate `e533d83` demonstrates a deliberately narrow generic ownership
+  boundary in `Stdlib.Control.FallibleFold`.  The generic layer owns only committed state, the
+  accepted prefix, first refused input, untouched tail, and conservation plus accepted-transition
+  theorems.  Spike 3's additive bridge preserves its existing pure ingestion and classified sort
+  results by equality; resource identity, unique reclamation, cleanup, target execution, and final
+  artifact authority remain consumer-owned.  The focused fold-plus-bridge build completed warm in
+  1.7 seconds over 24 jobs.  The negative control is equally important: a proposed generic
+  `ResourceAccounting` count snapshot was removed because it had neither two domain connections nor
+  enough identity to prove unique reclamation or terminal cleanup.  Counts alone are not resource
+  accounting when aliasing and ownership determine correctness.  A later single-job focused Spike 3
+  WASI `Equivalence` build reached approximately 52.6 GiB RSS in one Lean process without a
+  diagnostic and was stopped.  Do not attribute that event to this extraction: the fold modules had
+  already passed, and no loaded rerun isolated the cause.  Preserve it as a build-triage observation,
+  not performance evidence for or against the candidate.
 - Bidirectional contract derivation for typed CFGs is not yet present.
   `Gasm.Compiler.TypedCFG.SourceScope` permits contracts to be declared before bodies, but the
   author still supplies them;
