@@ -43,15 +43,21 @@ open Gasm.MemoryModel.EnvelopeOccurrencePath
 open Gasm.MemoryModel.ObligationWorld
 open Gasm.Targets.Windows.ProcessEntryMemory
 open Gasm.Targets.X86_64
+open Gasm.Targets.X86_64.Assembler
+open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.StackStorePrefix
 open Spikes.CheckedMemoryWindows
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#windows-process-entry-grant-prerequisite -/
-def initialInvocationWorld : InvocationWorld := InvocationWorld.empty
+/-- The incoming state is selected by the platform composition, never reset by this program. -/
+class HostSelection where
+  beforeHost : WindowsHostState
+
+variable [selectedHost : HostSelection]
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#windows-process-entry-grant-prerequisite -/
-def processEntryLoad : ProcessEntryLoad executable initialInvocationWorld :=
-  loadProcessEntry executable initialInvocationWorld
+def processEntryLoad : ProcessEntryLoad executable selectedHost.beforeHost :=
+  loadProcessEntry executable selectedHost.beforeHost
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#decomposition -/
 def invocation : InvocationId := processEntryLoad.invocation
@@ -335,6 +341,32 @@ def storeCaptureRecord : CaptureRecord envelopeDomains bindingDomains :=
 def storeUseRecord : UseRecord envelopeDomains bindingDomains :=
   { event := .store, capture := storeCapture invocation }
 
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- Target-owned projection of the actual SUB/MOV production prefix. Both steps are executed by
+    `ProcessExecution.cpuStep`, whose closed event constructor preserves the host page table. -/
+def productionBindingExecution : ProcessExecution processEntryLoad :=
+  ((ProcessExecution.begin processEntryLoad).cpuStep (sub_rsp frameSize)).cpuStep
+    (mov_rsp_byte byteOffset storedValue)
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+def transitionIdsFrom : Nat → List BindingEvent → List TransitionOccurrence
+  | _, [] => []
+  | next, _ :: rest => ⟨invocation, next⟩ :: transitionIdsFrom (next + 1) rest
+
+def projectedTransitionIds : List TransitionOccurrence :=
+  transitionIdsFrom 0 (bindingChanges productionBindingExecution.events)
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+@[simp] theorem productionBindingExecution_no_changes :
+    bindingChanges productionBindingExecution.events = [] := by
+  simp [productionBindingExecution]
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+@[simp] theorem projectedTransitionIds_eq_nil : projectedTransitionIds = [] := by
+  unfold projectedTransitionIds
+  rw [productionBindingExecution_no_changes]
+  rfl
+
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#principal-invariant -/
 def history (entry : X86_64MachineState) :
     BindingHistory.History envelopeDomains bindingDomains where
@@ -348,7 +380,7 @@ def history (entry : X86_64MachineState) :
     letI : Decidable (root = entryRoot invocation) :=
       instDecidableEqRootOccurrence root (entryRoot invocation)
     if root = entryRoot invocation then some entryRootRecord else none
-  transitions := []
+  transitions := projectedTransitionIds
   transitionRecord _ := none
   captures := [storeCapture invocation]
   captureRecord capture :=
@@ -413,7 +445,7 @@ theorem history_wellFormed (entry : X86_64MachineState) :
       exact List.nodup_cons.mpr ⟨by intro impossible; contradiction, List.nodup_nil⟩
     roots_nodup := by
       exact List.nodup_cons.mpr ⟨by intro impossible; contradiction, List.nodup_nil⟩
-    transitions_nodup := List.nodup_nil
+    transitions_nodup := by simp [history]
     captures_nodup := by
       exact List.nodup_cons.mpr ⟨by intro impossible; contradiction, List.nodup_nil⟩
     uses_nodup := by
@@ -465,7 +497,7 @@ theorem history_wellFormed (entry : X86_64MachineState) :
         contradiction
   · intro transition
     constructor
-    · intro member; change transition ∈ [] at member; contradiction
+    · intro member; simp [history] at member
     · rintro ⟨record, resolved⟩; change none = some record at resolved; contradiction
   · intro capture
     by_cases equal : capture = storeCapture invocation

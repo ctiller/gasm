@@ -41,6 +41,8 @@ open Spikes.CheckedMemoryWindows
 open Spikes.CheckedMemoryWindows.Authority
 open Spikes.CheckedMemoryWindows.Realization
 
+variable [selectedHost : HostSelection]
+
 local instance : ExternalCallInterceptor X86_64 Spikes.CheckedMemoryWindows.Event :=
   standardWindowsRuntime Spikes.CheckedMemoryWindows.Event
 
@@ -68,12 +70,18 @@ private def outsideCommitted : AddressRange :=
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem outside_committed_not_mapped :
-    ¬ MappedWritable processEntryLoad outsideCommitted := by
+    ¬ MappedWritable processEntryLoad processEntryLoad.afterHost outsideCommitted := by
   intro mapped
   have contained := mapped.withinCommitted
-  rw [processEntryLoad.stackExact] at contained
   change 0x7FFFFFFEF000 ≤ 0x7FFFFFFEEFFF ∧ _ at contained
   omega
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem authored_mapping_without_load_rejected (current : WindowsHostState)
+    (notLoaded : current ≠ processEntryLoad.afterHost) :
+    ¬ MappedWritable processEntryLoad current (byteRange entryState) := by
+  intro mapped
+  exact notLoaded mapped.currentIsLoaded
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private def missingInvalidationWorld : World ObligationId ObligationKind :=
@@ -88,13 +96,13 @@ private theorem omitted_invalidation_rejected :
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private def secondProcessEntryLoad :
-    ProcessEntryLoad executable processEntryLoad.afterInvocations :=
-  loadProcessEntry executable processEntryLoad.afterInvocations
+    ProcessEntryLoad executable processEntryLoad.afterHost :=
+  loadProcessEntry executable processEntryLoad.afterHost
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem consecutive_invocation_ids_differ :
     secondProcessEntryLoad.invocation ≠ invocation := by
-  exact consecutive_invocations_ne initialInvocationWorld
+  exact sequential_invocations_ne selectedHost.beforeHost executable
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem consecutive_worlds_are_disjoint :
@@ -108,14 +116,86 @@ private theorem consecutive_worlds_are_disjoint :
     projections are deletion controls: dropping logical, physical, authoring, lifecycle, issuance,
     or termination evidence makes the admission constructor unavailable. -/
 private theorem admission_has_all_legs {selected : InvocationId}
-    {state : X86_64MachineState} (admission : MemoryAdmission selected state) :
-    InvocationIssuance initialInvocationWorld processEntryLoad.afterInvocations selected ∧
+    {state : X86_64MachineState} {activeHost : WindowsHostState}
+    (admission : MemoryAdmission selected state activeHost) :
+    processEntryLoad = loadProcessEntry executable selectedHost.beforeHost ∧
       TypedStoreView selected state ∧
-      X86StoreRealization selected state ∧
-      AuthoringEstablished selected state ∧
-      LifecycleCompletion selected state := by
-  exact ⟨admission.invocationIssued, admission.logical, admission.physical,
-    admission.authored, admission.lifecycle⟩
+      X86StoreRealization selected state activeHost ∧
+      AuthoringEstablished selected state activeHost ∧
+      Nonempty (LifecycleCompletion selected state activeHost) := by
+  exact ⟨admission.operationalLoad, admission.logical, admission.physical,
+    admission.authored, ⟨admission.lifecycle⟩⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem replaying_same_host_replays_identity :
+    (loadProcessEntry executable selectedHost.beforeHost).invocation =
+      (loadProcessEntry executable selectedHost.beforeHost).invocation := rfl
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem replayed_worlds_cannot_be_disjoint :
+    ¬ (entryWorld invocation entryState).Disjoint (entryWorld invocation entryState) := by
+  intro disjoint
+  exact disjoint (accessId invocation)
+    (by simp [entryWorld, accessEntry]) (accessId invocation)
+    (by simp [entryWorld, accessEntry]) rfl
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private def otherNamespaceHost : WindowsHostState :=
+  WindowsHostState.root ⟨selectedHost.beforeHost.hostNamespace.key + 1⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem independent_namespace_ids_differ :
+    (loadProcessEntry executable selectedHost.beforeHost).invocation ≠
+      (loadProcessEntry executable otherNamespaceHost).invocation := by
+  apply namespace_separates_invocations (executable := executable)
+  intro equal
+  have keys := congrArg HostNamespace.key equal
+  change selectedHost.beforeHost.hostNamespace.key =
+    selectedHost.beforeHost.hostNamespace.key + 1 at keys
+  omega
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private def invalidatedProductionExecution : ProcessExecution processEntryLoad :=
+  productionBindingExecution.invalidate
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem inserted_invalidation_is_projected :
+    bindingChanges invalidatedProductionExecution.events = [.invalidated invocation] := by
+  simp [invalidatedProductionExecution, ProcessExecution.invalidate]
+  rfl
+
+private theorem inserted_invalidation_kills_binding :
+    invalidatedProductionExecution.binding = none := by
+  rfl
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private def reboundProductionExecution : ProcessExecution processEntryLoad :=
+  productionBindingExecution.rebind ⟨invocation, invocation.generation + 1⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem inserted_rebind_is_projected :
+    bindingChanges reboundProductionExecution.events =
+      [.rebound invocation ⟨invocation, invocation.generation + 1⟩] := by
+  simp [reboundProductionExecution, ProcessExecution.rebind]
+  rfl
+
+private theorem inserted_rebind_changes_binding :
+    reboundProductionExecution.binding =
+      some ⟨invocation, invocation.generation + 1⟩ := by
+  rfl
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem post_retirement_store_rejected :
+    ¬ MappedWritable processEntryLoad
+      (rootTeardownAfterExitProcess processEntryLoad 0).afterHost (byteRange entryState) := by
+  intro mapped
+  exact committedEntry_not_active_after_teardown processEntryLoad 0 mapped.committedPresent
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem recipient_free_return_not_claimed (recipient : InvocationId) :
+    RootDisposition.returnExclusive recipient ∉ lifecycleCompletion.dispositions := by
+  rw [lifecycleCompletion.dispositionsExact]
+  simp
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private def wrongArtifact : WindowsX86_64Artifact :=

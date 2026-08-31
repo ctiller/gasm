@@ -24,10 +24,11 @@ Load-bearing production, binding-liveness, and physical-mapping refinement for t
 Windows x86 byte store.
 
 The generic `BindingHistory` certificate is structural only. This module composes it with the
-actual two-step production-runner prefix, a closed target classification saying that the selected
-`SUB` and `MOV` steps preserve the invocation's stack binding, and the target-owned Windows loader
-grant for the exact descriptor range. Only that composition may construct `TypedStoreView` and
-`CheckedStore`; numeric RSP equality or total machine memory grants no authority.
+actual two-step production runner and the target-owned `ProcessExecution` projection. Ordinary
+CPU steps preserve the host page table by definition, while the closed target event vocabulary
+projects every rebind/invalidation/retirement separately. Only that operational composition may
+construct `TypedStoreView` and `CheckedStore`; numeric RSP equality or total machine memory grants
+no authority.
 -/
 
 namespace Spikes.CheckedMemoryWindows.Realization
@@ -47,6 +48,8 @@ open Gasm.Targets.X86_64.StackStorePrefix
 open Gasm.Targets.X86_64.StackStorePrefixExecution
 open Gasm.Targets.X86_64.StackStorePrefixLink
 open Spikes.CheckedMemoryWindows.Authority
+
+variable [selectedHost : HostSelection]
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 abbrev Event := AnyEvent
@@ -84,25 +87,6 @@ theorem productionStorePrefix :
     (by decide) rfl allocateSilent storeSilent
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-/-- Closed target classification of the only two instructions before the selected use. These
-    constructors mean that the instruction changes machine registers/bytes but performs no
-    loader, unmap, free, binding-generation, or view-invalidation transition. -/
-inductive PreservesEntryStackBinding : X86_64Instr → Prop where
-  | allocate : PreservesEntryStackBinding (sub_rsp frameSize)
-  | store : PreservesEntryStackBinding (mov_rsp_byte byteOffset storedValue)
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-/-- The classification is exhaustive for the actual fetched prefix. -/
-theorem productionPrefix_preserves_binding (instruction : X86_64Instr)
-    (member : instruction ∈ instructions.take 2) :
-    PreservesEntryStackBinding instruction := by
-  rw [instructions_shape] at member
-  simp only [List.take, List.mem_cons, List.not_mem_nil, or_false] at member
-  rcases member with rfl | rfl
-  · exact .allocate
-  · exact .store
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Fidelity of the structural use occurrence to the actual production prefix and descriptor.
     Its private constructor prevents a caller from declaring an arbitrary history use to be an
     executed x86 access. -/
@@ -120,6 +104,9 @@ structure ProductionStoreUse (selected : InvocationId)
     (afterAllocate state) = afterStore storedValue state
   eventResolved : (execution state).event .store = some ⟨some .main,
     .executeStore selected (afterAllocate state).rip (storeAddress state) storedValue⟩
+  targetStoreProjected : productionBindingExecution.events.getLast? =
+    some (.cpuStep selected (afterAllocate state).rip (afterStore storedValue state).rip
+      [⟨.store, .w8, ⟨some .rsp, none, signExtend8To64 byteOffset⟩⟩])
   descriptorExact :
     X86_64Instruction.memAccesses (mov_rsp_byte byteOffset storedValue) =
       [⟨.store, .w8, ⟨some .rsp, none, signExtend8To64 byteOffset⟩⟩]
@@ -135,20 +122,21 @@ theorem productionStoreUse : ProductionStoreUse invocation entryState where
     decide
   stepped := rfl
   eventResolved := rfl
+  targetStoreProjected := rfl
   descriptorExact := rfl
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Target refinement from structural history to a live/latest binding at the executed store.
-    `prefixTransitionsComplete` closes the relevant production interval: every actually fetched
-    instruction before and including the use is classified above, while `historyHasNoTransition`
-    states that the structural projection contains no invented rebind or invalidation. -/
+    `targetProjectionComplete` closes the relevant production interval through the target-owned
+    event projection; `historyHasNoTransition` is derived from that actual SUB/MOV trace. -/
 structure LiveLatestStoreRefinement (selected : InvocationId)
     (state : X86_64MachineState) : Prop where
   private mk ::
   structural : StructuralStoreAuthority selected state
   production : ProductionStoreUse selected state
-  prefixTransitionsComplete : ∀ instruction, instruction ∈ instructions.take 2 →
-    PreservesEntryStackBinding instruction
+  targetProjectionComplete : (history state).transitions = projectedTransitionIds
+  targetMachineExact : productionBindingExecution.machine = afterStore storedValue state
+  targetBindingLive : productionBindingExecution.binding = some processEntryLoad.addressDomain
   historyHasNoTransition : (history state).transitions = []
   rootLatestAtCapture : (history state).FrontierResolves
     (.root (entryRoot selected)) .stack (some (entryBinding selected))
@@ -164,8 +152,10 @@ structure LiveLatestStoreRefinement (selected : InvocationId)
 theorem liveLatestStoreRefinement : LiveLatestStoreRefinement invocation entryState where
   structural := structuralStoreAuthority
   production := productionStoreUse
-  prefixTransitionsComplete := productionPrefix_preserves_binding
-  historyHasNoTransition := rfl
+  targetProjectionComplete := rfl
+  targetMachineExact := rfl
+  targetBindingLive := rfl
+  historyHasNoTransition := by simp [history]
   rootLatestAtCapture :=
     ⟨entryRootRecord, history_rootRecord_entry entryState, rfl, rfl⟩
   capturedBinding := structuralStoreAuthority.captureResolves
@@ -187,15 +177,15 @@ theorem selectedByteWellFormed : (byteRange entryState).WellFormed := by
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#windows-process-entry-grant-prerequisite -/
 theorem selectedByteWithinCommitted :
-    processEntryLoad.stack.committedRange.Contains (byteRange entryState) := by
-  rw [processEntryLoad.stackExact]
+    stackCommittedRange.Contains (byteRange entryState) := by
   change 0x7FFFFFFEF000 ≤ (entryState.rsp - 40 + 32).toNat ∧
     (entryState.rsp - 40 + 32).toNat + 1 ≤ 0x7FFFFFFEF000 + 0x2000
   decide
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#windows-process-entry-grant-prerequisite -/
-theorem selectedMappedWritable : MappedWritable processEntryLoad (byteRange entryState) :=
-  mappedWritable processEntryLoad (byteRange entryState)
+theorem selectedMappedWritable :
+    MappedWritable processEntryLoad processEntryLoad.afterHost (byteRange entryState) :=
+  mappedWritable selectedHost.beforeHost executable (byteRange entryState)
     selectedByteWellFormed selectedByteWithinCommitted
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
@@ -207,22 +197,25 @@ def selectedDescriptor : MemAccessSpec :=
 /-- Independent physical realization of the same invocation, state, production descriptor, and
     one-byte range used by the logical refinement. -/
 structure X86StoreRealization (selected : InvocationId)
-    (state : X86_64MachineState) : Prop where
+    (state : X86_64MachineState) (currentHost : WindowsHostState) : Prop where
   private mk ::
   exactInvocation : selected = processEntryLoad.invocation
   exactLoadedState : state = processEntryLoad.machine
-  mapped : MappedWritable processEntryLoad (byteRange state)
+  exactCurrentHost : currentHost = processEntryLoad.afterHost
+  mapped : MappedWritable processEntryLoad currentHost (byteRange state)
   descriptorExact : X86_64Instruction.memAccesses
     (mov_rsp_byte byteOffset storedValue) = [selectedDescriptor]
   descriptorRange : selectedDescriptor.addressRange (afterAllocate state) = byteRange state
   descriptorStore : selectedDescriptor.kind = .store
   backingTranslation : ∀ address, (byteRange state).ContainsAddress address →
-    processEntryLoad.stack.translate address = address
+    processEntryLoad.addressDomain.translate address = address
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-theorem storeRealization : X86StoreRealization invocation entryState where
+theorem storeRealization :
+    X86StoreRealization invocation entryState processEntryLoad.afterHost where
   exactInvocation := rfl
   exactLoadedState := rfl
+  exactCurrentHost := rfl
   mapped := selectedMappedWritable
   descriptorExact := rfl
   descriptorRange := by rfl
@@ -243,32 +236,36 @@ theorem typedStoreView : TypedStoreView invocation entryState :=
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Proof-bearing instruction authoring. Both logical and physical legs share the exact
     invocation and state indices, and the private constructor prevents bypass authoring. -/
-structure CheckedStore (selected : InvocationId) (state : X86_64MachineState) where
+structure CheckedStore (selected : InvocationId) (state : X86_64MachineState)
+    (currentHost : WindowsHostState) where
   private mk ::
   view : TypedStoreView selected state
-  realization : X86StoreRealization selected state
+  realization : X86StoreRealization selected state currentHost
   ordinary : X86_64Instr
   ordinary_eq : ordinary = mov_rsp_byte byteOffset storedValue
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 def author (selected : InvocationId) (state : X86_64MachineState)
+    (currentHost : WindowsHostState)
     (view : TypedStoreView selected state)
-    (realization : X86StoreRealization selected state) : CheckedStore selected state :=
+    (realization : X86StoreRealization selected state currentHost) :
+    CheckedStore selected state currentHost :=
   .mk view realization (mov_rsp_byte byteOffset storedValue) rfl
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 def CheckedStore.erase {selected : InvocationId} {state : X86_64MachineState}
-    (checked : CheckedStore selected state) : X86_64Instr :=
+    {currentHost : WindowsHostState}
+    (checked : CheckedStore selected state currentHost) : X86_64Instr :=
   checked.ordinary
 
 @[simp] theorem CheckedStore.erase_eq {selected : InvocationId} {state : X86_64MachineState}
-    (checked : CheckedStore selected state) :
+    {currentHost : WindowsHostState} (checked : CheckedStore selected state currentHost) :
     checked.erase = mov_rsp_byte byteOffset storedValue :=
   checked.ordinary_eq
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-def checkedStore : CheckedStore invocation entryState :=
-  author invocation entryState typedStoreView storeRealization
+def checkedStore : CheckedStore invocation entryState processEntryLoad.afterHost :=
+  author invocation entryState processEntryLoad.afterHost typedStoreView storeRealization
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 theorem instructions_authored :
