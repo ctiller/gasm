@@ -485,6 +485,31 @@ The following code shapes have enough evidence to investigate but are not canoni
   ergonomic or should be canonized.  A prototype must make cross-platform contamination
   unrepresentable or mechanically rejected; a high-priority global x86 interceptor entering Linux
   or generic proofs is the negative control.
+- Bounded-Lake candidate `a4562324da82d39040009bd6200df2c51ef69790` is rejected and was never
+  integrated.  Warm project builds hid that it treated the Lean prefix as `LAKE_HOME`, while
+  standalone Lake expects its own `.lake/build/{lib/lean,bin}` layout; its readable cache-key
+  truncation could also erase the worker/source distinction on long toolchain identities.  The
+  mandatory cold-package repair test then exposed two more assumptions hidden by the warm tree:
+  omission of `Lake.DSL` registration and a hand-linked driver missing interpreter native symbols.
+  Replacement `e9c85e44a5e4a3ac38cc656568c1ee067f5eab49` is under review, not accepted machinery.  Its
+  acceptance bar is a fresh temporary Lake package built through supported Lake with interpreter
+  support, a cache digest over the complete driver source/build recipe/toolchain/platform/worker
+  identity, and proof that the generated task-manager patch survived.  On exact parent `01c5b0d`,
+  with warm dependencies and comment-only edits invalidating the Add and Sub roundtrip-gate jobs,
+  these exact invocations were measured:
+
+  ```sh
+  lake build +Gasm.Targets.X86_64.Instructions.RoundtripGate.Add +Gasm.Targets.X86_64.Instructions.RoundtripGate.Sub
+  python scripts/run_bounded_lake.py --workers 1 -- build +Gasm.Targets.X86_64.Instructions.RoundtripGate.Add +Gasm.Targets.X86_64.Instructions.RoundtripGate.Sub
+  ```
+
+  The ordinary run took 5.219 seconds and peaked at 2462.3 MiB; the bounded run took 10.375 seconds
+  and peaked at 1257.6 MiB.  Both built exactly two jobs.  The repository process-tree
+  sampler measured root-plus-descendant resident sets every 100 ms, so these are aggregate peak RSS,
+  not commit charge or one child's maximum.  Even if accepted, that trade reduces sibling overlap
+  only; it does not repair one monolithic multi-gigabyte proof.  Warm success is therefore not
+  evidence for generated build tooling unless an enforced cold integration path exercises its real
+  runtime layout.
 - Block-chain congruence and associativity, with fallthrough-versus-jump reasoning delayed until
   realization, is a candidate extracted from the Spike 2 Windows prefix chain (`75d01c8` and
   `f90bfc9`).  The accepted-in-practice consumer first proves one exact typed execution outcome,
