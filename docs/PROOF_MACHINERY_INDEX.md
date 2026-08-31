@@ -284,8 +284,9 @@ The following code shapes have enough evidence to investigate but are not canoni
   They prove no allocation history, global freshness, cross-execution inequality, or authority.
   Prose-only superseding candidate `82f743eb4f511cd1d88375c82b8eb02e42bf60e9` accurately limits
   identity to nominal carrier membership with no freshness and acknowledges consequence-occurrence
-  vocabulary without carrier semantics.  MP accepted its conformance; exact-hash Reviewer verdict
-  and Trust integration remain pending, and binding history plus later layers stay gated.
+  vocabulary without carrier semantics.  MP and Reviewer accepted the exact hash with no P1; it
+  changes no declaration, proof, control, or import.  Trust rebase/integration and a canonical landed
+  hash remain pending; binding history plus later projection layers stay gated.
 
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
