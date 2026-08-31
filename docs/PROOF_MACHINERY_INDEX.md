@@ -139,6 +139,33 @@ emitted-prefix effect, and fatal cause; preserve oversized/provider-fault proven
 erase it through shared fatal control flow; and quantify final verification over every admitted
 execution.  This checkpoint authorizes neither a public/shared interface nor canonical cutover.
 
+Follow-up chain `b8368cd2903283c31288912b2de15534966c8280`,
+`0dc2efcfe99dbe6d916a17330052f5bea6d32402`, and latest archive
+`archive/experimental/spike1-private-verifiedartifact-gap-be83d334`
+(`be83d3345221b130208ac5ec5b8b9ea0b36264d2`) is **BLOCKED**.  Its exact provider projection
+theorem and grouping of provider occurrence, returned count, output effect, and fatal cause are
+useful.  But its private `VerifiedArtifact` is neither stronger than canonical `VerifiedProgram`
+nor adequate emission authority.  The `0dc2efcf` witness layer introduces 32 `native_decide`
+proofs and `be83d334` adds further closed-proof debt.  The certificate omits canonical
+`Environment`, artifact connection, exports, imports/providers, entry, platform admissibility, and
+behavior-equivalence obligations.  `ProviderStep` circularly requires the source logical `Step` it
+is meant to derive, while `Config.Agrees` omits machine, ABI, message, output, emitted-prefix,
+pending-cause, and artifact simulation invariants.
+
+Its progress result establishes only that an existing execution implies a logical terminal state;
+it does not show that every `EligiblePlan` has an exact execution with exact response projection and
+terminal `ExitProcess`.  Writable eligibility is unused, synchronous-handle admission is unproved,
+the no-stdout case omits `INVALID_HANDLE_VALUE`, and symbolic/boundary instruction indices,
+recomputed layout, and message address lack linker-owned artifact/import/symbol connections.  The
+replacement remains target-only: define provider outcomes without a source-`Step` premise, carry a
+phase-indexed `ExactInvariant`, and use a spike-local checked derivation over every eligible plan to
+produce exact execution, provider projection, and terminal exit.  Prove one structural soundness
+theorem plus totality/coverage, then compose every canonical `VerifiedProgram` subcertificate before
+emission.  Full, short, zero, no-stdout, and write-failure traces survive only as regressions.  The
+measured 21.1 then 24.4 proof-lines-per-instruction burden supports redesign because it accompanies
+missing universal coverage and visible repetition; the ratio itself remains advisory and is not an
+acceptance gate.
+
 The semantic model must be fixed now, independently of implementation order.  It covers generative
 nested scopes; distinct cancellation authorization, request, delivery, observation, masking,
 unwind, cleanup, join, and terminal events; top-down rights versus bottom-up classified-refusal
