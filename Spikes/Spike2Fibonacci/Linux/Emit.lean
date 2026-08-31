@@ -25,7 +25,7 @@ open Spikes.Spike2Fibonacci.Linux
 /- REF: docs/SPIKES.md#3-spike-progression-roadmap -/
 /-- CLI Emitter Target: Serializes and writes fib_linux to disk strictly from the verified program contract. -/
 def main : IO UInt32 := do
-  let exeBytes := emitVerifiedLinuxExecutable spike2VerifiedProgram
+  let exeBytes ← IO.ofExcept (emitVerifiedProgram spike2VerifiedProgram)
   let outputPath := "fib_linux"
   IO.println s!"[*] Emitting {exeBytes.size} bytes to {outputPath}..."
   IO.FS.writeBinFile outputPath exeBytes

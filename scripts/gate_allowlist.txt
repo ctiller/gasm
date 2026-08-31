@@ -92,11 +92,11 @@ Spikes/Spike2Fibonacci/Windows/Emit.lean::main::main::axiom-only::downstream `ma
 # axiom-emission code path, so its axiom is `<decl>._native.bv_decide.ax_*`, matched by
 # the same `_native`-component structural check), which is what these entries authorize.
 
-Spikes/Spike2Fibonacci/Linux/Emit.lean::main::main::axiom-only::downstream `main` calls emitVerifiedLinuxExecutable spike2VerifiedProgram, transitively citing the already-grandfathered spike2_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
-Spikes/Spike2Fibonacci/Linux/Equivalence.lean::spike2VerifiedProgram::Spikes.Spike2Fibonacci.Linux.spike2VerifiedProgram::axiom-only::downstream VerifiedLinuxProgram wiring that transitively cites the already-grandfathered spike2_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike2Fibonacci/Linux/Emit.lean::main::main::axiom-only::downstream `main` calls emitVerifiedProgram spike2VerifiedProgram, transitively citing the already-grandfathered spike2_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean, TC15)
+Spikes/Spike2Fibonacci/Linux/Equivalence.lean::spike2VerifiedProgram::Spikes.Spike2Fibonacci.Linux.spike2VerifiedProgram::axiom-only::downstream VerifiedProgram wiring that transitively cites the already-grandfathered spike2_canonical_effect_trace_equivalence; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
 Spikes/Spike3SortLines/Linux/Equivalence.lean::spike3_canonical_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Linux.spike3_canonical_effect_trace_equivalence_inst::grandfathered::single-vector check for Linux Spike 3; migration backlog
 Spikes/Spike3SortLines/Linux/Equivalence.lean::spike3_empty_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Linux.spike3_empty_effect_trace_equivalence_inst::grandfathered::single-vector check for Linux Spike 3; migration backlog
-Spikes/Spike2Fibonacci/Linux/Test.lean::main::main::axiom-only::downstream `main` exercises spike2LinuxVerifiedProgram, transitively citing the already-grandfathered Spikes.Spike2Fibonacci.Linux.spike2_canonical_effect_trace_equivalence; same propagation shape as the sibling Emit.lean::main and Spike3's Linux Test.lean::main entries; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
+Spikes/Spike2Fibonacci/Linux/Test.lean::main::main::axiom-only::downstream `main` exercises spike2VerifiedProgram, transitively citing the already-grandfathered Spikes.Spike2Fibonacci.Linux.spike2_canonical_effect_trace_equivalence; same propagation shape as the sibling Emit.lean::main and Spike3's Linux Test.lean::main entries; found by axiom-level cross-check (Tools/CheckGatesAxioms.lean)
 
 # --- MH1 (docs/MEMORY_HOOK.md): RETIRED, no entries remain. ---
 # X86_64Mem.read64_write64_same (Gasm/Targets/X86_64/Memory.lean) carried the tree's last

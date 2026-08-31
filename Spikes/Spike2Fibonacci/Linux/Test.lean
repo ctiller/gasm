@@ -28,7 +28,8 @@ open Spikes.Spike2Fibonacci.Linux
 def main : IO UInt32 := do
   let exePath := "./fib_linux"
   if !(← (System.FilePath.mk exePath).pathExists) then
-    IO.FS.writeBinFile exePath (emitVerifiedLinuxExecutable spike2VerifiedProgram)
+    let exeBytes ← IO.ofExcept (emitVerifiedProgram spike2VerifiedProgram)
+    IO.FS.writeBinFile exePath exeBytes
 
   IO.println s!"[*] Testing binary execution: {exePath}..."
   try
