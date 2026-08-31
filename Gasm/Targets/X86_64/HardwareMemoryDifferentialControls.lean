@@ -40,6 +40,20 @@ private def matchingObservation : Except String Observation := do
     }
   }
 
+private def matchingMovzxObservation : Except String Observation := do
+  let seed := (default : X86_64MachineState).setGpr64 .r13 0xffffffffffffffff
+  let plan ← prepare 0x222 (.movzxR64Mem8 ⟨.r13, .r15, 0x7f⟩) seed 0x140004000
+  let decoded ← plan.decodeAndStep
+  let regionAfter ← plan.modelRegionAfter
+  pure {
+    plan := plan
+    result := {
+      caseId := plan.caseId
+      machine := { gprs := decoded.state.gprs, flags := decoded.state.flags, faulted := false }
+      regionAfter := regionAfter
+    }
+  }
+
 private def baselineAccepted : Bool :=
   match matchingObservation with
   | .ok observation => (compare observation).isOk
@@ -135,6 +149,16 @@ private def publicPlanRetagRejected : Bool :=
       let plan := { observation.plan with caseId := observation.plan.caseId + 0x100 }
       comparisonRejected (compare { observation with plan := plan })
 
+private def movzxStaleHighBitsRejected : Bool :=
+  match matchingMovzxObservation with
+  | .error _ => false
+  | .ok observation =>
+      let machine := observation.result.machine
+      let gprs := fun reg =>
+        if reg == .r13 then machine.gprs reg ^^^ 0x100 else machine.gprs reg
+      let result := { observation.result with machine := { machine with gprs := gprs } }
+      comparisonRejected (compare { observation with result := result })
+
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- An exact model-shaped observation is accepted.
 #guard baselineAccepted
@@ -198,5 +222,10 @@ private def publicPlanRetagRejected : Bool :=
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Public comparison binds native result identity to the plan; a high-byte retag cannot pass.
 #guard publicPlanRetagRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- MOVZX's byte-load comparison observes the complete 64-bit destination; fabricated stale high
+-- bits cannot pass merely because the low loaded byte agrees.
+#guard movzxStaleHighBitsRejected
 
 end Gasm.Targets.X86_64.HardwareMemoryDifferentialControls

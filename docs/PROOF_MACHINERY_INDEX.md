@@ -778,7 +778,7 @@ The following code shapes have enough evidence to investigate but are not canoni
   and production-codec linkage for selected forms; and keep generic discharge conditional and
   authority-free.  Only sealed target adapters may admit production.  Host, mapping, and binding
   remain profile-owned; unselected instruction forms impose no premises; no global catchall is
-  allowed; and the current `MemRef` shape is not frozen. The supplemental four-class x86
+  allowed; and the current `MemRef` shape is not frozen. The supplemental five-class x86
   `HardwareMemoryHarness` now supplies a rebased guarded scratch preimage plus observed exact
   postimage/footprint for sequential semantic differential evidence. It is not the registry
   `ValidationOracle.silicon` owner and supplies no applicability, capability, mapping, TSO,
