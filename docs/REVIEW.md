@@ -300,12 +300,14 @@ This subsection specifies what the two Law 10 gate tools implement, so that Pill
     the repository root — must exit 0. It enforces the registered AArch64 instruction
     validation-oracle and cost-provenance obligations.
 14. **Instructions.lean Umbrella Completeness:** `python scripts/check_instructions_umbrella.py`
-    must return exit code 0. It requires every `Instructions/*.lean` file—including infrastructure
-    and every declaration spelling—to be reachable from the umbrella, with five alternate-form
-    planted controls. `FamilyPipelineAudit.lean`, `MemoryFrameAudit.lean`, and the separately built
-    `DispatchExhaustive.lean` then inspect the compiled environment: live instances, exact typed
-    witness multisets, and exact closed theorem propositions. Source-text matches are not evidence,
-    and these structural certificates do not grant target fidelity or `VerifiedProgram` authority.
+    must return exit code 0. It recursively requires every `Instructions/**/*.lean` file—including
+    nested infrastructure and every declaration spelling—to be reachable from the umbrella, with
+    top-level and nested planted controls. `InstructionCensus.lean` supplies the one reducing
+    compiled live-form census to Registry, `FamilyPipelineAudit.lean`, `MemoryFrameAudit.lean`, and
+    the separately built `DispatchExhaustive.lean`; `InstructionCensusControls.lean` compiles
+    alternate declaration, reducible-alias, parameterized, and overlapping-instance fixtures
+    through that same classifier. Source-text matches are not evidence, and these structural
+    certificates do not grant target fidelity or `VerifiedProgram` authority.
 
 ### 4.1.2 Reference Coverage Tooling Specification
 

@@ -310,11 +310,10 @@ Each cheap, none individually blocking, all 10× harder after the expansion:
   weaken clause (d) of the gate. Add a registry-level check that `toLean` is injective over
   `allEncodableInstructions` (decidable, cheap, fits the existing `run_cmd` audit), or give the
   wrapper a tag-based equality. **Status**: proposed here; does not exist.
-- **`expectedInstructionTypes` is a hand-maintained `List Name`** — mechanically checked against
-  the live environment (verified, §4.1), so it cannot *drift*, but at ~800 entries it becomes a
-  merge-conflict magnet with every concurrent instruction branch touching the same list. B3's
-  registry-driven dispatch should consider deriving it per-family (each family file owns its
-  manifest slice) for conflict-freedom.
+- **The instruction population has one compiled census** — `InstructionCensus.concreteForms`
+  replaces the former hand-maintained `expectedInstructionTypes` list and is consumed by Registry,
+  family, dispatch, and frame audits. This removes the central merge-conflict magnet while keeping
+  exact typed family witness lists as the independently checked executable population.
 - **Naming conventions** (`AddR64Imm8` / `add_r64_imm8` / `"add_r64_imm8 ..."` toLean strings)
   are consistent but nowhere specified. Write the one-page convention (operand-order, width
   suffixes, SIMD register naming) into `docs/TARGETS/X86_64.md` before 30 agents each invent a

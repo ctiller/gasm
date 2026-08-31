@@ -20,9 +20,9 @@ import Gasm.Targets.X86_64.Registry
 /-!
 Compiled audit for the x86 instruction-family proof pipeline.
 
-The filesystem-side umbrella gate has exactly one job: every `Instructions/*.lean` module must
+The filesystem-side umbrella gate has exactly one job: every `Instructions/**/*.lean` module must
 be reachable from `Instructions.lean`.  This module owns the semantic checks.  It reads Lean's
-compiled typeclass environment, derives the family of every concrete `X86_64Instruction` form
+shared reduced compiled census, derives the family of every concrete `X86_64Instruction` form
 from the form's defining module, unfolds the real typed witness lists, and checks exact
 multiset equality.  It also compares each round-trip theorem's fully qualified declaration type
 with the closed proposition the family data determines.  Source spelling, declaration syntax,
@@ -33,11 +33,20 @@ namespace Gasm.Targets.X86_64.FamilyPipelineAudit
 
 open Lean Meta
 open Gasm.Targets.X86_64.Instructions
+open Gasm.Targets.X86_64.InstructionCensus
 
-private structure LiveForm where
-  typeName : Name
-  instanceExpr : Expr
-  family : String
+namespace WrongNamespace
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- Compiled planted control with the right proposition and wrong fully-qualified name.  Its
+    presence demonstrates that the audit accepts only the family-owned theorem declaration. -/
+theorem addFamily_roundtripGate :
+    Gasm.Targets.X86_64.RoundtripGate.addFamilyCases.all
+      (Gasm.Targets.X86_64.RoundtripGate.decodesOk
+        Gasm.Targets.X86_64.Instructions.addTryDecode) = true :=
+  Gasm.Targets.X86_64.RoundtripGate.addFamily_roundtripGate
+
+end WrongNamespace
 
 private def instructionsNamespace : Name := `Gasm.Targets.X86_64.Instructions
 private def roundtripNamespace : Name := `Gasm.Targets.X86_64.RoundtripGate
@@ -86,7 +95,7 @@ private def declarationHasExactType (env : Environment) (declName : Name)
   let some info := env.find? declName | return false
   isDefEq info.type expected
 
-private def wrappedCases (form : LiveForm) : MetaM (List Expr) := do
+private def wrappedCases (form : ConcreteForm) : MetaM (List Expr) := do
   let casesExpr := mkApp2 (mkConst ``X86_64Instruction.roundtripCases [.zero])
     (mkConst form.typeName) form.instanceExpr
   let cases ← listElements casesExpr
@@ -94,36 +103,19 @@ private def wrappedCases (form : LiveForm) : MetaM (List Expr) := do
     pure <| mkApp3 (mkConst ``AnyX86_64Instruction.mk)
       (mkConst form.typeName) form.instanceExpr instr
 
-private def liveForms (env : Environment) : MetaM (List LiveForm) := do
-  let insts := Lean.Meta.instanceExtension.getState env
-  let mut found : List LiveForm := []
-  for (_, entry) in insts.instanceNames.toList do
-    let type ← inferType entry.val
-    let (params, _, body) ← forallMetaTelescopeReducing type
-    unless body.isAppOf ``X86_64Instruction do continue
-    -- The open existential carrier is infrastructure, not an encodable instruction family.
-    if body.getAppArgs[0]!.constName? == some ``AnyX86_64Instruction then continue
-    unless params.isEmpty do
-      throwError "x86 family audit found a parameterized X86_64Instruction instance `{entry.val}`. \
-        Finite registry membership needs a concrete instruction-form type and typed witnesses."
-    let some typeName := body.getAppArgs[0]!.constName? | throwError
-      "x86 family audit found an X86_64Instruction instance whose form is not a named constant: \
-      `{entry.val}` has type `{type}`"
-    let some moduleIdx := env.getModuleIdxFor? typeName | throwError
-      "x86 family audit cannot determine the defining module for `{typeName}`"
-    let moduleName := env.header.moduleNames[moduleIdx.toNat]!
-    unless moduleName.getPrefix == instructionsNamespace do
-      throwError "x86 instruction form `{typeName}` is defined in `{moduleName}`, outside a direct \
-        `Gasm.Targets.X86_64.Instructions.<Family>` module; its proof-family ownership is ambiguous"
-    found := { typeName, instanceExpr := entry.val, family := moduleName.getString! } :: found
-  pure found
-
 run_cmd do
   let env ← Lean.getEnv
   Lean.Elab.Command.liftTermElabM do
-    let forms ← liveForms env
+    let forms ← concreteForms env
     unless forms.length > 0 do
       throwError "x86 family audit found no concrete X86_64Instruction instances"
+    let addGateType ← expectedRoundtripType "Add"
+    let wrongAddName :=
+      `Gasm.Targets.X86_64.FamilyPipelineAudit.WrongNamespace.addFamily_roundtripGate
+    unless ← declarationHasExactType env wrongAddName addGateType do
+      throwError "x86 family audit self-test fixture lost its exact wrong-namespace proposition"
+    if wrongAddName == familyGateName "Add" then
+      throwError "x86 family audit self-test failed: wrong and required theorem names coincide"
     let families := (forms.map (·.family)).eraseDups
     let mut expectedAggregate : List Expr := []
     for family in families do
@@ -148,11 +140,6 @@ run_cmd do
       unless ← declarationHasExactType env gateName gateType do
         throwError "x86 family audit: `{gateName}` is absent or does not have exactly the closed \
           proposition determined by `{casesName}` and `{familyDecoderName family}`"
-
-      let wrongName := (`Gasm.Targets.X86_64.FamilyPipelineAudit.WrongNamespace).str
-        gateName.getString!
-      if ← declarationHasExactType env wrongName gateType then
-        throwError "x86 family audit self-test failed: a wrong fully qualified theorem was accepted"
 
       -- Adversarial controls exercise the compiled checkers, not a parallel source parser.
       if let first :: rest := expectedFamily then

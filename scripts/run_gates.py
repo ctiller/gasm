@@ -621,7 +621,7 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
         {"key": "check_instructions_umbrella", "desc": "python scripts/check_instructions_umbrella.py",
          "group": "linters",
          "long": "B3: exact Gasm/Targets/X86_64/Instructions.lean import closure. Every local "
-                 "Instructions/*.lean module, including infrastructure, must be transitively "
+                 "Instructions/**/*.lean module, including nested infrastructure, must be transitively "
                  "reachable so compiled environment audits cannot be evaded by alternate instance "
                  "declaration syntax. The self-test plants anonymous, named, parameterized, "
                  "parenthesized, @[instance]-def, and infrastructure modules; all must turn red. "

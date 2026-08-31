@@ -13,14 +13,14 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 -/
--- True umbrella: every Instructions/*.lean submodule is imported here so that anything importing
+-- True umbrella: every Instructions/**/*.lean submodule is transitively reachable here so that anything importing
 -- this file (in particular Registry.lean, transitively through RoundtripGate.lean) sees every
 -- registered `X86_64Instruction` instance in the environment. This narrows — though does not by
 -- itself eliminate — the import-closure hole the registry audit is otherwise blind to: an
 -- instruction file that exists on disk but is imported nowhere is invisible to a whole-program
 -- environment walk, since Lean only sees declarations reachable through the current file's
 -- import graph, not every `.lean` file Lake happens to compile as part of the library glob. Adding
--- a new Instructions/<Foo>.lean file MUST be reachable here. The filesystem gate enforces that
+-- a new Instructions/<path>/<Foo>.lean file MUST be reachable here. The recursive filesystem gate enforces that
 -- closure; compiled audits then derive its semantic family, typed witnesses, and exact proof
 -- obligations from Lean's environment rather than parsing declaration source.
 --

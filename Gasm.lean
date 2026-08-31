@@ -101,6 +101,8 @@ import Gasm.Targets.X86_64.SemanticsFuzzer
 -- Imported for elaboration-time compiled-environment audits: memory-hook sealing, exact frame
 -- theorem types, live instruction-family witness population, and exact local round-trip gates.
 -- These fail an ordinary build on drift; source-text spelling is not treated as proof evidence.
+import Gasm.Targets.X86_64.InstructionCensus
+import Gasm.Targets.X86_64.InstructionCensusControls
 import Gasm.Targets.X86_64.MemoryFrameAudit
 import Gasm.Targets.X86_64.FamilyPipelineAudit
 

@@ -1,0 +1,127 @@
+/-
+Copyright 2026 Craig Tiller
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-/
+
+import Lean
+import Gasm.Targets.X86_64.Instructions
+
+/-!
+The one compiled census of x86-64 instruction forms.
+
+Every population-sensitive gate consumes `concreteForms`: registry coverage, typed family
+witnesses, global dispatch, and memory-frame theorems.  In particular, consumers must not repeat
+their own less-reducing walk of `instanceExtension` or fall back to a hand-maintained type list.
+
+The census reduces each registered instance type before recognizing the class head, so reducible
+class aliases and alternate instance declaration forms cannot disappear from one consumer.  It
+then rejects parameterized or unnamed forms, forms outside a direct
+`Instructions.<Family>` module, and more than one concrete instance for the same form type.  The
+last condition is load-bearing: otherwise two overlapping instances could each contribute
+different witnesses while ordinary typeclass synthesis gives frame or step semantics only to the
+globally selected one.
+-/
+
+namespace Gasm.Targets.X86_64.InstructionCensus
+
+open Lean Meta
+open Gasm.Targets.X86_64.Instructions
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- One instance-extension entry after reducing its class head.  This generic intermediate is
+    exposed so compiled negative controls can exercise the exact classifier with a private
+    fixture class; production consumers use `ConcreteForm` through `concreteForms`. -/
+structure ClassCandidate where
+  target : Expr
+  instanceExpr : Expr
+  parameters : Array Expr
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- One admitted concrete production instruction form.  `instanceExpr` is the exact registered
+    instance whose round-trip, operational, and memory-frame obligations are audited. -/
+structure ConcreteForm where
+  typeName : Name
+  instanceExpr : Expr
+  family : String
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- Classify every compiled instance whose reduced result has the requested class head.  This is
+    the only `instanceExtension` walk used by the x86 population pipeline. -/
+def classCandidates (env : Environment) (className : Name) : MetaM (List ClassCandidate) := do
+  let insts := Lean.Meta.instanceExtension.getState env
+  let mut found : List ClassCandidate := []
+  for (_, entry) in insts.instanceNames.toList do
+    let type ← inferType entry.val
+    let (parameters, _, body) ← forallMetaTelescopeReducing type
+    let body ← whnf body
+    unless body.isAppOf className do continue
+    let args := body.getAppArgs
+    unless args.size == 1 do
+      throwError "compiled class census expected `{className}` to have one target argument, got `{body}`"
+    found := { target := args[0]!, instanceExpr := entry.val, parameters } :: found
+  pure found
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- Concrete target names represented more than once in a classified candidate list.  Kept
+    separate from `concreteForms` so the overlapping-instance control tests the production
+    duplicate detector directly. -/
+def duplicateConcreteTargetNames (candidates : List ClassCandidate) : List Name :=
+  let names := candidates.filterMap fun candidate =>
+    if candidate.parameters.isEmpty then candidate.target.constName? else none
+  (names.filter fun name => names.count name > 1).eraseDups
+
+private def instructionsNamespace : Name := `Gasm.Targets.X86_64.Instructions
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- The unique, reduced, compiled production census.  All x86 form-population consumers must use
+    this result rather than maintaining another environment walk or name manifest. -/
+def concreteForms (env : Environment) : MetaM (List ConcreteForm) := do
+  let candidates ← classCandidates env ``X86_64Instruction
+  let candidates := candidates.filter fun candidate =>
+    candidate.target.constName? != some ``AnyX86_64Instruction
+  let duplicates := duplicateConcreteTargetNames candidates
+  unless duplicates.isEmpty do
+    throwError "x86 instruction census found overlapping concrete X86_64Instruction instances.\n\
+      Each concrete form type must have exactly one registered instance because witness, step, and \
+      frame semantics are indexed by that exact instance. Duplicate form types: {duplicates}"
+  let mut forms : List ConcreteForm := []
+  for candidate in candidates do
+    unless candidate.parameters.isEmpty do
+      throwError "x86 instruction census found a parameterized X86_64Instruction instance \
+        `{candidate.instanceExpr}`. Finite registry membership requires a concrete form type."
+    let some typeName := candidate.target.constName? | throwError
+      "x86 instruction census found an X86_64Instruction instance whose concrete target is not \
+      a named constant: `{candidate.instanceExpr}` targets `{candidate.target}`"
+    let some moduleIdx := env.getModuleIdxFor? typeName | throwError
+      "x86 instruction census cannot determine the defining module for `{typeName}`"
+    let moduleName := env.header.moduleNames[moduleIdx.toNat]!
+    unless moduleName.getPrefix == instructionsNamespace do
+      throwError "x86 instruction form `{typeName}` is defined in `{moduleName}`, outside a direct \
+        `Gasm.Targets.X86_64.Instructions.<Family>` module; nested or external ownership is rejected"
+    let some instanceName := candidate.instanceExpr.constName? | throwError
+      "x86 instruction census found a concrete instance expression without a declaration name: \
+      `{candidate.instanceExpr}`"
+    let some instanceModuleIdx := env.getModuleIdxFor? instanceName | throwError
+      "x86 instruction census cannot determine the defining module for instance `{instanceName}`"
+    let instanceModuleName := env.header.moduleNames[instanceModuleIdx.toNat]!
+    unless instanceModuleName == moduleName do
+      throwError "x86 instruction form `{typeName}` is owned by `{moduleName}`, but its instance \
+        `{instanceName}` is defined in `{instanceModuleName}`; form and semantics must have one \
+        direct family owner"
+    forms :=
+      { typeName, instanceExpr := candidate.instanceExpr, family := moduleName.getString! } :: forms
+  pure <| forms.toArray.qsort (fun left right => left.typeName.toString < right.typeName.toString)
+    |>.toList
+
+end Gasm.Targets.X86_64.InstructionCensus

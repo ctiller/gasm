@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Targets.X86_64.Decoder
+import Gasm.Targets.X86_64.InstructionCensus
 import Gasm.Targets.X86_64.RoundtripGate.Add
 import Gasm.Targets.X86_64.RoundtripGate.And
 import Gasm.Targets.X86_64.RoundtripGate.Call
@@ -154,23 +155,8 @@ theorem xorFamily_dispatchReachable : xorFamilyCases.all (decodesOk decodeX86_64
 run_cmd do
   let env ← Lean.getEnv
   Lean.Elab.Command.liftTermElabM do
-    let insts := Lean.Meta.instanceExtension.getState env
-    let mut families : List String := []
-    for (_, entry) in insts.instanceNames.toList do
-      let type ← inferType entry.val
-      let (params, _, body) ← forallMetaTelescopeReducing type
-      unless body.isAppOf ``X86_64Instruction do continue
-      if body.getAppArgs[0]!.constName? == some ``AnyX86_64Instruction then continue
-      unless params.isEmpty do
-        throwError "x86 dispatch audit found a parameterized X86_64Instruction instance"
-      let some typeName := body.getAppArgs[0]!.constName? | throwError
-        "x86 dispatch audit found an unnamed instruction-form type"
-      let some moduleIdx := env.getModuleIdxFor? typeName | throwError
-        "x86 dispatch audit cannot find defining module for `{typeName}`"
-      let moduleName := env.header.moduleNames[moduleIdx.toNat]!
-      unless moduleName.getPrefix == `Gasm.Targets.X86_64.Instructions do
-        throwError "x86 dispatch audit found `{typeName}` outside a direct instruction-family module"
-      families := moduleName.getString! :: families
+    let forms ← Gasm.Targets.X86_64.InstructionCensus.concreteForms env
+    let families := forms.map (·.family)
     for family in families.eraseDups do
       let stem := family.toLower
       let casesName := `Gasm.Targets.X86_64.RoundtripGate |>.str (stem ++ "FamilyCases")

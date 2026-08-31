@@ -38,8 +38,8 @@ AUDIT 2 (frame-theorem coverage). `memAccesses` is defaultless, so an instructio
 declared without stating its memory behaviour -- but nothing forced a matching
 `writesWithin`/`readsWithin` pair to exist. `MemoryFrame.lean` is a hand-maintained import list;
 a new memory-touching form could land with descriptors and no frame proof and nothing would
-notice. This audit ties frame-theorem coverage to `expectedInstructionTypes`, the same manifest
-`Registry.lean` already checks against the live environment.
+notice. This audit consumes the same unique reducing compiled census as Registry, family witness,
+and dispatch coverage, and builds each expected proposition with the census's exact instance.
 
 SCOPE LIMIT, stated plainly: both audits see only what THIS module's import graph transitively
 contains (via `Registry.lean`, the whole `Gasm.Targets.X86_64` tree plus its dependencies). They
@@ -54,6 +54,7 @@ namespace Gasm.Targets.X86_64.MemoryFrameAudit
 
 open Lean Meta
 open Gasm.Targets.X86_64.Instructions
+open Gasm.Targets.X86_64.InstructionCensus
 
 /- REF: docs/MEMORY_HOOK.md#32-sealing-the-raw-field-what-makes-the-chokepoint-mechanical-not-conventional -/
 /-- The eliminators Lean auto-generates for `X86_64Memory`. `private mk ::` does not make these
@@ -91,15 +92,17 @@ def frameNamespace : Name := `Gasm.Targets.X86_64.MemoryFrame
     instead (register-only forms are a one-liner via the batch lemmas). -/
 def frameCoverageDebtCeiling : Nat := 0
 
-private def expectedFrameTheoremType (predicate typeName : Name) : MetaM Expr := do
-  withLocalDeclD `i (mkConst typeName) fun i => do
-    let body ← mkAppM predicate #[i]
+private def expectedFrameTheoremType (predicate : Name) (form : ConcreteForm) : MetaM Expr := do
+  withLocalDeclD `i (mkConst form.typeName) fun i => do
+    let body := mkApp3 (mkConst predicate)
+      (mkConst form.typeName) form.instanceExpr i
     mkForallFVars #[i] body
 
-private def hasExactFrameTheorem (env : Environment) (declName predicate typeName : Name) :
+private def hasExactFrameTheorem (env : Environment) (declName predicate : Name)
+    (form : ConcreteForm) :
     MetaM Bool := do
   let some info := env.find? declName | return false
-  let expected ← expectedFrameTheoremType predicate typeName
+  let expected ← expectedFrameTheoremType predicate form
   isDefEq info.type expected
 
 -- AUDIT 1: no module outside `MemoryCell.lean` may name an `X86_64Memory` eliminator.
@@ -134,19 +137,18 @@ run_cmd do
   let env ← Lean.getEnv
   let missing ← Lean.Elab.Command.liftTermElabM do
     let mut missing : Array Name := #[]
-    for tyName in Registry.expectedInstructionTypes do
-      -- The open existential wrapper has no memory behaviour of its own; it forwards to whatever
-      -- concrete instruction it holds, each of which is audited on its own row.
-      if tyName == ``AnyX86_64Instruction then continue
-      let base := frameNamespace.str tyName.getString!
+    let forms ← concreteForms env
+    for form in forms do
+      let base := frameNamespace.str form.typeName.getString!
       let hasW ← hasExactFrameTheorem env (base.str "writesWithin")
-        ``Gasm.Targets.X86_64.MemoryFrame.WritesWithin tyName
+        ``Gasm.Targets.X86_64.MemoryFrame.WritesWithin form
       let hasR ← hasExactFrameTheorem env (base.str "readsWithin")
-        ``Gasm.Targets.X86_64.MemoryFrame.ReadsWithin tyName
+        ``Gasm.Targets.X86_64.MemoryFrame.ReadsWithin form
       unless hasW && hasR do
-        missing := missing.push tyName
+        missing := missing.push form.typeName
       -- A theorem with an extra section premise must not satisfy the exact closed obligation.
-      let exactW ← expectedFrameTheoremType ``Gasm.Targets.X86_64.MemoryFrame.WritesWithin tyName
+      let exactW ← expectedFrameTheoremType
+        ``Gasm.Targets.X86_64.MemoryFrame.WritesWithin form
       let hidden := mkForall `_ BinderInfo.default (mkConst ``True) exactW
       if ← isDefEq exactW hidden then
         throwError "Memory frame audit self-test failed: hidden theorem premise was accepted"
