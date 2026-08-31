@@ -264,9 +264,10 @@ The following code shapes have enough evidence to investigate but are not canoni
   separate design gate.  Outcome reasoning must distinguish normal, blocked, continuing-divergent,
   and failure cases, and separate fairness-free cleanup safety from fairness-dependent eventual
   cleanup.  Replacement `c178dd7424f5535d295ba449da97404b68398184` on `a62ca53` corrects
-  these semantics and is MP+Reviewer exact-hash accepted with no P1.  Trust integration and a landed
-  hash remain pending, so it is not established machinery.  Rejected `007212f` is superseded and is
-  not an ancestor of the accepted replacement.
+  these semantics and is MP+Reviewer exact-hash accepted with no P1.  Trust landed its identical tree
+  canonically as `7e498f22d3f5b8db01550abf976d4c2408fa9162`; this is established guidance, not a
+  proof-library declaration.  Rejected `007212f` is superseded and is not an ancestor of the
+  accepted replacement.
 - Compiler-roadmap candidate `ee11b405b36c48fca1ebbcd6f4bf9f17c3fa2d0a` contains supported
   evidence but is MP-blocked as a design document.  Its replacement must classify SPIR-V as a
   first-class target ISA while separating shader frontends from platform APIs; scope exception,
@@ -274,10 +275,11 @@ The following code shapes have enough evidence to investigate but are not canoni
   while reusing canonical ownership; add fault continuation/fallthrough and selected
   teardown/callback honesty to the Microsoft x64 entry gate; and state governance as MP design,
   Reviewer falsification, and Trust integration.  Actual follow-up
-  `933efba56baa6793dda7336a424410c90d115d79` closes all four content findings, but the exact
-  candidate remains blocked: its reported `933efba340...` hash is invalid and its actual parent is
-  stale `36771e2`, not canonical `a62ca53`.  No content amendment remains; re-author the exact delta
-  on the canonical base and obtain a fresh Reviewer verdict.
+  `933efba56baa6793dda7336a424410c90d115d79` closes all four content findings, but its reported
+  `933efba340...` hash is invalid and its actual parent is stale `36771e2`, not canonical `a62ca53`.
+  Fresh replacement `d9c033a2b5d5b5007e49ffc60f50f4c73ed79d9d` re-authors the exact roadmap on
+  `a62ca53` and is MP+Reviewer exact-hash accepted with no P1.  Trust integration and a landed hash
+  remain pending, so it is not established guidance.
 - Graphics candidates `733501b`, `6044dad`, and `5c405ca` remain integration-blocked on old base
   `da60357`: rebasing them would resurrect noncanonical `WINDOWS_VULKAN_PROFILE.md`.  Any retained
   mechanism must be re-authored on canonical `a62ca53` and independently reviewed again.
