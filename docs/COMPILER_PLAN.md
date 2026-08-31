@@ -71,12 +71,23 @@ Selected design:
 - no loop, CALL, indirect edge, exception, cancellation, memory representation, or callable ABI
   claim is introduced by this finite acyclic branch slice.
 
-The first additive condition macro (`359d54a1`) and compiler adapter (`c6c8dde7`) have landed as
-local development premises; they do not constitute completed branch compilation. Completion still
-requires a runnable spike that consumes the exact branch graph through the sole `VerifiedProgram`.
-Existing whole-program proof patterns are currently paused by Trust while a replacement template is
-validated; this track will build local and typed branch premises without copying the paused pattern,
-then use the approved template for the completion spike. Until that happens, structured branching
+The compiler-local prerequisite chain is now on main. It contains the exact x86 comparison macro
+(`cc64f4df`), structured condition lowering (`53436971`), typed condition-block binding
+(`f9223e5a`), replaceable generated/handwritten leaf binding (`f2adc350`), and finite compositional
+plan assembly (`2bf7c69d`). The final assembler uses stable symbolic node roles as nominal block IDs,
+derives implementation freshness from the plan, preserves true/false polarity and exact child
+definitions, and finalizes only through the existing `StructuredCFG.Realizes.lower`. Its control
+mixes a generated leaf with a one-instruction handwritten replacement under the same exact source
+contract.
+
+This chain still does not constitute completed branch compilation. The replacement proof-authoring
+template now exists structurally, but TrustRebuild1 has not yet published a runnable all-gates-green
+sole-`VerifiedProgram` exemplar or named the branch spike cutover. The next accepted compiler change
+must therefore be part of that concrete runnable spike: consume its final `ClosedCFGLayout`, supply
+each existing `EmittedBasicBlock.RealizesAt` from exact target prefix/terminator facts, feed the
+existing `VerifiedProgramCFGArtifactCertificate`, prove the real observation/outcome, and compose
+only the sole platform `VerifiedProgram`. Detached intermediate certificates or another generic
+emitted-block prerequisite are explicitly out of scope. Until that spike lands, structured branching
 remains active work and is not advertised as a completed compiler feature.
 
 ## Subsequent slices
