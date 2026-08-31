@@ -112,7 +112,8 @@ opaque spike2_write_setup_slice (state : X86_64MachineState) (eventsRev : List A
       have exactValue : final.gprs .r8 = UInt64.ofNat bytes.length := by
         change state.gprs .rdi - (state.rsp + 64) = UInt64.ofNat bytes.length
         rw [cursor]
-        bv_decide
+        rw [UInt64.sub_eq_iff_eq_add]
+        simp [UInt64.add_assoc, UInt64.add_comm]
       rw [exactValue]
       simp [Nat.toUInt64, Nat.mod_eq_of_lt lengthBound]
     buffer := finalBuffer

@@ -56,7 +56,7 @@ opaque spike2_output_setup_slice (state : X86_64MachineState) (eventsRev : List 
       line.final.rsp + 64 + UInt64.ofNat (bytes ++ [13, 10]).length := by
     rw [line.cursor, line.registers.rsp, cursor]
     simp [Nat.toUInt64]
-    bv_decide
+    simp [UInt64.add_assoc]
   have lineCursorNat : (line.final.gprs .rdi).toNat =
       (line.final.rsp + 64).toNat + (bytes ++ [13, 10]).length := by
     rw [line.registers.rsp]

@@ -54,21 +54,21 @@ theorem spike2_two_digit_tail_buffer (completed : Nat) (state : X86_64MachineSta
     · dsimp [start, prefixBytes]
       rw [formatDecimal_two_digits (completed + 1) (by omega) (by omega)]
       simp [Nat.toUInt64]
-      bv_decide
+      simp [UInt64.add_assoc]
     · simpa [prefixLength] using noWrap 6 (by decide)
   have h2 : BufHolds m2 start (prefixBytes ++ [0x29] ++ [0x20]) := by
     apply BufHolds_write8_append _ _ _ _ _ h1
     · dsimp [start, prefixBytes]
       rw [formatDecimal_two_digits (completed + 1) (by omega) (by omega)]
       simp [Nat.toUInt64]
-      bv_decide
+      simp [UInt64.add_assoc]
     · simpa [prefixLength] using noWrap 7 (by decide)
   have h3 : BufHolds m3 start (prefixBytes ++ [0x29] ++ [0x20] ++ [0x3d]) := by
     apply BufHolds_write8_append _ _ _ _ _ h2
     · dsimp [start, prefixBytes]
       rw [formatDecimal_two_digits (completed + 1) (by omega) (by omega)]
       simp [Nat.toUInt64]
-      bv_decide
+      simp [UInt64.add_assoc]
     · simpa [prefixLength] using noWrap 8 (by decide)
   have h4 := BufHolds_write8_append m3 start (state.rsp + 73) (0x20 : UInt8)
     (prefixBytes ++ [0x29] ++ [0x20] ++ [0x3d]) h3
@@ -76,7 +76,7 @@ theorem spike2_two_digit_tail_buffer (completed : Nat) (state : X86_64MachineSta
       dsimp [start, prefixBytes]
       rw [formatDecimal_two_digits (completed + 1) (by omega) (by omega)]
       simp [Nat.toUInt64]
-      bv_decide)
+      simp [UInt64.add_assoc])
     (by simpa [prefixLength] using noWrap 9 (by decide))
   simpa [spike2IndexPrefixBytes, start, prefixBytes, m1, m2, m3, List.append_assoc] using h4
 
@@ -114,7 +114,7 @@ opaque spike2_two_digit_tail_slice (completed : Nat) (state : X86_64MachineState
       rw [spike2_two_digit_cursor]
       simp [spike2IndexPrefixBytes,
         formatDecimal_two_digits (completed + 1) (by omega) (by omega), Nat.toUInt64]
-      bv_decide
+      simp [UInt64.add_assoc]
     cursorNat := by
       rw [spike2_two_digit_cursor, rsp, spike2_after_prologue_rsp_eq]
       simp [spike2IndexPrefixBytes,

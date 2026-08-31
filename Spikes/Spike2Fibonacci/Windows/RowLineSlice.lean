@@ -85,7 +85,7 @@ opaque spike2_line_slice (state : X86_64MachineState) (eventsRev : List AnyEvent
       exact full
     cursor := by
       change state.gprs .rdi + 1 + 1 = state.gprs .rdi + 2
-      bv_decide
+      simp [UInt64.add_assoc]
     cursorNat := by
       change (state.gprs .rdi + 1 + 1).toNat =
         (state.rsp + 64).toNat + (bytes ++ [13, 10]).length

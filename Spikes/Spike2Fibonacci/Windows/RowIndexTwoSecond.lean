@@ -63,12 +63,12 @@ theorem spike2_two_digit_head_buffer (completed : Nat) (state : X86_64MachineSta
   have h1 : BufHolds m1 start
       ([0x46, 0x69, 0x62, 0x28] ++ [byteOfDigit ((completed + 1) / 10)]) := by
     apply BufHolds_write8_append _ _ _ _ _ holds
-    · dsimp [start]; simp [Nat.toUInt64]; bv_decide
+    · dsimp [start]; simp [Nat.toUInt64, UInt64.add_assoc]
     · exact noWrap 4 (by decide)
   have h2 := BufHolds_write8_append m1 start (state.rsp + 69)
     (byteOfDigit ((completed + 1) % 10))
     ([0x46, 0x69, 0x62, 0x28] ++ [byteOfDigit ((completed + 1) / 10)]) h1
-    (by dsimp [start]; simp [Nat.toUInt64]; bv_decide)
+    (by dsimp [start]; simp [Nat.toUInt64, UInt64.add_assoc])
     (by simpa using noWrap 5 (by decide))
   simpa [start, m1, List.append_assoc] using h2
 

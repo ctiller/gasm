@@ -91,28 +91,29 @@ theorem spike2_one_digit_index_buffer (completed : Nat) (state : X86_64MachineSt
   have h1 : BufHolds m1 start
       ([0x46, 0x69, 0x62, 0x28] ++ [Stdlib.Fmt.byteOfDigit (completed + 1)]) := by
     apply BufHolds_write8_append _ _ _ _ _ holds
-    · dsimp [start]; simp [Nat.toUInt64]; bv_decide
+    · dsimp [start]; simp [Nat.toUInt64, UInt64.add_assoc]
     · exact noWrap 4 (by decide)
   have h2 : BufHolds m2 start
       ([0x46, 0x69, 0x62, 0x28] ++ [Stdlib.Fmt.byteOfDigit (completed + 1)] ++ [0x29]) := by
     apply BufHolds_write8_append m1 start (state.rsp + 69) (0x29 : UInt8) _ h1
-    · dsimp [start]; simp [Nat.toUInt64]; bv_decide
+    · dsimp [start]; simp [Nat.toUInt64, UInt64.add_assoc]
     · simpa using noWrap 5 (by decide)
   have h3 : BufHolds m3 start
       ([0x46, 0x69, 0x62, 0x28] ++ [Stdlib.Fmt.byteOfDigit (completed + 1)] ++
         [0x29] ++ [0x20]) := by
     apply BufHolds_write8_append m2 start (state.rsp + 70) (0x20 : UInt8) _ h2
-    · dsimp [start]; simp [Nat.toUInt64]; bv_decide
+    · dsimp [start]; simp [Nat.toUInt64, UInt64.add_assoc]
     · simpa using noWrap 6 (by decide)
   have h4 : BufHolds m4 start
       ([0x46, 0x69, 0x62, 0x28] ++ [Stdlib.Fmt.byteOfDigit (completed + 1)] ++
         [0x29] ++ [0x20] ++ [0x3d]) := by
     apply BufHolds_write8_append m3 start (state.rsp + 71) (0x3d : UInt8) _ h3
-    · dsimp [start]; simp [Nat.toUInt64]; bv_decide
+    · dsimp [start]; simp [Nat.toUInt64, UInt64.add_assoc]
     · simpa using noWrap 7 (by decide)
   have h5 := BufHolds_write8_append m4 start (state.rsp + 72) (0x20 : UInt8)
     ([0x46, 0x69, 0x62, 0x28] ++ [Stdlib.Fmt.byteOfDigit (completed + 1)] ++
-      [0x29] ++ [0x20] ++ [0x3d]) h4 (by dsimp [start]; simp [Nat.toUInt64]; bv_decide)
+      [0x29] ++ [0x20] ++ [0x3d]) h4
+      (by dsimp [start]; simp [Nat.toUInt64, UInt64.add_assoc])
       (by simpa using noWrap 8 (by decide))
   simpa [start, m1, m2, m3, m4, List.append_assoc] using h5
 
@@ -175,7 +176,7 @@ opaque spike2_one_digit_slice (completed : Nat) (state : X86_64MachineState)
       rw [spike2_one_digit_cursor, headerFrame.rsp]
       simp [spike2IndexPrefixBytes, Stdlib.Fmt.formatDecimal,
         Stdlib.Fmt.digits_single (completed + 1) (by omega), Nat.toUInt64]
-      bv_decide
+      simp [UInt64.add_assoc]
     cursorNat := by
       rw [spike2_one_digit_cursor, headerFrame.rsp, rsp, spike2_after_prologue_rsp_eq]
       simp [spike2IndexPrefixBytes, Stdlib.Fmt.formatDecimal,

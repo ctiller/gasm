@@ -47,15 +47,15 @@ theorem spike2_fib_literal_buffer (state : X86_64MachineState) :
   have m4 : s4.memory = X86_64Mem.write .w8 (state.rsp + 67) 0x28 s3.memory := rfl
   change BufHolds s4.memory (state.rsp + 64) _
   rw [m4, m3, m2, m1]
-  have h6465 : state.rsp + 64 ≠ state.rsp + 65 := by bv_decide
-  have h6466 : state.rsp + 64 ≠ state.rsp + 66 := by bv_decide
-  have h6467 : state.rsp + 64 ≠ state.rsp + 67 := by bv_decide
-  have h6566 : state.rsp + 65 ≠ state.rsp + 66 := by bv_decide
-  have h6567 : state.rsp + 65 ≠ state.rsp + 67 := by bv_decide
-  have h6667 : state.rsp + 66 ≠ state.rsp + 67 := by bv_decide
-  have a65 : state.rsp + 64 + 1 = state.rsp + 65 := by bv_decide
-  have a66 : state.rsp + 65 + 1 = state.rsp + 66 := by bv_decide
-  have a67 : state.rsp + 66 + 1 = state.rsp + 67 := by bv_decide
+  have h6465 : state.rsp + 64 ≠ state.rsp + 65 := by simp
+  have h6466 : state.rsp + 64 ≠ state.rsp + 66 := by simp
+  have h6467 : state.rsp + 64 ≠ state.rsp + 67 := by simp
+  have h6566 : state.rsp + 65 ≠ state.rsp + 66 := by simp
+  have h6567 : state.rsp + 65 ≠ state.rsp + 67 := by simp
+  have h6667 : state.rsp + 66 ≠ state.rsp + 67 := by simp
+  have a65 : state.rsp + 64 + 1 = state.rsp + 65 := by simp [UInt64.add_assoc]
+  have a66 : state.rsp + 65 + 1 = state.rsp + 66 := by simp [UInt64.add_assoc]
+  have a67 : state.rsp + 66 + 1 = state.rsp + 67 := by simp [UInt64.add_assoc]
   simp only [BufHolds]
   rw [a65, a66, a67]
   simp [X86_64Mem.read, X86_64Mem.write, h6465, h6466, h6467,
