@@ -29,6 +29,26 @@ executing instructions.  Factor a reusable library contract when the hard loop i
 the program using it.  Spike 2 became simpler once decimal formatting stopped being part of the
 Fibonacci driver proof.
 
+## Eliminate the burden delta
+
+Treat the exact caller-visible obligation as the proof's speed of light: the irreducible theorem and
+owner-local facts that must exist even with perfect proof delivery.  Inventory what the current path
+actually asks for--extra premises, repeated semantic replay, adapters, imports, invalidated jobs,
+wall time, and memory.  Their difference from the irreducible path is the burden delta.
+
+Redesign ownership, dependency direction, and typed interfaces until that delta disappears or every
+remaining cost is attached to a selected semantic obligation.  Do not weaken the theorem, narrow its
+domain, substitute a second evaluator, or move work behind a new name and call that optimization.
+Compare the same consumer before and after, and keep an unchanged-direction or deliberately malformed
+control when it distinguishes the mechanism from mere relocation.
+
+Accepted `Gasm.Proof.LocalExecution` removed duplicated list induction while leaving both targets'
+semantics local.  The decimal-pass split reduced the consumer's invalidation frontier; moving the same
+facts without reversing dependency direction produced essentially no improvement.  These are evidence
+for redesigning the proof-delivery path, not permission to trade away proof coverage.  Record build
+measurements with their exact base, command, cache state, invalidated jobs, wall time, and peak memory;
+they are comparative evidence, not universal performance facts.
+
 ## Design relational ghost state
 
 Separate immutable logical facts from evolving progress, resources, phases, and obligations.  Relate
@@ -39,11 +59,30 @@ record.
 
 ## Consider every bound
 
-Inventory numeric ranges, input and output sizes, loop counts, buffer capacity, allocation, stack,
-fragmentation, and execution work.  For each bound, either prove it, derive it, request it as a
-capability, eliminate it by streaming, or specify failure and recovery.  Keep proof fuel distinct
-from a resource enforced by emitted code.  A useful bound often supplies the induction measure:
-`UInt64` decimal length is at most 20 and determines formatter capacity, iterations, and work.
+For the selected routine and property, inventory applicable numeric ranges, input and output sizes,
+loop counts, buffer capacity, allocation, stack, fragmentation, and execution work.  For each
+material bound, either prove it, derive it, request it as a capability, eliminate it by streaming,
+or specify failure and recovery.  Do not add ledgers for quantities the routine never uses.  Keep
+proof fuel distinct from a resource enforced by emitted code.  A useful bound often supplies the
+induction measure: `UInt64` decimal length is at most 20 and determines formatter capacity,
+iterations, and work.
+
+## Make refusal a first-class result
+
+For finite processing that may stop, return the committed state, accepted prefix, first refused
+input, and untouched tail.  Make refusal incapable of carrying a successor fold state, then prove
+input conservation, the accepted transition chain, and the exact first-refusal boundary once in the
+pure layer.  `Stdlib.Control.FallibleFold` owns this algebra; Zlib supplies codec and allocation state,
+and Spike 5 exercises both accepted compression and exact zero-capacity resource exhaustion through
+runnable verified targets.
+
+Keep domain obligations in the domain state or error.  A count snapshot does not prove resource
+identity, unique reclamation, cleanup, or terminal ownership.  Preserve operational cost as well as
+extensional equality when replacing production code: Zlib's first equivalent bridge used repeated
+left append and was quadratic, while the landed realization carries a difference-list output and
+materializes it once.  When rewriting beneath the fold result match stalls, split the recursive fold
+result and legacy result, use associativity on accepted branches, and eliminate impossible failure
+equalities.
 
 ## Iterate certificates, not evaluators
 
@@ -123,6 +162,15 @@ platform.  A high-priority global x86 interceptor silently contaminated Linux an
 Instance search may deliver a stable proof dictionary, but it must not select an unrequested host
 semantic model.
 
+When a certificate API becomes more honest, migrate authority and regression evidence separately.
+Current entry certificates make entry establishment an explicit input to admissibility and behavior;
+the final `VerifiedProgram` still composes the authority-bearing layers.  Conversely, Spike 3's two
+closed stdin vectors remain useful regression theorems and executable tests, but their Bool-indexed
+`VerifiedProgram` facade was removed because two vectors do not establish arbitrary-stdin behavior.
+Preserve the tests; delete the false authority surface and its exception ledger.  Canonical repairs
+`03d22d6`, `17539b0`, and `01c5b0d` demonstrate the entry-certificate migration and regression-only
+retention across hosted and bare-metal spikes.
+
 ## Prove layers, then compose
 
 Separate logical transformation, physical representation, algorithmic progress, host interaction,
@@ -136,6 +184,15 @@ At the memory-model presentation layer, prove that every enumerated seed and suc
 the normative relation; `Gasm.MemoryModel.FiniteSearch` then lifts those facts to bounded-search
 soundness.  Reverse completeness is a separate obligation, required only when a concrete tool
 advertises complete enumeration for its stated finite scope.
+
+## Close tiny carrier controls without equality instances
+
+For a small private finite-carrier fixture, do not add `DecidableEq` to a public type merely so
+`simp` can prove constructor inequality or `List.Nodup`.  Independently reviewed, isolated M0
+envelope checkpoint `ecd5f9e` constructs `List.Nodup.cons` and `List.Mem` witnesses explicitly and
+closes impossible constructor equalities by inductive no-confusion (`cases equality`).  Reviewer
+rebuilt both Envelope modules together in about 1.35 seconds.  This is a fixture technique, not a
+current-main API or evidence for a new finite-set library abstraction.
 
 ## Lift target steps through small generic algebras
 
