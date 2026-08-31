@@ -25,6 +25,55 @@ open Gasm.Core
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#principal-invariant -/
+/-- The byte-register store descriptor denotes exactly the address used by its operational step.
+This is descriptor/step fidelity only; it grants no logical authority or physical accessibility. -/
+@[simp] theorem MovMem8Reg8.storeFootprint_eq (i : MovMem8Reg8)
+    (s : X86_64MachineState) :
+    storeFootprint (X86_64Instruction.memAccesses i) s = [s.gprs i.dstPtr] := by
+  simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
+    MemAccessSpec.addresses, MemRef.effectiveAddress, MemWidth.bytes]
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#principal-invariant -/
+/-- The byte-register store writes the pre-step source register's low byte at its exact declared
+address. This theorem is operational realization, not evidence that the address is mapped or that
+the author owns it. -/
+@[simp] theorem MovMem8Reg8.step_store_value (i : MovMem8Reg8)
+    (s : X86_64MachineState) :
+    X86_64Mem.read .w8 (s.gprs i.dstPtr) (X86_64Instruction.step i s).memory =
+      (s.gprs i.srcReg).toUInt8.toUInt64 := by
+  simp only [X86_64Instruction.step, X86_64Mem.read, X86_64Mem.write]
+  rw [UInt8.toUInt8_toUInt64]
+  exact congrArg UInt8.toUInt64
+    (X86_64Mem.readByte_writeByte_same s.memory (s.gprs i.dstPtr)
+      (s.gprs i.srcReg).toUInt8)
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#principal-invariant -/
+/-- The RSP-relative immediate byte-store descriptor denotes exactly the address used by its
+operational step. This is descriptor/step fidelity only; it proves neither non-wrapping arithmetic
+nor a Windows stack grant. -/
+@[simp] theorem MovRspDispByte.storeFootprint_eq (i : MovRspDispByte)
+    (s : X86_64MachineState) :
+    storeFootprint (X86_64Instruction.memAccesses i) s =
+      [s.rsp + signExtend8To64 i.disp] := by
+  simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
+    MemAccessSpec.addresses, MemRef.effectiveAddress, MemWidth.bytes,
+    X86_64MachineState.rsp]
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#principal-invariant -/
+/-- The RSP-relative byte store writes its immediate at the exact declared address. Mapping,
+writability, range containment, and logical ownership remain separate checked-authoring premises. -/
+@[simp] theorem MovRspDispByte.step_store_value (i : MovRspDispByte)
+    (s : X86_64MachineState) :
+    X86_64Mem.read .w8 (s.rsp + signExtend8To64 i.disp)
+        (X86_64Instruction.step i s).memory = i.val.toUInt64 := by
+  simp only [X86_64Instruction.step, X86_64MachineState.rsp,
+    X86_64Mem.read, X86_64Mem.write]
+  rw [UInt8.toUInt8_toUInt64]
+  exact congrArg UInt8.toUInt64
+    (X86_64Mem.readByte_writeByte_same s.memory
+      (s.gprs .rsp + signExtend8To64 i.disp) i.val)
+
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 theorem MovMem8Reg8.writesWithin (i : MovMem8Reg8) : WritesWithin i := by
   intro s a ha
