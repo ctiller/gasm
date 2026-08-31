@@ -32,6 +32,7 @@ def movFamilyCases : List AnyX86_64Instruction :=
   ((X86_64Instruction.roundtripCases : List MovRspDispImm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovRspDispImm64).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovMem8Reg8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List MovMem32DispReg32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovMem64DispReg64).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovMem64DispImm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovReg64Mem64Disp).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
@@ -39,14 +40,38 @@ def movFamilyCases : List AnyX86_64Instruction :=
   ((X86_64Instruction.roundtripCases : List MovReg32RspDisp32).map fun i => (⟨i⟩ : AnyX86_64Instruction))
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
-/-- Exhaustive roundtrip gate for the MOV/MOVZX family — this is the regression gate for the
-    0x8B REX.W soundness bug: `MovReg32RspDisp32.roundtripCases` includes representative
-    displacements, and `decodesOk`'s `toLean` check fails loudly if `0x8B` ever again decodes a
-    32-bit RSP load as the 64-bit `MovReg64Mem64Disp` structure. Plain `decide` exceeds the
+/-- Exhaustive roundtrip gate for the MOV/MOVZX family. This is the regression gate for both
+    operand-width dispatch directions: `MovReg32RspDisp32.roundtripCases` fails if `0x8B`
+    without REX.W decodes as the 64-bit `MovReg64Mem64Disp`, while
+    `MovMem32DispReg32.roundtripCases` fails if `0x89` without REX.W decodes as the 64-bit
+    `MovMem64DispReg64`. `decodesOk` compares `toLean`, so a decoder that preserves the bytes
+    while selecting the wrong semantic structure is rejected. Plain `decide` exceeds the
     kernel's default reduction stack depth on this family's largest case list, so this raises
     `maxRecDepth` rather than falling back to `native_decide`. -/
 theorem movFamily_roundtripGate : movFamilyCases.all (decodesOk movTryDecode) = true := by
   set_option maxRecDepth 4000 in decide
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Test-only predicate for the fail-closed side of the MOV decoder contract. -/
+private def movDecodeRejects (bytes : ByteArray) : Bool :=
+  match movTryDecode bytes 0 with
+  | .error _ => true
+  | .ok _ => false
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Unsupported 0x89 address shapes must not be relabeled as the closed base-plus-disp8 form.
+    The vectors cover indexed SIB, REX.X applied to the SIB no-index field, RIP-relative rm=5,
+    and indexed mod=1 SIB, at both W32 and W64 operand widths. -/
+theorem mov89_unsupported_addresses_rejected :
+    [ByteArray.mk #[0x89, 0x04, 0x00],
+     ByteArray.mk #[0x42, 0x89, 0x04, 0x24],
+     ByteArray.mk #[0x89, 0x05, 0x00, 0x00, 0x00, 0x00],
+     ByteArray.mk #[0x89, 0x44, 0x00, 0x7f],
+     ByteArray.mk #[0x48, 0x89, 0x04, 0x00],
+     ByteArray.mk #[0x4a, 0x89, 0x04, 0x24],
+     ByteArray.mk #[0x48, 0x89, 0x05, 0x00, 0x00, 0x00, 0x00],
+     ByteArray.mk #[0x48, 0x89, 0x44, 0x00, 0x7f]].all movDecodeRejects = true := by
+  decide
 
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/

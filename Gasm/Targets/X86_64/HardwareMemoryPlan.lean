@@ -50,13 +50,15 @@ def accessOffset : Nat := 24
 /-- Closed initial family inventory for supplemental scratch-memory differential evidence. This is
     not `ValidationOracle.silicon` and grants no registry, capability, or execution admission. -/
 inductive ScratchClass where
-  | mem8Reg8 | mem64DispReg64 | mem64DispImm32 | reg64Mem64Disp | movzxR64Mem8
+  | mem8Reg8 | mem32DispReg32 | mem64DispReg64 | mem64DispImm32 | reg64Mem64Disp
+  | movzxR64Mem8
   deriving DecidableEq, Repr, Inhabited
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Complete finite inventory of the initial admitted classes. -/
 def ScratchClass.all : List ScratchClass :=
-  [.mem8Reg8, .mem64DispReg64, .mem64DispImm32, .reg64Mem64Disp, .movzxR64Mem8]
+  [.mem8Reg8, .mem32DispReg32, .mem64DispReg64, .mem64DispImm32, .reg64Mem64Disp,
+   .movzxR64Mem8]
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- The inventory is exhaustive over the actual closed class type. -/
@@ -68,6 +70,7 @@ theorem ScratchClass.mem_all (cls : ScratchClass) : cls ∈ ScratchClass.all := 
     a new class and therefore breaks every exhaustive match and the native coverage control. -/
 def ScratchClass.Instruction : ScratchClass → Type
   | .mem8Reg8 => MovMem8Reg8
+  | .mem32DispReg32 => MovMem32DispReg32
   | .mem64DispReg64 => MovMem64DispReg64
   | .mem64DispImm32 => MovMem64DispImm32
   | .reg64Mem64Disp => MovReg64Mem64Disp
@@ -83,6 +86,7 @@ structure ScratchMov where
 namespace ScratchMov
 
 def mem8Reg8 (instr : MovMem8Reg8) : ScratchMov := ⟨.mem8Reg8, instr⟩
+def mem32DispReg32 (instr : MovMem32DispReg32) : ScratchMov := ⟨.mem32DispReg32, instr⟩
 def mem64DispReg64 (instr : MovMem64DispReg64) : ScratchMov := ⟨.mem64DispReg64, instr⟩
 def mem64DispImm32 (instr : MovMem64DispImm32) : ScratchMov := ⟨.mem64DispImm32, instr⟩
 def reg64Mem64Disp (instr : MovReg64Mem64Disp) : ScratchMov := ⟨.reg64Mem64Disp, instr⟩
@@ -95,6 +99,7 @@ instance : Inhabited ScratchMov := ⟨mem8Reg8 default⟩
     scratch test. -/
 private def packFor : (cls : ScratchClass) → cls.Instruction → AnyX86_64Instruction
   | .mem8Reg8, i => ⟨(show MovMem8Reg8 from i)⟩
+  | .mem32DispReg32, i => ⟨(show MovMem32DispReg32 from i)⟩
   | .mem64DispReg64, i => ⟨(show MovMem64DispReg64 from i)⟩
   | .mem64DispImm32, i => ⟨(show MovMem64DispImm32 from i)⟩
   | .reg64Mem64Disp, i => ⟨(show MovReg64Mem64Disp from i)⟩
@@ -107,6 +112,7 @@ def pack (form : ScratchMov) : AnyX86_64Instruction :=
 /-- Base register admitted by the closed MOV form. -/
 private def baseRegFor : (cls : ScratchClass) → cls.Instruction → Reg64
   | .mem8Reg8, i => i.dstPtr
+  | .mem32DispReg32, i => i.basePtr
   | .mem64DispReg64, i => i.basePtr
   | .mem64DispImm32, i => i.basePtr
   | .reg64Mem64Disp, i => i.basePtr
@@ -117,6 +123,7 @@ def baseReg (form : ScratchMov) : Reg64 :=
 
 private def hostRegistersSafeFor : (cls : ScratchClass) → cls.Instruction → Bool
   | .mem8Reg8, i => i.dstPtr != .rsp && i.srcReg != .rsp
+  | .mem32DispReg32, i => i.basePtr != .rsp && reg32To64 i.srcReg != .rsp
   | .mem64DispReg64, i => i.basePtr != .rsp && i.srcReg != .rsp
   | .mem64DispImm32, i => i.basePtr != .rsp
   | .reg64Mem64Disp, i => i.basePtr != .rsp && i.dstReg != .rsp
@@ -128,7 +135,7 @@ private def hostRegistersSafe (form : ScratchMov) : Bool :=
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Expected access class of the closed MOV form, independently checked against `memAccesses`. -/
 private def expectedKindFor : (cls : ScratchClass) → cls.Instruction → MemAccessKind
-  | .mem8Reg8, _ | .mem64DispReg64, _ | .mem64DispImm32, _ => .store
+  | .mem8Reg8, _ | .mem32DispReg32, _ | .mem64DispReg64, _ | .mem64DispImm32, _ => .store
   | .reg64Mem64Disp, _ | .movzxR64Mem8, _ => .load
 
 def expectedKind (form : ScratchMov) : MemAccessKind :=
@@ -138,6 +145,7 @@ def expectedKind (form : ScratchMov) : MemAccessKind :=
 /-- Expected width of the closed MOV form, independently checked against `memAccesses`. -/
 private def expectedWidthFor : (cls : ScratchClass) → cls.Instruction → MemWidth
   | .mem8Reg8, _ => .w8
+  | .mem32DispReg32, _ => .w32
   | .mem64DispReg64, _ | .mem64DispImm32, _ | .reg64Mem64Disp, _ => .w64
   | .movzxR64Mem8, _ => .w8
 
