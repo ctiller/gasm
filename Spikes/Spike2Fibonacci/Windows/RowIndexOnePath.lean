@@ -47,16 +47,8 @@ private theorem index_one_rip (state : X86_64MachineState)
     (oneDigit : ¬ X86BranchCondition.greaterEqual.holds (spike2AfterIndexCompare state)) :
     (spike2AfterIndexHeader state).rip = 5368713303 := by
   simp only [X86BranchCondition.holds] at oneDigit
-  have hcond : ((spike2AfterIndexCompare state).sf ==
-      (spike2AfterIndexCompare state).of_) = false :=
-    decide_eq_false_iff_not.mpr oneDigit
   unfold spike2AfterIndexHeader
-  rw [show X86_64Instruction.step (jge_rel8 41) (spike2AfterIndexCompare state) =
-    { spike2AfterIndexCompare state with
-      rip := if (spike2AfterIndexCompare state).sf == (spike2AfterIndexCompare state).of_ then
-        (spike2AfterIndexCompare state).rip + 2 + signExtend8To64 41
-        else (spike2AfterIndexCompare state).rip + 2 } by rfl]
-  simp only [hcond, Bool.false_eq_true, ↓reduceIte]
+  rw [step_jge_rel8_fallthrough_rip _ _ (decide_eq_false_iff_not.mpr oneDigit)]
   unfold spike2AfterIndexCompare
   change state.rip + 4 + 2 = 5368713303
   rw [hrip]

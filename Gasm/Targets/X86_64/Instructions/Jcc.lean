@@ -503,6 +503,25 @@ def jg_rel8 (disp : UInt8) : AnyX86_64Instruction := ⟨JgRel8.mk disp⟩
 /-- JGE rel8 helper. -/
 def jge_rel8 (disp : UInt8) : AnyX86_64Instruction := ⟨JgeRel8.mk disp⟩
 
+/-- A taken short JGE transfers to its signed RIP-relative target. -/
+theorem step_jge_rel8_taken_rip (disp : UInt8) (state : X86_64MachineState)
+    (taken : (state.sf == state.of_) = true) :
+    (X86_64Instruction.step (jge_rel8 disp) state).rip =
+      state.rip + 2 + signExtend8To64 disp := by
+  rw [show X86_64Instruction.step (jge_rel8 disp) state =
+    { state with rip := if state.sf == state.of_ then
+        state.rip + 2 + signExtend8To64 disp else state.rip + 2 } by rfl]
+  simp [taken]
+
+/-- A non-taken short JGE advances to the following instruction. -/
+theorem step_jge_rel8_fallthrough_rip (disp : UInt8) (state : X86_64MachineState)
+    (notTaken : (state.sf == state.of_) = false) :
+    (X86_64Instruction.step (jge_rel8 disp) state).rip = state.rip + 2 := by
+  rw [show X86_64Instruction.step (jge_rel8 disp) state =
+    { state with rip := if state.sf == state.of_ then
+        state.rip + 2 + signExtend8To64 disp else state.rip + 2 } by rfl]
+  simp [notTaken]
+
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- JGE rel32 helper. -/
 def jge_rel32 (disp : Int32) : AnyX86_64Instruction := ⟨JgeRel32.mk disp⟩

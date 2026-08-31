@@ -11,11 +11,6 @@ private theorem sequentialCmpIndex : SequentialInstruction (cmp_r64_imm8 .r13 10
   encoding := .compareImm8 .r13 10
   safeFallthrough := by intro _ _; rfl
 
-private theorem stepJge8 (disp : UInt8) (state : X86_64MachineState) :
-    X86_64Instruction.step (jge_rel8 disp) state =
-      { state with rip := if state.sf == state.of_ then
-          state.rip + 2 + signExtend8To64 disp else state.rip + 2 } := rfl
-
 /-- The branch state after comparing the formatter index against ten. -/
 def spike2AfterIndexCompare (state : X86_64MachineState) : X86_64MachineState :=
   X86_64Instruction.step (cmp_r64_imm8 .r13 10) state
@@ -40,8 +35,8 @@ theorem spike2_index_header_one_digit_selected_prefix (state : X86_64MachineStat
   have hjgeRip : (spike2AfterIndexHeader state).rip = 5368713303 := by
     unfold spike2AfterIndexHeader
     simp only [X86BranchCondition.holds] at oneDigit
-    rw [stepJge8]
-    simp [oneDigit, hcmpRip]
+    rw [step_jge_rel8_fallthrough_rip _ _ (decide_eq_false_iff_not.mpr oneDigit), hcmpRip]
+    rfl
   have compare := spike2_selected_local_prefix (cmp_r64_imm8 .r13 10) sequentialCmpIndex
     state eventsRev (by rw [hrip]; rfl) 5368713301 hcmpRip (by decide) (by decide) hcmpSafe
   have branch := spike2_selected_conditional_fallthrough_prefix (.jge8 41)
@@ -85,8 +80,7 @@ theorem spike2_index_header_two_digit_selected_prefix (state : X86_64MachineStat
   have hjgeRip : (spike2AfterIndexHeader state).rip = 5368713344 := by
     unfold spike2AfterIndexHeader
     simp only [X86BranchCondition.holds] at twoDigit
-    rw [stepJge8]
-    simp [twoDigit, hcmpRip]
+    rw [step_jge_rel8_taken_rip _ _ (decide_eq_true_iff.mpr twoDigit), hcmpRip]
     decide
   have compare := spike2_selected_local_prefix (cmp_r64_imm8 .r13 10) sequentialCmpIndex
     state eventsRev (by rw [hrip]; rfl) 5368713301 hcmpRip (by decide) (by decide) hcmpSafe
