@@ -110,6 +110,20 @@ acquire/present semaphore and fence relations, queue completion versus presentat
 display visibility, backpressure, recreation, and out-of-date/suboptimal/surface-loss/device-loss
 outcomes. None of these consequences is implied by the current headless dispatch/readback contract.
 
+Two additional stage blockers are architectural rather than implementation details.  First, PE
+imports and Vulkan dispatch commands have different realization evidence: User32 and selected
+Vulkan loader entry points may have DLL/symbol/import-index/IAT-slot identities, while instance and
+device commands obtained through `vkGetInstanceProcAddr` or `vkGetDeviceProcAddr` require exact
+resolver, command, returned-function-pointer, dispatchable-handle lineage, and lifetime evidence.
+Do not fabricate IAT slots for dynamically resolved commands.
+
+Second, the current canonical `Gasm.Core.Platform.Environment` has no typed window-event or
+Vulkan/WSI provider-outcome schedule.  Before a windowed composition profile is implemented, Trust
+must approve either a typed canonical provider-oracle extension or a relational platform-execution
+boundary.  Raw `incomingRequests` bytes and one selected successful driver trace are not valid
+substitutes.  Until that decision and immutable Win32/Vulkan/SPIR-V source intake land, a Windows
+Vulkan composition document remains non-`REF`-citable design guidance.
+
 ---
 
 ## 3. High-Level Monadic Specification (`Gasm.Targets.Vulkan`)
