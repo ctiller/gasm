@@ -208,8 +208,15 @@ The following code shapes have enough evidence to investigate but are not canoni
   root-irrelevant.  Two roots are distinct only when their loads sequence through the same world;
   stateless platforms use a canonical zero-burden discipline.  `BoundaryWorld` or capability
   establishment is insufficient unless changed to participate in the load transition.  No globally
-  comparable erased correlation token is exposed.  `d9685b5` remains namespace-only and runner work
-  is paused; this is a resolved design direction, not established machinery.
+  comparable erased correlation token is exposed.
+
+  MP-authored candidate `a4976bfe5ae9fb994ed8ed3a5597e99b32092194` (parent canonical main
+  `31d1ac6`) specifies `LoadDiscipline`, a stateless `Unit` adapter, sole-`VerifiedProgram` world
+  threading, and a selected `GenerativeLoadCertificate`.  The graphics specialization allocates its
+  root plus operation/response identities in the exact load transition and rejects phantom or
+  existential authority.  Checks pass; Reviewer verdict and Trust integration are pending.
+  `d9685b5` remains namespace-only and runner work remains blocked.  This is a concrete design
+  candidate, not established machinery.
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
