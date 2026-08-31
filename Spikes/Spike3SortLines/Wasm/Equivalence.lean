@@ -148,7 +148,10 @@ theorem spike3WasmFiniteSpec_preparationExhausted (environment : Environment) (e
   cases h : spike3WasmTraceFor environment with
   | completed events' => simp [Spike3WasmObservedOutcome.ofObservable]
   | exited code events' =>
-      simp [Spike3WasmObservedOutcome.ofObservable]
+      by_cases failure : code = spike3ResourceFailureExitCode
+      · subst code
+        simp [Spike3WasmObservedOutcome.ofObservable]
+      · simp [Spike3WasmObservedOutcome.ofObservable, failure]
   | trapped events' => simp [Spike3WasmObservedOutcome.ofObservable]
   | fuelExhausted => simp [Spike3WasmObservedOutcome.ofObservable]
   | memoryExhausted requested available => simp [Spike3WasmObservedOutcome.ofObservable]
