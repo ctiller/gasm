@@ -38,6 +38,7 @@ def movFamilyCases : List AnyX86_64Instruction :=
   ((X86_64Instruction.roundtripCases : List MovReg64Mem64Disp).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovReg32Mem32Disp).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovReg8Mem8Disp).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List MovzxR32Mem8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovzxR64Mem8).map fun i => (⟨i⟩ : AnyX86_64Instruction))
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
@@ -66,6 +67,54 @@ private def movDecodesExactlyAs (bytes : ByteArray) (expected : AnyX86_64Instruc
       consumed == bytes.size &&
       X86_64Instruction.encode decoded == bytes &&
       X86_64Instruction.toLean decoded == X86_64Instruction.toLean expected
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Direct controls for both architectural destination widths of `0F B6`, including all
+    independent REX.R/B combinations, canonical RSP/R12 SIB, and the forced zero disp8 for
+    RBP/R13.  These pairs make a decoder that ignores REX.W observably fail. -/
+theorem movzxMem8_width_and_address_reverse_controls :
+    [(ByteArray.mk #[0x0F, 0xB6, 0x00], movzx_r32_mem8 .eax .rax 0),
+     (ByteArray.mk #[0x48, 0x0F, 0xB6, 0x00], movzx_r64_mem8 .rax .rax 0),
+     (ByteArray.mk #[0x44, 0x0F, 0xB6, 0x38], movzx_r32_mem8 .r15d .rax 0),
+     (ByteArray.mk #[0x4C, 0x0F, 0xB6, 0x38], movzx_r64_mem8 .r15 .rax 0),
+     (ByteArray.mk #[0x41, 0x0F, 0xB6, 0x04, 0x24], movzx_r32_mem8 .eax .r12 0),
+     (ByteArray.mk #[0x49, 0x0F, 0xB6, 0x04, 0x24], movzx_r64_mem8 .rax .r12 0),
+     (ByteArray.mk #[0x45, 0x0F, 0xB6, 0x6D, 0x00], movzx_r32_mem8 .r13d .r13 0),
+     (ByteArray.mk #[0x4D, 0x0F, 0xB6, 0x6D, 0x00], movzx_r64_mem8 .r13 .r13 0),
+     (ByteArray.mk #[0x45, 0x0F, 0xB6, 0x7C, 0x24, 0x80],
+       movzx_r32_mem8 .r15d .r12 0x80),
+     (ByteArray.mk #[0x4D, 0x0F, 0xB6, 0x7C, 0x24, 0x7F],
+       movzx_r64_mem8 .r15 .r12 0x7F)].all
+      (fun pair => movDecodesExactlyAs pair.1 pair.2) = true := by
+  decide
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Fail-closed controls for every malformed identity repaired on the shared `0F B6` path:
+    RIP-relative/no-base, indexed or noncanonical SIB, REX.X, redundant/doubled or legacy
+    prefixes, noncanonical zero disp8, unsupported mod widths, and truncation. -/
+theorem movzxMem8_hostile_bytes_rejected :
+    [ByteArray.mk #[0x0F, 0xB6, 0x05, 0, 0, 0, 0],
+     ByteArray.mk #[0x41, 0x0F, 0xB6, 0x05, 0, 0, 0, 0],
+     ByteArray.mk #[0x0F, 0xB6, 0x04, 0x00],
+     ByteArray.mk #[0x0F, 0xB6, 0x04, 0x64],
+     ByteArray.mk #[0x42, 0x0F, 0xB6, 0x04, 0x24],
+     ByteArray.mk #[0x4A, 0x0F, 0xB6, 0x04, 0x24],
+     ByteArray.mk #[0x40, 0x0F, 0xB6, 0x00],
+     ByteArray.mk #[0x40, 0x40, 0x0F, 0xB6, 0x00],
+     ByteArray.mk #[0x67, 0x0F, 0xB6, 0x00],
+     ByteArray.mk #[0x2E, 0x0F, 0xB6, 0x00],
+     ByteArray.mk #[0x0F, 0xB6, 0x40, 0x00],
+     ByteArray.mk #[0x48, 0x0F, 0xB6, 0x40, 0x00],
+     ByteArray.mk #[0x0F, 0xB6, 0x44, 0x24, 0x00],
+     ByteArray.mk #[0x48, 0x0F, 0xB6, 0x44, 0x24, 0x00],
+     ByteArray.mk #[0x0F, 0xB6, 0x80, 0, 0, 0, 0],
+     ByteArray.mk #[0x0F, 0xB6, 0xC0],
+     ByteArray.mk #[0x0F],
+     ByteArray.mk #[0x0F, 0xB6],
+     ByteArray.mk #[0x0F, 0xB6, 0x04],
+     ByteArray.mk #[0x0F, 0xB6, 0x45],
+     ByteArray.mk #[0x0F, 0xB6, 0x44, 0x24]].all movDecodeRejects = true := by
+  decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Direct reverse controls for every canonical REX/SIB corner of the exact-disp8 low-byte load.

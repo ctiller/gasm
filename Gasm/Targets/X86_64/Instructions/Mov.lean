@@ -882,6 +882,16 @@ def mov_reg8_mem8_disp (dstReg : Reg8) (basePtr : Reg64) (disp : UInt8) :
   ⟨MovReg8Mem8Disp.mk dstReg basePtr disp⟩
 
 /- REF: intel-sdm#vol=2;instr=MOVZX;part=description -/
+/-- MOVZX dstReg32, BYTE PTR [basePtr + disp8]: moves one byte from memory and writes its
+    zero-extension through the architectural 32-bit destination.  The write therefore clears
+    bits 63:32 of the corresponding GPR. -/
+structure MovzxR32Mem8 where
+  dstReg  : Reg32
+  basePtr : Reg64
+  disp    : UInt8 := 0
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=MOVZX;part=description -/
 /-- MOVZX dstReg64, BYTE PTR [basePtr + disp8]: Moves 8-bit byte from memory with zero-extension into 64-bit register. -/
 structure MovzxR64Mem8 where
   dstReg  : Reg64
@@ -890,37 +900,120 @@ structure MovzxR64Mem8 where
   deriving DecidableEq, Repr, Inhabited
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+@[simp] def movzxR32Mem8Accesses (i : MovzxR32Mem8) : List MemAccessSpec :=
+  [⟨.load, .w8, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- See `movRspDispByteAccesses`'s doc comment for why this is hoisted rather than duplicated
     inline between `memAccesses` and `toUops`. -/
 @[simp] def movzxR64Mem8Accesses (i : MovzxR64Mem8) : List MemAccessSpec :=
   [⟨.load, .w8, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
 
+/-- The optional bytes in either canonical `0F B6` memory encoding.  REX.W selects the
+    destination width; REX.R/B extend its register fields; SIB is present only for RSP/R12;
+    and a displacement is present exactly when nonzero or forced by RBP/R13. -/
+structure MovzxMem8EncodingShape where
+  rexPresent  : Bool
+  sibPresent  : Bool
+  dispPresent : Bool
+  deriving DecidableEq, Repr
+
+def movzxMem8EncodingShape (rexW dstExt baseExt : Bool) (baseCode : UInt8)
+    (disp : UInt8) : MovzxMem8EncodingShape :=
+  { rexPresent := rexW || dstExt || baseExt
+    sibPresent := baseCode == 4
+    dispPresent := disp != 0 || baseCode == 5 }
+
+def movzxMem8EncodedLength (rexW dstExt baseExt : Bool) (baseCode : UInt8)
+    (disp : UInt8) : Nat :=
+  let shape := movzxMem8EncodingShape rexW dstExt baseExt baseCode disp
+  3 + (if shape.rexPresent then 1 else 0) +
+    (if shape.sibPresent then 1 else 0) + (if shape.dispPresent then 1 else 0)
+
+def encodeMovzxMem8 (rexW : Bool) (dstCode : UInt8) (dstExt : Bool)
+    (baseCode : UInt8) (baseExt : Bool) (disp : UInt8) : ByteArray :=
+  let shape := movzxMem8EncodingShape rexW dstExt baseExt baseCode disp
+  let rexPrefix :=
+    if shape.rexPresent then #[makeRex rexW dstExt false baseExt] else #[]
+  let mod : UInt8 := if shape.dispPresent then 1 else 0
+  let sib := if shape.sibPresent then #[makeSIB 0 4 4] else #[]
+  let displacement := if shape.dispPresent then #[disp] else #[]
+  ByteArray.mk rexPrefix ++
+    ByteArray.mk (#[0x0F, 0xB6, makeModRM mod dstCode baseCode] ++ sib ++ displacement)
+
+theorem encodeMovzxMem8_size (rexW dstExt baseExt : Bool) (dstCode baseCode : UInt8)
+    (disp : UInt8) :
+    (encodeMovzxMem8 rexW dstCode dstExt baseCode baseExt disp).size =
+      movzxMem8EncodedLength rexW dstExt baseExt baseCode disp := by
+  simp [encodeMovzxMem8, movzxMem8EncodedLength, movzxMem8EncodingShape] <;>
+    split <;> simp_all <;> split <;> simp_all <;> split <;> simp_all <;> rfl
+
+def encodeMovzxR32Mem8 (i : MovzxR32Mem8) : ByteArray :=
+  let (dstCode, dstExt) := reg32Code i.dstReg
+  let (baseCode, baseExt) := reg64Code i.basePtr
+  encodeMovzxMem8 false dstCode dstExt baseCode baseExt i.disp
+
+def movzxR32Mem8EncodedLength (i : MovzxR32Mem8) : Nat :=
+  let (_, dstExt) := reg32Code i.dstReg
+  let (baseCode, baseExt) := reg64Code i.basePtr
+  movzxMem8EncodedLength false dstExt baseExt baseCode i.disp
+
+theorem encodeMovzxR32Mem8_size (i : MovzxR32Mem8) :
+    (encodeMovzxR32Mem8 i).size = movzxR32Mem8EncodedLength i := by
+  simp [encodeMovzxR32Mem8, movzxR32Mem8EncodedLength, encodeMovzxMem8_size]
+
+def encodeMovzxR64Mem8 (i : MovzxR64Mem8) : ByteArray :=
+  let (dstCode, dstExt) := reg64Code i.dstReg
+  let (baseCode, baseExt) := reg64Code i.basePtr
+  encodeMovzxMem8 true dstCode dstExt baseCode baseExt i.disp
+
+def movzxR64Mem8EncodedLength (i : MovzxR64Mem8) : Nat :=
+  let (_, dstExt) := reg64Code i.dstReg
+  let (baseCode, baseExt) := reg64Code i.basePtr
+  movzxMem8EncodedLength true dstExt baseExt baseCode i.disp
+
+theorem encodeMovzxR64Mem8_size (i : MovzxR64Mem8) :
+    (encodeMovzxR64Mem8 i).size = movzxR64Mem8EncodedLength i := by
+  simp [encodeMovzxR64Mem8, movzxR64Mem8EncodedLength, encodeMovzxMem8_size]
+
 /- REF: intel-sdm#vol=2;instr=MOVZX;part=operation -/
-instance : X86_64Instruction MovzxR64Mem8 where
-  encode i :=
-    let (dstCode, dstExt) := reg64Code i.dstReg
-    let (baseCode, baseExt) := reg64Code i.basePtr
-    let rex := makeRex true dstExt false baseExt
-    if i.disp == 0 && baseCode != 5 then
-      if baseCode == 4 then
-        ByteArray.mk #[rex, 0x0F, 0xB6, makeModRM 0 dstCode 4, makeSIB 0 4 4]
-      else
-        ByteArray.mk #[rex, 0x0F, 0xB6, makeModRM 0 dstCode baseCode]
-    else
-      if baseCode == 4 then
-        ByteArray.mk #[rex, 0x0F, 0xB6, makeModRM 1 dstCode 4, makeSIB 0 4 4, i.disp]
-      else
-        ByteArray.mk #[rex, 0x0F, 0xB6, makeModRM 1 dstCode baseCode, i.disp]
+instance : X86_64Instruction MovzxR32Mem8 where
+  encode := encodeMovzxR32Mem8
 
   step i s :=
-    let (baseCode, _) := reg64Code i.basePtr
+    let addr := s.gprs i.basePtr + signExtend8To64 i.disp
+    let val := (s.read8 addr).toUInt8
+    let s' := s.setGpr32 i.dstReg val.toUInt32
+    { s' with rip := s.rip + (movzxR32Mem8EncodedLength i).toUInt64 }
+
+  toUops i := derivedMemUops (movzxR32Mem8Accesses i) defaultMemCostModel
+  toNASM i :=
+    if i.disp == 0 then
+      s!"movzx {i.dstReg}, byte [{i.basePtr}]"
+    else
+      s!"movzx {i.dstReg}, byte [{i.basePtr} {formatDisp8 i.disp}]"
+  toLean i := s!"movzx_r32_mem8 .{i.dstReg} .{i.basePtr} {formatHex8 i.disp}"
+  canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "canonical 0F B6 byte load into a 32-bit destination; this slice adds no guarded native scratch class, so the claim is encoding-only"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; see docs/RDTSC_HARNESS.md section 8"
+  generateFuzzStates _ rng := ([], rng)
+  roundtripCases :=
+    (allReg32List.map (MovzxR32Mem8.mk · .rax 0)) ++
+    (allReg64List.map (MovzxR32Mem8.mk .eax · 0)) ++
+    (curatedUInt8Cases.map (MovzxR32Mem8.mk .eax .rax ·)) ++
+    (extendedReg32Pairs.map fun p => MovzxR32Mem8.mk p.1 (reg32To64 p.2) 0) ++
+    (curatedUInt8Cases.map (MovzxR32Mem8.mk .r15d .r15 ·))
+  memAccesses := movzxR32Mem8Accesses
+
+/- REF: intel-sdm#vol=2;instr=MOVZX;part=operation -/
+instance : X86_64Instruction MovzxR64Mem8 where
+  encode := encodeMovzxR64Mem8
+
+  step i s :=
     let addr := s.gprs i.basePtr + signExtend8To64 i.disp
     let val := s.read8 addr
     let s' := s.setGpr64 i.dstReg val
-    let hasSib := baseCode == 4
-    let hasDisp := i.disp != 0 || baseCode == 5
-    let len := 4 + (if hasSib then 1 else 0) + (if hasDisp then 1 else 0)
-    { s' with rip := s.rip + len }
+    { s' with rip := s.rip + (movzxR64Mem8EncodedLength i).toUInt64 }
 
   toUops i := derivedMemUops (movzxR64Mem8Accesses i) defaultMemCostModel
   toNASM i :=
@@ -941,10 +1034,84 @@ instance : X86_64Instruction MovzxR64Mem8 where
     (curatedUInt8Cases.map (MovzxR64Mem8.mk .r15 .r15 ·))
   memAccesses := movzxR64Mem8Accesses
 
+theorem MovzxR32Mem8.step_rip (i : MovzxR32Mem8) (s : X86_64MachineState) :
+    (X86_64Instruction.step i s).rip =
+      s.rip + (X86_64Instruction.encode i).size.toUInt64 := by
+  change s.rip + (movzxR32Mem8EncodedLength i).toUInt64 =
+    s.rip + (encodeMovzxR32Mem8 i).size.toUInt64
+  rw [encodeMovzxR32Mem8_size]
+
+theorem MovzxR64Mem8.step_rip (i : MovzxR64Mem8) (s : X86_64MachineState) :
+    (X86_64Instruction.step i s).rip =
+      s.rip + (X86_64Instruction.encode i).size.toUInt64 := by
+  change s.rip + (movzxR64Mem8EncodedLength i).toUInt64 =
+    s.rip + (encodeMovzxR64Mem8 i).size.toUInt64
+  rw [encodeMovzxR64Mem8_size]
+
+theorem MovzxR32Mem8.step_preserves_other_projections (i : MovzxR32Mem8)
+    (s : X86_64MachineState) :
+    let s' := X86_64Instruction.step i s
+    s'.memory = s.memory ∧ s'.flags = s.flags ∧ s'.stdinBuffer = s.stdinBuffer ∧
+      s'.incomingRequests = s.incomingRequests ∧ s'.fault = s.fault ∧
+      (∀ r, r ≠ reg32To64 i.dstReg → s'.gprs r = s.gprs r) := by
+  dsimp
+  refine ⟨rfl, rfl, rfl, rfl, rfl, ?_⟩
+  intro r hne
+  simp [X86_64Instruction.step, X86_64MachineState.setGpr32, hne]
+
+theorem MovzxR64Mem8.step_preserves_other_projections (i : MovzxR64Mem8)
+    (s : X86_64MachineState) :
+    let s' := X86_64Instruction.step i s
+    s'.memory = s.memory ∧ s'.flags = s.flags ∧ s'.stdinBuffer = s.stdinBuffer ∧
+      s'.incomingRequests = s.incomingRequests ∧ s'.fault = s.fault ∧
+      (∀ r, r ≠ i.dstReg → s'.gprs r = s.gprs r) := by
+  dsimp
+  refine ⟨rfl, rfl, rfl, rfl, rfl, ?_⟩
+  intro r hne
+  simp [X86_64Instruction.step, X86_64MachineState.setGpr64, hne]
+
+theorem MovzxR32Mem8.step_destination_exact_zero_extended (i : MovzxR32Mem8)
+    (s : X86_64MachineState) :
+    (X86_64Instruction.step i s).gprs (reg32To64 i.dstReg) =
+      s.read8 (s.gprs i.basePtr + signExtend8To64 i.disp) := by
+  simp [X86_64Instruction.step, X86_64MachineState.setGpr32,
+    X86_64MachineState.read8, X86_64Mem.read]
+
+theorem MovzxR64Mem8.step_destination_exact_zero_extended (i : MovzxR64Mem8)
+    (s : X86_64MachineState) :
+    (X86_64Instruction.step i s).gprs i.dstReg =
+      s.read8 (s.gprs i.basePtr + signExtend8To64 i.disp) := by
+  simp [X86_64Instruction.step, X86_64MachineState.setGpr64]
+
+theorem movzxR32Mem8_effective_address_wrap_controls :
+    let positiveSeed :=
+      ((default : X86_64MachineState).setGpr64 .rax 0xffffffffffffffff).write8 0 0xa5
+    let positive := X86_64Instruction.step (MovzxR32Mem8.mk .ecx .rax 1) positiveSeed
+    let negativeSeed :=
+      ((default : X86_64MachineState).setGpr64 .rax 0).write8 0xffffffffffffffff 0x5a
+    let negative := X86_64Instruction.step (MovzxR32Mem8.mk .ecx .rax 0xff) negativeSeed
+    positive.gprs .rcx = 0xa5 ∧ negative.gprs .rcx = 0x5a := by
+  decide
+
+theorem movzxR32Mem8_alias_uses_pre_state_address :
+    let seed := ((default : X86_64MachineState).setGpr64 .r9 0x10000000).write8
+      0x000000000fffff80 0xa5
+    let final := X86_64Instruction.step (MovzxR32Mem8.mk .r9d .r9 0x80) seed
+    final.gprs .r9 = 0xa5 ∧ final.memory = seed.memory := by
+  constructor
+  · decide
+  · rfl
+
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- MOVZX dstReg64, BYTE PTR [basePtr + disp8] helper. -/
 def movzx_r64_mem8 (dstReg basePtr : Reg64) (disp : UInt8 := 0) : AnyX86_64Instruction :=
   ⟨MovzxR64Mem8.mk dstReg basePtr disp⟩
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- MOVZX dstReg32, BYTE PTR [basePtr + disp8] helper. -/
+def movzx_r32_mem8 (dstReg : Reg32) (basePtr : Reg64) (disp : UInt8 := 0) :
+    AnyX86_64Instruction :=
+  ⟨MovzxR32Mem8.mk dstReg basePtr disp⟩
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Compatibility spelling for the canonical general disp8 family at base RSP. -/
@@ -979,6 +1146,52 @@ theorem mov_mem64_disp_imm_sign_extension_soundness :
   decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Parse the shared canonical base-plus-optional-disp8 address identity used by both `0F B6`
+    destination widths.  The returned position is immediately after the complete addressing
+    bytes.  Indexed SIB, RIP-relative/no-base, and longer or redundant displacement identities
+    are deliberately outside these instruction structures. -/
+private def decodeMovzxMem8Address (bytes : ByteArray) (mod rm : UInt8) (modPos : Nat)
+    (rexB : Bool) : Except String (Reg64 × UInt8 × Nat) :=
+  if mod == 0 then
+    if rm == 4 then
+      match readUInt8 bytes modPos with
+      | .error e => .error e
+      | .ok sib =>
+        if sib == makeSIB 0 4 4 then
+          .ok (codeToReg64 4 rexB, 0, modPos + 1)
+        else
+          .error "movTryDecode: unsupported indexed/noncanonical SIB for 0F B6 MOVZX"
+    else if rm == 5 then
+      .error "movTryDecode: unsupported RIP-relative/no-base form for 0F B6 MOVZX"
+    else
+      .ok (codeToReg64 rm rexB, 0, modPos)
+  else if mod == 1 then
+    if rm == 4 then
+      match readUInt8 bytes modPos with
+      | .error e => .error e
+      | .ok sib =>
+        if sib == makeSIB 0 4 4 then
+          match readUInt8 bytes (modPos + 1) with
+          | .error e => .error e
+          | .ok disp8 =>
+            if disp8 == 0 then
+              .error "movTryDecode: noncanonical zero displacement for 0F B6 MOVZX"
+            else
+              .ok (codeToReg64 4 rexB, disp8, modPos + 2)
+        else
+          .error "movTryDecode: unsupported indexed/noncanonical SIB for 0F B6 MOVZX"
+    else
+      match readUInt8 bytes modPos with
+      | .error e => .error e
+      | .ok disp8 =>
+        if disp8 == 0 && rm != 5 then
+          .error "movTryDecode: noncanonical zero displacement for 0F B6 MOVZX"
+        else
+          .ok (codeToReg64 rm rexB, disp8, modPos + 1)
+  else
+    .error "movTryDecode: unsupported mod field for 0F B6 MOVZX"
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Co-located decoder for the MOV/MOVZX family: `0xB8..0xBF` (MOV reg, imm — 32-bit or 64-bit
     depending on REX.W), `0x88` (MOV byte ptr [mem], reg8), `0x8A` (MOV low reg8,
     byte ptr [base+disp8], exact mod01 identity), `0x89` (MOV r64, r64 or MOV
@@ -986,7 +1199,8 @@ theorem mov_mem64_disp_imm_sign_extension_soundness :
     (MOV r64, [base+disp] when REX.W=1, or MOV r32, [base+disp] when REX.W=0),
     `0xC6` (MOV byte ptr [RSP+disp8], imm8, RSP-only), `0xC7`
     (MOV [mem], imm32, with the same RSP/R12 canonicalization `encode` uses), and `0x0F 0xB6`
-    (MOVZX r64, byte ptr [base+disp]). Preserves every soundness fix the original monolithic
+    (MOVZX r64 when REX.W=1, or MOVZX r32 when REX.W=0, from byte ptr [base+disp]).
+    Preserves every soundness fix the original monolithic
     branch carried (the 0x8B REX.W-conditioned width switch; SIB-base-4 deriving R12 via `rexB`
     instead of hardcoding RSP for 0x88/0x89/0x8B/0xC7). Errors for any other byte pattern. -/
 def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
@@ -1308,38 +1522,23 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
       | .error e => .error e
       | .ok op2 =>
         if op2 == 0xB6 then
-          match readModRM bytes (opOffset + 1) with
-          | .error e => .error e
-          | .ok (mod, reg, rm, modPos) =>
-            let dstReg := codeToReg64 reg rexR
-            if mod == 0 then
-              if rm == 4 then
-                match readUInt8 bytes modPos with
-                | .error e => .error e
-                | .ok _sib =>
-                  let basePtr := codeToReg64 4 rexB
-                  .ok (movzx_r64_mem8 dstReg basePtr 0, (modPos + 1) - offset)
-              else
-                let basePtr := codeToReg64 rm rexB
-                .ok (movzx_r64_mem8 dstReg basePtr 0, modPos - offset)
-            else if mod == 1 then
-              if rm == 4 then
-                match readUInt8 bytes modPos with
-                | .error e => .error e
-                | .ok _sib =>
-                  match readUInt8 bytes (modPos + 1) with
-                  | .error e => .error e
-                  | .ok disp8 =>
-                    let basePtr := codeToReg64 4 rexB
-                    .ok (movzx_r64_mem8 dstReg basePtr disp8, (modPos + 2) - offset)
-              else
-                match readUInt8 bytes modPos with
-                | .error e => .error e
-                | .ok disp8 =>
-                  let basePtr := codeToReg64 rm rexB
-                  .ok (movzx_r64_mem8 dstReg basePtr disp8, (modPos + 1) - offset)
-            else
-              .error "movTryDecode: unsupported mod field for 0F B6 MOVZX"
+          if rexX then
+            .error "movTryDecode: unsupported REX.X form for 0F B6 MOVZX"
+          else if !rexW && hasRex != (rexR || rexB) then
+            .error "movTryDecode: redundant REX prefix for 32-bit 0F B6 MOVZX"
+          else
+            match readModRM bytes (opOffset + 1) with
+            | .error e => .error e
+            | .ok (mod, reg, rm, modPos) =>
+              match decodeMovzxMem8Address bytes mod rm modPos rexB with
+              | .error e => .error e
+              | .ok (basePtr, disp8, nextPos) =>
+                if rexW then
+                  .ok (movzx_r64_mem8 (codeToReg64 reg rexR) basePtr disp8,
+                    nextPos - offset)
+                else
+                  .ok (movzx_r32_mem8 (codeToReg32 reg rexR) basePtr disp8,
+                    nextPos - offset)
         else
           .error "movTryDecode: 0x0F sub-opcode is not MOVZX"
     else

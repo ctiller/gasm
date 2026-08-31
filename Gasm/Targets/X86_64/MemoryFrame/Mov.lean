@@ -134,6 +134,37 @@ theorem MovMem8Reg8.readsWithin (i : MovMem8Reg8) : ReadsWithin i := by
     exact congrArg UInt8.toUInt64 (X86_64Mem.readByte_write_inside .w8 _ _ _ _ k hk)
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+@[simp] theorem MovzxR32Mem8.loadFootprint_eq (i : MovzxR32Mem8)
+    (s : X86_64MachineState) :
+    loadFootprint (X86_64Instruction.memAccesses i) s =
+      [s.gprs i.basePtr + signExtend8To64 i.disp] := by
+  simp [X86_64Instruction.memAccesses, loadFootprint, footprintFor,
+    MemAccessSpec.addresses, MemRef.effectiveAddress, MemWidth.bytes]
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovzxR32Mem8.writesWithin (i : MovzxR32Mem8) : WritesWithin i := by
+  apply registerOnly_writesWithin i
+  intro s
+  rfl
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovzxR32Mem8.readsWithin (i : MovzxR32Mem8) : ReadsWithin i := by
+  apply singleLoad_readsWithin i .w8
+    ⟨some i.basePtr, none, signExtend8To64 i.disp⟩
+    (fun s v => { s.setGpr32 i.dstReg v.toUInt8.toUInt32 with
+      rip := s.rip + (movzxR32Mem8EncodedLength i).toUInt64 })
+  · rfl
+  · intro s1 s2 hout
+    simp [MemRef.effectiveAddress, hout.2.1]
+  · intro s
+    simp [X86_64Instruction.step, MemRef.effectiveAddress,
+      X86_64MachineState.setGpr32]
+  · intro s1 s2 v hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+      simp [X86_64MachineState.setGpr32, hrip, hgprs, hflags, hstdin, hreq, hfault]
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 theorem MovzxR64Mem8.writesWithin (i : MovzxR64Mem8) : WritesWithin i := by
   intro s a _
   show X86_64Mem.read .w8 a (X86_64Instruction.step i s).memory = X86_64Mem.read .w8 a s.memory
