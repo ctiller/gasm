@@ -90,4 +90,26 @@ def spike2_exit_tail : SelectedProcessExitTail selectedNonInputPlatformCall spik
       certificate := by simpa using headerPrefix.append setupPrefix
       exitStep := exitStep }, by exact Nat.le_refl 3⟩
 
+/-- The typed exit tail contributes exactly the public process-exit event.  Consumers need not
+    unfold the Win32 import realization or its concrete placement to identify the event. -/
+theorem spike2_exit_tail_event (state : X86_64MachineState) (eventsRev : List AnyEvent)
+    (holds : Spike2RowInvariant 90 state eventsRev) :
+    let result := (spike2_exit_tail.run state eventsRev holds).val
+    result.exitStep.event = some (Inject.inject (ProcessEvent.exit 0)) := by
+  have hzero :
+      (spike2AfterExitProcessCall (spike2BeforeExitProcess state)).gprs .rcx = 0 := by
+    change ((spike2BeforeExitProcess state).push64
+      ((spike2BeforeExitProcess state).rip + 6)).gprs .rcx = 0
+    simpa [X86_64MachineState.push64, X86_64MachineState.setGpr64] using
+      spike2_before_exit_process_code_zero state
+  simp [spike2_exit_tail, spike2_exit_process_selected_step,
+    Gasm.Targets.Windows.exitProcessHook, hzero]
+
+/-- The exit tail itself is silent and selects exit code zero. -/
+theorem spike2_exit_tail_summary (state : X86_64MachineState) (eventsRev : List AnyEvent)
+    (holds : Spike2RowInvariant 90 state eventsRev) :
+    let result := (spike2_exit_tail.run state eventsRev holds).val
+    result.finalEventsRev = eventsRev ∧ result.code = 0 := by
+  simp [spike2_exit_tail]
+
 end Spikes.Spike2Fibonacci.Windows

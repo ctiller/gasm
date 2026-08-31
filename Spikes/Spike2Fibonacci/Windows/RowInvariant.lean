@@ -25,6 +25,35 @@ def spike2ExpectedEventsRev : Nat → List AnyEvent
       Inject.inject (ConsoleEvent.out (decodeNativeBytes (fibonacciLineBytes (completed + 1)))) ::
         spike2ExpectedEventsRev completed
 
+theorem fibonacciEventsFrom_succ (index completed : Nat) :
+    fibonacciEventsFrom index (completed + 1) =
+      fibonacciEventsFrom index completed ++
+        [Inject.inject (ConsoleEvent.out
+          (decodeNativeBytes (fibonacciLineBytes (index + completed))))] := by
+  induction completed generalizing index with
+  | zero => simp [fibonacciEventsFrom]
+  | succ completed ih =>
+      change
+        Inject.inject (ConsoleEvent.out (decodeNativeBytes (fibonacciLineBytes index))) ::
+            fibonacciEventsFrom (index + 1) (completed + 1) =
+          Inject.inject (ConsoleEvent.out (decodeNativeBytes (fibonacciLineBytes index))) ::
+            (fibonacciEventsFrom (index + 1) completed ++
+              [Inject.inject (ConsoleEvent.out
+                (decodeNativeBytes (fibonacciLineBytes (index + (completed + 1)))))] )
+      congr 1
+      rw [ih (index + 1)]
+      simp [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
+
+/-- The reverse accumulator used by native prefix composition is exactly the reverse of the
+    high-level chronological row trace. -/
+theorem spike2ExpectedEventsRev_eq_reverse (completed : Nat) :
+    spike2ExpectedEventsRev completed = (fibonacciEventsFrom 1 completed).reverse := by
+  induction completed with
+  | zero => rfl
+  | succ completed ih =>
+      rw [spike2ExpectedEventsRev, fibonacciEventsFrom_succ, List.reverse_append, ih]
+      simp [Nat.add_comm]
+
 /-- Fixed-point contract at the typed main-loop header. -/
 structure Spike2RowInvariant (completed : Nat) (state : X86_64MachineState)
     (eventsRev : List AnyEvent) : Prop where

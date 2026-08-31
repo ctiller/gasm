@@ -49,33 +49,6 @@ theorem spike2Itoa_fits (value : UInt64) :
       .written (formatDecimal value.toNat) (decimalDigitCount value) := by
   exact writeUInt64Decimal_fits 20 value (decimalDigitCount_le_twenty value)
 
-/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
-/-- ASCII bytes which precede the decimal index in every native Spike 2 row. -/
-def fibPrefixBytes : List UInt8 := [0x46, 0x69, 0x62, 0x28] -- "Fib("
-
-/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
-/-- ASCII bytes separating a row index from its Fibonacci value. -/
-def fibMiddleBytes : List UInt8 := [0x29, 0x20, 0x3D, 0x20] -- ") = "
-
-/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
-/-- The CRLF terminator emitted by both native Spike 2 drivers. -/
-def nativeLineEnding : List UInt8 := [0x0D, 0x0A]
-
-/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
-/-- Exact native bytes for one Fibonacci row.  Decimal fields use the independently proved,
-    total `Stdlib.Fmt.formatDecimal` codec rather than Lean string interpolation. -/
-def fibonacciLineBytes (index : Nat) : List UInt8 :=
-  fibPrefixBytes ++ formatDecimal index ++ fibMiddleBytes ++
-    formatDecimal (fibIter index) ++ nativeLineEnding
-
-/-- Total byte decoder used at native console boundaries.  The Fibonacci alphabet is UTF-8,
-but retaining the fallback makes the consumer total for any future byte-producing library. -/
-def decodeNativeBytes (bytes : List UInt8) : String :=
-  let byteArr := ByteArray.mk bytes.toArray
-  match String.fromUTF8? byteArr with
-  | some str => str
-  | none => String.ofList (bytes.map (fun byte => Char.ofNat byte.toNat))
-
 theorem fibNat_le_succ (n : Nat) : fibNat n ≤ fibNat (n + 1) := by
   cases n with
   | zero => decide

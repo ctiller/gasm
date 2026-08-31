@@ -23,6 +23,7 @@ import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.Windows.Win32API
 import Spikes.Spike2Fibonacci.Spec
 import Spikes.Spike2Fibonacci.Windows.Program
+import Spikes.Spike2Fibonacci.Windows.RowTermination
 
 namespace Spikes.Spike2Fibonacci.Windows
 
@@ -31,17 +32,44 @@ open Gasm.Effects
 open Gasm.Targets.X86_64
 open Gasm.Targets.Windows
 
-set_option maxRecDepth 2000000
-set_option maxHeartbeats 5000000
-
+set_option maxRecDepth 10000 in
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Whole-program canonical effect trace equivalence for Spike 2.
 
-    This deliberately lives in a leaf module: kernel reduction of the closed trace comparison is
-    expensive, while consumers only need its compiled theorem. -/
+    The native side is obtained from the compositional prefix/loop/exit proof; only the small pure
+    reference trace reduces here.  No whole-machine evaluator is replayed by the kernel. -/
 theorem spike2_canonical_effect_trace_equivalence :
     (runAsmTrace (Event := AnyEvent) spike2Instructions spike2Executable.load ==
      runModelTrace (fibonacciSpec : TraceM AnyEvent Unit)) = true := by
-  decide +kernel
+  apply beq_iff_eq.mpr
+  rcases spike2_selected_outcome_constructive with ⟨final, outcome⟩
+  have outcomeEvents := congrArg NativeRunOutcome.events outcome
+  have projection := runProgramOutcomeLoop_events (Event := AnyEvent) spike2Indexed 50000
+    spike2Executable.load ([] : List AnyEvent)
+  have emptyPrefix :
+      ([] : List AnyEvent).reverse ++
+          runProgramTraceLoop spike2Indexed 50000 spike2Executable.load =
+        runProgramTraceLoop spike2Indexed 50000 spike2Executable.load := by
+    rfl
+  have projectionClean := projection.trans emptyPrefix
+  have terminatedEvents :
+      (NativeRunOutcome.terminated (.processExit 0) final
+        ((spike2ExpectedEventsRev 90).reverse ++
+          [Inject.inject (ProcessEvent.exit 0)])).events =
+        (spike2ExpectedEventsRev 90).reverse ++
+          [Inject.inject (ProcessEvent.exit 0)] := by
+    rfl
+  have outcomeClean := outcomeEvents.trans terminatedEvents
+  have nativeTrace :
+      runAsmTrace (Event := AnyEvent) spike2Instructions spike2Executable.load =
+        (spike2ExpectedEventsRev 90).reverse ++
+          [Inject.inject (ProcessEvent.exit 0)] := by
+    calc
+      runAsmTrace (Event := AnyEvent) spike2Instructions spike2Executable.load =
+          runProgramTraceLoop spike2Indexed 50000 spike2Executable.load := rfl
+      _ = _ := projectionClean.symm.trans outcomeClean
+  rw [nativeTrace, runModelTrace_fibonacciSpec,
+    spike2ExpectedEventsRev_eq_reverse]
+  simp
 
 end Spikes.Spike2Fibonacci.Windows
