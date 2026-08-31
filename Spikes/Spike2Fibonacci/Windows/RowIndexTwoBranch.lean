@@ -34,6 +34,11 @@ structure Spike2FramedSliceResult (initial : X86_64MachineState)
   fault : final.fault = none
   lowMemory : Spike2RowLowMemory final
 
+structure Spike2MemoryPreservingSliceResult (initial : X86_64MachineState)
+    (eventsRev : List AnyEvent) (fuel : Nat) (endRip : UInt64)
+    extends Spike2FramedSliceResult initial eventsRev fuel endRip where
+  memory : final.memory = initial.memory
+
 private theorem index_two_rip (state : X86_64MachineState)
     (hrip : state.rip = 5368713297)
     (twoDigit : X86BranchCondition.greaterEqual.holds (spike2AfterIndexCompare state)) :
@@ -59,7 +64,7 @@ opaque spike2_two_digit_branch_slice (completed : Nat) (state : X86_64MachineSta
     (counter : state.gprs .r13 = UInt64.ofNat (completed + 1))
     (hrip : state.rip = 5368713297) (rsp : state.rsp = spike2AfterPrologue.rsp)
     (safe : state.fault = none) (low : Spike2RowLowMemory state) :
-    Spike2FramedSliceResult state eventsRev 2 5368713344 := by
+    Spike2MemoryPreservingSliceResult state eventsRev 2 5368713344 := by
   let final := spike2AfterIndexHeader state
   have twoDigit := spike2_index_counter_two_digit state completed lower upper counter
   have finalRip : final.rip = 5368713344 := index_two_rip state hrip twoDigit
@@ -78,6 +83,7 @@ opaque spike2_two_digit_branch_slice (completed : Nat) (state : X86_64MachineSta
     rip := finalRip
     rsp := frame.rsp.trans rsp
     fault := frame.fault.trans safe
-    lowMemory := finalLow }
+    lowMemory := finalLow
+    memory := rfl }
 
 end Spikes.Spike2Fibonacci.Windows
