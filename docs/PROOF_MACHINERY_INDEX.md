@@ -32,6 +32,7 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Lower bounded structured straight-line code to Microsoft x64 | `StructuredStraightLineMicrosoftX64Entry.lowerFunction` and its `LocalCertificate` | compiler's target-specific local lowering layer | canonical bounded Microsoft x64 entry backend | exact clobbers and local semantics are proved; process entry, non-return, platform outcome, PE placement, and `VerifiedProgram` authority remain separate |
 | Resume production execution after a proved local straight-line body | `ContextualStraightLinePlacement`, `RuntimeSilentOn`, and the target prefix-runner theorems | target production execution bridge | Microsoft x64 and AArch64 compiler-bulk spikes | the local certificate supplies no lookup, host-silence, ABI, outcome, artifact, admission, or `VerifiedProgram` authority |
 | Replace a compiler body while retaining one selected functional theorem | the AArch64 and Microsoft x64 differential modules' `FunctionalDelta` and `FunctionalDelta.realize` | each compiler target's local realization layer | runnable AArch64 and Windows x64 compiler-bulk spikes | only the named result property is transported; replacement bytes, frames, clobbers, classification, placement, runtime behavior, and final authority are regenerated or re-proved |
+| Emit production bytes from whole-program proof authority | `Gasm.Core.Platform.emitVerifiedProgram` | platform-neutral whole-program boundary | compiler-bulk plus migrated Spike 1, 2, 4, and 5 emitters/tests | serialization consumes an exact `VerifiedProgram` and may still return an error; public target-local serializers remain migration debt, while raw fuzzing requires `FuzzingEmitter` and confers no verification claim |
 
 ## Proven composition patterns
 
@@ -101,6 +102,14 @@ evidence, and negative boundary after that comparison; it does not own a second 
   `8485743` is consumed by runnable spike `88edac5`, which replaces nine generated instructions with
   one `mov rax, 42`, regenerates its ten bytes and local frames, then separately re-proves placement,
   runtime silence, terminal dispatch, artifact identity, admission, and final composition.
+- For production emission, pass the final `VerifiedProgram` to platform-neutral
+  `emitVerifiedProgram`; handle its `Except` result rather than bypassing the proof boundary with a
+  target serializer.  Canonical `94da7dd` migrated Spike 2 Linux's emitter and test to this path;
+  compiler-bulk and migrated Spike 1, 4, and 5 targets demonstrate the same boundary.  The explicit
+  `FuzzingEmitter` capability reserves `rawEmitForFuzzing` for target encoder fuzzers and has no
+  production-profile instance.  Public target-local raw serializers still exist as migration debt,
+  so their existence neither carries a verification claim nor proves mechanically that every
+  repository emission path is already gated.
 
 ## Admission record
 
@@ -144,6 +153,9 @@ Two useful precedents are:
 - `7088d9d` moves the bounded two-phase decimal prefix theorem to the schedule realization that owns
   it.  `8485743` adds the Microsoft x64 property-relative differential bridge, and `88edac5` proves
   its exact replacement through the same runnable process-entry `VerifiedProgram` path.
+- `94da7dd` removes Spike 2 Linux's target-specific production serializer use in favor of the
+  canonical `emitVerifiedProgram` boundary; the remaining public raw serializers are still debt,
+  not compatibility APIs to copy into new emitters.
 
 Commit identifiers are provenance, not API names.  Follow the declarations above on current main;
 use the commits to inspect the reviewed extraction delta.
