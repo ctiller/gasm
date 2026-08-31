@@ -40,12 +40,13 @@ They may also record elaboration time and memory already available from normal b
 observations blocks an otherwise sound proof or permits weakening soundness, applicability,
 universality, authority, lifecycle, cleanup, or claimed behavior.
 
-The heuristic also guards against overengineering. Do not add a generic framework, metaprogram,
-generator, checker, certificate layer, registry, or speculative abstraction merely to improve the
-ratio. Any proposed new proof machinery must be escalated to the owner before implementation, with
-the concrete burden it removes, the smallest required interface, and its immediate materially
-different consumers. A direct one-shot proof is preferred when it is the simplest sound applicable
-proof.
+The heuristic also guards against overengineering. Do not add a shared/public generic framework,
+metaprogram, generator, checker, certificate layer, registry, or speculative cross-module
+abstraction merely to improve the ratio. Such proposed new proof machinery must be escalated to the
+owner before implementation, with the concrete burden it removes, the smallest required interface,
+and its immediate materially different consumers. Ordinary local lemmas, one-shot direct proofs,
+target-local witnesses, and implementation of an already approved interface do not require this
+escalation. A direct one-shot proof is preferred when it is the simplest sound applicable proof.
 
 The initial ratio measures the fallback assembly-authoring boundary. The end-state source path
 should require no instruction-level proof from an ordinary program author: instruction evidence is
@@ -97,6 +98,12 @@ authoring architecture.
 - Interfaces are demand-shaped and minimal: every field corresponds to a current semantic demand,
   refinement fact, selected effect/failure, or authority obligation. Ease of reasoning and authoring
   speed are design requirements; speculative flexibility and abstraction for its own sake are not.
+- Prove each property at the highest instruction-independent semantic layer where it is true.
+  Algebraic laws, source invariants, control topology, effect meaning, and functional refinement
+  should survive changes in instruction selection, register allocation, layout, and target. A target
+  leaf proves only the irreducible lowering, machine-state, ABI, artifact-identity, and physical-
+  authority delta. This maximizes reuse under the rebuild law without pretending target-specific
+  facts are portable.
 - A source block is defined over typeclasses describing the operations and contracts it requires,
   not over one target instruction vocabulary. Examples include word arithmetic, checked memory,
   formatted output, streaming reads, process termination, and calls to typed capabilities.
@@ -132,10 +139,12 @@ authoring architecture.
 - Authority-bearing operations additionally consume target-minted evidence. A caller-constructible
   law dictionary establishes conditional refinement only; it cannot manufacture physical or
   lifecycle authority.
-- Libraries are un-gameable at their public boundary: sealed constructors and indexed types make
-  detached artifacts, self-selected specifications, invented authority, narrowed environments, and
-  omitted selected obligations unrepresentable. This does not justify more layers than the current
-  demand requires.
+- Libraries are un-gameable at production/admission boundaries using the smallest suitable
+  combination of indices, propositions, target-minted evidence, and sealed construction. Detached
+  artifacts, self-selected specifications, invented authority, narrowed environments, and omitted
+  selected obligations cannot cross admission. Conditional structural dictionaries may remain
+  public when they cannot supply target-owned authority. This does not require every invalid
+  intermediate state to be unrepresentable or justify more layers than current demand requires.
 
 ### 2.2 Iterative top-down and bottom-up refinement
 
@@ -150,20 +159,17 @@ For round `i`:
    design feedback—not proof authority.
 4. A revised intermediate specification `Sᵢ₊₁` captures the better representation, operation,
    block boundary, or performance contract suggested by that feedback.
-5. A named refinement/equivalence theorem connects `Sᵢ₊₁` to `Sᵢ` for every still-advertised
-   guarantee; unchanged source/CFG proofs are transported rather than replayed. Direct refinement to
-   `S₀` is insufficient when `Sᵢ` added a guarantee absent from the root.
+5. A named refinement/equivalence theorem reconnects `Sᵢ₊₁` to the stable top-level specification
+   and every explicitly adopted product claim. Proofs transport where doing so is simpler; otherwise
+   the affected intermediate proof architecture is rebuilt.
 6. Lowering regenerates `Aᵢ₊₁` with exact new artifact and execution certificates.
 
-The root functional specification may remain stable while intermediate specifications evolve
-aggressively. Performance, resource, layout, and target-specific guarantees may be strengthened in
-later layers, but a generated assembly observation may not silently weaken functional behavior,
-failure coverage, universal inputs, authority, or cleanup.
-
-Retiring an intermediate guarantee requires an explicit reviewed supersession record that names the
-retired behavior, performance, resource, layout, failure, lifecycle, and authority claims and
-invalidates or rebuilds every dependent certificate. Assembly feedback cannot self-select a weaker
-meaning.
+The precious boundary is the stable top-level requirement set: functional behavior, canonical
+universal inputs, advertised failure behavior, authority, lifecycle, cleanup, and any adopted
+resource/performance claims. Intermediate specifications, representations, module boundaries, and
+proof architecture are disposable. If an intermediate discovery should become a product guarantee,
+adopt it explicitly into the stable boundary before the next rebuild. Assembly feedback cannot
+self-select a weaker top-level meaning.
 
 Recurring useful assembly motifs should feed bottom-up into new abstract operations only after they
 are stated independently and proved as lowering implementations. A motif is not promoted merely
@@ -211,13 +217,19 @@ combinator, not a universal execution object, and deliberately supplies no behav
 
 ### 2.5 Applicability and checked-access authority
 
-- Applicability is mechanically derived from reachable operations in the admitted program and
-  canonical environment family, never asserted by a caller annotation. Generic descriptor coverage
-  is conditional evidence only and is never authority.
-- Descriptor occurrences are indexed by program position (`Fin` or an equivalent dependent index).
-  Access kind, width, address/range, and non-wrapping facts are derived from the exact production
-  descriptor and pre-state, with production codec/decoder linkage and real `ReadsWithin` /
-  `WritesWithin` obligations. Unselected forms contribute zero evidence.
+- Applicability uses a sound conservative analysis of selected operations in the admitted program
+  and canonical environment domain, never a caller annotation. Every actually reachable selected
+  feature is covered; false-positive obligations for possibly reachable features are allowed, but
+  false negatives are not. Exact minimal reachability is never required; omitting a form needs only
+  a sound coverage/exclusion proof. Generic descriptor coverage is conditional evidence only, never
+  authority. Unselected forms incur zero evidence only when that coverage proof excludes them.
+- A descriptor occurrence combines an exact dynamic use/control occurrence (or certified step
+  position) with a descriptor ordinal `Fin (memAccesses instruction).length`, the exact fetched
+  production instruction, and its invocation pre-state. Static instruction position may be part of
+  this identity but is insufficient for loops or instructions with multiple accesses. Access kind,
+  width, address/range, and non-wrapping are derived from that descriptor/pre-state, with production
+  codec/decoder linkage and real `ReadsWithin` / `WritesWithin` obligations. Unselected forms
+  contribute zero evidence.
 - The sealed target/profile adapter alone combines live generation/binding with target-owned host,
   mapping, and physical grants. Generic x86 signatures and caller-supplied host/mapping/binding
   premises cannot discharge admission.
@@ -367,7 +379,10 @@ For each spike, prepare one recoverable deletion/promotion candidate commit:
 4. Update umbrella imports, Lake targets, emitters, tests, docs, and citations.
 5. Prove with repository search that no old proof authority, compatibility alias, or forbidden
    tactic remains.
-6. Run focused builds first, then the coordinated full trust gates.
+6. Show that every stable root requirement and still-relevant adversarial counterexample is present
+   in the rebuilt root specification, a negative control, or an explicit documented nonclaim. This
+   preserves requirements without preserving old intermediate APIs or proof structure.
+7. Run focused builds first, then the coordinated full trust gates.
 
 The candidate remains unintegrated and unpushed until independent review, the forbidden-authority
 and transitive-import searches, focused builds, and full trust gates all pass. Only `Trust repair`
@@ -387,14 +402,19 @@ may then integrate and push it.
 - `Trust repair` alone integrates reviewed commits into the clean main staging worktree and pushes.
 - Workers may continue on isolated follow-up commits while reviews run, but blocked commits cannot be
   used as templates or cut over.
-- Before implementing any new proof machinery, a worker submits the concrete proposal to the owner
-  for escalation: exact problem, smallest API, immediate consumers, authoring-time benefit, and why
-  existing composition cannot solve it. Design/review may continue meanwhile; implementation waits
-  for the owner's decision.
+- Before implementing any new shared/public proof machinery or speculative cross-module API, a
+  worker submits the concrete proposal to the owner for escalation: exact problem, smallest API,
+  immediate consumers, authoring-time benefit, and why existing composition cannot solve it.
+  Design/review may continue meanwhile; implementation waits for the owner's decision. Ordinary
+  local lemmas, direct proofs, target-local witnesses, and approved-interface implementation proceed
+  without escalation.
 - Rebuild is the verb at every scale: begin from the required semantics and current accepted
   boundaries, construct a clean replacement top down, and mine earlier code only as reviewed spare
   parts. No worker is required to preserve an old module boundary, proof shape, intermediate
   representation, or generated program merely because it already exists.
+- Bias proof ownership upward: if a theorem can be stated without instructions, registers, target
+  layout, or platform authority, it belongs above those layers. Lower layers retain only their
+  refinement delta so rebuilding generated code does not replay stable semantic proofs.
 
 ## 5. Accountability ledger
 

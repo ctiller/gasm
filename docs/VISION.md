@@ -48,12 +48,20 @@ place by satisfying the same or a deliberately strengthened boundary, not by pre
 continuity. History remains valuable evidence, but compatibility with discarded proof architecture
 is not itself a requirement.
 
+The accepted semantic boundary is the starting requirement, not a frozen syntactic interface. If
+its formulation accidentally overconstrains implementations, restate and prove the same top-level
+meaning, then rebuild dependents. If the meaning itself changes, that is an explicit owner-visible
+requirements decision. Previous proofs, code, tests, and counterexamples remain evidence and spare
+parts, not preservation obligations.
+
 Rebuild does not mean framework proliferation. The default failure mode is overengineering, so new
-proof machinery—generic frameworks, generators, checkers, certificate layers, registries, and
-speculative abstractions—requires explicit owner escalation before implementation. The proposal must
-name the concrete burden, smallest interface, and immediate consumers. Prefer a small direct proof
-when it is the easiest sound argument. Shared libraries should be un-gameable at their boundary and
-fast to author against, while remaining only as general as demonstrated demand requires.
+shared/public proof machinery—generic frameworks, generators, checkers, certificate layers,
+registries, and speculative cross-module abstractions—requires explicit owner escalation before
+implementation. The proposal must name the concrete burden, smallest interface, and immediate
+consumers. Ordinary local lemmas, direct proofs, target-local witnesses, and implementation of an
+approved interface proceed normally. Prefer a small direct proof when it is the easiest sound
+argument. Shared libraries should be un-gameable at their admission boundary and fast to author
+against, while remaining only as general as demonstrated demand requires.
 
 Large-program construction therefore alternates top-down generation and bottom-up learning:
 
@@ -68,6 +76,13 @@ next round rebuilds the affected intermediate boundary and regenerates everythin
 Unaffected proofs should transport across an explicit refinement/equivalence theorem. At millions
 of lines, this repeatable derivation replaces the impossible task of mentally reverse-engineering
 assembly back into intent.
+
+Proof ownership should be as high-level and instruction-independent as the property permits.
+Source invariants, algebraic laws, effect meaning, and functional arguments then survive rebuilds of
+instruction selection, register allocation, layout, and targets. Machine and platform layers prove
+only their irreducible refinement, artifact-identity, ABI, and physical-authority delta. This is the
+main source of proof reuse under the rebuild law: durable semantics above, cheaply regenerated
+evidence below.
 
 ### Bound the solution; do not prescribe the implementation
 
