@@ -89,8 +89,9 @@ theorem ret_op_step_memory (state : X86_64MachineState) :
 def retTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
   match parseRexAndOpcode bytes offset with
   | .error e => .error e
-  | .ok (_, _, _, _, _, opcode, pos) =>
-    if opcode == 0xC3 then .ok (ret_op, pos - offset)
+  | .ok (hasRex, _, _, _, _, opcode, pos) =>
+    if hasRex then .error "retTryDecode: noncanonical REX prefix for RET"
+    else if opcode == 0xC3 then .ok (ret_op, pos - offset)
     else .error s!"retTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not RET"
 
 end Gasm.Targets.X86_64.Instructions
