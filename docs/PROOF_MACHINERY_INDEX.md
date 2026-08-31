@@ -88,6 +88,15 @@ evidence, and negative boundary after that comparison; it does not own a second 
   `RowDecimalSchedule.twoDigitRowPrefix_successor` preserves those projections through the bounded
   decimal producer and returns the next entry.  This is a row-iteration seam, not the iteration or
   termination proof itself.
+- For bounded iteration, keep the invariant, quantitative composition, physical evidence, and
+  exceptional tail separate.  Canonical `896e2fa4` uses `TwoDigitIterationInvariant` and
+  `SelectedFuelBoundedInvariantLoopStep` to compose an exact selected prefix for rows 10 through 89
+  with actual `totalFuel ≤ 80 * 285`, while requiring target-owned `TwoDigitRowEvidence` for each
+  pass.  Canonical
+  `72adfc09` composes row 90 and the typed exit once outside the iterator, together with an explicit
+  load-through-row-9 prefix and the whole bound `initialFuel + 80 * 285 + 285 + 5 ≤ 50000`.  The
+  result is a conditional termination constructor; its evidence producers and final
+  `VerifiedProgram` remain open.
 - For fallible finite processing, `Stdlib.Control.FallibleFold` makes the accepted prefix, first
   refusal, retained remainder, conservation, and committed-state chain explicit.  Canonical
   `89c46f7` supplies the pure algebra, `c107938` connects Zlib compression and decompression by exact
@@ -191,6 +200,11 @@ Two useful precedents are:
   local projections and the fixed-tail frame.  It avoids re-elaborating the large dependent producer
   and supplies the boundary a future structural iterator should consume; no iterator or whole-run
   theorem is admitted by this commit.
+- `896e2fa4` consumes that boundary in an eighty-pass bounded iterator without reopening instruction
+  semantics.  `72adfc09` adds the exceptional row-90/exit tail and exact whole-budget premise.  These
+  commits establish structural conditional termination composition, not the missing initial-prefix
+  or per-row evidence producers, behavior equivalence, artifact authority, or final
+  `VerifiedProgram`.
 - `51a8c766` kernel-checks the exact Spike 3 Linux empty-input regression with `decide +kernel`.
   The corresponding canonical-trace attempt exceeded its resource envelope and was reverted, so the
   admitted technique is small-vector closure only, not monolithic decision of large traces.

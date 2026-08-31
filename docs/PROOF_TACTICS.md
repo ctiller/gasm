@@ -133,6 +133,17 @@ projections explicit avoids unfolding the large dependent producer merely to rec
 equalities.  This is the seam needed by a future structural row iterator; it does not itself prove
 the 90-row iteration or termination theorem.
 
+Canonical `896e2fa4` and `72adfc09` consume that seam by separating three proof dimensions.  A
+projection-only `TwoDigitIterationInvariant` carries the next typed row entry; the generic bounded
+iterator composes exact selected prefixes with a per-pass ceiling of `285` and an aggregate
+eighty-pass bound of `80 * 285` without reopening instruction semantics; target-owned
+`TwoDigitRowEvidence` supplies each physical decimal
+realization explicitly.  Compose the non-uniform row 90 and typed exit once as an outer tail, not as
+another case in every loop step.  The resulting theorem requires the load-through-row-9 prefix,
+per-row evidence, and the full bound `initialFuel + 80 * 285 + 285 + 5 ≤ 50000`.  It is therefore a
+conditional termination constructor, not closed behavior equivalence, artifact authority, or a
+completed `VerifiedProgram`.
+
 The measured invalidation boundary is part of the evidence.  On `25a375f`, a representative warm
 edit frontier fell from 12.64 seconds and seven rebuilt modules to 5.54 seconds and three modules on
 Polonius; the pass module fell from 1.5 seconds to 0.761 seconds, with no semantic or proof-authority
