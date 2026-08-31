@@ -124,7 +124,7 @@ landed together. What exists in the tree:
 | Width-indexed `read`/`write`, `readByte`/`writeByte`/`writeBytes`, `initRegion` | `Gasm/Targets/X86_64/MemoryCell.lean:79`–`:156` |
 | `MemRef` | `Gasm/Targets/X86_64/Memory.lean:49` |
 | `fault : Option X86_64Fault` (`.divideError | .memFault | .halted`) replacing `faulted : Bool` | `Gasm/Targets/X86_64/Registers.lean:84`; `X86_64Fault` at `:66` |
-| The §3.4 lemma set | `Gasm/Targets/X86_64/MemoryFrame/` — per-family frame proofs, shared register-only and exact singleton-store derivations, plus a Law-13 negative control |
+| The §3.4 lemma set | `Gasm/Targets/X86_64/MemoryFrame/` — per-family frame proofs, shared register-only and exact singleton store/load derivations, plus a Law-13 negative control |
 | Seal audit (the §3.2 tier-3 fallback) | `Gasm/Targets/X86_64/MemoryFrameAudit.lean` |
 | `memAccesses`, defaultless | `Gasm/Targets/X86_64/Instructions/Base.lean:66`, cited from `:40` as the reason it has no default |
 
@@ -267,7 +267,8 @@ theorem Foo.readsWithin : ∀ (i : Foo) (s₁ s₂), agreeOutsideRegs s₁ s₂ 
 The memory-form obligations are discharged either directly from the corresponding hook calls or
 through exact shared derivations whose premises bind the descriptor to the semantic step. The first
 singleton-store consumers are `MovMem32DispReg32` and `MovMem64DispReg64`; register-only forms use
-the shared empty-access derivation. The proofs live in the
+the shared memory-preservation derivation. The first singleton-load consumers are
+`MovReg32RspDisp32` and `MovReg64Mem64Disp`. The proofs live in the
 `RoundtripGate/*`-style per-family shard convention so a new memory form cannot land
 without them. **Status** (corrected 2026-08-28): this line previously read "unbuilt; MH1
 (field + 14 real descriptors + frame lemmas for the memory families), with the
@@ -321,9 +322,10 @@ exists nowhere (no store-form step lemma exists in the tree):
 
 **Status** (corrected 2026-08-28): this line previously read "unbuilt; MH1". **The lemma
 set is built** across `Gasm/Targets/X86_64/MemoryFrame/`, with byte-granular read-over-write,
-exact singleton-store derivations, and `initRegion` read-back proved in shared modules and a
+exact singleton store/load derivations, and `initRegion` read-back proved in shared modules and a
 Law-13 negative control in `MemoryFrame/NegativeControl.lean`. The W32/W64 register-to-memory
-stores above are the first consumers of the exact singleton-store derivations.
+stores above are the first singleton-store consumers; `MovReg32RspDisp32` and
+`MovReg64Mem64Disp` are the first singleton-load consumers.
 The disjointness lemmas are `omega`-class arithmetic over
 `UInt64` intervals; wraparound at 2⁶⁴ is handled the way `MemoryPerm.validRange`
 already does (a no-overflow side condition carried by the capability, not re-proven per
