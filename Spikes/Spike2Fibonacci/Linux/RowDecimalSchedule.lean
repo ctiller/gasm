@@ -62,6 +62,7 @@ theorem twoDigitRowPrefix {completed : Nat} {current next : UInt64}
       current (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor) eventsRev
       TailReadyCallerFrame) :
     ∃ requiredFuel formatted emitted,
+      0 < requiredFuel ∧
       requiredFuel ≤ 45 + 12 * decimalDigitCount current ∧
       ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed requiredFuel
         predecessor eventsRev (RowTailParametric.afterRecurrence formatted)
@@ -84,7 +85,7 @@ theorem twoDigitRowPrefix {completed : Nat} {current next : UInt64}
       _preservesR12, preservesR13, preservesR14, preservesR15, tailFrame⟩
   subst finalEventsRev
   have tail := RowTailParametric.selectedPrefix (eventsRev := eventsRev) tailFrame
-  refine ⟨26 + decimalFuel + 19, formatted, emitted, ?_, ?_, restoredRsp,
+  refine ⟨26 + decimalFuel + 19, formatted, emitted, by omega, ?_, ?_, restoredRsp,
     preservesR13, preservesR14, preservesR15, tailFrame⟩
   · omega
   · simpa using ((opening.append rest).append decimalPrefix).append tail
@@ -109,6 +110,7 @@ theorem twoDigitRowPrefix_successor {completed : Nat} {current next : UInt64}
       current (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor) eventsRev
       TailReadyCallerFrame) :
     ∃ requiredFuel formatted emitted,
+      0 < requiredFuel ∧
       requiredFuel ≤ 45 + 12 * decimalDigitCount current ∧
       ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed requiredFuel
         predecessor eventsRev (RowTailParametric.afterRecurrence formatted)
@@ -117,7 +119,7 @@ theorem twoDigitRowPrefix_successor {completed : Nat} {current next : UInt64}
       Spike2LinuxRowEntry (completed + 1) next (current + next)
         (RowTailParametric.afterRecurrence formatted) := by
   rcases twoDigitRowPrefix entry twoDigit openingFrame openingRestFrame realization with
-    ⟨requiredFuel, formatted, emitted, fuelBound, rowCertificate, _rsp, preservesR13,
+    ⟨requiredFuel, formatted, emitted, positive, fuelBound, rowCertificate, _rsp, preservesR13,
       preservesR14, preservesR15, tailFrame⟩
   have formattedCounter : formatted.gprs .r13 = (completed + 1).toUInt64 := by
     exact preservesR13.trans setupCounter
@@ -125,7 +127,7 @@ theorem twoDigitRowPrefix_successor {completed : Nat} {current next : UInt64}
     exact preservesR14.trans setupCurrent
   have formattedNext : formatted.gprs .r15 = next := by
     exact preservesR15.trans setupNext
-  exact ⟨requiredFuel, formatted, emitted, fuelBound, rowCertificate,
+  exact ⟨requiredFuel, formatted, emitted, positive, fuelBound, rowCertificate,
     RowTailParametric.afterRecurrence_entry formattedCounter formattedCurrent formattedNext
       tailFrame nextContinues⟩
 
