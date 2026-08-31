@@ -1221,27 +1221,43 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
         | .error e => .error e
         | .ok imm32 => .ok (mov_r32 dst imm32, (opOffset + 4) - offset)
     else if opcode == 0x88 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (mod, reg, rm, modPos) =>
-        let srcReg := codeToReg64 reg rexR
-        if mod == 0 && rm == 4 then
-          match readUInt8 bytes modPos with
-          | .error e => .error e
-          | .ok _sib =>
-            let dstPtr := codeToReg64 4 rexB
-            .ok (mov_mem8 dstPtr srcReg, (modPos + 1) - offset)
-        else if mod == 1 && rm == 5 then
-          match readUInt8 bytes modPos with
-          | .error e => .error e
-          | .ok _disp =>
-            let dstPtr := codeToReg64 5 rexB
-            .ok (mov_mem8 dstPtr srcReg, (modPos + 1) - offset)
-        else if mod == 0 then
-          let dstPtr := codeToReg64 rm rexB
-          .ok (mov_mem8 dstPtr srcReg, modPos - offset)
-        else
-          .error "movTryDecode: unsupported mod field for 0x88 MOV"
+      if rexW || rexX then
+        .error "movTryDecode: unsupported REX.W/REX.X form for 0x88 MOV"
+      else
+        match readModRM bytes opOffset with
+        | .error e => .error e
+        | .ok (mod, reg, rm, modPos) =>
+          let needsRex := rexR || rexB || reg >= 4
+          if hasRex != needsRex then
+            .error "movTryDecode: noncanonical or legacy high-byte REX identity for 0x88 MOV"
+          else
+            let srcReg := codeToReg64 reg rexR
+            if mod == 0 then
+              if rm == 4 then
+                match readUInt8 bytes modPos with
+                | .error e => .error e
+                | .ok sib =>
+                  if sib == makeSIB 0 4 4 then
+                    let dstPtr := codeToReg64 4 rexB
+                    .ok (mov_mem8 dstPtr srcReg, (modPos + 1) - offset)
+                  else
+                    .error "movTryDecode: unsupported indexed/noncanonical SIB for 0x88 MOV"
+              else if rm == 5 then
+                .error "movTryDecode: unsupported RIP-relative/no-base form for 0x88 MOV"
+              else
+                let dstPtr := codeToReg64 rm rexB
+                .ok (mov_mem8 dstPtr srcReg, modPos - offset)
+            else if mod == 1 && rm == 5 then
+              match readUInt8 bytes modPos with
+              | .error e => .error e
+              | .ok disp8 =>
+                if disp8 == 0 then
+                  let dstPtr := codeToReg64 5 rexB
+                  .ok (mov_mem8 dstPtr srcReg, (modPos + 1) - offset)
+                else
+                  .error "movTryDecode: noncanonical nonzero displacement for 0x88 MOV"
+            else
+              .error "movTryDecode: unsupported mod field for 0x88 MOV"
     else if opcode == 0x8A then
       if rexW || rexX then
         .error "movTryDecode: unsupported REX.W/REX.X form for 0x8A MOV"
