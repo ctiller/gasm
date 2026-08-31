@@ -89,7 +89,7 @@ theorem spike3_empty_effect_trace_equivalence_inst :
   decide +kernel
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
-/-- **Domain-honesty note (PA17).** The real domain Law 9's read-binder clause demands here is
+/- **Domain-honesty note (PA17).** The real domain Law 9's read-binder clause demands here is
     `∀ (stdin : ByteArray)` — arbitrary stdin content of any length — per
     `docs/READ_BINDER_CONTRACT.md`. `Bool` is NOT that domain: it is a two-element
     proxy standing in for exactly the two literal vectors above (`ByteArray.empty` and
@@ -107,13 +107,8 @@ theorem spike3_empty_effect_trace_equivalence_inst :
     streaming-ingestion loop's structure (the technique `docs/PATHFINDER_CRC32.md`
     demonstrates for a buffer-indexed loop), stated against `docs/READ_BINDER_CONTRACT.md`'s
     read-continuation contract shape -- neither of which has landed as of this note, so this task
-    does not attempt it. See `spike3_effect_trace_equivalence_for_empty_stdin` and
-    `spike3_effect_trace_equivalence_for_canonical_stdin` below for the same two facts restated
-    with the restriction made an explicit, checkable hypothesis instead of an implicit `Bool`
-    case split. -/
-instance : EnvironmentLoader Bool where
-  loadEnvironment exe b := if b then exe.loadWithStdin defaultSampleInput else exe.load
-
+    does not attempt it. The historical Bool facade has been removed; the two theorems below
+    retain the closed facts with their restrictions made explicit and checkable. -/
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#6-end-to-end-simulation-verification-invariant -/
 /-- `spike3Executable.loadWithStdin ByteArray.empty` and `spike3Executable.load` are the same
     initial machine state (`loadWithStdin` only overwrites `stdinBuffer`, which `load` already
@@ -149,22 +144,7 @@ theorem spike3_effect_trace_equivalence_for_canonical_stdin (stdin : ByteArray)
   subst h
   exact spike3_canonical_effect_trace_equivalence_inst
 
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- First-class VerifiedProgram contract instantiation for Spike 3 (Stdin Lexicographical Line Sorter).
-    NOTE (PA17 domain-honesty finding): despite the `∀ (b : Bool)` shape below satisfying
-    `VerifiedProgram`'s literal type signature, this is NOT a Law-9-compliant universal claim over
-    stdin content -- see the note on `instance : EnvironmentLoader Bool` above. Do not cite this
-    declaration as evidence Spike 3 has been verified for arbitrary stdin. -/
-def spike3VerifiedProgram : VerifiedProgram Bool AnyEvent := {
-  name             := "Spike 3: Stdin Lexicographical Line Sorter"
-  executable       := spike3Executable
-  instructions     := spike3Instructions
-  spec             := fun b => if b then modelTraceCanonical else modelTraceEmpty
-  traceEquivalence := fun b => by
-    cases b
-    · exact spike3_empty_effect_trace_equivalence_inst
-    · exact spike3_canonical_effect_trace_equivalence_inst
-}
+/- The theorems above are closed regression vectors only. This module deliberately does not claim
+   a universal `VerifiedProgram`: arbitrary finite stdin remains Spike 3 proof debt. -/
 
 end Spikes.Spike3SortLines.Windows

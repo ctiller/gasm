@@ -51,7 +51,7 @@ def runTests : IO UInt32 := do
   -- 2. Test Emitted Linux Binary Execution
   let exePath := "./sort_lines_linux"
   if !(← (System.FilePath.mk exePath).pathExists) then
-    IO.FS.writeBinFile exePath (emitVerifiedLinuxExecutable spike3VerifiedProgram)
+    IO.FS.writeBinFile exePath spike3Executable.emit
   let _ ← IO.Process.run {
     cmd := "chmod"
     args := #["+x", exePath]
@@ -75,7 +75,7 @@ def runTests : IO UInt32 := do
 
     let expectedOutput := "apple\r\nbanana\r\ncherry\r\n"
     if exitCode == 0 && stdout == expectedOutput then
-      IO.println "[+] PASS: Spike 3 Linux executable verified successfully."
+      IO.println "[+] PASS: Spike 3 Linux canonical runtime regression succeeded."
       return 0
     else
       IO.println s!"[!] FAIL: Expected exit code 0 and {repr expectedOutput}, got code {exitCode} and {repr stdout}"

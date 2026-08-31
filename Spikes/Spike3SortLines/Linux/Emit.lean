@@ -23,9 +23,10 @@ open Gasm.Core.Verification
 open Spikes.Spike3SortLines.Linux
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
-/-- CLI Emitter Target: Serializes and writes sort_lines_linux to disk strictly from the verified program contract. -/
+/-- CLI emitter for the Spike 3 Linux regression artifact. This is not proof-gated until the
+    arbitrary-stdin whole-program contract is complete. -/
 def main : IO UInt32 := do
-  let exeBytes := emitVerifiedLinuxExecutable spike3VerifiedProgram
+  let exeBytes := spike3Executable.emit
   let outputPath := "sort_lines_linux"
   IO.println s!"[*] Emitting {exeBytes.size} bytes to {outputPath}..."
   IO.FS.writeBinFile outputPath exeBytes

@@ -71,23 +71,7 @@ theorem spike3_empty_effect_trace_equivalence_inst :
     (runAsmTrace (Event := AnyEvent) spike3Instructions spike3Executable.load == modelTraceEmpty) = true := by
   native_decide
 
-/- REF: docs/TARGETS/LINUX.md#32-standard-virtual-memory-layout -/
-/-- Loader instance for Bool environment on Linux. -/
-instance : LinuxEnvironmentLoader Bool where
-  loadEnvironment exe b := if b then exe.loadWithStdin defaultSampleInput else exe.load
-
-/- REF: docs/REVIEW.md#law-8-semantic-spec-to-code-fidelity-anti-facade-law-no-dead-abstractions-or-mock-verification -/
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- First-class VerifiedLinuxProgram contract instantiation for Spike 3 (Linux Stdin Lexicographical Line Sorter). -/
-def spike3VerifiedProgram : VerifiedLinuxProgram Bool AnyEvent := {
-  name             := "Spike 3: Linux Stdin Lexicographical Line Sorter"
-  executable       := spike3Executable
-  instructions     := spike3Instructions
-  spec             := fun b => if b then modelTraceCanonical else modelTraceEmpty
-  traceEquivalence := fun b => by
-    cases b
-    · exact spike3_empty_effect_trace_equivalence_inst
-    · exact spike3_canonical_effect_trace_equivalence_inst
-}
+/- The two theorems above are closed regression vectors only. This module deliberately does not
+   claim a universal `VerifiedProgram`: arbitrary finite stdin remains Spike 3 proof debt. -/
 
 end Spikes.Spike3SortLines.Linux

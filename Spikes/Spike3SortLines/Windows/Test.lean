@@ -58,12 +58,12 @@ def runTests : IO UInt32 := do
 
   IO.println "[PASS] Functional string sorting unit tests (empty, single, 3-elem, 5-elem, duplicates)."
 
-  -- 2. Verified Program Contract Summary
+  -- 2. Closed regression proof summary
   IO.println s!"[DEBUG] asmTraceEmpty:       {repr asmTraceEmpty}"
   IO.println s!"[DEBUG] modelTraceEmpty:     {repr modelTraceEmpty}"
   IO.println s!"[DEBUG] asmTraceCanonical:   {repr asmTraceCanonical}"
   IO.println s!"[DEBUG] modelTraceCanonical: {repr modelTraceCanonical}"
-  IO.println s!"[PASS] VerifiedProgram Contract: {spike3VerifiedProgram.name} validated mathematically."
+  IO.println "[PASS] Empty and canonical trace regressions validated mathematically."
   IO.println s!"       Machine Instructions: {spike3Instructions.length}"
   IO.println s!"       Emitted Text Bytes:   {spike3Executable.textBytes.size}"
   IO.println s!"       Emitted Rdata Bytes:  {spike3Executable.rdataBytes.size}"
@@ -71,7 +71,7 @@ def runTests : IO UInt32 := do
   -- 3. Binary Execution Tests (with Piped Stdin Inputs)
   let exePath := ".\\spike3_sort.exe"
   if !(← (System.FilePath.mk "spike3_sort.exe").pathExists) then
-    IO.FS.writeBinFile "spike3_sort.exe" (emitVerifiedExecutable spike3VerifiedProgram)
+    IO.FS.writeBinFile "spike3_sort.exe" spike3Executable.emit
   IO.println s!"[*] Testing binary execution with piped stdin: {exePath}..."
 
   -- Feeds `input` to the child process's stdin via Lean's own `IO.Process.output`

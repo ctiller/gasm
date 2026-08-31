@@ -35,24 +35,16 @@ from typing import Iterable
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RATCHET_PATH = Path(__file__).relative_to(REPO_ROOT).as_posix()
 TEMPORARY_LEDGER = "scripts/gate_allowlist.txt"
-MAX_TEMPORARY_GATE_ENTRIES = 17
+MAX_TEMPORARY_GATE_ENTRIES = 9
 PINNED_GATE_KEYS = {
     "Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3_canonical_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Windows.spike3_canonical_effect_trace_equivalence_inst",
     "Spikes/Spike2Fibonacci/Windows/Equivalence.lean::spike2VerifiedProgram::Spikes.Spike2Fibonacci.Windows.spike2VerifiedProgram",
-    "Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3VerifiedProgram::Spikes.Spike3SortLines.Windows.spike3VerifiedProgram",
     "Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3_effect_trace_equivalence_for_canonical_stdin::Spikes.Spike3SortLines.Windows.spike3_effect_trace_equivalence_for_canonical_stdin",
     "Spikes/Spike2Fibonacci/Windows/Emit.lean::main::main",
-    "Spikes/Spike3SortLines/Windows/Emit.lean::main::main",
-    "Spikes/Spike3SortLines/Windows/Test.lean::runTests::Spikes.Spike3SortLines.Windows.runTests",
-    "Spikes/Spike3SortLines/Windows/Test.lean::main::main",
     "Spikes/Spike2Fibonacci/Linux/Emit.lean::main::main",
     "Spikes/Spike2Fibonacci/Linux/Equivalence.lean::spike2VerifiedProgram::Spikes.Spike2Fibonacci.Linux.spike2VerifiedProgram",
-    "Spikes/Spike3SortLines/Linux/Emit.lean::main::main",
-    "Spikes/Spike3SortLines/Linux/Equivalence.lean::spike3VerifiedProgram::Spikes.Spike3SortLines.Linux.spike3VerifiedProgram",
     "Spikes/Spike3SortLines/Linux/Equivalence.lean::spike3_canonical_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Linux.spike3_canonical_effect_trace_equivalence_inst",
     "Spikes/Spike3SortLines/Linux/Equivalence.lean::spike3_empty_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Linux.spike3_empty_effect_trace_equivalence_inst",
-    "Spikes/Spike3SortLines/Linux/Test.lean::main::main",
-    "Spikes/Spike3SortLines/Linux/Test.lean::runTests::Spikes.Spike3SortLines.Linux.runTests",
     "Spikes/Spike2Fibonacci/Linux/Test.lean::main::main",
 }
 PINNED_GATE_ROWS = {
