@@ -197,6 +197,7 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Compose frame facts without clobber-order obligations | `preserves_comp`, `preservesOutside_comp`, `preservesOutside_comp_append` | target-independent observation algebra | x86-64 segment composition and the shared list-execution consumers | append is only a conservative union representation; uniqueness and order are irrelevant |
 | Preserve an x86 64-bit read across a lower, non-wrapping write | `Gasm.Targets.X86_64.X86_64Mem.read64_write_below` | x86-64 memory semantics | Spike 2 decimal authority and Spike 5 native proofs | address arithmetic, write width, nowrap, and strict-below premises remain explicit; this is not a target-independent memory model |
 | Derive an exact singleton-store frame | `X86_64Mem.readByte_write_outside_addresses`, `readByte_write_inside`, `MemoryFrame.singleStore_writesWithin`, and `singleStore_readsWithin` | x86-64 memory and frame semantics | `MovMem32DispReg32` and `MovMem64DispReg64` | exact singleton descriptor and step-memory equality are mandatory; address, value, and non-memory projection congruence remain consumer facts; this supplies no admission or artifact authority |
+| Derive an exact singleton-load read frame | `MemoryFrame.singleLoad_readsWithin`, with `registerOnly_writesWithin` for the separate no-write frame | x86-64 memory and frame semantics | `MovReg32RspDisp32` and `MovReg64Mem64Disp` | exact singleton descriptor, address congruence, one-read step factorization, and memory-insensitive post transformation are mandatory; write preservation remains a separate audited obligation |
 | Show bounded finite exploration contains only normative reachable states | `Gasm.MemoryModel.FiniteSearch.Enumerator.search_sound` | memory-model presentation/search boundary | the checked incomplete-enumerator negative control exercises the one-way guarantee | completeness is separate and may not be inferred from bounded fuel or a finite result |
 | Preserve dependent CFG identity through lowering or nominal remapping | `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock`, `lower_ref_exact`, and `lowerDefinitions_mapBlockId_block` | compiler CFG authoring/lowering | typed CFG lowering and x86-64 control-point remapping | matching names or entries do not substitute for equality of the complete dependent definition |
 | Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.DecimalSchedule.UInt64DecimalScheduleRealization.selectedPrefix_bounded` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection; the fuel theorem supplies no resource authority |
@@ -229,6 +230,24 @@ evidence, and negative boundary after that comparison; it does not own a second 
   `native_decide` gate failures remained, with none introduced by this slice.  No record, typeclass,
   interface, negative fixture, admission, platform, carrier, atomic, CFG, authority, or ratio
   machinery was added; the existing `NegativeControl` remains authoritative.
+- Accepted extraction `archive/accepted/x86-singleton-load-frame-aa80e2b1`
+  (`aa80e2b184e043a33d5cd6d34e7ae8b3dd4cb7c6`; reviewed successor
+  `dda5776618e4acea13c98e689672f6d1946c29e3`) adds `singleLoad_readsWithin` for
+  `MovReg32RspDisp32` and `MovReg64Mem64Disp`.  One exact singleton `.load` descriptor,
+  effective-address congruence, a step factorization through that width read, and a post transformer
+  parametric under `agreeOutsideMemory` derive declared-read dependence via `agreeOn` and
+  `X86_64Mem.read_congr'`.  The empty store footprint discharges `StoreAgreeOn`.
+  `registerOnly_writesWithin` remains the single generic no-memory-change theorem and supplies each
+  consumer's separately audited write frame; `singleLoad_readsWithin` does not duplicate a memory
+  preservation premise.
+
+  `undeclaredSecondLoad_no_singleLoad_factorization` is the load-bearing negative control.  Its
+  hostile step materially combines the declared `[rdi]` value with hidden `[rsi]`; the counterexample
+  pair fixes the declared value and varies only the hidden one, so no memory-insensitive post
+  transformer can conceal the second dependency.  The blocked predecessor `58a624ff` instead ignored
+  the declared value and tested a wholly misdeclared load.  The canonical slice preserves public
+  theorem names/types and the compiled `MemoryFrameAudit`/`FamilyPipelineAudit`; focused validation
+  built 101 jobs.  It supplies no admission, concurrency, platform, CFG, or artifact authority.
 - For an expensive exact execution proof, keep the complete certificate in its producer and export
   a separate typed boundary containing only the observations required by the successor.  The
   accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
@@ -971,6 +990,22 @@ The following code shapes have enough evidence to investigate but are not canoni
   both consumers' public theorem names/types and audits, leave every other form untouched, and update
   `MEMORY_HOOK.md` qualitatively without inventory counts.  This is a final implementation boundary,
   not accepted machinery; it authorizes no platform, shared, CFG, authority, or ratio framework.
+
+  First implementation `archive/experimental/x86-singleton-load-control-gap-58a624ff`
+  (`58a624ffc7c37684e38ab12508da43834a129362`) is **BLOCKED** on its advertised laundering
+  control.  The helper and the two production consumers otherwise preserve the approved semantic
+  boundary, but `undeclaredSecondLoad_no_singleLoad_factorization` does not make its observable
+  result depend on both reads: it ignores the declared `[rdi]` value and depends only on hidden
+  `[rsi]`.  It therefore proves rejection of a wholly misdeclared load, not the required case where
+  an instruction genuinely uses its declared load and additionally launders a second undeclared
+  read.  Replace the fixture with an observable result that materially combines both values and
+  obtain renewed review before promoting the helper or citing the fixture as the load-bearing
+  negative control.
+
+  One-line successor `dda5776618e4acea13c98e689672f6d1946c29e3` makes the result depend on both
+  values and is integrated canonically as `aa80e2b1`; the accepted reusable result is indexed under
+  Proven composition patterns above.  Keep `58a624ff` as the defective-fixture checkpoint, not an
+  accepted implementation.
 
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and

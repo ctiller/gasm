@@ -424,6 +424,24 @@ from 61 lines to 44; that 28 percent reduction is comparative evidence, not a ta
 gate.  Instruction admission, concurrency, platform behavior, and artifact authority stay outside
 this frame algebra.
 
+## Factor a load frame through one declared read
+
+For an exact singleton load, factor the instruction step through the one width-indexed declared
+read and make the remaining post-state transformer parametric under `agreeOutsideMemory`.  Prove the
+effective address stable, use `agreeOn` with `X86_64Mem.read_congr'` to equate the declared values,
+and let the empty store footprint discharge `StoreAgreeOn`.  Do not add memory preservation to this
+read-frame helper: reuse the instruction's separately audited no-write theorem so each obligation is
+proved once by its owning layer.
+
+The negative control must exercise an additional dependency, not substitute one load for another.
+Canonical `aa80e2b1` uses a hostile step whose observable RAX materially combines declared `[rdi]`
+and hidden `[rsi]`, then holds the declared value fixed while varying only the hidden value.  This
+refutes every proposed one-read factorization with a memory-insensitive post transformer.  The
+blocked predecessor `58a624ff` ignored the declared value and therefore tested only a wholly
+misdeclared load.  Exact factorization and a dual-dependent control make the helper reusable for the
+two accepted x86 load consumers; they do not establish admission, concurrency, platform behavior,
+or artifact authority.
+
 ## Make control-flow obligations local
 
 At the core CFG layer, use typed block-entry contracts as invariant transfer points and close every
