@@ -109,10 +109,9 @@ the “only emission path” property is mechanically true.
 External-provider nondeterminism does not require a relational replacement for `Platform.run`.
 The selected provisional direction reifies raw provider responses in a default-empty,
 target-neutral container within the same universally quantified `Environment`, preserving
-deterministic replay and the existing `VerifiedProgram` theorem shape. Raw entries name a
-versioned `ProviderProtocolKey` and carry raw status/payload only; runtime consumption mints
-causal/generative operation identity and obtains exact destination authority from the selected
-capability. Provider semantics and total decoding are target-owned, never caller-authored
+deterministic replay and the environment-only observable specification. Raw entries name a
+versioned `ProviderProtocolKey` and carry raw status/payload only. Provider semantics and total
+decoding are target-owned, never caller-authored
 predicates that shrink the input domain. Missing, malformed, mismatched, refused, and oversized
 entries map to explicit outcomes and resource dispositions.
 
@@ -121,6 +120,49 @@ admissibility cover the combined CPU/provider execution; projecting the CPU comp
 runner while leaving provider state unused is not a connection proof. Provider streams are inspected
 at the head only, preserve the exact tail on every outcome, advance their response sequence exactly
 when the head is consumed, and retain monotone execution-scoped operation/response history.
+
+The current pure `Platform.load : Artifact → Environment → State` cannot establish that identity is
+generative. Two calls with equal arguments return equal states; a phantom type, hidden existential,
+higher-rank eliminator, caller-supplied environment nonce, or relational `Capability.establishes`
+claim does not mint a fresh target-owned root. Provider production therefore requires a
+state-threaded load discipline connected directly to the sole `VerifiedProgram`:
+
+- `LoadDiscipline` supplies a `World`, `WorldWF`, a target-owned `initialWorld` with an
+  `initialWorld_wf : WorldWF initialWorld` witness, and
+  `loadStep : World → Artifact → Environment → World × State`, together with preservation of
+  `WorldWF`. Production starts from that witness and threads each returned world into the next load;
+  a platform may not make the proof vacuous with `WorldWF := False`. `Platform` selects exactly one
+  discipline. The old pure loader migrates through a canonical `Unit`/`True` adapter, so a
+  nongenerative platform and its programs acquire no new local proof obligation.
+- One named dependent load-result index records the input world, its validity witness, artifact,
+  environment, exact output world/state, and equality to `loadStep`. The factored entry,
+  admissibility, and behavior certificates share that same index rather than choosing or recomputing
+  extensionally equal states. `VerifiedProgram` quantifies over every such result reachable from a
+  well-formed input world; its entry context may depend on the result, and all three certificate
+  families consume it. The observable specification remains `Environment → Observation`, so the
+  theorem proves that allocation bookkeeping and the chosen fresh root are observationally
+  irrelevant rather than exposing them as additional caller input.
+- A separate target-owned `GenerativeLoadCertificate`, selected only by a generative platform,
+  supplies `ExecutionInstanceId`, the world's allocated-root predicate, and the root of the loaded
+  state. The certificate is indexed by the exact selected `LoadDiscipline` and its named load result;
+  it proves freshness against the input world, exact one-root allocation extension, preservation of
+  world validity, and initialization/reachability of the loaded state at that root. Provider
+  transitions preserve that root and reachability. Root-indexed contexts and handles consume this
+  allocation/reachability witness; bare root or sequence equality is diagnostic only. Platforms that
+  do not select generative loading provide no such certificate or premises.
+- Loads sequenced through one world produce distinct roots. Roots originating in independent worlds
+  need no global physical inequality: even coincident diagnostic numbers confer no shared authority
+  or cross-execution correlation. Operation and response handles carry the selected root and use
+  independent monotone sequences; their constructors and provider-state mutation remain
+  target-private. The generative certificate exports the derived two-load theorem: exact one-root
+  extension after the first load plus freshness of the second load implies distinct authoritative
+  roots.
+
+This load discipline replaces authoritative uses of the old pure loader in `VerifiedProgram` and
+its factored entry/admissibility/behavior certificates. It is not a parallel runner, a second
+whole-program theorem, or a repurposing of `BoundaryWorld`, whose ABI authority role remains
+separate. The signature migration and a stateless-platform compatibility proof must land before a
+provider runner may claim generativity or production authority.
 
 This is a staged core boundary, not yet a landed API. It may be integrated only in a reviewed
 series where two materially different real provider operations consume the same envelope and a

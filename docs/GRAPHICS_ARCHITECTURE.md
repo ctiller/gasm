@@ -159,10 +159,16 @@ substitute for that identity.
 The nominal key and raw envelope belong in a small Core leaf below `Platform`; the existing
 fully-qualified key has one definition rather than an alias or graphics duplicate. The feature uses
 a distinct Windows+graphics platform profile whose actual `Platform.State` contains both the x86-64
-CPU state and provider-execution state. Its `load` initializes both components, its `run` steps the
-combined state, and its `admissible` predicate classifies the combined result. Mutable remaining
-responses, monotone consumption history, and fresh per-execution counters live in the provider
-component; the selected decoder and provider-support evidence live in `RuntimeContext`. The profile
+CPU state and provider-execution state. Its state-threaded `loadStep` allocates the execution root
+and initializes both components, its `run` steps the combined state, and its `admissible` predicate
+classifies the combined result. The load world, freshness proof, and exact allocation-extension law
+are the target-owned generative-load certificate described in `docs/ARCHITECTURE.md` §2.1; a phantom
+scope or sealed package alone is only namespace abstraction and grants no freshness authority. The
+profile supplies a well-formed production-start world, and its entry, admissibility, and behavior
+certificates share the exact named load result rather than independently rebuilding loaded state.
+Mutable remaining responses, monotone consumption history, and fresh per-execution counters live in
+the provider component; the selected decoder and provider-support evidence live in
+`RuntimeContext`. The profile
 may reuse CPU instruction semantics by lifting each CPU step over the wrapper, but it may not project
 `.cpu` into the old runner and attach an unused provider record afterward. Ordinary instruction
 semantics preserve provider state through one reusable lifted frame theorem, and unrelated host calls
@@ -180,7 +186,9 @@ tail. The response sequence advances if and only if a head is consumed. A separa
 advances for each accepted operation attempt, so operation and response IDs are distinct,
 execution-scoped, monotone, and never reset or reused. Every result appends its exact disposition to a
 monotone history; no failure, cancellation, reload helper, or record update may restore a consumed
-entry or erase an earlier operation/response identity.
+entry or erase an earlier operation/response identity. Operation and response handles are indexed by
+the root allocated by the exact load transition; equal sequence numbers from independent load worlds
+are diagnostics only and cannot be compared to create authority or correlation.
 
 The environment remains universal. Missing, mismatched, malformed, refused, and oversized entries
 are ordinary inputs with explicit result and resource dispositions. A valid bounded-write branch
