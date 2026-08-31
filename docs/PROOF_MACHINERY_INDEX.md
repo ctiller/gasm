@@ -387,7 +387,15 @@ The following code shapes have enough evidence to investigate but are not canoni
   applicability boundary, not an ABI exception: a future callable wrapper must consume that clobber
   set and prove ordinary preservation.  Do not extract a generic save/restore API before that real
   consumer demonstrates the reusable shape.  Reviewer found this ruling sound under the stated
-  no-caller/no-unwind/no-callback exclusions; it remains unlanded.
+  no-caller/no-unwind/no-callback exclusions; it remains unlanded.  Compiler implementation candidate
+  `60e744f` demonstrates conforming local lowering, result, frame, clobber, and control-flow proofs,
+  but MP blocked it because self-asserted `entryOnly` or `callable` Boolean certificate fields are an
+  authority facade.  Noncallability is the absence of callable authority plus an exposed exact
+  clobber set; target-owned entry evidence may connect it later.  Replacement prose and comments must
+  state the complete applicability exclusions: fallthrough, return, unwind, callback, reentrancy,
+  exception or fault continuation, teardown, and caller observation.  No additional platform proof
+  is required by this finding.  Await a replacement exact hash and Reviewer verdict before treating
+  any implementation from this candidate as reusable machinery.
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
   Spike 3 still needs a theorem over every finite stdin with explicit reservation, allocation,
   read, output, exhaustion, and cleanup outcomes before its downstream production certificates can
