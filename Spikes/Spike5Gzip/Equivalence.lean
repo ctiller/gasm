@@ -22,6 +22,7 @@ open Gasm.Core
 open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Gasm.Effects
+open Gasm.Targets.X86_64
 open Gasm.Targets.Windows
 open Gasm.Targets.Linux
 open Gasm.Targets.WASI
@@ -46,7 +47,8 @@ theorem spike5_windows_gzip_trace_equivalence (environment : Environment) :
         (windowsStreamEntry .compress environment))
       (windowsStreamArtifact .compress)
       (Platform.load (P := WindowsX86_64 AnyEvent) (windowsStreamArtifact .compress) environment) =
-        streamingInvocationTrace .compress spike5AllocationScope environment.stdin :=
+        NativeObservable.returned
+          (streamingInvocationTrace .compress spike5AllocationScope environment.stdin) :=
   windows_streaming_trace_equivalence .compress environment
 
 theorem spike5_windows_gunzip_trace_equivalence (environment : Environment) :
@@ -55,7 +57,8 @@ theorem spike5_windows_gunzip_trace_equivalence (environment : Environment) :
         (windowsStreamEntry .decompress environment))
       (windowsStreamArtifact .decompress)
       (Platform.load (P := WindowsX86_64 AnyEvent) (windowsStreamArtifact .decompress) environment) =
-        streamingInvocationTrace .decompress spike5AllocationScope environment.stdin :=
+        NativeObservable.returned
+          (streamingInvocationTrace .decompress spike5AllocationScope environment.stdin) :=
   windows_streaming_trace_equivalence .decompress environment
 
 theorem spike5_linux_gzip_trace_equivalence (environment : Environment) :
@@ -64,7 +67,8 @@ theorem spike5_linux_gzip_trace_equivalence (environment : Environment) :
         (linuxStreamEntry .compress environment))
       (linuxStreamArtifact .compress)
       (Platform.load (P := LinuxX86_64 AnyEvent) (linuxStreamArtifact .compress) environment) =
-        streamingInvocationTrace .compress spike5AllocationScope environment.stdin :=
+        NativeObservable.returned
+          (streamingInvocationTrace .compress spike5AllocationScope environment.stdin) :=
   linux_streaming_trace_equivalence .compress environment
 
 theorem spike5_linux_gunzip_trace_equivalence (environment : Environment) :
@@ -73,7 +77,8 @@ theorem spike5_linux_gunzip_trace_equivalence (environment : Environment) :
         (linuxStreamEntry .decompress environment))
       (linuxStreamArtifact .decompress)
       (Platform.load (P := LinuxX86_64 AnyEvent) (linuxStreamArtifact .decompress) environment) =
-        streamingInvocationTrace .decompress spike5AllocationScope environment.stdin :=
+        NativeObservable.returned
+          (streamingInvocationTrace .decompress spike5AllocationScope environment.stdin) :=
   linux_streaming_trace_equivalence .decompress environment
 
 theorem spike5_wasm_gzip_trace_equivalence (environment : Environment) :

@@ -587,25 +587,29 @@ theorem linux_trace_continues_after_result (direction : CodecDirection)
         (linuxStep3 direction environment) (linux_lookup_after_three direction environment)]
 
 def linuxStreamingSpec (direction : CodecDirection) (environment : Environment) :
-    List AnyEvent :=
-  streamingInvocationTrace direction spike5AllocationScope environment.stdin
+    NativeObservable AnyEvent :=
+  .returned (streamingInvocationTrace direction spike5AllocationScope environment.stdin)
 
-theorem linux_platform_run (runtime : ExternalCallInterceptor X86_64 AnyEvent)
+theorem linux_platform_run (runtime : NativeX86_64Runtime AnyEvent)
     (artifact : LinuxX86_64Artifact) (state : X86_64MachineState) :
     Platform.run (P := LinuxX86_64 AnyEvent) runtime artifact state =
-      (@runProgramOutcomeWithLoops AnyEvent runtime state.rip artifact.instructions 50000 state).events := by
+      (@runProgramOutcomeWithLoops AnyEvent runtime.interceptor state.rip artifact.instructions
+        runtime.proofBudget.evaluatorFuel state).observable := by
   rfl
 
-theorem linux_platform_admissible (runtime : ExternalCallInterceptor X86_64 AnyEvent)
+theorem linux_platform_admissible (runtime : NativeX86_64Runtime AnyEvent)
     (artifact : LinuxX86_64Artifact) (state : X86_64MachineState) :
     Platform.admissible (P := LinuxX86_64 AnyEvent) runtime artifact state =
-      (@runProgramOutcomeWithLoops AnyEvent runtime state.rip artifact.instructions 50000 state).isAdmissible true := by
+      (@runProgramOutcomeWithLoops AnyEvent runtime.interceptor state.rip artifact.instructions
+        runtime.proofBudget.evaluatorFuel state).isAdmissible false := by
+  change linuxX86_64Admissible runtime artifact state = _
   rfl
 
 theorem linux_stream_realize (direction : CodecDirection)
     (artifact : LinuxX86_64Artifact) (context : StreamingInvocationContext) :
     (linuxStreamingCapabilities direction).realize artifact context =
-      linuxStreamingInterceptor context := by
+      { interceptor := linuxStreamingInterceptor context
+        proofBudget := spike5NativeProofBudget } := by
   rfl
 
 theorem linux_streaming_trace_equivalence (direction : CodecDirection)
@@ -617,13 +621,12 @@ theorem linux_streaming_trace_equivalence (direction : CodecDirection)
       (Platform.load (P := LinuxX86_64 AnyEvent) (linuxStreamArtifact direction) environment) =
         linuxStreamingSpec direction environment := by
   rw [linux_platform_run, linux_stream_realize]
-  rw [@runProgramOutcomeWithLoops_events AnyEvent
-    (linuxStreamingInterceptor (linuxStreamEntry direction environment))]
-  change @runProgramTraceWithLoops AnyEvent
+  unfold runProgramOutcomeWithLoops
+  change (@runProgramOutcomeLoop AnyEvent
       (linuxStreamingInterceptor (linuxStreamEntry direction environment))
-      (linuxStreamInitial direction environment).rip linuxStreamInstructions 50000
-      (linuxStreamInitial direction environment) = _
-  rw [linux_trace_prefix]
+      (linuxIndexed direction environment) 50000
+      (linuxStreamInitial direction environment) []).observable = _
+  rw [linux_outcome_prefix]
   cases direction with
   | compress =>
     cases hresult : compressAll bufferedStreamingZlibCapability
@@ -637,8 +640,9 @@ theorem linux_streaming_trace_equivalence (direction : CodecDirection)
             some (linuxStep2 .compress environment,
               some (Inject.inject (ProcessEvent.exit 2))) := by
         simpa [streamResultEvent, linuxStreamEntry, linuxResultState, hresult] using hhook
-      rw [linux_trace_stops_after_result .compress environment _ hhook']
-      simp [linuxStreamingSpec, streamingInvocationTrace, hresult, exhaustedStreamTrace]
+      rw [linux_outcome_stops_after_result .compress environment [] _ hhook']
+      simp [NativeRunOutcome.observable, linuxStreamingSpec, streamingInvocationTrace, hresult,
+        exhaustedStreamTrace]
     | success output scope =>
       have hhook := linux_intercept_two .compress environment
       have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
@@ -647,8 +651,9 @@ theorem linux_streaming_trace_equivalence (direction : CodecDirection)
             some (linuxState3 .compress environment,
               some (Inject.inject (ConsoleEvent.out (bytesAsString output)))) := by
         simpa [streamResultEvent, linuxStreamEntry, linuxResultState, hresult] using hhook
-      rw [linux_trace_continues_after_result .compress environment _ hhook']
-      simp [linuxStreamingSpec, streamingInvocationTrace, hresult, successfulStreamTrace]
+      rw [linux_outcome_continues_after_result .compress environment [] _ hhook']
+      simp [NativeRunOutcome.observable, linuxStreamingSpec, streamingInvocationTrace, hresult,
+        successfulStreamTrace]
   | decompress =>
     cases hresult : decompressAll bufferedStreamingZlibCapability
       spike5AllocationScope environment.stdin with
@@ -660,8 +665,9 @@ theorem linux_streaming_trace_equivalence (direction : CodecDirection)
             some (linuxStep2 .decompress environment,
               some (Inject.inject (ProcessEvent.exit 1))) := by
         simpa [streamResultEvent, linuxStreamEntry, linuxResultState, hresult] using hhook
-      rw [linux_trace_stops_after_result .decompress environment _ hhook']
-      simp [linuxStreamingSpec, streamingInvocationTrace, hresult, malformedStreamTrace]
+      rw [linux_outcome_stops_after_result .decompress environment [] _ hhook']
+      simp [NativeRunOutcome.observable, linuxStreamingSpec, streamingInvocationTrace, hresult,
+        malformedStreamTrace]
     | resourceExhausted scope =>
       have hhook := linux_intercept_two .decompress environment
       have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
@@ -670,8 +676,9 @@ theorem linux_streaming_trace_equivalence (direction : CodecDirection)
             some (linuxStep2 .decompress environment,
               some (Inject.inject (ProcessEvent.exit 2))) := by
         simpa [streamResultEvent, linuxStreamEntry, linuxResultState, hresult] using hhook
-      rw [linux_trace_stops_after_result .decompress environment _ hhook']
-      simp [linuxStreamingSpec, streamingInvocationTrace, hresult, exhaustedStreamTrace]
+      rw [linux_outcome_stops_after_result .decompress environment [] _ hhook']
+      simp [NativeRunOutcome.observable, linuxStreamingSpec, streamingInvocationTrace, hresult,
+        exhaustedStreamTrace]
     | success output scope =>
       have hhook := linux_intercept_two .decompress environment
       have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
@@ -680,8 +687,9 @@ theorem linux_streaming_trace_equivalence (direction : CodecDirection)
             some (linuxState3 .decompress environment,
               some (Inject.inject (ConsoleEvent.out (bytesAsString output)))) := by
         simpa [streamResultEvent, linuxStreamEntry, linuxResultState, hresult] using hhook
-      rw [linux_trace_continues_after_result .decompress environment _ hhook']
-      simp [linuxStreamingSpec, streamingInvocationTrace, hresult, successfulStreamTrace]
+      rw [linux_outcome_continues_after_result .decompress environment [] _ hhook']
+      simp [NativeRunOutcome.observable, linuxStreamingSpec, streamingInvocationTrace, hresult,
+        successfulStreamTrace]
 
 theorem linux_streaming_admissible (direction : CodecDirection) (environment : Environment) :
     Platform.admissible
@@ -694,7 +702,7 @@ theorem linux_streaming_admissible (direction : CodecDirection) (environment : E
   change (@runProgramOutcomeLoop AnyEvent
     (linuxStreamingInterceptor (linuxStreamEntry direction environment))
     (linuxIndexed direction environment) 50000
-    (linuxStreamInitial direction environment) []).isAdmissible true
+    (linuxStreamInitial direction environment) []).isAdmissible false
   rw [linux_outcome_prefix]
   cases direction with
   | compress =>
@@ -1790,25 +1798,28 @@ theorem windows_trace_continues_after_result (direction : CodecDirection)
         (windows_lookup_after_three direction environment)]
 
 def windowsStreamingSpec (direction : CodecDirection) (environment : Environment) :
-    List AnyEvent :=
-  streamingInvocationTrace direction spike5AllocationScope environment.stdin
+    NativeObservable AnyEvent :=
+  .returned (streamingInvocationTrace direction spike5AllocationScope environment.stdin)
 
-theorem windows_platform_run (runtime : ExternalCallInterceptor X86_64 AnyEvent)
+theorem windows_platform_run (runtime : NativeX86_64Runtime AnyEvent)
     (artifact : WindowsX86_64Artifact) (state : X86_64MachineState) :
     Platform.run (P := WindowsX86_64 AnyEvent) runtime artifact state =
-      (@runProgramOutcomeWithLoops AnyEvent runtime state.rip artifact.instructions 50000 state).events := by
+      (@runProgramOutcomeWithLoops AnyEvent runtime.interceptor state.rip artifact.instructions
+        runtime.proofBudget.evaluatorFuel state).observable := by
   rfl
 
-theorem windows_platform_admissible (runtime : ExternalCallInterceptor X86_64 AnyEvent)
+theorem windows_platform_admissible (runtime : NativeX86_64Runtime AnyEvent)
     (artifact : WindowsX86_64Artifact) (state : X86_64MachineState) :
     Platform.admissible (P := WindowsX86_64 AnyEvent) runtime artifact state =
-      (@runProgramOutcomeWithLoops AnyEvent runtime state.rip artifact.instructions 50000 state).isAdmissible false := by
+      (@runProgramOutcomeWithLoops AnyEvent runtime.interceptor state.rip artifact.instructions
+        runtime.proofBudget.evaluatorFuel state).isAdmissible false := by
   rfl
 
 theorem windows_stream_realize (direction : CodecDirection)
     (artifact : WindowsX86_64Artifact) (context : StreamingInvocationContext) :
     (windowsStreamingCapabilities direction).realize artifact context =
-      windowsStreamingInterceptor artifact context := by
+      { interceptor := windowsStreamingInterceptor artifact context
+        proofBudget := spike5NativeProofBudget } := by
   rfl
 
 theorem windows_streaming_trace_equivalence (direction : CodecDirection)
@@ -1820,15 +1831,13 @@ theorem windows_streaming_trace_equivalence (direction : CodecDirection)
       (Platform.load (P := WindowsX86_64 AnyEvent) (windowsStreamArtifact direction) environment) =
         windowsStreamingSpec direction environment := by
   rw [windows_platform_run, windows_stream_realize, windows_stream_instructions_eq]
-  rw [@runProgramOutcomeWithLoops_events AnyEvent
-    (windowsStreamingInterceptor (windowsStreamArtifact direction)
-      (windowsStreamEntry direction environment))]
-  change @runProgramTraceWithLoops AnyEvent
+  unfold runProgramOutcomeWithLoops
+  change (@runProgramOutcomeLoop AnyEvent
       (windowsStreamingInterceptor (windowsStreamArtifact direction)
         (windowsStreamEntry direction environment))
-      (windowsStreamInitial direction environment).rip windowsConcreteStreamInstructions 50000
-      (windowsStreamInitial direction environment) = _
-  rw [windows_trace_prefix]
+      (windowsIndexed direction environment) 50000
+      (windowsStreamInitial direction environment) []).observable = _
+  rw [windows_outcome_prefix]
   cases direction with
   | compress =>
     cases hresult : compressAll bufferedStreamingZlibCapability
@@ -1843,8 +1852,9 @@ theorem windows_streaming_trace_equivalence (direction : CodecDirection)
             some (windowsStep2 .compress environment,
               some (Inject.inject (ProcessEvent.exit 2))) := by
         simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
-      rw [windows_trace_stops_after_result .compress environment _ hhook']
-      simp [windowsStreamingSpec, streamingInvocationTrace, hresult, exhaustedStreamTrace]
+      rw [windows_outcome_stops_after_result .compress environment [] _ hhook']
+      simp [NativeRunOutcome.observable, windowsStreamingSpec, streamingInvocationTrace, hresult,
+        exhaustedStreamTrace]
     | success output scope =>
       have hhook := windows_intercept_two .compress environment
       have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
@@ -1854,8 +1864,9 @@ theorem windows_streaming_trace_equivalence (direction : CodecDirection)
             some (windowsState3 .compress environment,
               some (Inject.inject (ConsoleEvent.out (bytesAsString output)))) := by
         simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
-      rw [windows_trace_continues_after_result .compress environment _ hhook']
-      simp [windowsStreamingSpec, streamingInvocationTrace, hresult, successfulStreamTrace]
+      rw [windows_outcome_continues_after_result .compress environment [] _ hhook']
+      simp [NativeRunOutcome.observable, windowsStreamingSpec, streamingInvocationTrace, hresult,
+        successfulStreamTrace]
   | decompress =>
     cases hresult : decompressAll bufferedStreamingZlibCapability
       spike5AllocationScope environment.stdin with
@@ -1868,8 +1879,9 @@ theorem windows_streaming_trace_equivalence (direction : CodecDirection)
             some (windowsStep2 .decompress environment,
               some (Inject.inject (ProcessEvent.exit 1))) := by
         simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
-      rw [windows_trace_stops_after_result .decompress environment _ hhook']
-      simp [windowsStreamingSpec, streamingInvocationTrace, hresult, malformedStreamTrace]
+      rw [windows_outcome_stops_after_result .decompress environment [] _ hhook']
+      simp [NativeRunOutcome.observable, windowsStreamingSpec, streamingInvocationTrace, hresult,
+        malformedStreamTrace]
     | resourceExhausted scope =>
       have hhook := windows_intercept_two .decompress environment
       have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
@@ -1879,8 +1891,9 @@ theorem windows_streaming_trace_equivalence (direction : CodecDirection)
             some (windowsStep2 .decompress environment,
               some (Inject.inject (ProcessEvent.exit 2))) := by
         simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
-      rw [windows_trace_stops_after_result .decompress environment _ hhook']
-      simp [windowsStreamingSpec, streamingInvocationTrace, hresult, exhaustedStreamTrace]
+      rw [windows_outcome_stops_after_result .decompress environment [] _ hhook']
+      simp [NativeRunOutcome.observable, windowsStreamingSpec, streamingInvocationTrace, hresult,
+        exhaustedStreamTrace]
     | success output scope =>
       have hhook := windows_intercept_two .decompress environment
       have hhook' : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent
@@ -1890,8 +1903,9 @@ theorem windows_streaming_trace_equivalence (direction : CodecDirection)
             some (windowsState3 .decompress environment,
               some (Inject.inject (ConsoleEvent.out (bytesAsString output)))) := by
         simpa [streamResultEvent, windowsStreamEntry, windowsResultState, hresult] using hhook
-      rw [windows_trace_continues_after_result .decompress environment _ hhook']
-      simp [windowsStreamingSpec, streamingInvocationTrace, hresult, successfulStreamTrace]
+      rw [windows_outcome_continues_after_result .decompress environment [] _ hhook']
+      simp [NativeRunOutcome.observable, windowsStreamingSpec, streamingInvocationTrace, hresult,
+        successfulStreamTrace]
 
 theorem windows_streaming_admissible (direction : CodecDirection) (environment : Environment) :
     Platform.admissible

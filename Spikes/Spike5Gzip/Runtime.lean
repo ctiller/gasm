@@ -336,6 +336,10 @@ def linuxStreamingInterceptor (context : StreamingInvocationContext) :
   streamingNativeInterceptorWith (fun address _ =>
     (List.range 4).find? fun index => linuxStaticCallTarget index == address) context
 
+/-- The exact evaluator bound consumed by the sealed native Spike 5 certificates.
+    This is proof fuel, not an allocator or host-resource grant. -/
+def spike5NativeProofBudget : NativeProofBudget := { evaluatorFuel := 50000 }
+
 def windowsStreamingCapability (direction : CodecDirection) :
     Capability (WindowsX86_64 AnyEvent) where
   Context := StreamingInvocationContext
@@ -348,7 +352,9 @@ def windowsStreamingCapability (direction : CodecDirection) :
 def windowsStreamingCapabilities (direction : CodecDirection) :
     CapabilityComposition (WindowsX86_64 AnyEvent) where
   root := windowsStreamingCapability direction
-  realize := windowsStreamingInterceptor
+  realize := fun artifact context =>
+    { interceptor := windowsStreamingInterceptor artifact context
+      proofBudget := spike5NativeProofBudget }
   realizeSupports := by
     intro context artifact provider hprovider hlinked
     change StreamingInvocationContext at context
@@ -384,10 +390,14 @@ def linuxStreamingCapability (direction : CodecDirection) :
 def linuxStreamingCapabilities (direction : CodecDirection) :
     CapabilityComposition (LinuxX86_64 AnyEvent) where
   root := linuxStreamingCapability direction
-  realize := fun _ => linuxStreamingInterceptor
+  realize := fun _ context =>
+    { interceptor := linuxStreamingInterceptor context
+      proofBudget := spike5NativeProofBudget }
   realizeSupports := by
     intro context artifact provider hprovider hlinked
     change StreamingInvocationContext at context
+    change ∀ state,
+      (linuxStreamingInterceptor context).interceptCall provider.callTarget state |>.isSome
     cases direction <;>
       simp [linuxStreamingCapability, linuxStreamProviders, linuxStreamRequirements,
         streamImportNames, nativeProviderProtocol] at hprovider
