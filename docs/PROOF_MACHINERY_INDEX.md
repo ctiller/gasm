@@ -188,8 +188,21 @@ The following code shapes have enough evidence to investigate but are not canoni
   identity: profile-indexed generative agents, references, events, relations, consequences, binding
   generations and rebind invalidation, plus exact origin/projection with a CPU projection and opaque
   non-CPU sentinel.  M0 imposes only laws selected by that structure, not every target consistency
-  theorem; an unselected single-threaded program incurs no concurrency premise.  This remains an MP
-  design ruling pending its canonical architecture text and runnable demonstration.
+  theorem; an unselected single-threaded program incurs no concurrency premise.
+
+  Signature review accepted the layer split but held implementation for four failures.  An
+  unrestricted `PathConsequence.value` could invent completion, visibility, or resource return
+  without profile admission.  Capturing a value plus generation inequality did not correlate the
+  later use occurrence, so it did not reject stale re-resolution.  Exact list equality exposed
+  irrelevant carrier order and supplied no stable identity for equal duplicate consequences.  A CPU
+  carrier partial bijection alone did not prove the generic relation-occurrence/path roundtrip.
+  Revised signatures must keep `Execution` thin; select `BindingHistory` with a stable use
+  occurrence; carry event/generation-indexed overlap evidence; make consequence admission
+  profile-owned; identify occurrences generatively; compare consequence carriers by `List.Perm` plus
+  a bijection and CPU carriers by permutation; and prove the generic relation-occurrence/path
+  roundtrip separately before M0 exit.  These are structural obligations only--target consistency
+  and admission remain above M0.  Multi must return the revised signatures before implementation;
+  MP will author canonical `MEMORY_MODEL` interface text only after the shape stabilizes.
 - A Microsoft x64 process-entry-only, no-return straight-line body may clobber nonvolatile registers
   only when target-owned entry and termination evidence proves that no caller, unwind, or callback
   continuation can observe them.  Keep the exact clobber set and make no callable claim.  This is an
