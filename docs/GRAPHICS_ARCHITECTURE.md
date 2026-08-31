@@ -110,6 +110,23 @@ acquire/present semaphore and fence relations, queue completion versus presentat
 display visibility, backpressure, recreation, and out-of-date/suboptimal/surface-loss/device-loss
 outcomes. None of these consequences is implied by the current headless dispatch/readback contract.
 
+Presentation retirement must remain evidence-bearing after API handles are destroyed. Before
+enqueue, an opaque present-ready witness ties one exact image and swapchain generation to the
+render-completion and present-wait facts that make it eligible for `queuePresent`. Successful enqueue
+consumes and retires that one-shot readiness witness; it does not preserve the witness as post-enqueue
+evidence. Instead, enqueue creates a durable registered-wait/presentation lease carrying the exact
+image generation, wait consumption, presentation operation, and implementation-owned backing-ledger
+entry. That durable lease survives API-handle destruction until the presentation agent records its
+explicit completion/retirement event and every queued wait has its specified disposition.
+
+An acquired frame that was never enqueued may retire its unused readiness through the profile's exact
+abandon/recreation/destruction transition. That path creates no presentation operation, registered
+wait, acceptance, completion, or display event. Handle destruction prevents new use but neither
+completes an enqueued present nor erases its durable lease. A later acquire obtains reuse credit only
+from the exact prior image generation's completed execution and presentation retirement. The backing
+ledger closes only after every image generation is retired. These rules prevent cleanup code from
+proving reclamation by first deleting the record that carries the outstanding obligation.
+
 Two additional stage blockers are architectural rather than implementation details.  First, PE
 imports and Vulkan dispatch commands have different realization evidence: User32 and selected
 Vulkan loader entry points may have DLL/symbol/import-index/IAT-slot identities, while instance and
@@ -118,11 +135,103 @@ resolver, command, returned-function-pointer, dispatchable-handle lineage, and l
 Do not fabricate IAT slots for dynamically resolved commands.
 
 Second, the current canonical `Gasm.Core.Platform.Environment` has no typed window-event or
-Vulkan/WSI provider-outcome schedule.  Before a windowed composition profile is implemented, Trust
-must approve either a typed canonical provider-oracle extension or a relational platform-execution
-boundary.  Raw `incomingRequests` bytes and one selected successful driver trace are not valid
-substitutes.  Until that decision and immutable Win32/Vulkan/SPIR-V source intake land, a Windows
-Vulkan composition document remains non-`REF`-citable design guidance.
+Vulkan/WSI provider-outcome schedule. Section 2.3 selects the replacement direction: external
+choices are replayable raw provider input in the universally quantified environment, while
+`Platform.run` remains functional. Raw `incomingRequests` bytes, a second execution authority, and
+one selected successful driver trace are not valid substitutes. Until that boundary is demonstrated
+and immutable Win32/Vulkan/SPIR-V source intake lands, a Windows Vulkan composition document remains
+non-`REF`-citable design guidance.
+
+### 2.3 Provisional external-provider boundary and landing gate
+
+This section is a selected design direction, not a description of a landed core API. A feature
+series may introduce one default-empty, target-neutral provider-input container inside the canonical
+`Environment`. Each raw entry contains a `ProviderProtocolKey`, raw status, and raw payload. It is
+oracle data for deterministic replay, not authority: requested length, destination capacity and
+generation, operation identity, ownership, and completion are established by the program and target
+runtime. Consumption mints a fresh per-execution operation/response identity; identities supplied by
+the OS, pointer values, payload fields, positions in another execution, and causal-trace stamps cannot
+substitute for that identity.
+
+The nominal key and raw envelope belong in a small Core leaf below `Platform`; the existing
+fully-qualified key has one definition rather than an alias or graphics duplicate. The feature uses
+a distinct Windows+graphics platform profile whose actual `Platform.State` contains both the x86-64
+CPU state and provider-execution state. Its `load` initializes both components, its `run` steps the
+combined state, and its `admissible` predicate classifies the combined result. Mutable remaining
+responses, monotone consumption history, and fresh per-execution counters live in the provider
+component; the selected decoder and provider-support evidence live in `RuntimeContext`. The profile
+may reuse CPU instruction semantics by lifting each CPU step over the wrapper, but it may not project
+`.cpu` into the old runner and attach an unused provider record afterward. Ordinary instruction
+semantics preserve provider state through one reusable lifted frame theorem, and unrelated host calls
+use one provider-state frame law. This keeps host protocol state out of ISA semantics, prevents a
+dead adapter, and avoids adding a preservation premise to every instruction proof.
+
+The response stream is consumed strictly at its head. A call may inspect only the current head; it
+may never search ahead for a matching protocol. Thus a stream beginning `[Vulkan, GetMessage]` cannot
+skip the Vulkan entry to satisfy a `GetMessage` call. A pre-provider rejection such as
+`requested > capacity`, an empty stream, or a mismatched head leaves the complete stream unchanged
+and mints no response occurrence. Once a matching head is accepted as this call's provider response,
+every decoded success, provider refusal/error, malformed payload, and oversized-payload result states
+whether that head is consumed; the selected synchronous profile consumes it and preserves the exact
+tail. The response sequence advances if and only if a head is consumed. A separate operation sequence
+advances for each accepted operation attempt, so operation and response IDs are distinct,
+execution-scoped, monotone, and never reset or reused. Every result appends its exact disposition to a
+monotone history; no failure, cancellation, reload helper, or record update may restore a consumed
+entry or erase an earlier operation/response identity.
+
+The environment remains universal. Missing, mismatched, malformed, refused, and oversized entries
+are ordinary inputs with explicit result and resource dispositions. A valid bounded-write branch
+proves `payload.length <= requested <= capacity`, writes exactly the specified scalar and/or output
+footprint, establishes initialization of the written bytes, frames the complement, and returns the
+same destination-generation loan at synchronous call return. Invalid inputs never narrow the
+quantifier through a caller-authored predicate and never authorize an out-of-bounds write. A
+`MemoryPerm` value alone is insufficient ownership evidence: the operation consumes and returns a
+generative loan/obligation in the target's indexed state.
+
+`ProviderProtocolKey` supplies nominal, versioned protocol identity only. The target owns the total
+decoder/refinement and provider implementation; a capability may select that provider but may not
+supply arbitrary semantics. The connection is nonvacuous only when the exact artifact imports the
+protocol, the selected provider is covered, linked, and runtime-supported, capability establishment
+supplies the entry loan and operation state, the realized runtime actually consumes the raw entry,
+and the emitted artifact's behavior closes through the sole production `VerifiedProgram`.
+
+The first validation series has two deliberately different synchronous consumers:
+
+| Consumer | Required distinction |
+| :--- | :--- |
+| Win32 `GetMessage` | Total `message` / `quit` / `error` result; preserve unknown numeric messages; exact `MSG` write and frame; account for retrieval-time sent-message callbacks. |
+| One real Vulkan scalar/out-buffer call | Vulkan result code remains distinct from bounded output writes and destination-loan return. |
+
+The series implements and reviews `GetMessage` end to end first, including an emitted native
+`VerifiedProgram`, but that is checkpoint acceptance rather than permission to land the shared
+environment field. The field and connected graphics series reach main only after the Vulkan
+consumer validates the same raw envelope and an adversarial rereview finds no one-consumer bias. If
+the second consumer exposes a mismatch, the still-unlanded core shape is revised; no compatibility
+layer is retained. Operation IDs, decoders, buffer loans, and write-frame relations remain
+target-local even after the raw envelope is promoted unless later consumers justify sharing them.
+
+Callbacks and asynchronous device work are separate profiles, but deferring explicit
+`DispatchMessage` does not make `GetMessage` non-reentrant. The selected Win32 source profile must
+model the ordered transcript of sent-message callbacks that the provider can invoke while a
+`GetMessage` retrieval is in progress. The target-owned decoder obtains that transcript from the
+matching raw response; runtime consumption mints a distinct occurrence identity for each callback;
+`run` executes each callback transition under its exact reentrant authority/obligation world before
+returning the terminal `message` / `quit` / `error` result. A narrower no-callback profile is
+admissible only if pinned Win32 sources and target entry/interference proofs establish that exclusion
+for every environment in the profile—not because the demonstration happened to receive no sent
+message.
+
+An application-authored `DispatchMessage` remains a separate callback/reentrancy transition with its
+own occurrence identity and authority boundary; it is not definitional continuation, visibility, or
+completion of `GetMessage`. Vulkan submission acceptance, operation result/terminality,
+notification, host observation, buffer or registration return, queue-slot reclamation, and GPU
+completion are likewise distinct correlated consequences. Neither CPU order nor callback delivery
+invents GPU completion.
+
+Applicability is import/capability scoped. An artifact that does not import the protocol selects no
+provider capability, response cursor, destination loan, decoder, or proof obligation. The platform
+supplies reusable framing/irrelevance results for unused provider input once; unrelated programs do
+not re-prove them.
 
 ---
 

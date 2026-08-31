@@ -106,6 +106,32 @@ alternatives do not exist. Public target-local raw serializers still exist and a
 unmigrated/fuzzing paths; they confer no verification claim and must be made private or gated before
 the “only emission path” property is mechanically true.
 
+External-provider nondeterminism does not require a relational replacement for `Platform.run`.
+The selected provisional direction reifies raw provider responses in a default-empty,
+target-neutral container within the same universally quantified `Environment`, preserving
+deterministic replay and the existing `VerifiedProgram` theorem shape. Raw entries name a
+versioned `ProviderProtocolKey` and carry raw status/payload only; runtime consumption mints
+causal/generative operation identity and obtains exact destination authority from the selected
+capability. Provider semantics and total decoding are target-owned, never caller-authored
+predicates that shrink the input domain. Missing, malformed, mismatched, refused, and oversized
+entries map to explicit outcomes and resource dispositions.
+
+A provider-enabled target is a distinct platform profile whose actual state, load, run, and
+admissibility cover the combined CPU/provider execution; projecting the CPU component into an old
+runner while leaving provider state unused is not a connection proof. Provider streams are inspected
+at the head only, preserve the exact tail on every outcome, advance their response sequence exactly
+when the head is consumed, and retain monotone execution-scoped operation/response history.
+
+This is a staged core boundary, not yet a landed API. It may be integrated only in a reviewed
+series where two materially different real provider operations consume the same envelope and a
+runnable emitted demonstration closes through the sole production `VerifiedProgram`; the initial
+graphics pair is Win32 `GetMessage` and a synchronous Vulkan scalar/out-buffer operation. Higher
+vocabulary such as operation IDs, generative buffer loans, exact write frames, callbacks, and
+asynchronous completion stays target-local until independent consumers establish a reusable shape.
+Programs whose artifacts do not import and select a provider incur no provider setup or proof
+obligation; shared unused-input framing is discharged by the platform, not replayed per program.
+See `docs/GRAPHICS_ARCHITECTURE.md` §2.3 for the concrete validation and landing gate.
+
 `VerifiedProgram` is assembled by one general rule over the current fixed artifact, provider,
 entry-context, target-admissibility and behavioral-refinement certificates plus its export set.
 Their dependent indices require agreement on the same platform, final artifact and capability
