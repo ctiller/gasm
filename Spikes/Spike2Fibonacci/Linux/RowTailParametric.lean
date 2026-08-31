@@ -123,7 +123,7 @@ private theorem syscallPrefix {formatted : X86_64MachineState} {eventsRev : List
   · exact frame.afterWriteSyscallSafe
   · exact .nil _ _
 
-/- REF: docs/PROOF_TACTICS.md#compose-prefix-certificates -/
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
 /-- The fixed row tail is independent of how many decimal passes produced `formatted`. -/
 theorem selectedPrefix {formatted : X86_64MachineState} {eventsRev : List AnyEvent}
     (frame : Frame formatted) :

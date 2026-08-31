@@ -49,7 +49,7 @@ execution evidence. -/
 abbrev TailReadyCallerFrame : CallerFrame :=
   fun _ formatted => RowTailParametric.Frame formatted
 
-/- REF: docs/PROOF_TACTICS.md#compose-prefix-certificates -/
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
 /-- A continuing two-digit-index row has a selected prefix bounded by its fixed opening/tail
 cost plus twelve transitions for each value digit. -/
 theorem twoDigitRowPrefix {completed : Nat} {current next : UInt64}
