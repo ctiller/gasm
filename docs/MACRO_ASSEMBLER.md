@@ -694,6 +694,25 @@ JCC definition and polarity, both closed child definitions, target-owned layout/
 selected-edge world transfer. Handwritten condition blocks remain first class by supplying the
 same logical agreement and selected frame contracts instead of using this macro.
 
+## Structured Microsoft x64 branch blocks
+
+`Gasm.Compiler.Word.StructuredConditionMicrosoftX64CFG` lifts one accepted comparison into an exact
+logical `DirectBlock`. Its `afterCondition` state changes only the physical x86 machine field and
+definitionally preserves API typestate, stack depth, permissions, obligations, causal clock, and
+event history. `Successors` supplies the two existing `ConditionalBlockEdge`s and their exact child
+definitions; the compiler never manufactures a destination entry proof or ghost-world transfer
+from the source Boolean.
+
+The generated block uses the target-owned condition code with definitionally identical flag
+semantics, retains true/false orientation, and produces the existing `StructuredCFG.RealizesCondition`
+premise. Consequently it can be one replaceable implementation assignment in the stable symbolic
+decision plan, while `StructuredCFG.Realizes.lower` remains the only path to the existing typed CFG.
+
+This adapter does not emit a JCC. The comparison instruction body remains exact in its
+`LoweredCondition`; the linker must separately select and prove the JCC encoding, both placements,
+fallthrough orientation, displacement, production lookup and operational step. It also proves no
+graph closure by itself, no artifact or execution outcome, and no `VerifiedProgram` authority.
+
 ## Structured Microsoft x64 process-entry backend
 
 `Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry` realizes the same bounded portable
