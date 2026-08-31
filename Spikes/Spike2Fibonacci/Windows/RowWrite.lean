@@ -37,13 +37,13 @@ theorem spike2_writeFile_selected_prefix (state : X86_64MachineState)
     decide
   have hselected : selectedNonInputPlatformCall (spike2AfterWriteFileCall state).rip
       (spike2AfterWriteFileCall state) = true := by
-    simp [selectedNonInputPlatformCall, hnotLinux, selectedNonInputWin32Call, iatIndex]
+    simp [selectedNonInputPlatformCall, selectedNonInputWin32Call, iatIndex]
   have hintercept : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent _
       (spike2AfterWriteFileCall state).rip (spike2AfterWriteFileCall state) =
       some (writeFileHook (Event := AnyEvent) (spike2AfterWriteFileCall state)) := by
-    change (if (spike2AfterWriteFileCall state).rip == linuxSyscallEntry then
-      linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = some _
-    simp [hnotLinux, Gasm.Targets.Windows.win32Intercept, iatIndex]
+    change Gasm.Targets.Windows.win32Intercept (Event := AnyEvent)
+      (spike2AfterWriteFileCall state).rip (spike2AfterWriteFileCall state) = some _
+    simp [Gasm.Targets.Windows.win32Intercept, iatIndex]
   have hsafe : (writeFileHook (Event := AnyEvent) (spike2AfterWriteFileCall state)).1.fault = none := by
     unfold writeFileHook
     change (spike2AfterWriteFileCall state).fault = none
@@ -59,4 +59,3 @@ theorem spike2_writeFile_selected_prefix (state : X86_64MachineState)
 
 
 end Spikes.Spike2Fibonacci.Windows
-

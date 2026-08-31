@@ -92,11 +92,12 @@ theorem spike2_main_header_fallthrough_selected_prefix (state : X86_64MachineSta
   · rw [hrip]
     exact spike2MainLoop_fetch
   · simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
-      Gasm.Targets.Windows.findIatIndex, hcmpRip, linuxSyscallEntry]
-  · change (if (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip ==
-        linuxSyscallEntry then linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+      Gasm.Targets.Windows.findIatIndex, hcmpRip]
+  · change Gasm.Targets.Windows.win32Intercept (Event := AnyEvent)
+      (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip
+      (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state) = none
     rw [hcmpRip]
-    simp [linuxSyscallEntry, Gasm.Targets.Windows.win32Intercept,
+    simp [Gasm.Targets.Windows.win32Intercept,
       Gasm.Targets.Windows.findIatIndex]
   · rw [stepCmpImm8]
     exact hsafe
@@ -108,13 +109,13 @@ theorem spike2_main_header_fallthrough_selected_prefix (state : X86_64MachineSta
     · change selectedNonInputPlatformCall (spike2AfterMainHeader state).rip
         (spike2AfterMainHeader state) = true
       simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
-        Gasm.Targets.Windows.findIatIndex, hbodyRip, linuxSyscallEntry]
+        Gasm.Targets.Windows.findIatIndex, hbodyRip]
     · change ExternalCallInterceptor.interceptCall X86_64 (spike2AfterMainHeader state).rip
         (spike2AfterMainHeader state) = none
-      change (if (spike2AfterMainHeader state).rip == linuxSyscallEntry then
-          linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+      change Gasm.Targets.Windows.win32Intercept (Event := AnyEvent)
+        (spike2AfterMainHeader state).rip (spike2AfterMainHeader state) = none
       rw [hbodyRip]
-      simp [linuxSyscallEntry, Gasm.Targets.Windows.win32Intercept,
+      simp [Gasm.Targets.Windows.win32Intercept,
         Gasm.Targets.Windows.findIatIndex]
     · change state.fault = none
       exact hsafe
@@ -144,11 +145,12 @@ theorem spike2_main_header_taken_selected_prefix (state : X86_64MachineState)
   · rw [hrip]
     exact spike2MainLoop_fetch
   · simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
-      Gasm.Targets.Windows.findIatIndex, hcmpRip, linuxSyscallEntry]
-  · change (if (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip ==
-        linuxSyscallEntry then linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = none
+      Gasm.Targets.Windows.findIatIndex, hcmpRip]
+  · change Gasm.Targets.Windows.win32Intercept (Event := AnyEvent)
+      (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip
+      (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state) = none
     rw [hcmpRip]
-    simp [linuxSyscallEntry, Gasm.Targets.Windows.win32Intercept,
+    simp [Gasm.Targets.Windows.win32Intercept,
       Gasm.Targets.Windows.findIatIndex]
   · rw [stepCmpImm8]
     exact hsafe
@@ -205,17 +207,9 @@ def spike2_exit_process_selected_step (state : X86_64MachineState)
     have hnotLinux : (spike2AfterExitProcessCall state).rip ≠ linuxSyscallEntry := by
       rw [iatTarget]
       decide
-    simp [selectedNonInputPlatformCall, hnotLinux, selectedNonInputWin32Call, iatIndex]
+    simp [selectedNonInputPlatformCall, selectedNonInputWin32Call, iatIndex]
   steppedSafe := steppedSafe
   intercept := by
-    change (if (spike2AfterExitProcessCall state).rip == linuxSyscallEntry then
-      linuxSyscallIntercept _ _ else Gasm.Targets.Windows.win32Intercept _ _) = some _
-    have hnotLinux : (spike2AfterExitProcessCall state).rip ≠ linuxSyscallEntry := by
-      rw [iatTarget]
-      decide
-    have hnotLinuxBool : ((spike2AfterExitProcessCall state).rip == linuxSyscallEntry) = false :=
-      decide_eq_false_iff_not.mpr hnotLinux
-    rw [hnotLinuxBool]
     change Gasm.Targets.Windows.win32Intercept (spike2AfterExitProcessCall state).rip
       (spike2AfterExitProcessCall state) = some _
     simp only [Gasm.Targets.Windows.win32Intercept, iatIndex]

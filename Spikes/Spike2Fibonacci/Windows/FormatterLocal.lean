@@ -19,11 +19,10 @@ theorem spike2_selected_silent_unaligned (state : X86_64MachineState) (address :
     selectedNonInputPlatformCall address state = true ∧
       @ExternalCallInterceptor.interceptCall X86_64 AnyEvent _ address state = none := by
   constructor
-  · simp [selectedNonInputPlatformCall, notLinux, selectedNonInputWin32Call,
+  · simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
       Gasm.Targets.Windows.findIatIndex, hrip, unaligned]
-  · change (if address == linuxSyscallEntry then linuxSyscallIntercept _ _ else
-      Gasm.Targets.Windows.win32Intercept _ _) = none
-    simp [notLinux, Gasm.Targets.Windows.win32Intercept,
+  · change Gasm.Targets.Windows.win32Intercept (Event := AnyEvent) address state = none
+    simp [Gasm.Targets.Windows.win32Intercept,
       Gasm.Targets.Windows.findIatIndex, hrip, unaligned]
 
 /-- An aligned instruction address is still an ordinary selected boundary when its memory word is
@@ -35,11 +34,10 @@ theorem spike2_selected_silent_nonIat (state : X86_64MachineState) (address : UI
     selectedNonInputPlatformCall address state = true ∧
       @ExternalCallInterceptor.interceptCall X86_64 AnyEvent _ address state = none := by
   constructor
-  · simp [selectedNonInputPlatformCall, notLinux, selectedNonInputWin32Call,
+  · simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
       Gasm.Targets.Windows.findIatIndex, notSelfRef]
-  · change (if address == linuxSyscallEntry then linuxSyscallIntercept _ _ else
-      Gasm.Targets.Windows.win32Intercept _ _) = none
-    simp [notLinux, Gasm.Targets.Windows.win32Intercept,
+  · change Gasm.Targets.Windows.win32Intercept (Event := AnyEvent) address state = none
+    simp [Gasm.Targets.Windows.win32Intercept,
       Gasm.Targets.Windows.findIatIndex, notSelfRef]
 
 /-- One exact ordinary linked instruction at a proven non-IAT boundary.  Formatter slices supply

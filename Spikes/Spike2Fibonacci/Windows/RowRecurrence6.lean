@@ -49,11 +49,10 @@ private theorem selected_silent_unaligned (state : X86_64MachineState) (address 
     selectedNonInputPlatformCall address state = true ∧
       @ExternalCallInterceptor.interceptCall X86_64 AnyEvent _ address state = none := by
   constructor
-  · simp [selectedNonInputPlatformCall, notLinux, selectedNonInputWin32Call,
+  · simp [selectedNonInputPlatformCall, selectedNonInputWin32Call,
       Gasm.Targets.Windows.findIatIndex, hrip, unaligned]
-  · change (if address == linuxSyscallEntry then linuxSyscallIntercept _ _ else
-      Gasm.Targets.Windows.win32Intercept _ _) = none
-    simp [notLinux, Gasm.Targets.Windows.win32Intercept,
+  · change Gasm.Targets.Windows.win32Intercept (Event := AnyEvent) address state = none
+    simp [Gasm.Targets.Windows.win32Intercept,
       Gasm.Targets.Windows.findIatIndex, hrip, unaligned]
 
 /-- Exact selected certificate for the concrete recurrence back edge. -/

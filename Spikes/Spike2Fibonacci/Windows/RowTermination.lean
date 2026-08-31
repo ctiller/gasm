@@ -23,7 +23,9 @@ open Gasm.Effects Gasm.Targets.X86_64
     branch widths remain sealed in those lower-level certificates. -/
 theorem spike2_selected_outcome_constructive :
     ∃ final,
-      runProgramOutcomeLoop spike2Indexed 50000 spike2Executable.load ([] : List AnyEvent) =
+      @runProgramOutcomeWithLoops AnyEvent
+          (Gasm.Core.Verification.standardWindowsRuntime AnyEvent)
+          spike2Executable.load.rip spike2Instructions 50000 spike2Executable.load =
         .terminated (.processExit 0) final
           ((spike2ExpectedEventsRev 90).reverse ++
             [Inject.inject (ProcessEvent.exit 0)]) := by
@@ -56,6 +58,8 @@ theorem spike2_selected_outcome_constructive :
   have finalEvents : result.finalEventsRev = spike2ExpectedEventsRev 90 :=
     exitSummary.1.trans loopInvariant.events
   refine ⟨result.exitStep.hooked, ?_⟩
+  unfold runProgramOutcomeWithLoops
+  change runProgramOutcomeLoop spike2Indexed 50000 spike2Executable.load [] = _
   rw [← totalFuel]
   rw [outcome]
   simp [exitEvent, exitSummary.2, finalEvents, accumulateEvent, List.reverse_cons]
@@ -63,7 +67,7 @@ theorem spike2_selected_outcome_constructive :
 /-- Constructive 90-row selected termination for the complete linked Windows executable. -/
 theorem spike2_selected_termination_constructive :
     selectedExecutionTerminates (Event := AnyEvent) false
-      Gasm.Targets.selectedNonInputPlatformCall
+      selectedNonInputPlatformCall
       spike2Indexed 50000 spike2Executable.load = true := by
   rcases spike2_row_step.iterate spike2AfterPrologue ([] : List AnyEvent)
       spike2_initial_row_invariant with
@@ -88,11 +92,11 @@ theorem spike2_selected_termination_constructive :
 /-- The same certificate at the public executable-index expression, without simplifying it. -/
 theorem spike2_selected_termination_constructive_indexed :
     selectedExecutionTerminates (Event := AnyEvent) false
-      Gasm.Targets.selectedNonInputPlatformCall
+      selectedNonInputPlatformCall
       (indexInstructions spike2Executable.load.rip spike2Instructions) 50000
       spike2Executable.load = true := by
   change selectedExecutionTerminates (Event := AnyEvent) false
-    Gasm.Targets.selectedNonInputPlatformCall spike2Indexed 50000 spike2Executable.load = true
+    selectedNonInputPlatformCall spike2Indexed 50000 spike2Executable.load = true
   exact spike2_selected_termination_constructive
 
 end Spikes.Spike2Fibonacci.Windows

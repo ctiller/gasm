@@ -148,6 +148,16 @@ def emptyBoundarySemantics (Target State : Type) :
   runs := fun _ _ _ _ _ _ _ _ => False
   admissible := fun _ _ _ _ _ _ _ _ => False
 
+/- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
+/-- Windows x86-64 termination/admissibility, named at the target boundary so a composed proof can
+    transport an exact typed outcome without normalizing a large concrete interpreter run. -/
+def windowsX86_64Admissible {Event : Type}
+    (runtime : NativeX86_64Runtime Event)
+    (artifact : WindowsX86_64Artifact) (state : X86_64MachineState) : Prop :=
+  letI := runtime.interceptor
+  (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
+    runtime.proofBudget.evaluatorFuel state).isAdmissible false
+
 instance {Event : Type} : Platform (WindowsX86_64 Event) where
   Artifact := WindowsX86_64Artifact
   State := X86_64MachineState
@@ -189,11 +199,24 @@ instance {Event : Type} : Platform (WindowsX86_64 Event) where
     letI := runtime.interceptor
     (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
       runtime.proofBudget.evaluatorFuel state).observable
-  admissible := fun runtime artifact state =>
-    letI := runtime.interceptor
-    (runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
-      runtime.proofBudget.evaluatorFuel state).isAdmissible false
+  admissible := windowsX86_64Admissible
   emit := fun artifact => .ok artifact.executable.emit
+
+/-- Establish Windows admissibility by separately proving the exact execution and classifying that
+    result.  This is the proof-composition boundary used by large basic-block chains. -/
+theorem windowsX86_64Admissible_of_execution {Event : Type}
+    (runtime : NativeX86_64Runtime Event)
+    (artifact : WindowsX86_64Artifact) (state : X86_64MachineState)
+    (execution : NativeRunOutcome Event)
+    (executes :
+      (letI := runtime.interceptor
+       runProgramOutcomeWithLoops (Event := Event) state.rip artifact.instructions
+         runtime.proofBudget.evaluatorFuel state) = execution)
+    (admissible : execution.isAdmissible false) :
+    windowsX86_64Admissible runtime artifact state := by
+  unfold windowsX86_64Admissible
+  rw [executes]
+  exact admissible
 
 /- REF: docs/ARCHITECTURE.md#21-platform-neutral-whole-program-boundary -/
 /-- Linux x86-64 termination/admissibility, named at the target boundary so dependent

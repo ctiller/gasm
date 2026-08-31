@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -/
 
+import Gasm.Core.Verification
 import Gasm.Targets.X86_64.EventfulSegment
 import Gasm.Targets.X86_64.MacroAssembler.PlatformBridge
 import Gasm.Targets.Dispatcher
@@ -38,6 +39,20 @@ open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.MacroAssembler
 open Spikes.Spike2Fibonacci
+
+/-- Spike 2's Windows proof is interpreted by the Windows runtime that the final
+    `WindowsX86_64` capability composition realizes.  Keeping this instance at the
+    adapter root prevents the generic cross-platform dispatcher from leaking Linux
+    address tests into every local prefix proof. -/
+@[instance_reducible] instance (priority := 1100) spike2WindowsRuntime :
+    ExternalCallInterceptor X86_64 AnyEvent :=
+  Gasm.Core.Verification.standardWindowsRuntime AnyEvent
+
+/-- Local selected-boundary policy for the Windows artifact.  The deliberately
+    familiar name keeps the existing prefix vocabulary while making its platform
+    ownership explicit in this namespace. -/
+def selectedNonInputPlatformCall :=
+  Gasm.Targets.Windows.selectedNonInputWin32Call
 
 set_option maxRecDepth 2000000
 set_option maxHeartbeats 5000000
