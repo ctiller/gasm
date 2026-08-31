@@ -16,7 +16,9 @@ limitations under the License.
 
 import Gasm.Core.Verification
 import Gasm.Effects.Trace
+import Gasm.Targets.X86_64.MemoryFrame.Mov
 import Gasm.Targets.X86_64.MemoryRange
+import Gasm.Targets.X86_64.Roundtrip
 import Spikes.CheckedMemoryWindows.Authority
 
 /-!
@@ -110,6 +112,12 @@ structure ProductionStoreUse (selected : InvocationId)
   descriptorExact :
     X86_64Instruction.memAccesses (mov_rsp_byte byteOffset storedValue) =
       [⟨.store, .w8, ⟨some .rsp, none, signExtend8To64 byteOffset⟩⟩]
+  codecRoundtrip : Gasm.Targets.X86_64.Roundtrip.DecodesTo
+    (mov_rsp_byte byteOffset storedValue)
+  frameWrites : Gasm.Targets.X86_64.MemoryFrame.WritesWithin
+    (MovRspDispByte.mk byteOffset storedValue)
+  frameReads : Gasm.Targets.X86_64.MemoryFrame.ReadsWithin
+    (MovRspDispByte.mk byteOffset storedValue)
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 theorem productionStoreUse : ProductionStoreUse invocation entryState where
@@ -124,6 +132,10 @@ theorem productionStoreUse : ProductionStoreUse invocation entryState where
   eventResolved := rfl
   targetStoreProjected := rfl
   descriptorExact := rfl
+  codecRoundtrip :=
+    Gasm.Targets.X86_64.Roundtrip.roundtrip_mov_rsp_disp_byte byteOffset storedValue
+  frameWrites := Gasm.Targets.X86_64.MemoryFrame.MovRspDispByte.writesWithin _
+  frameReads := Gasm.Targets.X86_64.MemoryFrame.MovRspDispByte.readsWithin _
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Target refinement from structural history to a live/latest binding at the executed store.
@@ -136,6 +148,7 @@ structure LiveLatestStoreRefinement (selected : InvocationId)
   production : ProductionStoreUse selected state
   targetProjectionComplete : (history state).transitions = projectedTransitionIds
   targetMachineExact : productionBindingExecution.machine = afterStore storedValue state
+  targetHostExact : productionBindingExecution.host = processEntryLoad.afterHost
   targetBindingLive : productionBindingExecution.binding = some processEntryLoad.addressDomain
   historyHasNoTransition : (history state).transitions = []
   rootLatestAtCapture : (history state).FrontierResolves
@@ -154,6 +167,7 @@ theorem liveLatestStoreRefinement : LiveLatestStoreRefinement invocation entrySt
   production := productionStoreUse
   targetProjectionComplete := rfl
   targetMachineExact := rfl
+  targetHostExact := rfl
   targetBindingLive := rfl
   historyHasNoTransition := by simp [history]
   rootLatestAtCapture :=
@@ -207,6 +221,9 @@ structure X86StoreRealization (selected : InvocationId)
     (mov_rsp_byte byteOffset storedValue) = [selectedDescriptor]
   descriptorRange : selectedDescriptor.addressRange (afterAllocate state) = byteRange state
   descriptorStore : selectedDescriptor.kind = .store
+  naturallyAligned :
+    (selectedDescriptor.addressRange (afterAllocate state)).start.toNat %
+      selectedDescriptor.width.bytes = 0
   backingTranslation : ∀ address, (byteRange state).ContainsAddress address →
     processEntryLoad.addressDomain.translate address = address
 
@@ -220,6 +237,9 @@ theorem storeRealization :
   descriptorExact := rfl
   descriptorRange := by rfl
   descriptorStore := by rfl
+  naturallyAligned := by
+    change _ % 1 = 0
+    exact Nat.mod_one _
   backingTranslation := selectedMappedWritable.backingTranslation
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/

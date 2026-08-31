@@ -31,6 +31,7 @@ open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.MemoryModel
+open Gasm.MemoryModel.BindingHistory
 open Gasm.MemoryModel.ObligationWorld
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
@@ -47,6 +48,12 @@ local instance : ExternalCallInterceptor X86_64 Spikes.CheckedMemoryWindows.Even
   standardWindowsRuntime Spikes.CheckedMemoryWindows.Event
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem missing_world_ownership_rejected :
+    ¬ emptyWorld.Binds (accessEntry invocation entryState).id
+      (accessEntry invocation entryState).payload := by
+  exact World.binds_empty _ _
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private def staleAccess : Entry ObligationId ObligationKind :=
   ⟨accessId invocation,
     .exclusiveStore (entryBinding invocation) ⟨invocation, 1⟩ (byteRange entryState)⟩
@@ -56,6 +63,46 @@ private theorem stale_generation_rejected :
     ¬ (entryWorld invocation entryState).Binds staleAccess.id staleAccess.payload := by
   simp [World.Binds, entryWorld, staleAccess, accessEntry, invalidateEntry,
     entryGeneration]
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private def wrongKindAccess : Entry ObligationId ObligationKind :=
+  ⟨accessId invocation,
+    .invalidateView (entryBinding invocation) (entryGeneration invocation)
+      (storeCapture invocation)⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem wrong_access_kind_rejected :
+    ¬ (entryWorld invocation entryState).Binds wrongKindAccess.id wrongKindAccess.payload := by
+  simp [World.Binds, entryWorld, wrongKindAccess, accessEntry, invalidateEntry,
+    accessId, invalidateId]
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private def wrongFootprintAccess : Entry ObligationId ObligationKind :=
+  ⟨accessId invocation,
+    .exclusiveStore (entryBinding invocation) (entryGeneration invocation)
+      ⟨(storeAddress entryState) + 1, 1⟩⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem wrong_access_footprint_rejected :
+    ¬ (entryWorld invocation entryState).Binds
+      wrongFootprintAccess.id wrongFootprintAccess.payload := by
+  simp [World.Binds, entryWorld, wrongFootprintAccess, accessEntry, invalidateEntry,
+    byteRange, accessId, invalidateId]
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private def sharedReadBindingRecord : BindingRecord bindingDomains :=
+  { entryBindingRecord entryState with rights := .sharedRead }
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem wrong_access_rights_rejected :
+    (history entryState).bindingRecord (entryBinding invocation) ≠
+      some sharedReadBindingRecord := by
+  rw [history_bindingRecord_entry]
+  intro equal
+  have recordEqual := Option.some.inj equal
+  have rightsEqual := congrArg
+    (fun record : BindingRecord bindingDomains => record.rights) recordEqual
+  cases rightsEqual
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem checked_descriptor_mismatch_rejected :
@@ -112,6 +159,26 @@ private theorem consecutive_worlds_are_disjoint :
     entryState secondProcessEntryLoad.machine
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private def sameAddressOtherInvocationAccess : Entry ObligationId ObligationKind :=
+  ⟨accessId secondProcessEntryLoad.invocation,
+    .exclusiveStore (entryBinding secondProcessEntryLoad.invocation)
+      (entryGeneration secondProcessEntryLoad.invocation) (byteRange entryState)⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem different_binding_at_same_address_rejected :
+    ¬ (entryWorld invocation entryState).Binds
+      sameAddressOtherInvocationAccess.id sameAddressOtherInvocationAccess.payload := by
+  intro bound
+  simp only [World.Binds, entryWorld, List.mem_cons, List.not_mem_nil, or_false] at bound
+  rcases bound with equal | equal
+  · have idEqual := congrArg
+      (fun entry : Entry ObligationId ObligationKind => entry.id.invocation) equal
+    exact consecutive_invocation_ids_differ idEqual
+  · have idEqual := congrArg
+      (fun entry : Entry ObligationId ObligationKind => entry.id.invocation) equal
+    exact consecutive_invocation_ids_differ idEqual
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 /-- Any value that reaches the sole admission type necessarily contains every reviewed leg. These
     projections are deletion controls: dropping logical, physical, authoring, lifecycle, issuance,
     or termination evidence makes the admission constructor unavailable. -/
@@ -125,6 +192,21 @@ private theorem admission_has_all_legs {selected : InvocationId}
       Nonempty (LifecycleCompletion selected state activeHost) := by
   exact ⟨admission.operationalLoad, admission.logical, admission.physical,
     admission.authored, ⟨admission.lifecycle⟩⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem checked_authoring_retains_both_legs {selected : InvocationId}
+    {state : X86_64MachineState} {activeHost : WindowsHostState}
+    (checked : CheckedStore selected state activeHost) :
+    TypedStoreView selected state ∧ X86StoreRealization selected state activeHost :=
+  ⟨checked.view, checked.realization⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem production_use_retains_dynamic_origin {selected : InvocationId}
+    {state : X86_64MachineState} (use : ProductionStoreUse selected state) :
+    productionBindingExecution.events.getLast? =
+      some (.cpuStep selected (afterAllocate state).rip (afterStore storedValue state).rip
+        [⟨.store, .w8, ⟨some .rsp, none, signExtend8To64 byteOffset⟩⟩]) :=
+  use.targetStoreProjected
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem replaying_same_host_replays_identity :
@@ -183,6 +265,15 @@ private theorem inserted_rebind_changes_binding :
     reboundProductionExecution.binding =
       some ⟨invocation, invocation.generation + 1⟩ := by
   rfl
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem inserted_rebind_invalidates_old_domain :
+    reboundProductionExecution.binding ≠ some processEntryLoad.addressDomain := by
+  intro equal
+  have domainEqual := Option.some.inj equal
+  have generationEqual := congrArg AddressDomainGeneration.generation domainEqual
+  change invocation.generation + 1 = invocation.generation at generationEqual
+  omega
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem post_retirement_store_rejected :
