@@ -405,6 +405,25 @@ For that alignment proof, expose one recursive layer with `change` and apply the
 hypothesis directly.  A broad `simp` over the fold can unfold a target's large step semantics: in
 this extraction the direct proof reduced the focused rebuild from about 97 seconds to 5 seconds.
 
+## Derive repeated store frames from exact effects
+
+When two instruction forms have the same single-store semantic shape, derive their frame laws from
+plain theorems over the exact descriptor and step result rather than enumerating each written byte
+inside both consumers.  Require equality to one `.store` descriptor and exact post-step memory
+equality to the corresponding write into pre-memory; these premises prevent a convenient parallel
+effect from laundering an instruction-specific proof.  Derive outside-footprint preservation over
+the write operation's exact modular address list, without adding a no-wrap premise that the memory
+semantics does not need.
+
+For read dependence, keep effective-address, stored-value, and post-step non-memory projection
+congruence as consumer premises.  `StoreAgreeOn` then follows from the inside-write byte lemma, while
+the exact store descriptor makes the load footprint empty.  Canonical `4c6fbf4c` applies the same
+`singleStore_writesWithin`/`singleStore_readsWithin` signature to x86 W32 and W64 MOV stores without
+changing their public theorem types or compiled frame audits.  Repeated consumer theorem text fell
+from 61 lines to 44; that 28 percent reduction is comparative evidence, not a target or acceptance
+gate.  Instruction admission, concurrency, platform behavior, and artifact authority stay outside
+this frame algebra.
+
 ## Make control-flow obligations local
 
 At the core CFG layer, use typed block-entry contracts as invariant transfer points and close every

@@ -196,6 +196,7 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Lift a one-step frame fact over a list | `runSteps_preserves`, `runSteps_preservesOutside` | target-independent observation algebra | AArch64 memory, SP, flags, fault, termination, and GPR frames; x86-64 composed GPR frames | the target supplies the one-step theorem and clobber classification |
 | Compose frame facts without clobber-order obligations | `preserves_comp`, `preservesOutside_comp`, `preservesOutside_comp_append` | target-independent observation algebra | x86-64 segment composition and the shared list-execution consumers | append is only a conservative union representation; uniqueness and order are irrelevant |
 | Preserve an x86 64-bit read across a lower, non-wrapping write | `Gasm.Targets.X86_64.X86_64Mem.read64_write_below` | x86-64 memory semantics | Spike 2 decimal authority and Spike 5 native proofs | address arithmetic, write width, nowrap, and strict-below premises remain explicit; this is not a target-independent memory model |
+| Derive an exact singleton-store frame | `X86_64Mem.readByte_write_outside_addresses`, `readByte_write_inside`, `MemoryFrame.singleStore_writesWithin`, and `singleStore_readsWithin` | x86-64 memory and frame semantics | `MovMem32DispReg32` and `MovMem64DispReg64` | exact singleton descriptor and step-memory equality are mandatory; address, value, and non-memory projection congruence remain consumer facts; this supplies no admission or artifact authority |
 | Show bounded finite exploration contains only normative reachable states | `Gasm.MemoryModel.FiniteSearch.Enumerator.search_sound` | memory-model presentation/search boundary | the checked incomplete-enumerator negative control exercises the one-way guarantee | completeness is separate and may not be inferred from bounded fuel or a finite result |
 | Preserve dependent CFG identity through lowering or nominal remapping | `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock`, `lower_ref_exact`, and `lowerDefinitions_mapBlockId_block` | compiler CFG authoring/lowering | typed CFG lowering and x86-64 control-point remapping | matching names or entries do not substitute for equality of the complete dependent definition |
 | Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.DecimalSchedule.UInt64DecimalScheduleRealization.selectedPrefix_bounded` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection; the fuel theorem supplies no resource authority |
@@ -211,6 +212,23 @@ evidence, and negative boundary after that comparison; it does not own a second 
 
 ## Proven composition patterns
 
+- Accepted extraction `archive/accepted/x86-singleton-store-frame-4c6fbf4c`
+  (`4c6fbf4c46899c85e4db88110b050f906ecaf799`) realizes a dependency-light
+  `MemoryFrame.Common` boundary for `MovMem32DispReg32` and `MovMem64DispReg64`.  Its plain theorem
+  helpers include `readByte_write_outside_addresses` over the exact modular address list without a
+  no-wrap premise; exact singleton `.store` descriptor equality; exact post-step memory equality to
+  writing the descriptor address/value into pre-memory; and derivations of `WritesWithin` from
+  outside-address preservation and `StoreAgreeOn` from `readByte_write_inside`.  The `ReadsWithin`
+  helper additionally receives effective-address, stored-value, and post-step non-memory congruence
+  under `agreeOutsideMemory`; the exact store descriptor makes the load footprint empty.
+
+  Both W32 and W64 instantiate the unchanged theorem signature while preserving their public theorem
+  names/types and compiled `MemoryFrameAudit`; every other form remains untouched.  The repeated
+  consumer theorem text fell from 61 lines to 44 (28 percent), an observed burden delta rather than
+  a metric or gate.  Focused audit validation passed 101/101; only three inherited Spike
+  `native_decide` gate failures remained, with none introduced by this slice.  No record, typeclass,
+  interface, negative fixture, admission, platform, carrier, atomic, CFG, authority, or ratio
+  machinery was added; the existing `NegativeControl` remains authoritative.
 - For an expensive exact execution proof, keep the complete certificate in its producer and export
   a separate typed boundary containing only the observations required by the successor.  The
   accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
@@ -935,24 +953,6 @@ The following code shapes have enough evidence to investigate but are not canoni
   and byte-after-footprint comparator falsifier remain accepted.  The focused gate passed 19/19 and
   all nine independent probes succeeded.  This closes the Milestone 1 slice only; the supplemental
   harness's existing nonclaims and final-authority boundary remain in force.
-
-  Provisional extraction scope from canonical `5fbf3f3d` permits a dependency-light
-  `MemoryFrame.Common` experiment for exactly `MovMem32DispReg32` and `MovMem64DispReg64`.  It may
-  contain plain theorem helpers only: `readByte_write_outside_addresses` over the exact modular
-  address list without a no-wrap premise; exact singleton `.store` descriptor equality; exact
-  post-step memory equality to writing the descriptor address/value into pre-memory; and derivations
-  of `WritesWithin` from outside-address preservation and `StoreAgreeOn` from
-  `readByte_write_inside`.  The `ReadsWithin` helper must additionally receive effective-address,
-  stored-value, and post-step non-memory congruence under `agreeOutsideMemory`; the exact store
-  descriptor makes the load footprint empty.
-
-  Both W32 and W64 consumers must instantiate the unchanged theorem signature while preserving
-  their public theorem names/types and `MemoryFrameAudit`; every other form remains untouched.  If
-  W64 needs an instruction-specific exception or signature widening, stop rather than generalize.
-  No record, typeclass, interface, negative fixture, admission, platform, carrier, atomic, CFG,
-  authority, or ratio machinery is authorized; the existing `NegativeControl` remains authoritative.
-  This is an approved experiment boundary, not reusable machinery, until an exact implementation,
-  two-consumer burden delta, validation, and review are available.
 
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
