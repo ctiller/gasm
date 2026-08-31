@@ -552,6 +552,15 @@ The following code shapes have enough evidence to investigate but are not canoni
   operations whose semantics need it.  A generalized execution-parameterized rebind-rejection
   theorem is deliberately deferred until a real consumer justifies the public seam and recurring
   proof burden.
+
+  Canonical `6ceb8b51` has the same stable patch as independently accepted `7b1a8413c4e3c26b7f2d8265cd4eb476b18093a9`.
+  It replaces whole-host equality in Windows `MappedWritable` with current namespace equality,
+  selected invocation liveness, and membership of the exact active committed `PageMapping`.  A
+  target-private `MappingFrame` with a private constructor transports only those facts across the
+  concrete prepend-only loader evolution; retirement invalidates both mapping membership and
+  invocation liveness.  This is physical-grant framing only, not independent-composition authority.
+  Do not freeze the frame's exact fields into generic checked-authoring interfaces before a real
+  consumer requires them.
 ### Proof delivery, termination, and CFG composition
 
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
