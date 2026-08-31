@@ -215,6 +215,15 @@ private theorem admission_has_all_legs {selected : InvocationId}
     admission.authored, ⟨admission.lifecycle⟩⟩
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem admitted_realization_retains_operational_association
+    {selected : InvocationId} {state : X86_64MachineState} {activeHost : WindowsHostState}
+    (admission : MemoryAdmission selected state activeHost) :
+    StoreBindingAssociation activeHost
+      (entryBinding selected) (entryGeneration selected) processEntryLoad.addressDomain
+      (committedEntry processEntryLoad) (byteRange state) (frameRange state) :=
+  admission.physical.association
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem checked_authoring_retains_both_legs {selected : InvocationId}
     {state : X86_64MachineState} {activeHost : WindowsHostState}
     (checked : CheckedStore selected state activeHost) :
@@ -228,6 +237,60 @@ private theorem production_use_retains_dynamic_origin {selected : InvocationId}
       some (.cpuStep selected (afterAllocate state).rip (afterStore storedValue state).rip
         [⟨.store, .w8, ⟨some .rsp, none, signExtend8To64 byteOffset⟩⟩]) :=
   use.targetStoreProjected
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private def wrongAssociationGeneration : BindingGeneration :=
+  ⟨invocation, 1⟩
+
+private theorem wrong_association_generation_rejected :
+    ¬ StoreBindingAssociation processEntryLoad.afterHost
+      (entryBinding invocation) wrongAssociationGeneration processEntryLoad.addressDomain
+      (committedEntry processEntryLoad) (byteRange entryState) (frameRange entryState) := by
+  intro association
+  have ordinalEqual := congrArg BindingGeneration.ordinal association.generationExact
+  change 1 = 0 at ordinalEqual
+  omega
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private def wrongAssociationDomain : AddressDomainGeneration :=
+  ⟨invocation, processEntryLoad.addressDomain.generation + 1⟩
+
+private theorem wrong_association_domain_rejected :
+    ¬ StoreBindingAssociation processEntryLoad.afterHost
+      (entryBinding invocation) (entryGeneration invocation) wrongAssociationDomain
+      (committedEntry processEntryLoad) (byteRange entryState) (frameRange entryState) := by
+  intro association
+  have generationEqual := congrArg AddressDomainGeneration.generation association.domainExact
+  change processEntryLoad.addressDomain.generation + 1 =
+    processEntryLoad.addressDomain.generation at generationEqual
+  omega
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem wrong_association_mapping_rejected :
+    ¬ StoreBindingAssociation processEntryLoad.afterHost
+      (entryBinding invocation) (entryGeneration invocation) processEntryLoad.addressDomain
+      (committedEntry secondProcessEntryLoad) (byteRange entryState) (frameRange entryState) := by
+  intro association
+  have invocationEqual := congrArg PageMapping.invocation association.mappingExact
+  exact consecutive_invocation_ids_differ invocationEqual
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem wrong_association_backing_rejected :
+    ¬ StoreBindingAssociation processEntryLoad.afterHost
+      (entryBinding invocation) (entryGeneration invocation) processEntryLoad.addressDomain
+      (committedEntry processEntryLoad) (byteRange entryState) outsideCommitted := by
+  intro association
+  have different : outsideCommitted ≠ frameRange entryState := by decide
+  exact different association.backingExact
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem retired_association_rejected :
+    ¬ StoreBindingAssociation (rootTeardownAfterExitProcess processEntryLoad 0).afterHost
+      (entryBinding invocation) (entryGeneration invocation) processEntryLoad.addressDomain
+      (committedEntry processEntryLoad) (byteRange entryState) (frameRange entryState) := by
+  intro association
+  have mapped := association.mapped
+  exact invocation_not_live_after_teardown processEntryLoad 0 mapped.invocationLive
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem replaying_same_host_replays_identity :
