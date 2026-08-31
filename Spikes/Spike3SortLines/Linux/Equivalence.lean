@@ -69,7 +69,7 @@ theorem spike3_canonical_effect_trace_equivalence_inst :
 /-- Constructive proof of semantic trace equivalence on empty input. -/
 theorem spike3_empty_effect_trace_equivalence_inst :
     (runAsmTrace (Event := AnyEvent) spike3Instructions spike3Executable.load == modelTraceEmpty) = true := by
-  native_decide
+  decide +kernel
 
 /- The two theorems above are closed regression vectors only. This module deliberately does not
    claim a universal `VerifiedProgram`: arbitrary finite stdin remains Spike 3 proof debt. -/
