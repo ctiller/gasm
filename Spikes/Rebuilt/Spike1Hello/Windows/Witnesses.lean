@@ -551,5 +551,100 @@ theorem write_failure_exact_step :
       exact .writeFailed
   exact .boundary rfl rfl effect
 
+def afterZeroWrite : Config :=
+  let occurrence := fullWriteReady.occurrence
+  { machine := {
+      (Gasm.Targets.Windows.popReturnAddress occurrence.enteredProvider).setGpr64 .rax 1 with
+      memory := X86_64Mem.write .w32 (occurrence.enteredProvider.gprs .r9) 0
+        (Gasm.Targets.Windows.popReturnAddress occurrence.enteredProvider).memory }
+    emitted := beforeFullWrite.emitted
+    logical := beforeFullWrite.logical }
+
+theorem zero_write_exact_step :
+    ExactStep selectedProfile beforeFullWrite (.provider (.accepted 0)) afterZeroWrite := by
+  have effect : ProviderStep selectedProfile fullWriteReady.occurrence beforeFullWrite
+      (.accepted 0) afterZeroWrite := by
+    apply ProviderStep.accepted (afterLogical := beforeFullWrite.logical)
+    · rfl
+    · rfl
+    · native_decide
+    · native_decide
+    · native_decide
+    · exact ⟨0, by native_decide⟩
+    · simp [bytesAt]
+    · rw [beforeFullWrite_logical]
+      apply RelationalExperiment.Step.acceptedShort ⟨0, by simp⟩
+      native_decide
+    · native_decide
+  simpa [afterZeroWrite, bytesAt] using
+    (ExactStep.boundary (profile := selectedProfile) (by rfl) rfl effect)
+
+def beforeZeroRetry : Config :=
+  (ordinaryRun 14 afterZeroWrite).getD afterZeroWrite
+
+theorem beforeZeroRetry_run : ordinaryRun 14 afterZeroWrite = some beforeZeroRetry := by
+  rfl
+
+/-- A zero write is safe and returns to the exact WriteFile site; progress is deliberately absent. -/
+theorem zero_write_retries :
+    ∃ before, Execution selectedProfile initial
+      (List.replicate 2 .isa ++ [.provider .stdoutAcquired] ++
+        List.replicate 12 .isa ++ [.provider (.accepted 0)] ++
+        List.replicate 14 .isa) before ∧
+      before.machine.rip = (BoundarySite.writeFile.rip.get (boundary_sites_exist .writeFile)) ∧
+      before.logical = acquiredLogical RelationalExperiment.initial := by
+  refine ⟨beforeZeroRetry, ?_, by native_decide, ?_⟩
+  · exact (ordinaryRun_sound getStdHandleBefore_run).append
+      ((Execution.tail acquire_exact_step (Execution.refl _)).append
+        ((ordinaryRun_sound beforeFullWrite_run).append
+          ((Execution.tail zero_write_exact_step (Execution.refl _)).append
+            (ordinaryRun_sound beforeZeroRetry_run))))
+  · exact (ordinaryRun_logical beforeZeroRetry_run).trans
+      (show afterZeroWrite.logical = acquiredLogical RelationalExperiment.initial by
+        exact beforeFullWrite_logical)
+
+def beforeWriteFailureExit : Config :=
+  (ordinaryRun 3 afterWriteFailure).getD afterWriteFailure
+
+theorem beforeWriteFailureExit_run :
+    ordinaryRun 3 afterWriteFailure = some beforeWriteFailureExit := by
+  rfl
+
+def writeFailureExitReady : BoundaryReady .exitFatal beforeWriteFailureExit where
+  callRip := beforeWriteFailureExit.machine.rip
+  instruction := instructions.get ⟨28, by decide⟩
+  siteExact := by native_decide
+  atRip := rfl
+  lookup := by rfl
+
+theorem write_failure_execution :
+    ∃ after, Execution selectedProfile initial
+      (List.replicate 2 .isa ++ [.provider .stdoutAcquired] ++
+        List.replicate 12 .isa ++ [.provider .writeFailed] ++
+        List.replicate 3 .isa ++ [.exit 1]) after ∧ after.terminalCause.isSome := by
+  let after : Config :=
+    { machine := { writeFailureExitReady.occurrence.enteredProvider with
+          fault := some (.processExit 1) }
+      emitted := beforeWriteFailureExit.emitted
+      logical := beforeWriteFailureExit.logical
+      pendingFatal := beforeWriteFailureExit.pendingFatal
+      terminalCause := some (.writeFailure selectedFailure) }
+  have exitStep : ExactStep selectedProfile beforeWriteFailureExit (.exit 1) after := by
+    apply ExactStep.exit (ordinaryRun_terminalCause beforeWriteFailureExit_run |>.trans rfl) rfl
+      (by native_decide)
+    apply ExitDisposition.writeFailure
+    · exact (ordinaryRun_pendingFatal beforeWriteFailureExit_run).trans rfl
+    · have logicalSame := ordinaryRun_logical beforeWriteFailureExit_run
+      have emittedSame := ordinaryRun_emitted beforeWriteFailureExit_run
+      rw [logicalSame, emittedSame]
+      native_decide
+  refine ⟨after, ?_, by simp [after]⟩
+  exact (ordinaryRun_sound getStdHandleBefore_run).append
+    ((Execution.tail acquire_exact_step (Execution.refl _)).append
+      ((ordinaryRun_sound beforeFullWrite_run).append
+        ((Execution.tail write_failure_exact_step (Execution.refl _)).append
+          ((ordinaryRun_sound beforeWriteFailureExit_run).append
+            (Execution.tail exitStep (Execution.refl _))))))
+
 end Spikes.Rebuilt.Spike1Hello.Windows.Witnesses
 

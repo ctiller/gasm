@@ -34,8 +34,9 @@ and source ghost-state transition as one relation. Universal preservation and te
 theorems quantify over every execution admitted by that relation.
 
 `Windows/Witnesses.lean` connects closed traces through the exact artifact: complete output and
-successful exit, missing stdout and fatal exit, a positive short write returning to the WriteFile
-site with the residual slice, and synchronous write failure. `Windows/Certificate.lean` is the sole
+successful exit, missing stdout and fatal exit, synchronous write failure and fatal exit, and both
+positive-short and zero writes returning to the WriteFile site with the correct residual slice.
+`Windows/Certificate.lean` is the sole
 private emission authority and requires the exact artifact, universal safety, universal terminal
 refinement, source conditional progress, and those exact reachability witnesses.
 
@@ -65,8 +66,8 @@ The proposed seam is rejected if any later connection proof admits one of these 
 ## Burden measurement
 
 The selected symbolic program has 29 machine instructions. Across the source relation, exact
-x86/Win64 relation, concrete witnesses, certificate, and three small artifact facts there are 613
-nonblank theorem-region physical lines: 21.1 proof lines per assembly instruction. The exact count is
+x86/Win64 relation, concrete witnesses, certificate, and three small artifact facts there are 709
+nonblank theorem-region physical lines: 24.4 proof lines per assembly instruction. The exact count is
 a deliberately conservative smell test (it includes reusable relational framework proofs and
 statement lines), but it misses the 10:1 target by more than twofold. Therefore this round is not a
 successful proof-authoring architecture and must be rebuilt again before Spike 1 is called complete.

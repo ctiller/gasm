@@ -60,6 +60,18 @@ structure VerifiedArtifact where
         List.replicate 14 .isa) before ∧
       before.machine.rip = (BoundarySite.writeFile.rip.get (boundary_sites_exist .writeFile)) ∧
       before.logical.remaining = message.drop shortCount
+  zeroWriteRetries : ∃ before,
+    Execution selectedProfile initial
+      (List.replicate 2 .isa ++ [.provider .stdoutAcquired] ++
+        List.replicate 12 .isa ++ [.provider (.accepted 0)] ++
+        List.replicate 14 .isa) before ∧
+      before.machine.rip = (BoundarySite.writeFile.rip.get (boundary_sites_exist .writeFile)) ∧
+      before.logical = acquiredLogical RelationalExperiment.initial
+  writeFailureReachable : ∃ after,
+    Execution selectedProfile initial
+      (List.replicate 2 .isa ++ [.provider .stdoutAcquired] ++
+        List.replicate 12 .isa ++ [.provider .writeFailed] ++
+        List.replicate 3 .isa ++ [.exit 1]) after ∧ after.terminalCause.isSome
 
 def verifiedArtifact : VerifiedArtifact where
   artifact := executable
@@ -72,6 +84,8 @@ def verifiedArtifact : VerifiedArtifact where
   fullWriteReachable := full_write_execution
   noStdoutReachable := no_stdout_execution
   shortWriteRetries := short_write_retries
+  zeroWriteRetries := zero_write_retries
+  writeFailureReachable := write_failure_execution
 
 /-- Serialization is possible only after constructing the stronger private authority above. -/
 def emitVerified (verified : VerifiedArtifact) : ByteArray :=
