@@ -49,24 +49,29 @@ theorem spike2Itoa_fits (value : UInt64) :
       .written (formatDecimal value.toNat) (decimalDigitCount value) := by
   exact writeUInt64Decimal_fits 20 value (decimalDigitCount_le_twenty value)
 
-/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
-/-- ASCII bytes which precede the decimal index in every native Spike 2 row. -/
-def fibPrefixBytes : List UInt8 := [0x46, 0x69, 0x62, 0x28] -- "Fib("
+theorem fibNat_le_succ (n : Nat) : fibNat n ≤ fibNat (n + 1) := by
+  cases n with
+  | zero => decide
+  | succ n =>
+    change fibNat (n + 1) ≤ fibNat (n + 1) + fibNat n
+    omega
 
-/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
-/-- ASCII bytes separating a row index from its Fibonacci value. -/
-def fibMiddleBytes : List UInt8 := [0x29, 0x20, 0x3D, 0x20] -- ") = "
+theorem fibNat_mono {a b : Nat} (h : a ≤ b) : fibNat a ≤ fibNat b := by
+  obtain ⟨distance, hd⟩ := Nat.exists_eq_add_of_le h
+  subst b
+  clear h
+  induction distance with
+  | zero => exact Nat.le_refl _
+  | succ distance ih =>
+    have step := fibNat_le_succ (a + distance)
+    have indexEq : a + (distance + 1) = a + distance + 1 := by omega
+    rw [indexEq]
+    exact Nat.le_trans ih step
 
-/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
-/-- The CRLF terminator emitted by both native Spike 2 drivers. -/
-def nativeLineEnding : List UInt8 := [0x0D, 0x0A]
-
-/- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
-/-- Exact native bytes for one Fibonacci row.  Decimal fields use the independently proved,
-    total `Stdlib.Fmt.formatDecimal` codec rather than Lean string interpolation. -/
-def fibonacciLineBytes (index : Nat) : List UInt8 :=
-  fibPrefixBytes ++ formatDecimal index ++ fibMiddleBytes ++
-    formatDecimal (fibIter index) ++ nativeLineEnding
+theorem fibNat_lt_uint64_of_le_90 (n : Nat) (h : n ≤ 90) : fibNat n < 2 ^ 64 := by
+  have upper := fibNat_mono h
+  have concrete : fibNat 90 < 2 ^ 64 := by decide
+  omega
 
 /- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
 /-- Exact concatenated native bytes after `completed` rows, numbered from one. -/

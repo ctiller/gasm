@@ -715,6 +715,32 @@ theorem selectedExecutionTerminates_of_processExit_with_slack {Event : Type}
   simp [selectedExecutionTerminates, lookup, selectedAt, nativeOutcomeTransition,
     intercept, exits]
 
+/- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
+/-- Exact outcome counterpart of `selectedExecutionTerminates_of_processExit_with_slack`.
+    Prefix proofs compose independently of the terminal host operation; the final typed exit step
+    then determines the stop cause, machine state, and complete chronological event accumulator.
+    No instruction address or instruction width is exposed to the consumer. -/
+theorem runProgramOutcomeLoop_of_processExit_with_slack {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {fuel : Nat}
+    {initial final : X86_64MachineState} {initialEventsRev finalEventsRev emitted : List Event}
+    (certificate : SelectedPrefix selected indexed fuel initial initialEventsRev
+      final finalEventsRev emitted)
+    {code : UInt32}
+    (exitStep : SelectedProcessExitStep (Event := Event) selected indexed final code)
+    (slack : Nat) :
+    runProgramOutcomeLoop indexed (fuel + 1 + slack) initial initialEventsRev =
+      .terminated (.processExit code) exitStep.hooked
+        (accumulateEvent finalEventsRev exitStep.event).reverse := by
+  rw [show fuel + 1 + slack = fuel + (slack + 1) by omega]
+  rw [certificate.toProductionPrefix.run (slack + 1)]
+  rcases exitStep with ⟨instruction, hooked, event, encoding, lookup,
+    selectedAt, steppedSafe, intercept, exits⟩
+  cases event <;>
+    simp [runProgramOutcomeLoop, lookup, nativeOutcomeTransition, intercept, exits,
+      accumulateEvent]
+
 end SelectedPrefix
 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
