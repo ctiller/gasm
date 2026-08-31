@@ -17,6 +17,7 @@ limitations under the License.
 import Gasm.Targets.X86_64.SelectedLoopTermination
 import Spikes.Spike2Fibonacci.Linux.NativeAdapter
 import Spikes.Spike2Fibonacci.Linux.RowDecimalIteration
+import Spikes.Spike2Fibonacci.Linux.Rows1To9
 
 namespace Spikes.Spike2Fibonacci.Linux
 
@@ -139,5 +140,27 @@ theorem spike2_selected_termination_of_decimal_rows
   have fullWithin : initialFuel + (loopFuel + row90Fuel) + 5 ≤ 50000 := by
     omega
   exact spike2_selected_termination_of_prefix fullPrefix exitInvariant fullWithin
+
+/- REF: docs/PROOF_TACTICS.md#iterate-certificates-not-evaluators -/
+/-- Close the unchanged termination proposition from the concrete load-through-row-9 prefix and
+the remaining parameterized physical row evidence.  The fixed initial fuel is ordinary arithmetic
+over the exact 380-transition prefix and two 64-transition parametric rows. -/
+theorem spike2_selected_termination_of_row_evidence
+    (row8Needs : Row8Parametric.LocalRowNeeds spike2Row7AfterRecurrence)
+    (row9Needs : Row8Parametric.LocalRowNeeds
+      (Row8Parametric.afterRecurrence spike2Row7AfterRecurrence))
+    (evidence : ∀ completed current next predecessor eventsRev,
+      completed < 80 →
+      Spike2LinuxRowEntry (completed + 9) current next predecessor →
+      RowDecimalIteration.TwoDigitRowEvidence (completed + 9) current next predecessor eventsRev)
+    (finalEvidence : ∀ current next final finalEventsRev,
+      Spike2LinuxRowEntry 89 current next final →
+      RowDecimalIteration.TwoDigitRowEvidence 89 current next final finalEventsRev) :
+    selectedExecutionTerminates (Event := AnyEvent) true selectedNonInputPlatformCall
+      spike2Indexed 50000 spike2Executable.load = true := by
+  rcases spike2_prologue_to_row10_entry row8Needs row9Needs with
+    ⟨row10EventsRev, initialEmitted, initialPrefix, initialHolds⟩
+  exact spike2_selected_termination_of_decimal_rows initialPrefix initialHolds evidence finalEvidence
+    (by omega)
 
 end Spikes.Spike2Fibonacci.Linux

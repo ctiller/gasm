@@ -66,6 +66,14 @@ def TwoDigitIterationInvariant (completed : Nat) (state : X86_64MachineState)
     (_eventsRev : List AnyEvent) : Prop :=
   ∃ current next, Spike2LinuxRowEntry (completed + 9) current next state
 
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
+/-- Iteration zero is the boundary after nine completed rows, immediately before row 10. -/
+theorem invariantZero_iff_rowTenEntry (state : X86_64MachineState)
+    (eventsRev : List AnyEvent) :
+    TwoDigitIterationInvariant 0 state eventsRev ↔
+      ∃ current next, Spike2LinuxRowEntry 9 current next state := by
+  simp [TwoDigitIterationInvariant]
+
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
 /-- Construct the bounded production-loop step for rows 10 through 89.  Each row uses at most
 `45 + 12 * 20 = 285` selected transitions; after eighty iterations the invariant is the typed
