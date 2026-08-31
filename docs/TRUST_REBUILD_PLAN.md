@@ -150,14 +150,20 @@ For round `i`:
    design feedback—not proof authority.
 4. A revised intermediate specification `Sᵢ₊₁` captures the better representation, operation,
    block boundary, or performance contract suggested by that feedback.
-5. A named refinement/equivalence theorem connects `Sᵢ₊₁` to `Sᵢ` or directly to `S₀`; unchanged
-   source/CFG proofs are transported rather than replayed.
+5. A named refinement/equivalence theorem connects `Sᵢ₊₁` to `Sᵢ` for every still-advertised
+   guarantee; unchanged source/CFG proofs are transported rather than replayed. Direct refinement to
+   `S₀` is insufficient when `Sᵢ` added a guarantee absent from the root.
 6. Lowering regenerates `Aᵢ₊₁` with exact new artifact and execution certificates.
 
 The root functional specification may remain stable while intermediate specifications evolve
 aggressively. Performance, resource, layout, and target-specific guarantees may be strengthened in
 later layers, but a generated assembly observation may not silently weaken functional behavior,
 failure coverage, universal inputs, authority, or cleanup.
+
+Retiring an intermediate guarantee requires an explicit reviewed supersession record that names the
+retired behavior, performance, resource, layout, failure, lifecycle, and authority claims and
+invalidates or rebuilds every dependent certificate. Assembly feedback cannot self-select a weaker
+meaning.
 
 Recurring useful assembly motifs should feed bottom-up into new abstract operations only after they
 are stated independently and proved as lowering implementations. A motif is not promoted merely
@@ -192,8 +198,11 @@ block replaceable while retaining unaffected source, CFG, authority, and outcome
 Keep a small indexed core for exact artifact/context/execution identity. Connect only selected
 host, ghost, memory, resource, loader, and runtime facts through narrow named indexed bridges.
 Burden heuristics and governance metadata never participate in semantic equality or the TCB.
-The environment remains universally quantified (`∀ env : Environment`) or an explicitly justified
-environment family; an outcome adapter may not choose the acceptable environment or result.
+The program boundary remains universally quantified over canonical `∀ env : Environment`; an
+outcome adapter may not choose the acceptable environment or result. An internal indexed family is
+permitted only with a target-owned total coverage/projection theorem mapping every canonical
+`Environment` into it and transporting the exact load, run, and specification facts. It never
+replaces the canonical domain.
 Consumers must not reconstruct extensionally equal copies and then spend their proof on transport.
 
 The first accepted lower-layer candidate is `Gasm.Targets.X86_64.ClosedExecution`, which packages an
@@ -351,7 +360,8 @@ streaming capability algebra; platform proofs do not replay codec internals.
 
 For each spike, prepare one recoverable deletion/promotion candidate commit:
 
-1. Independently review the rebuilt tree and burden measurement.
+1. Independently review the rebuilt tree and, when useful, record an optional human burden
+   observation.
 2. Delete the old spike directory and its obsolete targets/controls.
 3. Promote the rebuilt tree to the canonical path/namespace.
 4. Update umbrella imports, Lake targets, emitters, tests, docs, and citations.
@@ -370,8 +380,8 @@ may then integrate and push it.
 - Every handoff names exact parent/hash, semantic claim, files, old burden removed, focused commands,
   forbidden-token scan, `git diff --check`, resource observations, and known unrelated failures.
 - Optimization rounds additionally report the stable root spec, old/new intermediate spec, checked
-  refinement edge, assembly/cost delta, proof-burden delta, and which proofs were transported
-  unchanged.
+  refinement edge, assembly/cost delta, any useful approximate human burden observation, and which
+  proofs were transported unchanged.
 - MP reviews architecture/soundness; Reviewer falsifies execution, proof economy, and acceptance
   evidence. A soundness finding vetoes integration regardless of schedule.
 - `Trust repair` alone integrates reviewed commits into the clean main staging worktree and pushes.
@@ -397,7 +407,8 @@ may then integrate and push it.
 | Output/exit abstract contract and Windows lowering | trustrebuild1 | Not started on canonical `4574db1b` | Pathfinder review, then materially different Spike 1 use |
 | Clean checked-memory pathfinder | trustrebuild1 | Not started on canonical `4574db1b` | Soundness review; target ratio is advisory only |
 | Clean Spike 1 | trustrebuild1 | Not started on canonical `4574db1b` | Second-consumer review, template declaration, recoverable cutover candidate |
-| Fibonacci independent spec/source/iterator | trustrebuild2 | Active commit `84a52476`, parent `2f359da5` | May proceed independently; no competing lowering API |
+| Spike 2 blocked backend exploration | trustrebuild2 | `84a52476` and child `791d5980` are isolated blocked evidence | Do not integrate or use as a template/base |
+| Fibonacci independent spec/source/pure iterator rewrite | trustrebuild2 | Not started on current canonical main | May proceed without target program, exact physical producer, or competing lowering API |
 | Spike 2 target formatting/output/exit lowering | Unassigned pending template | Gated | Accepted template hash; no old proof imports |
 | Clean Spikes 3–5 | Unassigned | Frozen pending workers/template | Explicit assignment and prerequisite library brief |
 
