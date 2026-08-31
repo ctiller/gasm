@@ -80,6 +80,30 @@ private instance (priority := 2000) overlappingFormInstanceB : FixtureInstructio
   token := 6
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- A target alias must reduce to the same census identity as its underlying form. -/
+private abbrev OverlappingFormAlias := OverlappingForm
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+private instance overlappingFormAliasInstance : FixtureInstruction OverlappingFormAlias where
+  token := 7
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+private structure FixtureWrapper
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+private abbrev FixtureWrapperAlias := FixtureWrapper
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+private instance fixtureWrapperAliasInstance : FixtureInstruction FixtureWrapperAlias where
+  token := 8
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- The production existential wrapper itself also has an alias control: normalization must make
+    the alias indistinguishable from `AnyX86_64Instruction` before wrapper exclusion. -/
+private abbrev AnyInstructionWrapperAlias :=
+  Gasm.Targets.X86_64.Instructions.AnyX86_64Instruction
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Frame-shaped fixture whose proposition depends on the selected instruction instance. -/
 private def FixtureFrame {α : Type} [FixtureInstruction α] (_ : α) : Prop :=
   FixtureInstruction.token (α := α) = 6
@@ -110,6 +134,18 @@ run_cmd do
     unless duplicates == [``OverlappingForm] do
       throwError "instruction census control: overlapping concrete instances were not rejected exactly; \
         duplicate targets were {duplicates}"
+    let overlapCandidates := duplicateConcreteTargetCandidates candidates
+    unless overlapCandidates.length == 3 && overlapCandidates.all (fun candidate =>
+        candidate.target.constName? == some ``OverlappingForm) do
+      throwError "instruction census control: a target alias evaded normalized overlap detection"
+    let wrapperCandidates := candidates.filter fun candidate =>
+      candidate.target.constName? != some ``FixtureWrapper
+    unless wrapperCandidates.length + 1 == candidates.length do
+      throwError "instruction census control: a wrapper target alias evaded normalized exclusion"
+    let normalizedProductionWrapper ← normalizeTarget (mkConst ``AnyInstructionWrapperAlias)
+    unless isAnyInstructionWrapperTarget normalizedProductionWrapper do
+      throwError "instruction census control: an alias of AnyX86_64Instruction evaded production \
+        wrapper exclusion"
     let some frameInfo := env.find? ``selectedOverlappingFrame |
       throwError "instruction census control: selected overlapping frame theorem is missing"
     let expectedA := mkApp3 (mkConst ``FixtureFrame) (mkConst ``OverlappingForm)
@@ -121,8 +157,8 @@ run_cmd do
     unless !coversA && coversB do
       throwError "instruction census control: an ordinary frame theorem did not remain tied to \
         only the globally selected overlapping instance"
-    unless candidates.length == 7 do
-      throwError "instruction census control: expected seven compiled fixture instances, found \
+    unless candidates.length == 9 do
+      throwError "instruction census control: expected nine compiled fixture instances, found \
         {candidates.length}"
 
 end Gasm.Targets.X86_64.InstructionCensusControls

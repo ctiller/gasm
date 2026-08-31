@@ -24,8 +24,9 @@ Every population-sensitive gate consumes `concreteForms`: registry coverage, typ
 witnesses, global dispatch, and memory-frame theorems.  In particular, consumers must not repeat
 their own less-reducing walk of `instanceExtension` or fall back to a hand-maintained type list.
 
-The census reduces each registered instance type before recognizing the class head, so reducible
-class aliases and alternate instance declaration forms cannot disappear from one consumer.  It
+The census reduces each registered instance type before recognizing the class head and reduces
+the target itself, so reducible class aliases, target aliases, and alternate instance declaration
+forms cannot disappear from one consumer or evade overlap/wrapper rejection.  It
 then rejects parameterized or unnamed forms, forms outside a direct
 `Instructions.<Family>` module, and more than one concrete instance for the same form type.  The
 last condition is load-bearing: otherwise two overlapping instances could each contribute
@@ -56,6 +57,11 @@ structure ConcreteForm where
   family : String
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- Reduce a class target to the identity used by every later census decision. -/
+def normalizeTarget (target : Expr) : MetaM Expr :=
+  whnf target
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Classify every compiled instance whose reduced result has the requested class head.  This is
     the only `instanceExtension` walk used by the x86 population pipeline. -/
 def classCandidates (env : Environment) (className : Name) : MetaM (List ClassCandidate) := do
@@ -69,19 +75,49 @@ def classCandidates (env : Environment) (className : Name) : MetaM (List ClassCa
     let args := body.getAppArgs
     unless args.size == 1 do
       throwError "compiled class census expected `{className}` to have one target argument, got `{body}`"
-    found := { target := args[0]!, instanceExpr := entry.val, parameters } :: found
+    let target ← normalizeTarget args[0]!
+    found := { target, instanceExpr := entry.val, parameters } :: found
   pure found
+
+private def concreteTargetName? (candidate : ClassCandidate) : Option Name :=
+  if candidate.parameters.isEmpty then candidate.target.constName? else none
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- All concrete candidates whose reduced target is represented more than once.  Keeping the
+    candidates (rather than only their target names) lets the production diagnostic identify every
+    colliding instance declaration and owner module. -/
+def duplicateConcreteTargetCandidates (candidates : List ClassCandidate) : List ClassCandidate :=
+  candidates.filter fun candidate =>
+    match concreteTargetName? candidate with
+    | some name => candidates.countP (fun other => concreteTargetName? other == some name) > 1
+    | none => false
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Concrete target names represented more than once in a classified candidate list.  Kept
     separate from `concreteForms` so the overlapping-instance control tests the production
     duplicate detector directly. -/
 def duplicateConcreteTargetNames (candidates : List ClassCandidate) : List Name :=
-  let names := candidates.filterMap fun candidate =>
-    if candidate.parameters.isEmpty then candidate.target.constName? else none
+  let names := duplicateConcreteTargetCandidates candidates |>.filterMap concreteTargetName?
   (names.filter fun name => names.count name > 1).eraseDups
 
 private def instructionsNamespace : Name := `Gasm.Targets.X86_64.Instructions
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- Wrapper exclusion is applied only after target normalization. -/
+def isAnyInstructionWrapperTarget (target : Expr) : Bool :=
+  target.constName? == some ``AnyX86_64Instruction
+
+private def declarationModule (env : Environment) (declaration : Name) : String :=
+  match env.getModuleIdxFor? declaration with
+  | some moduleIdx => env.header.moduleNames[moduleIdx.toNat]!.toString
+  | none => "<unknown module>"
+
+private def duplicateDiagnostic (env : Environment) (candidates : List ClassCandidate) : String :=
+  String.intercalate "\n" <| candidates.filterMap fun candidate => do
+    let targetName ← concreteTargetName? candidate
+    let instanceName ← candidate.instanceExpr.constName?
+    some s!"  target `{targetName}` in `{declarationModule env targetName}`: instance \
+      `{instanceName}` in `{declarationModule env instanceName}`"
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- The unique, reduced, compiled production census.  All x86 form-population consumers must use
@@ -89,12 +125,13 @@ private def instructionsNamespace : Name := `Gasm.Targets.X86_64.Instructions
 def concreteForms (env : Environment) : MetaM (List ConcreteForm) := do
   let candidates ← classCandidates env ``X86_64Instruction
   let candidates := candidates.filter fun candidate =>
-    candidate.target.constName? != some ``AnyX86_64Instruction
-  let duplicates := duplicateConcreteTargetNames candidates
-  unless duplicates.isEmpty do
+    !isAnyInstructionWrapperTarget candidate.target
+  let duplicateCandidates := duplicateConcreteTargetCandidates candidates
+  unless duplicateCandidates.isEmpty do
     throwError "x86 instruction census found overlapping concrete X86_64Instruction instances.\n\
       Each concrete form type must have exactly one registered instance because witness, step, and \
-      frame semantics are indexed by that exact instance. Duplicate form types: {duplicates}"
+      frame semantics are indexed by that exact instance. Colliding declarations:\n\
+      {duplicateDiagnostic env duplicateCandidates}"
   let mut forms : List ConcreteForm := []
   for candidate in candidates do
     unless candidate.parameters.isEmpty do
