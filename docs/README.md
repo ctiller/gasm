@@ -126,6 +126,7 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**Deferred Hosted-Process Extension**](FUTURE_PROCESS_MODEL.md): Post-M9 compatibility constraints
   and consumer-triggered design notes; not a current stage or proof dependency.
 - [**Spikes & Integration Roadmap**](SPIKES.md): Spike progression, continuous testing, and stop-and-design invariant.
+- [**Compiler and Macro-Assembler Plan**](COMPILER_PLAN.md): Living compiler roadmap, shipped evidence, active slice, handwritten optimization seam, and accountability gates.
 - [**Review Protocol & Citation Laws**](REVIEW.md): `REF:` syntax, repository laws, and automated backlog tool.
 - [**Continuous Integration**](CI.md): the GitHub Actions gate inventory, Windows/Linux platform matrix, caching soundness argument, and cost split.
 - [**Research Index**](RESEARCH_INDEX.md): durable candidate findings, evidence, ownership
