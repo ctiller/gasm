@@ -954,6 +954,24 @@ The following code shapes have enough evidence to investigate but are not canoni
   all nine independent probes succeeded.  This closes the Milestone 1 slice only; the supplemental
   harness's existing nonclaims and final-authority boundary remain in force.
 
+  Provisional singleton-load scope from canonical `4c6fbf4c` permits a `MemoryFrame.Common`
+  experiment for exactly `MovReg32RspDisp32` and `MovReg64Mem64Disp`.  Retain
+  `registerOnly_writesWithin` under its existing name and implementation, correct its documentation
+  to the genuinely generic no-memory-change meaning, and reuse it for both load consumers; do not
+  introduce an alias or rename its existing call sites.  Proposed `singleLoad_readsWithin` requires
+  one exact singleton `.load` descriptor, effective-address congruence, explicit post-state
+  factorization through the one width read, and a post projection parametric in equal read values.
+  It derives read equality from `agreeOn` plus `X86_64Mem.read_congr'` and discharges
+  `StoreAgreeOn` from the empty store footprint.
+
+  Do not add a step-memory-preservation premise to `singleLoad_readsWithin`: `ReadsWithin` does not
+  demand it.  Exact memory preservation remains mandatory once, through each consumer's separately
+  audited `WritesWithin` theorem.  A narrow `NegativeControl` must refute factorization for a
+  declared-one-load instruction whose GPR result also depends on a second undeclared read.  Preserve
+  both consumers' public theorem names/types and audits, leave every other form untouched, and update
+  `MEMORY_HOOK.md` qualitatively without inventory counts.  This is a final implementation boundary,
+  not accepted machinery; it authorizes no platform, shared, CFG, authority, or ratio framework.
+
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
   precondition-indexed `SafeUnder` is the right proof-economical goal shape.  But public
