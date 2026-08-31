@@ -713,6 +713,26 @@ This adapter does not emit a JCC. The comparison instruction body remains exact 
 fallthrough orientation, displacement, production lookup and operational step. It also proves no
 graph closure by itself, no artifact or execution outcome, and no `VerifiedProgram` authority.
 
+## Structured Microsoft x64 leaf blocks
+
+`Gasm.Compiler.Word.StructuredLeafMicrosoftX64CFG` gives generated and handwritten leaf bodies the
+same exact implementation contract. `Body` retains the selected instructions and bytes, RAX result
+relation to one exact branch-free source expression, memory/fault/RIP frames, actual clobbers,
+preservation outside those clobbers, and constructor-derived control-flow freedom.
+
+`Body.ofGenerated` consumes the bounded Microsoft-x64 backend certificate. `Body.ofReplacement`
+consumes the existing differential `BodyRealization`, so a hand-optimized macro segment can replace
+the generated leaf while the source expression and symbolic decision topology remain unchanged.
+The internal `leafFunction` only adapts that exact leaf expression to the existing local backend;
+the root structured function remains the declaration tied to the user's Lean source.
+
+The block adapter changes only physical machine state and preserves API typestate, stack,
+permissions, obligations, causal clock, and event history. A caller-owned `Terminal` supplies RET,
+exit, or halt and proves the exhaustive target-free classification, after which `realizes` produces
+the existing `StructuredCFG.RealizesLeaf` premise. It cannot hide JMP/JCC, manufacture termination,
+or establish emitted terminator semantics, layout, graph closure, artifact identity, platform
+admission, or `VerifiedProgram` authority.
+
 ## Structured Microsoft x64 process-entry backend
 
 `Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry` realizes the same bounded portable
