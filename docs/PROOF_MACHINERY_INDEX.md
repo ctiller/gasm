@@ -123,6 +123,22 @@ noninterference or a bespoke refinement, and local obligation conservation trans
 existing world rather than creating a global ledger.  Behavioral refinement, ISA definedness,
 physical resource admission, and policy authorization remain orthogonal.
 
+Approved design checkpoint `archive/design/lowering-private-relational-seam-6d89327f`
+(`6d89327f2349a4b34a9ce4057554ed978019fc94`) authorizes only a private target/profile-owned
+exact-artifact relational experiment.  Its provider-labelled execution consumes the exact response
+list; eligibility includes acquisition; coverage and universal conditional termination are
+separate; an acquisition-only control rejects plan reselection; zero writes remain safe but outside
+conditional progress; and source-prefix preservation is derived rather than supplied by provider
+failure.  Oversized success has no abstract step and cannot be relabelled as source `writeFailure`.
+The first Windows scope is live, writable, and synchronous; asynchronous/`ERROR_IO_PENDING`
+execution is excluded, and the 10:1 ratio remains only an informal architecture smell test.
+
+The next private seam must make synchronous/writable eligibility a real profile-admission witness;
+bind exact artifact execution to occurrence identity, returned count, output-memory update,
+emitted-prefix effect, and fatal cause; preserve oversized/provider-fault provenance rather than
+erase it through shared fatal control flow; and quantify final verification over every admitted
+execution.  This checkpoint authorizes neither a public/shared interface nor canonical cutover.
+
 The semantic model must be fixed now, independently of implementation order.  It covers generative
 nested scopes; distinct cancellation authorization, request, delivery, observation, masking,
 unwind, cleanup, join, and terminal events; top-down rights versus bottom-up classified-refusal
@@ -849,6 +865,18 @@ The following code shapes have enough evidence to investigate but are not canoni
   call private comparison helpers but must not expose observation construction or transformation.
   The fixed inventory does not justify generic collision-proof machinery; this is test restoration,
   not interface growth.
+
+  Accepted successor `archive/accepted/x86-sealed-observation-controls-1e9cc21a`
+  (`1e9cc21a3a3a8e8ecfb132614929c60eb7a55704`), integrated on main as `f5e0c855`, restores the
+  three missing falsifiers while retaining the existing leading-canary control.  The resulting four
+  sealed pass/fail calibrators reject stale MOVZX destination high bits, leading-canary corruption,
+  the first payload byte outside the fixed interior access, and the first trailing-canary byte.
+  Private `compareMachine`/`compareRegion` are shared with the real comparison; calibrators mutate
+  only local result/region copies and cannot construct, transform, update, or return an
+  `Observation`.  Six exact native observations pass and all four calibrations fail as intended.
+  This accepts v2 plan identity plus sealed observation construction for the supplemental five-class
+  harness; the applicability, capability, mapping, memory-model, platform-admission,
+  registry-oracle, and `VerifiedProgram` nonclaims remain unchanged.
 
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and

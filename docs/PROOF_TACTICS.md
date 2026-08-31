@@ -67,6 +67,38 @@ the consumer only the source invariant connection and root-specific consequence.
 pieces are replacement-track building blocks, not yet a validated whole-program template or a
 shared iteration API.
 
+## Witness identity with independently sensitive data
+
+When a claim identifies the instruction or occurrence that produced an observation, do not infer
+that identity from the postcondition and do not compare only duplicated caller-controlled labels.
+Derive a canonical identity in the layer that owns the exact form, bytes, and pre-state; recompute it
+at the consuming transition; and make at least one independent witness sensitive to the entire
+identity.  For a fixed closed inventory, a length-delimited serialization may suffice without
+inventing a generic collision-proof framework.
+
+The guarded x86 memory work demonstrates both controls.  A `+0x100` case retag survived when the
+scratch preimage observed only low case-id bits.  Later, coherently relabelling
+`MOVZX R13, [R15+0x7f]` as `MOVZX R13, [R13+0x7f]` survived because MOVZX overwrote the changed input
+register and left the same post-state.  Canonical `16b5f5a7` makes the preimage depend on all 64
+case-id bits and binds result case identity to the plan; canonical `f5e0c855` additionally gives
+the harness sole construction of a sealed observation carrying owner-derived plan identity.
+Provenance or occurrence identity is a separate obligation from observational equivalence.
+
+## Keep falsification controls monotonic and evidence-sealed
+
+Every validation repair must rerun the complete accumulated negative-control suite, not only its
+newest regression.  When controls operate on sealed evidence, keep raw mutation and comparison
+helpers private and expose at most pass/fail calibrators.  Such a calibrator accepts genuine
+owner-created evidence, alters only local copies, and exercises the same private comparator as the
+real path.  A control API must not construct, transform, or return evidence, because that would
+reopen the invalid pairing it is meant to detect.
+
+Canonical `f5e0c855` applies this discipline to the guarded x86 harness: the real comparison and
+four calibrators share private comparison helpers; six exact native observations pass while stale
+MOVZX destination bits, leading-canary corruption, payload-neighbor corruption, and trailing-canary
+corruption are rejected.  These controls protect one supplemental target harness.  They confer no
+profile admission, registry-oracle status, platform behavior, or `VerifiedProgram` authority.
+
 ## Eliminate the burden delta
 
 Treat the exact caller-visible obligation as the proof's speed of light: the irreducible theorem and
