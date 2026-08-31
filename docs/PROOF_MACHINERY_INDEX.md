@@ -10,8 +10,28 @@ consumers, and the facts that deliberately remain local.
 > integration, or generalize them until `trustplan` announces a validated replacement template.
 > Rebuild applicable proofs by duplicating and adapting that template.  Dependency-light algebra
 > below remains available only where its use does not continue the paused whole-program pattern.
-> Publication requires an exact integrated commit, two clean-slate consumers, proof-burden
-> measurements, and explicit nonclaims; archive the old path rather than blending both designs.
+> Publication requires an exact integrated commit, two clean-slate consumers, and explicit
+> nonclaims; archive the old path rather than blending both designs.
+
+The first replacement-plan revision is reproducibly preserved at
+`archive/design/trust-rebuild-plan-f3af290c` (`f3af290c5b9271bb0119bce4caac4fba65f64f8c`).
+Primary design and independent Reviewer approve its spec-directed staged-lowering direction but
+require amendment before it can become the validated template.  The amended plan must define the
+artifact/load/execution dependency DAG; use a small layered execution identity rather than a
+proof-budget god object; and keep canonical `Environment` universally quantified.  Staged lowering
+must be explicitly well-founded, with transitive refinement across values, traces, effects,
+failures, obligations, frames, and cost.  Dictionary selection must be explicit and reproducible,
+with authority minted by the target; source-visible contracts remain separate from target clobbers
+and mappings.
+
+The replacement must also retain the checked-access leaf checklist and current `MemRef`/hardware
+no-freeze gates and assign shared facts to noncircular library owners.  The 10:1 proof-burden ratio
+is a human-facing architecture smell test only: an overage prompts judgment, while an underage
+proves nothing.  Do not add counters, manifests, charging or amortization infrastructure, CI gates,
+semantic proof-budget indices, or acceptance rules around it.  Soundness, applicability,
+universality, authority, lifecycle, and cleanup cannot be weakened to improve the ratio.  Cutover
+deletion remains unpushed until review and the substantive gates pass.
+This is a blocked design checkpoint, not permission to implement or integrate the old proof chain.
 
 An entry is not permission to force a proof through the nearest abstraction.  Start with the exact
 caller-visible theorem, compare it with the reusable result, and keep the semantic delta in the
