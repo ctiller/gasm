@@ -39,11 +39,13 @@ record.
 
 ## Consider every bound
 
-Inventory numeric ranges, input and output sizes, loop counts, buffer capacity, allocation, stack,
-fragmentation, and execution work.  For each bound, either prove it, derive it, request it as a
-capability, eliminate it by streaming, or specify failure and recovery.  Keep proof fuel distinct
-from a resource enforced by emitted code.  A useful bound often supplies the induction measure:
-`UInt64` decimal length is at most 20 and determines formatter capacity, iterations, and work.
+For the selected routine and property, inventory applicable numeric ranges, input and output sizes,
+loop counts, buffer capacity, allocation, stack, fragmentation, and execution work.  For each
+material bound, either prove it, derive it, request it as a capability, eliminate it by streaming,
+or specify failure and recovery.  Do not add ledgers for quantities the routine never uses.  Keep
+proof fuel distinct from a resource enforced by emitted code.  A useful bound often supplies the
+induction measure: `UInt64` decimal length is at most 20 and determines formatter capacity,
+iterations, and work.
 
 ## Iterate certificates, not evaluators
 
@@ -136,6 +138,21 @@ At the memory-model presentation layer, prove that every enumerated seed and suc
 the normative relation; `Gasm.MemoryModel.FiniteSearch` then lifts those facts to bounded-search
 soundness.  Reverse completeness is a separate obligation, required only when a concrete tool
 advertises complete enumeration for its stated finite scope.
+
+Test reverse completeness by widening the normative transition relation with one valid edge the
+enumerator omits.  The private positive control in `2059cd3` consumes actual `ReachesAt` evidence and
+the exact step relation, so this mutation breaks its proof.  A theorem that only shows
+`state ≤ fuel → reported` and survives the mutation has characterized an encoding or index, not
+normative reachability.
+
+## Minimize premises around one semantic witness
+
+When stronger evidence already entails a premise, derive it inside the reusable theorem instead of
+charging every caller.  When several stable consequences depend on the same existential witness,
+package them together so consumers destruct that witness once.  The accepted from-read and atomic
+read-source helpers (`4433e1d`, `4c980cf`) centralize endpoint, source, value, coherence, and
+adjacency consequences this way; `e4857567` similarly reuses the canonical premise-free
+program-order transitivity law.  Do not bundle unrelated facts simply to make a larger theorem.
 
 ## Lift target steps through small generic algebras
 

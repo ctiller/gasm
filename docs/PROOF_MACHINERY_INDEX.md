@@ -28,6 +28,10 @@ diagnostic until repeated accepted cases justify new machinery.
 | Compose frame facts without clobber-order obligations | `preserves_comp`, `preservesOutside_comp`, `preservesOutside_comp_append` | target-independent observation algebra | x86-64 segment composition and the shared list-execution consumers | append is only a conservative union representation; uniqueness and order are irrelevant |
 | Preserve an x86 64-bit read across a lower, non-wrapping write | `Gasm.Targets.X86_64.X86_64Mem.read64_write_below` | x86-64 memory semantics | Spike 2 decimal authority and Spike 5 native proofs | address arithmetic, write width, nowrap, and strict-below premises remain explicit; this is not a target-independent memory model |
 | Show bounded finite exploration contains only normative reachable states | `Gasm.MemoryModel.FiniteSearch.Enumerator.search_sound` | memory-model presentation/search boundary | the checked incomplete-enumerator negative control exercises the one-way guarantee | completeness is separate and may not be inferred from bounded fuel or a finite result |
+| Prove bounded finite exploration complete for one exact finite fixture | reverse completeness in `Gasm.MemoryModel.FiniteSearchPositiveControls` (`2059cd3`) | private memory-model validation fixture | its proof consumes actual `ReachesAt` and the exact transition relation | fixture-only evidence; widening the relation with an unenumerated edge breaks the proof, and no generic completeness or production authority follows |
+| Reuse canonical program-order transitivity | `ProgramOrderProjection.po_trans` | CPU-graph program-order projection | `ProgramOrderPath` (`e4857567`) removed its duplicate transitivity proof | the premise-free canonical consequence is reused unchanged; no stronger ordering relation is inferred |
+| Recover stable from-read endpoint, source, and value facts | `fr_support`, `fr_source_value` | CPU-graph derived from-read layer | downstream from-read proofs (`4433e1d`) share the same existential source witness | target classification and independent facts remain outside the package |
+| Recover a canonical atomic read source across fragments | atomic source/value/coherence/adjacency package in `Gasm.MemoryModel.CpuGraphAtomicRead` | CPU-graph atomic-read layer | combined-RMW controls (`4c980cf`) | redundant `readAt` premises are derived, not requested; this proves neither target classification nor linearization |
 | Preserve dependent CFG identity through lowering or nominal remapping | `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock`, `lower_ref_exact`, and `lowerDefinitions_mapBlockId_block` | compiler CFG authoring/lowering | typed CFG lowering and x86-64 control-point remapping | matching names or entries do not substitute for equality of the complete dependent definition |
 | Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.UInt64DecimalScheduleRealization` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection |
 | Cache an exact selected x86 production prefix | `ProductionPrefix.SelectedPrefix.Cutpoint` | x86-64 eventful production semantics | canonical evidence carried by `LocalBlockRun` | a cutpoint proves an exact prefix only; it does not classify the caller's logical phase or prove termination |
@@ -64,6 +68,12 @@ diagnostic until repeated accepted cases justify new machinery.
   versus 12.64 seconds.  The reusable pattern is an observation-shaped invalidation boundary, not
   a new facts namespace.  Register-frame, `does_not_use_memory`, jump, and syscall summaries are
   likely consumers; their instruction and platform semantics remain owner-local.
+- Before exporting a helper, remove premises already implied by its strongest supplied evidence.
+  `e4857567` reused the canonical premise-free program-order transitivity law instead of maintaining
+  a duplicate path proof.  `4433e1d` and `4c980cf` package stable endpoint, source, value, coherence,
+  and adjacency consequences around the same existential read-source witness, so consumers do not
+  reconstruct that witness or resupply derivable `readAt` facts.  Package consequences that share
+  one semantic witness; do not accumulate independent facts merely to produce a large theorem.
 
 ## Admission record
 
@@ -125,6 +135,36 @@ The following code shapes have enough evidence to investigate but are not canoni
   removed rather than export cast obligations to every consumer.  Append/split should remain on the
   roadmap until an implementation can internalize those transports.  With only one demonstrated
   consumer, this remains extraction evidence rather than canonical generic machinery.
+- MP's provisional external-provider ruling supplies an extraction gate, not yet a reusable API.
+  Keep the production runner functional and any future raw provider input universally quantified,
+  default-empty, and semantically decoded by its target; missing, malformed, mismatched, and
+  oversized inputs must totalize to explicit outcomes with bounded writes and defined authority
+  return.  A synchronous emitted Win32 `GetMessage` path through the sole `VerifiedProgram` is only
+  a checkpoint.  The neutral envelope is eligible to land only after a materially different
+  synchronous Vulkan scalar/out-buffer consumer validates the same shape and both consumers are
+  independently falsified.  A mismatch changes the still-unlanded shape rather than adding a
+  compatibility facade.  Target-local operation identity, decoding, loans, exact frames,
+  callbacks, and asynchronous consequences do not promote with the envelope.  This entry records
+  the proof-method and two-consumer gate; MP owns the canonical architecture specification.
+- Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
+  generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
+  withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
+  or deleting a `PresentReady` table entry cannot erase evidence required to retire its backing
+  generation.  Likewise operation terminality, notification, observation, buffer/registration
+  return, queue reclamation, delivery, acknowledgement, persistence, and GPU completion remain
+  distinct unless a selected profile proves a relation between them.  Reusable helpers should
+  preserve these indexed obligations across the same witness; they must not collapse them into a
+  count, Boolean completion flag, or destructive table update.
+- Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
+  Spike 3 still needs a theorem over every finite stdin with explicit reservation, allocation,
+  read, output, exhaustion, and cleanup outcomes before its downstream production certificates can
+  cease depending on grandfathered checks.  Narrowing the input domain is not proof reuse.
+- A failure-path composition candidate should prove the successful prefix, first failure
+  transition, unreachable untouched tail, and preservation of the relational ghost invariants and
+  outstanding obligations consumed at the typed block boundary.  Applicability remains edge-local:
+  an unselected failure mode adds no premise, while a selected local failure classification cannot
+  erase resource-return or cleanup obligations.  Keep this in the candidate ledger until accepted
+  code demonstrates the complete pattern.
 - Bidirectional contract derivation for typed CFGs is not yet present.
   `Gasm.Compiler.TypedCFG.SourceScope` permits contracts to be declared before bodies, but the
   author still supplies them;
