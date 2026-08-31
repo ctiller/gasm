@@ -39,6 +39,7 @@ open Gasm.Targets.X86_64.MacroAssembler
 open Gasm.Targets.X86_64.StackStorePrefix
 open Gasm.Targets.X86_64.StackStorePrefixExecution
 open Gasm.Targets.Windows
+open Gasm.Targets.Windows.ProcessEntryMemory
 open Spikes.CheckedMemoryWindows.Authority
 open Spikes.CheckedMemoryWindows.Realization
 
@@ -178,34 +179,124 @@ def proofBudget : NativeProofBudget where
   evaluatorFuel := 4
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+theorem selectedTermination :
+    selectedExecutionTerminates (Event := Event) false selectedNonInputWin32Call indexed
+      proofBudget.evaluatorFuel executable.load = true := by
+  rfl
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+def terminationCertificate :
+    SelectedTerminationCertificate (Event := Event) false selectedNonInputWin32Call
+      executable.load.rip instructions executable.load where
+  fuel := proofBudget.evaluatorFuel
+  verifies := selectedTermination
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 def artifact : WindowsX86_64Artifact where
   executable := executable
   instructions := instructions
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- The world after the terminal event has invalidated the captured view but before the exclusive
+    access obligation is returned. -/
+def afterInvalidationWorld (selected : InvocationId) (state : X86_64MachineState) :
+    World ObligationId ObligationKind :=
+  ⟨[accessEntry selected state], by simp [accessEntry]⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+def completedWorld : World ObligationId ObligationKind := World.empty
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+theorem invalidateRemoval :
+    Removal (entryWorld invocation entryState)
+      (afterInvalidationWorld invocation entryState) (invalidateEntry invocation) := by
+  exact ⟨by rfl⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+theorem accessRemoval :
+    Removal (afterInvalidationWorld invocation entryState) completedWorld
+      (accessEntry invocation entryState) := by
+  exact ⟨by simp [afterInvalidationWorld, completedWorld, World.empty]⟩
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- Target lifecycle authority for this exact invocation and production terminal execution. The
+    private constructor prevents structural removals from being repackaged as teardown authority. -/
+structure LifecycleCompletion (selected : InvocationId)
+    (state : X86_64MachineState) : Prop where
+  private mk ::
+  exactInvocation : selected = invocation
+  exactState : state = entryState
+  terminal :
+    (runProgramOutcomeLoop (Event := Event) (indexInstructions state.rip instructions) 4 state []).observable =
+      .processExited 0 [Inject.inject (ProcessEvent.exit 0)]
+  rootTeardown : RootTeardown processEntryLoad 0 .retired
+  invalidatesView : Removal (entryWorld selected state)
+    (afterInvalidationWorld selected state) (invalidateEntry selected)
+  returnsExclusive : Removal (afterInvalidationWorld selected state) completedWorld
+    (accessEntry selected state)
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+theorem lifecycleCompletion : LifecycleCompletion invocation entryState where
+  exactInvocation := rfl
+  exactState := rfl
+  terminal := canonicalObservable
+  rootTeardown := rootTeardownAfterExitProcess processEntryLoad 0
+  invalidatesView := invalidateRemoval
+  returnsExclusive := accessRemoval
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Universe-erased evidence that the selected ordinary instruction was produced by the sealed
-    checked authoring path. -/
-def AuthoringEstablished (state : X86_64MachineState) : Prop :=
-  ∃ checked : CheckedStore state,
+    checked authoring path for the same invocation and state. -/
+def AuthoringEstablished (selected : InvocationId) (state : X86_64MachineState) : Prop :=
+  ∃ checked : CheckedStore selected state,
     checked.erase = mov_rsp_byte byteOffset storedValue
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-/-- Erased ghost context carried by the real program capability row. Its indices force all three
-    witnesses to describe one exact core entry state. The constructor is private so the selected
-    entry certificate is the only source of this spike-local capability context. -/
-structure CheckedMemoryContext where
+/-- Sole admission bundle for checked memory. Its indices force loader issuance, logical
+    live/latest authority, physical mapping, checked authoring, terminal teardown, and evaluator
+    fuel to describe one invocation and state. No proper subset grants admission. -/
+structure MemoryAdmission (selected : InvocationId) (state : X86_64MachineState) where
   private mk ::
-  state : X86_64MachineState
-  logical : TypedStoreView state
-  physical : X86StoreRealization state
-  authored : AuthoringEstablished state
+  exactInvocation : selected = processEntryLoad.invocation
+  exactLoadedState : state = processEntryLoad.machine
+  invocationIssued : InvocationIssuance initialInvocationWorld
+    processEntryLoad.afterInvocations selected
+  logical : TypedStoreView selected state
+  physical : X86StoreRealization selected state
+  authored : AuthoringEstablished selected state
+  lifecycle : LifecycleCompletion selected state
+  proofFuel : Nat
+  proofFuelExact : proofFuel = 4
+  termination : selectedExecutionTerminates (Event := Event) false selectedNonInputWin32Call
+    indexed proofFuel state = true
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-def checkedEntryContext : CheckedMemoryContext where
-  state := entryState
+def memoryAdmission : MemoryAdmission invocation entryState where
+  exactInvocation := rfl
+  exactLoadedState := rfl
+  invocationIssued := processEntryLoad.issuance
   logical := typedStoreView
   physical := storeRealization
   authored := ⟨checkedStore, CheckedStore.erase_eq checkedStore⟩
+  lifecycle := lifecycleCompletion
+  proofFuel := 4
+  proofFuelExact := rfl
+  termination := selectedTermination
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- Erased ghost context carried by the real capability row. The constructor is private; its only
+    inhabitant in this spike contains the complete `MemoryAdmission` certificate. -/
+structure CheckedMemoryContext where
+  private mk ::
+  selected : InvocationId
+  state : X86_64MachineState
+  admission : MemoryAdmission selected state
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+def checkedEntryContext : CheckedMemoryContext where
+  selected := invocation
+  state := entryState
+  admission := memoryAdmission
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- The platform load may add arbitrary external-input queues; the checked logical and physical
@@ -215,6 +306,7 @@ def CheckedMemoryEstablished (selectedArtifact : WindowsX86_64Artifact)
     (context : CheckedMemoryContext) : Prop :=
   selectedArtifact = artifact ∧
     loaded = entryState.withExternalInputs environment.stdin environment.incomingRequests ∧
+    context.selected = invocation ∧
     context.state = entryState ∧
     selectedArtifact.instructions =
       [sub_rsp frameSize, mov_rsp_byte byteOffset storedValue,
@@ -232,8 +324,9 @@ def checkedMemoryCapability : Capability (WindowsX86_64 Event) where
 def capabilities : CapabilityComposition (WindowsX86_64 Event) where
   root := Capability.compose
     (windowsHostCapability Event standardWindowsProviders) checkedMemoryCapability
-  realize := fun _ _ =>
-    ({ interceptor := standardWindowsRuntime Event, proofBudget } : NativeX86_64Runtime Event)
+  realize := fun _ context =>
+    ({ interceptor := standardWindowsRuntime Event,
+       proofBudget := ⟨context.2.admission.proofFuel⟩ } : NativeX86_64Runtime Event)
   realizeSupports := by
     intro context selectedArtifact provider membership linked
     simp only [Capability.compose, windowsHostCapability, checkedMemoryCapability,
@@ -293,20 +386,7 @@ def entryCertificate : ProgramEntryCertificate (WindowsX86_64 Event)
     intro environment
     constructor
     · trivial
-    · exact ⟨rfl, rfl, rfl, instructions_shape⟩
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-theorem selectedTermination :
-    selectedExecutionTerminates (Event := Event) false selectedNonInputWin32Call indexed
-      proofBudget.evaluatorFuel executable.load = true := by
-  rfl
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-def terminationCertificate :
-    SelectedTerminationCertificate (Event := Event) false selectedNonInputWin32Call
-      executable.load.rip instructions executable.load where
-  fuel := proofBudget.evaluatorFuel
-  verifies := selectedTermination
+    · exact ⟨rfl, rfl, rfl, rfl, instructions_shape⟩
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 theorem outcomeExternalInputFrame (environment : Environment) :
@@ -325,58 +405,17 @@ theorem outcomeExternalInputFrame (environment : Environment) :
     environment.stdin environment.incomingRequests
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-def afterInvalidationWorld : World ObligationId ObligationKind :=
-  ⟨[accessEntry entryState], by simp [accessEntry]⟩
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-def completedWorld : World ObligationId ObligationKind := World.empty
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-theorem invalidateRemoval :
-    Removal (entryWorld entryState) afterInvalidationWorld invalidateEntry := by
-  exact ⟨by
-    change [accessEntry entryState, invalidateEntry].Perm
-      [invalidateEntry, accessEntry entryState]
-    exact .swap _ _ []⟩
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-theorem accessRemoval :
-    Removal afterInvalidationWorld completedWorld (accessEntry entryState) := by
-  exact ⟨by simp [afterInvalidationWorld, completedWorld, World.empty]⟩
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-/-- Profile-owned lifecycle authority is tied to this exact terminal execution. It justifies the
-    two structural removals; the generic obligation module itself grants no discharge authority.
-    Its private constructor prevents callers from repackaging structural deltas as lifecycle
-    authority. -/
-structure LifecycleCompletion : Prop where
-  private mk ::
-  terminal :
-    (runProgramOutcomeLoop (Event := Event) indexed 4 entryState []).observable =
-      .processExited 0 [Inject.inject (ProcessEvent.exit 0)]
-  invalidatesView : Removal (entryWorld entryState) afterInvalidationWorld invalidateEntry
-  returnsExclusive : Removal afterInvalidationWorld completedWorld (accessEntry entryState)
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
-theorem lifecycleCompletion : LifecycleCompletion where
-  terminal := canonicalObservable
-  invalidatesView := invalidateRemoval
-  returnsExclusive := accessRemoval
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 theorem admissibilityCertificate : ProgramAdmissibilityCertificate (WindowsX86_64 Event)
     capabilities artifact entryCertificate where
   platformAdmissible := by
     intro environment
-    have logical := typedStoreView
-    have physical := storeRealization
-    have lifecycle := lifecycleCompletion
     change (runProgramOutcomeWithLoops (Event := Event) executable.load.rip instructions
       proofBudget.evaluatorFuel (executable.load.withExternalInputs environment.stdin
         environment.incomingRequests)).isAdmissible false
     rw [outcomeExternalInputFrame]
     simp only [NativeRunOutcome.withExternalInputs_isAdmissible]
-    exact terminationCertificate.isAdmissible
+    exact selectedExecutionTerminates_isAdmissible false selectedNonInputWin32Call
+      indexed 4 entryState [] checkedEntryContext.admission.termination
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 def behaviorCertificate : ProgramBehaviorCertificate (WindowsX86_64 Event)
@@ -389,7 +428,7 @@ def behaviorCertificate : ProgramBehaviorCertificate (WindowsX86_64 Event)
         environment.incomingRequests)).observable = _
     rw [outcomeExternalInputFrame]
     simp only [NativeRunOutcome.withExternalInputs_observable]
-    exact canonicalObservable
+    exact checkedEntryContext.admission.lifecycle.terminal
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Sole whole-program proof and emission authority for the checked-memory demonstration. -/

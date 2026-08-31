@@ -17,9 +17,11 @@ limitations under the License.
 import Spikes.CheckedMemoryWindows.Equivalence
 
 /-!
-Adversarial controls for the checked-store demonstration. They reject the principal mismatches at
-the public relational boundaries; private constructors separately prevent callers from directly
-fabricating a `TypedStoreView`, Windows stack grant, store realization, or checked instruction.
+Adversarial controls for the checked-store demonstration. They exercise invocation separation,
+exact obligation payloads, mapped-range bounds, descriptor fidelity, lifecycle accounting, and
+the all-legs admission boundary. Private constructors separately prevent fabrication of the
+loader grant, logical refinement, physical realization, checked instruction, lifecycle, or final
+admission bundle.
 -/
 
 namespace Spikes.CheckedMemoryWindows.Controls
@@ -28,11 +30,14 @@ open Gasm.Core
 open Gasm.Core.Platform
 open Gasm.Core.Verification
 open Gasm.Effects
-open Gasm.MemoryModel.BindingHistory
+open Gasm.MemoryModel
 open Gasm.MemoryModel.ObligationWorld
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.StackStorePrefix
+open Gasm.Targets.Windows
+open Gasm.Targets.Windows.ProcessEntryMemory
+open Spikes.CheckedMemoryWindows
 open Spikes.CheckedMemoryWindows.Authority
 open Spikes.CheckedMemoryWindows.Realization
 
@@ -41,76 +46,14 @@ local instance : ExternalCallInterceptor X86_64 Spikes.CheckedMemoryWindows.Even
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private def staleAccess : Entry ObligationId ObligationKind :=
-  ⟨.access, .exclusiveStore .entryStack 1 (byteFootprint entryState)⟩
+  ⟨accessId invocation,
+    .exclusiveStore (entryBinding invocation) ⟨invocation, 1⟩ (byteRange entryState)⟩
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem stale_generation_rejected :
-    ¬ (entryWorld entryState).Binds staleAccess.id staleAccess.payload := by
-  simp [World.Binds, entryWorld, staleAccess, accessEntry, invalidateEntry]
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
-private def wrongBindingAccess : Entry ObligationId ObligationKind :=
-  ⟨.access, .exclusiveStore .otherStack 0 (byteFootprint entryState)⟩
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
-private theorem different_binding_same_address_rejected :
-    ¬ (entryWorld entryState).Binds wrongBindingAccess.id wrongBindingAccess.payload := by
-  simp [World.Binds, entryWorld, wrongBindingAccess, accessEntry, invalidateEntry]
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
-private theorem wrong_rights_rejected :
-    (history entryState).bindingRecord .entryStack ≠ some {
-      key := .stack
-      generation := (0 : BindingGeneration)
-      object := .entryStack
-      rights := .sharedRead
-      logicalFootprint := frameFootprint entryState
-      backingFootprint := frameFootprint entryState } := by
-  intro equal
-  simp only [history] at equal
-  have recordEqual := Option.some.inj equal
-  have rightsEqual := congrArg (fun record => record.rights) recordEqual
-  cases rightsEqual
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
-private theorem wrong_footprint_rejected :
-    (history entryState).bindingRecord .entryStack ≠ some {
-      key := .stack
-      generation := (0 : BindingGeneration)
-      object := .entryStack
-      rights := .exclusiveWrite
-      logicalFootprint := ⟨(frameFootprint entryState).start, 39⟩
-      backingFootprint := frameFootprint entryState } := by
-  intro equal
-  have lengths := congrArg (fun record => record.map
-    (fun selected => selected.logicalFootprint.length)) equal
-  change some frameSize.toNat = some 39 at lengths
-  have lengthEqual := Option.some.inj lengths
-  change 40 = 39 at lengthEqual
-  omega
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
-private theorem other_binding_not_captured :
-    ¬ (history entryState).Captures .afterAllocation .otherStack := by
-  intro captured
-  rcases captured with ⟨capture, key, captureResolved, frontierResolved⟩
-  simp only [history] at captureResolved
-  cases captureResolved
-  rcases frontierResolved with ⟨root, rootResolved, _, initialResolved⟩
-  simp only [history] at rootResolved
-  cases rootResolved
-  cases initialResolved
-
-/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
-private theorem wrong_use_event_rejected :
-    (history entryState).useRecord .selectedStore ≠ some {
-      event := Event.capture
-      capture := .afterAllocation } := by
-  intro equal
-  simp only [history] at equal
-  have recordEqual := Option.some.inj equal
-  have eventsEqual := congrArg (fun record => record.event) recordEqual
-  cases eventsEqual
+    ¬ (entryWorld invocation entryState).Binds staleAccess.id staleAccess.payload := by
+  simp [World.Binds, entryWorld, staleAccess, accessEntry, invalidateEntry,
+    entryGeneration]
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem checked_descriptor_mismatch_rejected :
@@ -120,28 +63,59 @@ private theorem checked_descriptor_mismatch_rejected :
   decide
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
-private def wrongRspState : X86_64MachineState :=
-  entryState.setGpr64 .rsp 0
+private def outsideCommitted : AddressRange :=
+  ⟨0x7FFFFFFEEFFF, 1⟩
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
-private theorem total_memory_does_not_supply_entry_grant :
-    ¬ EntryStackCommittedWritable wrongRspState (frameFootprint wrongRspState) := by
-  intro committed
-  have statesEqual := committed.1
-  have rspEqual := congrArg X86_64MachineState.rsp statesEqual
-  change 0 = 0x7FFFFFFF0008 at rspEqual
-  exact (by decide : (0 : UInt64) ≠ 0x7FFFFFFF0008) rspEqual
+private theorem outside_committed_not_mapped :
+    ¬ MappedWritable processEntryLoad outsideCommitted := by
+  intro mapped
+  have contained := mapped.withinCommitted
+  rw [processEntryLoad.stackExact] at contained
+  change 0x7FFFFFFEF000 ≤ 0x7FFFFFFEEFFF ∧ _ at contained
+  omega
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private def missingInvalidationWorld : World ObligationId ObligationKind :=
-  ⟨[accessEntry entryState], by simp [accessEntry]⟩
+  accessWorld invocation entryState
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem omitted_invalidation_rejected :
-    ¬ (entryWorld entryState).Equivalent missingInvalidationWorld := by
+    ¬ (entryWorld invocation entryState).Equivalent missingInvalidationWorld := by
   intro equivalent
   have lengths := equivalent.length_eq
-  simp [entryWorld, missingInvalidationWorld] at lengths
+  simp [entryWorld, missingInvalidationWorld, accessWorld] at lengths
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private def secondProcessEntryLoad :
+    ProcessEntryLoad executable processEntryLoad.afterInvocations :=
+  loadProcessEntry executable processEntryLoad.afterInvocations
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem consecutive_invocation_ids_differ :
+    secondProcessEntryLoad.invocation ≠ invocation := by
+  exact consecutive_invocations_ne initialInvocationWorld
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem consecutive_worlds_are_disjoint :
+    (entryWorld invocation entryState).Disjoint
+      (entryWorld secondProcessEntryLoad.invocation secondProcessEntryLoad.machine) := by
+  exact entryWorld_disjoint_of_invocation_ne (Ne.symm consecutive_invocation_ids_differ)
+    entryState secondProcessEntryLoad.machine
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+/-- Any value that reaches the sole admission type necessarily contains every reviewed leg. These
+    projections are deletion controls: dropping logical, physical, authoring, lifecycle, issuance,
+    or termination evidence makes the admission constructor unavailable. -/
+private theorem admission_has_all_legs {selected : InvocationId}
+    {state : X86_64MachineState} (admission : MemoryAdmission selected state) :
+    InvocationIssuance initialInvocationWorld processEntryLoad.afterInvocations selected ∧
+      TypedStoreView selected state ∧
+      X86StoreRealization selected state ∧
+      AuthoringEstablished selected state ∧
+      LifecycleCompletion selected state := by
+  exact ⟨admission.invocationIssued, admission.logical, admission.physical,
+    admission.authored, admission.lifecycle⟩
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private def wrongArtifact : WindowsX86_64Artifact :=

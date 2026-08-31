@@ -48,6 +48,8 @@ import Gasm.MemoryModel.CpuGraphCoherencePath
 import Gasm.MemoryModel.CpuGraphCoherencePathControls
 import Gasm.MemoryModel.Envelope
 import Gasm.MemoryModel.EnvelopeControls
+import Gasm.MemoryModel.AddressRange
+import Gasm.MemoryModel.AddressRangeControls
 import Gasm.MemoryModel.EnvelopeOccurrencePath
 import Gasm.MemoryModel.EnvelopeOccurrencePathControls
 import Gasm.MemoryModel.BindingHistory
@@ -69,6 +71,7 @@ import Gasm.Effects.ReadBinderWiring
 import Gasm.Effects.CanonicalizeTrace
 
 import Gasm.Targets.X86_64.Registers
+import Gasm.Targets.X86_64.MemoryRange
 import Gasm.Targets.X86_64.Instructions.Base
 import Gasm.Targets.X86_64.Instructions.Sub
 import Gasm.Targets.X86_64.Instructions.Add
@@ -143,6 +146,7 @@ import Gasm.Compiler.TypedCFG
 import Gasm.Targets.Windows.ABI
 import Gasm.Targets.Windows.PEFormat
 import Gasm.Targets.Windows.Win32API
+import Gasm.Targets.Windows.ProcessEntryMemory
 import Gasm.Targets.Windows.Emitter
 
 import Gasm.Targets.ELF.Format
