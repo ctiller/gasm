@@ -92,11 +92,12 @@ real consumers.
 
 - **Present:** representation-independent `Vec` map/set/swap/append/push semantics,
   Array-backed realization proofs, append lookup laws, and executable operations.
-  A standalone runnable test exercises the operation/refinement surface. A rebuilt
-  Spike consumer remains required for end-to-end completion.
+  A standalone runnable test exercises the operation/refinement surface, and the
+  target-neutral `Spikes.ByteVecPipeline` demonstration consumes the public API.
 - **Present:** `ByteVec` size/index/list and conversion bridge. Its runnable append,
-  set, swap, and push test validates the bridge surface, but no target decoder has
-  adopted it yet.
+  set, swap, and push test validates the bridge surface; the standalone byte-pipeline
+  consumer proves exact append and boundary observations. No target decoder has adopted
+  it, and no native/Wasm storage or program authority is claimed.
 - **Present:** reference insertion sort and stable key-based sorting over a lawful
   total preorder. For the non-strict relation, keys are equivalent when precedence
   holds in both directions; stability preserves the exact original tagged-record
@@ -284,10 +285,11 @@ The plan borrows useful boundaries rather than copying APIs:
 Subject to higher-priority Trust/build repairs, the current sequence is:
 
 1. **Landed:** lawful stable key sorting with its tagged Spike 3 executable witness.
-2. **Implemented library candidate:** complete Vec semantic/refinement and
-   append/index laws, with a standalone runnable Vec/ByteVec test. Do not attach new
-   corollaries or guards to the old Spike 3 proof tree during the VerifiedProgram
-   proof-template reset; a rebuilt Spike consumer remains the completion gate.
+2. **Implemented:** complete Vec semantic/refinement and append/index laws, with the
+   runnable Vec/ByteVec test and standalone target-neutral `Spikes.ByteVecPipeline`
+   consumer. Do not attach new corollaries or guards to the old Spike 3 proof tree
+   during the VerifiedProgram reset; emitted target storage and program authority
+   remain separate work.
 3. **Implemented:** move the shared `.get!` observation/push/extensionality
    laws into import-light `Stdlib.Data.ByteArray` and migrate PNG/Zlib atomically.
    PNG-local append/extract cleanup remains separate and should prefer Lean core laws.
@@ -344,8 +346,8 @@ promotion requires filling any missing consumer, bound, and cost evidence.
 
 | Facility | Current spellings | Consumers / pressure | Required law or boundary | State |
 | --- | --- | --- | --- | --- |
-| Vec | `Stdlib/Containers/VecSpec.lean`, `Vec.lean` | Trust-requested foundation; future rebuilt Spike consumer | representation-free finite-index observations; Array map/set/swap/append/push refinement | Present library candidate and runnable test; end-to-end consumer pending |
-| ByteVec | `Stdlib/Containers/ByteVec.lean` | ByteArray bridge; prospective decoders | exact size/get/get?/list/conversion observations; append agreement without client HEq | Present bridge API and runnable test; target adoption not yet demonstrated |
+| Vec | `Stdlib/Containers/VecSpec.lean`, `Vec.lean` | `Spikes.ByteVecPipeline`; prospective target consumers | representation-free finite-index observations; Array map/set/swap/append/push refinement | Present; standalone source consumer and runnable demonstrations pass; target authority remains separate |
+| ByteVec | `Stdlib/Containers/ByteVec.lean` | `Spikes.ByteVecPipeline`; prospective decoders | exact size/get/get?/list/conversion observations; exact append agreement at the byte boundary | Present; standalone source consumer and runnable edge-case demonstration pass; target adoption remains separate |
 | Stable key sort | `Stdlib/Containers/Sort.lean` | Spike 3 model and tagged executable regression; MASM record sorting | exact class-projection stability within mutual-preorder equivalence `beforeKey a b = true` and `beforeKey b a = true` | Present; nonvacuous tagged demonstration |
 | Dependent finite table | function tables in RecursiveCFGBuilder and TypedCFG | prospective compiler role and definition tables | extensionality, dependent get/map, reindex, append/split | Candidate; named migration required |
 | Generic ByteArray observations | `Stdlib/Data/ByteArray.lean` | Zlib and PNG equivalence proofs | exact `.get!`/`getElem` connection, push observations, extensionality; Lean-only dependency | Present; focused proofs and both codec demonstrations pass |

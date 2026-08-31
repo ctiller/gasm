@@ -36,11 +36,14 @@ to `ByteArray` agrees exactly with specialized ByteArray append, without requiri
 clients to use the reverse heterogeneous-equality theorem.
 
 The standalone `test_stdlib_vec` executable exercises append-boundary observations,
-set, swap, push, semantic-model agreement, and ByteArray conversion. This proves that
-the facilities execute together, but it is not an end-to-end program-consumer claim.
-During the VerifiedProgram proof-template reset, no new code is attached to the old
-Spike 3 proof tree. A rebuilt Spike consumer remains the completion gate, and no
-target decoder currently depends on the ByteVec bridge.
+set, swap, push, semantic-model agreement, and ByteArray conversion. The separate
+`Spikes.ByteVecPipeline` source-level consumer accepts arbitrary ByteArray pairs,
+performs append and bounds-safe boundary observation through the public Vec API, and
+converts the result back; universal refinement and boundary theorems accompany its
+`test_bytevec_pipeline` executable. This satisfies the standalone consumer and runnable
+demonstration gates. It is not emitted native/Wasm storage, target-decoder adoption, or
+`VerifiedProgram` authority. During the proof-template reset, no code is attached to
+the old Spike 3 proof tree.
 
 The Array representation is certified but not opaque: Lean exposes the structure
 constructor even though its fields have private names. Clients should use the public
