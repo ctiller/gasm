@@ -202,6 +202,7 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Preserve an x86 64-bit read across a lower, non-wrapping write | `Gasm.Targets.X86_64.X86_64Mem.read64_write_below` | x86-64 memory semantics | Spike 2 decimal authority and Spike 5 native proofs | address arithmetic, write width, nowrap, and strict-below premises remain explicit; this is not a target-independent memory model |
 | Derive an exact singleton-store frame | `X86_64Mem.readByte_write_outside_addresses`, `readByte_write_inside`, `MemoryFrame.singleStore_writesWithin`, and `singleStore_readsWithin` | x86-64 memory and frame semantics | `MovMem32DispReg32` and `MovMem64DispReg64` | exact singleton descriptor and step-memory equality are mandatory; address, value, and non-memory projection congruence remain consumer facts; this supplies no admission or artifact authority |
 | Derive an exact singleton-load read frame | `MemoryFrame.singleLoad_readsWithin`, with `registerOnly_writesWithin` for the separate no-write frame | x86-64 memory and frame semantics | `MovReg32Mem32Disp`, `MovReg64Mem64Disp`, and `MovzxR32Mem8` | exact singleton descriptor, address congruence, one-read step factorization, and memory-insensitive post transformation are mandatory; write preservation remains a separate audited obligation |
+| Ratchet exact frame coverage across the registered x86 census | `MemoryFrameAudit.frameCoverageDebtCeiling` and its compiled exact-theorem audit | x86-64 registry/frame boundary | every currently registered instruction form; `CheckedMemoryWindows.ProductionStoreUse` manually consumes the selected store facts | the ceiling is zero and must not be raised; theorem presence does not package descriptor equality, execution identity, admission, or `VerifiedProgram` authority |
 | Show bounded finite exploration contains only normative reachable states | `Gasm.MemoryModel.FiniteSearch.Enumerator.search_sound` | memory-model presentation/search boundary | the checked incomplete-enumerator negative control exercises the one-way guarantee | completeness is separate and may not be inferred from bounded fuel or a finite result |
 | Preserve dependent CFG identity through lowering or nominal remapping | `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock`, `lower_ref_exact`, and `lowerDefinitions_mapBlockId_block` | compiler CFG authoring/lowering | typed CFG lowering and x86-64 control-point remapping | matching names or entries do not substitute for equality of the complete dependent definition |
 | Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.DecimalSchedule.UInt64DecimalScheduleRealization.selectedPrefix_bounded` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection; the fuel theorem supplies no resource authority |
@@ -255,6 +256,18 @@ evidence, and negative boundary after that comparison; it does not own a second 
   the declared value and tested a wholly misdeclared load.  The canonical slice preserves public
   theorem names/types and the compiled `MemoryFrameAudit`/`FamilyPipelineAudit`; focused validation
   built 101 jobs.  It supplies no admission, concurrency, platform, CFG, or artifact authority.
+- At canonical `f8d4c83515a554fde01f2a71265583347dbe0411`, the compiled x86 census contains 88
+  registered forms and every form has exact closed `MemoryFrame.WritesWithin` and `ReadsWithin`
+  theorems; `frameCoverageDebtCeiling = 0` is a ratchet, not a budget to raise.  These predicates say
+  that steps write nowhere beyond declared stores and depend on memory only through declared loads.
+  `CheckedMemoryWindows.ProductionStoreUse` manually joins `descriptorExact`, both frame theorems,
+  exact fetch/step/prefix evidence, and the selected invocation before reaching its sole
+  `VerifiedProgram` demonstration.
+
+  A proposed `InstructionMemoryFidelity` bundle is intentionally held: adding it detached would not
+  reduce a real consumer's proof burden.  Refactor the existing consumer first, then retain only the
+  package fields it actually removes from that proof.  Coverage of frame theorems alone does not
+  package exact descriptor identity, production occurrence, admission, or final authority.
 - Canonical `eab58954d98590d5a51b684e7d5164392300b85e` extends that singleton-load reuse to
   `MovzxR32Mem8` and preserves the existing `MovzxR64Mem8`, whose frame proofs remain bespoke.  One
   shared `0F B6` encoder/length shape drives both encoders, encoded length, and therefore RIP
