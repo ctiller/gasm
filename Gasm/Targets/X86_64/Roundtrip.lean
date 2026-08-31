@@ -80,6 +80,104 @@ theorem roundtrip_ja_rel8 : ∀ d : UInt8, DecodesTo (ja_rel8 d) := by intro d; 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Universal: JBE rel8 (0x76) decodes back for every displacement byte (same rationale as JA rel8). -/
 theorem roundtrip_jbe_rel8 : ∀ d : UInt8, DecodesTo (jbe_rel8 d) := by intro d; rfl
+private theorem decode_mov_rsp_byte_zero (val : UInt8) :
+    decodeX86_64Instr (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
+      .ok (mov_rsp_byte 0 val, 4) := by
+  have hlocal : movTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
+      .ok (mov_rsp_byte 0 val, 4) := by
+    unfold movTryDecode
+    rw [show parseRexAndOpcode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
+      .ok (false, false, false, false, false, 0xC6, 1) by rfl]
+    simp only
+    rw [show readModRM (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 1 =
+      .ok (0, 0, 4, 2) by
+        unfold readModRM
+        rw [show readUInt8 (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 1 = .ok 0x04 by rfl]
+        change Except.ok ((extractModRM 0x04).1, (extractModRM 0x04).2.1,
+          (extractModRM 0x04).2.2, 2) = .ok (0, 0, 4, 2)
+        rw [show extractModRM 0x04 = (0, 0, 4) by decide]]
+    rfl
+  have hret : ∃ e, retTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 = .error e :=
+    ⟨_, rfl⟩
+  have hpush : ∃ e, pushTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 = .error e :=
+    ⟨_, rfl⟩
+  have hpop : ∃ e, popTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 = .error e :=
+    ⟨_, rfl⟩
+  have hjcc : ∃ e, jccTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 = .error e :=
+    ⟨_, rfl⟩
+  rcases hret with ⟨_, hret⟩
+  rcases hpush with ⟨_, hpush⟩
+  rcases hpop with ⟨_, hpop⟩
+  rcases hjcc with ⟨_, hjcc⟩
+  unfold decodeX86_64Instr
+  simp only [allTryDecoders, tryDecoders]
+  rw [hret, hpush, hpop, hjcc, hlocal]
+
+private theorem decode_mov_rsp_byte_disp (disp val : UInt8) :
+    decodeX86_64Instr (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
+      .ok (mov_rsp_byte disp val, 5) := by
+  have hlocal : movTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
+      .ok (mov_rsp_byte disp val, 5) := by
+    unfold movTryDecode
+    rw [show parseRexAndOpcode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
+      .ok (false, false, false, false, false, 0xC6, 1) by rfl]
+    simp only
+    rw [show readModRM (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 1 =
+      .ok (1, 0, 4, 2) by
+        unfold readModRM
+        rw [show readUInt8 (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 1 = .ok 0x44 by rfl]
+        change Except.ok ((extractModRM 0x44).1, (extractModRM 0x44).2.1,
+          (extractModRM 0x44).2.2, 2) = .ok (1, 0, 4, 2)
+        rw [show extractModRM 0x44 = (1, 0, 4) by decide]]
+    rfl
+  have hret : ∃ e, retTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 = .error e :=
+    ⟨_, rfl⟩
+  have hpush : ∃ e, pushTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 = .error e :=
+    ⟨_, rfl⟩
+  have hpop : ∃ e, popTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 = .error e :=
+    ⟨_, rfl⟩
+  have hjcc : ∃ e, jccTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 = .error e :=
+    ⟨_, rfl⟩
+  rcases hret with ⟨_, hret⟩
+  rcases hpush with ⟨_, hpush⟩
+  rcases hpop with ⟨_, hpop⟩
+  rcases hjcc with ⟨_, hjcc⟩
+  unfold decodeX86_64Instr
+  simp only [allTryDecoders, tryDecoders]
+  rw [hret, hpush, hpop, hjcc, hlocal]
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- Universal production-decoder roundtrip for the byte-store form selected by the checked
+    authoring spike.  The displacement-zero branch has the canonical four-byte encoding; every
+    other displacement has the canonical five-byte encoding.  This theorem ranges over both
+    bytes rather than inheriting the finite `roundtripCases` sampling boundary, and uses the real
+    `decodeX86_64Instr` dispatcher through `DecodesTo`.  It proves codec realization only: no
+    mappedness, writability, logical authority, stack grant, or program-admission fact follows. -/
+theorem roundtrip_mov_rsp_disp_byte :
+    ∀ disp val : UInt8, DecodesTo (mov_rsp_byte disp val) := by
+  intro disp val
+  unfold DecodesTo
+  by_cases h : disp == 0
+  · have hd : disp = 0 := by simpa using h
+    subst disp
+    have modrm0 : makeModRM 0 0 4 = 0x04 := by decide
+    have sib : makeSIB 0 4 4 = 0x24 := by decide
+    rw [show X86_64Instruction.encode (mov_rsp_byte 0 val) =
+      ByteArray.mk #[0xC6, 0x04, 0x24, val] by
+        change (if (0 : UInt8) == 0 then
+          ByteArray.mk #[0xC6, makeModRM 0 0 4, makeSIB 0 4 4, val]
+        else ByteArray.mk #[0xC6, makeModRM 1 0 4, makeSIB 0 4 4, 0, val]) = _
+        rw [if_pos h, modrm0, sib]]
+    exact decode_mov_rsp_byte_zero val
+  · have modrm1 : makeModRM 1 0 4 = 0x44 := by decide
+    have sib : makeSIB 0 4 4 = 0x24 := by decide
+    rw [show X86_64Instruction.encode (mov_rsp_byte disp val) =
+      ByteArray.mk #[0xC6, 0x44, 0x24, disp, val] by
+        change (if disp == 0 then
+          ByteArray.mk #[0xC6, makeModRM 0 0 4, makeSIB 0 4 4, val]
+        else ByteArray.mk #[0xC6, makeModRM 1 0 4, makeSIB 0 4 4, disp, val]) = _
+        rw [if_neg h, modrm1, sib]]
+    exact decode_mov_rsp_byte_disp disp val
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Universal: SHL r64, CL (0xD3 /4) decodes back for every destination register. `encode` has no
     value-dependent branching (unlike the disp8-omitting MOV/LEA forms), so once `dst` is fixed by
