@@ -923,6 +923,19 @@ The following code shapes have enough evidence to investigate but are not canoni
   hostile byte strings as decoder controls.  This needs no new proof machinery and grants no
   production-admission or final proof authority.
 
+  Accepted successor `archive/accepted/x86-gpr-m1-decoder-controls-29bbc937`
+  (`29bbc93795a29068600d38a28a2bf4e5b26bd6bf`), integrated on main as `5fbf3f3d`, closes that
+  decoder-admission gap.  The `0x89` decoder retains REX.X, rejects unsupported mod=0/rm=5
+  RIP-relative forms at W32 and W64, and admits rm=4 only when REX.X is clear and the SIB is the
+  exact canonical no-index/base-4 form in mod=0 or mod=1.  Eight kernel-decided negative vectors
+  cover indexed SIB, REX.X-created index, RIP-relative, and indexed disp8 cases at both widths.
+  The three prior hostile byte strings now reject; supported W32/W64 RSP/R12 canonical-SIB and
+  RBP/R13 forced-displacement forms decode with exact consumption and matching semantic identity.
+  The exact W32 encode/step/descriptor/frame, sealed plan identity, nonzero-high-source native case,
+  and byte-after-footprint comparator falsifier remain accepted.  The focused gate passed 19/19 and
+  all nine independent probes succeeded.  This closes the Milestone 1 slice only; the supplemental
+  harness's existing nonclaims and final-authority boundary remain in force.
+
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
   precondition-indexed `SafeUnder` is the right proof-economical goal shape.  But public

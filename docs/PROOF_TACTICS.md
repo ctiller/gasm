@@ -84,6 +84,22 @@ case-id bits and binds result case identity to the plan; canonical `f5e0c855` ad
 the harness sole construction of a sealed observation carrying owner-derived plan identity.
 Provenance or occurrence identity is a separate obligation from observational equivalence.
 
+## Test decoder admission, not only roundtrip
+
+An encode/decode roundtrip proves that bytes produced by the encoder are accepted; it does not prove
+that the decoder rejects different byte strings which it might relabel as a supported form.  When a
+codec intentionally supports only a subset of an ISA addressing family, keep the positive roundtrip
+gate and targeted rejection controls in the target decoder.  Cover the load-bearing excluded
+discriminators in the claimed or repaired boundary--such as prefix extension bits, ModRM modes, SIB
+index/base fields, and displacement consumption--with kernel-decided hostile byte vectors.  Treat
+those vectors as regression evidence, not an exhaustive characterization of decoder admission.
+
+Canonical `5fbf3f3d` applies this to x86 `0x89`: indexed SIB, REX.X-created index, RIP-relative, and
+indexed disp8 encodings are rejected at both W32 and W64, while canonical RSP/R12 SIB and RBP/R13
+forced-displacement forms retain exact consumption and semantic identity.  This is decoder-admission
+regression evidence for that stated boundary, not a complete subset theorem or a substitute for
+instruction semantics, framing, hardware comparison, platform admission, or artifact authority.
+
 ## Keep falsification controls monotonic and evidence-sealed
 
 Every validation repair must rerun the complete accumulated negative-control suite, not only its
