@@ -82,11 +82,19 @@ private theorem duplicate_occurrence_path :
     OccurrencePath execution .first .middle [.duplicate] [.before] :=
   .single ⟨List.Mem.tail _ (List.Mem.tail _ (List.Mem.head _)), rfl⟩
 
+private theorem first_ne_duplicate : Occurrence.first ≠ Occurrence.duplicate := by
+  intro equal
+  cases equal
+
 /- REF: docs/MEMORY_MODEL.md#11-causality-and-observable-traces -/
 private theorem distinct_occurrences_may_erase_to_the_same_path :
-    LabeledPath execution.relation .first .middle [.before] ∧
+    Occurrence.first ≠ Occurrence.duplicate ∧
+      OccurrencePath execution .first .middle [.first] [.before] ∧
+      OccurrencePath execution .first .middle [.duplicate] [.before] ∧
+      LabeledPath execution.relation .first .middle [.before] ∧
       LabeledPath execution.relation .first .middle [.before] :=
-  ⟨first_occurrence_path.erase, duplicate_occurrence_path.erase⟩
+  ⟨first_ne_duplicate, first_occurrence_path, duplicate_occurrence_path,
+    first_occurrence_path.erase, duplicate_occurrence_path.erase⟩
 
 private theorem outside_not_mem :
     Occurrence.outside ∉ [Occurrence.first, Occurrence.second, Occurrence.duplicate] := by

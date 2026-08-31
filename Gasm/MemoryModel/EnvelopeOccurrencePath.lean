@@ -23,8 +23,10 @@ Exact relation-occurrence paths for the heterogeneous execution envelope.
 `OccurrenceEdge` retains the stable execution-local occurrence identity as well as its stored
 source, label, and target. `OccurrencePath` retains both the exact occurrence sequence and the
 exact label sequence. Its one-way `erase` theorem produces the existing extensional labelled path;
-there is deliberately no reverse reconstruction theorem because the extensional relation forgets
-which nominal occurrence supplied an edge.
+there is deliberately no exact, canonical, or choice-preserving inverse because the extensional
+relation forgets which nominal occurrence supplied an edge. An existential lift can choose the
+occurrence witness already stored in each extensional edge; that generic roundtrip is deferred here,
+not claimed impossible.
 
 This module proves no envelope well-formedness, target fidelity, selected/observable projection,
 consequence, admission, chronology, or execution authority. Carrier order is not path order, and
