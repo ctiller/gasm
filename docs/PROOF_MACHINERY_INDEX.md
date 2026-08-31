@@ -256,7 +256,8 @@ The following code shapes have enough evidence to investigate but are not canoni
   Its first payload is deliberately one-shot: child ordinary store, join publication, then parent
   ordinary load--neither atomic RMW nor a cooperative scheduler presented as hardware concurrency.
   Before lifecycle types harden, the canonical M0 envelope must close heterogeneous structural
-  identity: profile-indexed generative agents, references, events, relations, consequences, binding
+  identity: profile-indexed nominal execution-local agents, references, events, relations,
+  consequences, binding
   generations and rebind invalidation, plus exact origin/projection with a CPU projection and opaque
   non-CPU sentinel.  M0 imposes only laws selected by that structure, not every target consistency
   theorem; an unselected single-threaded program incurs no concurrency premise.
@@ -276,7 +277,13 @@ The following code shapes have enough evidence to investigate but are not canoni
   solely as an existential over that table, never as independent authority.  `EventId` already names
   event occurrences.  `ConsequenceOccurrenceId` remains reserved opaque vocabulary with no
   consequence carrier, coverage, admission, or premise until a selected extension requires it.
-  Multi is preparing the replacement; Trust integration and binding history remain gated.
+  Exact candidate `28228055263b5e95676615dcf82d989be93608eb` implements this mechanism: sole
+  relation-occurrence-table authority, stable IDs, exact coverage/endpoints, preservation of
+  multiplicity for equal records, and consequence vocabulary only.  MP nevertheless blocked its
+  prose because `WellFormed` and `Nodup` establish only nominal execution-local carrier identity.
+  They prove no allocation history, global freshness, cross-execution inequality, or authority.
+  A prose-only superseding hash and Reviewer verdict are pending; Trust integration and binding
+  history remain gated.
 
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
@@ -295,8 +302,9 @@ The following code shapes have enough evidence to investigate but are not canoni
   carrier partial bijection alone did not prove the generic relation-occurrence/path roundtrip.
   Revised signatures must keep `Execution` thin; select `BindingHistory` with a stable use
   occurrence; carry event/generation-indexed overlap evidence; make consequence admission
-  profile-owned; identify occurrences generatively; compare consequence carriers by `List.Perm` plus
-  a bijection and CPU carriers by permutation; and prove the generic relation-occurrence/path
+  profile-owned; identify occurrences with stable execution-local IDs; compare consequence carriers
+  by `List.Perm` plus a bijection and CPU carriers by permutation; and prove the generic
+  relation-occurrence/path
   roundtrip separately before M0 exit.  These are structural obligations only--target consistency
   and admission remain above M0.  Multi must return the revised signatures before implementation;
   MP will author canonical `MEMORY_MODEL` interface text only after the shape stabilizes.
