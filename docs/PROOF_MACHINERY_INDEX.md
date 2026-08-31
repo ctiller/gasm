@@ -113,6 +113,18 @@ The following code shapes have enough evidence to investigate but are not canoni
   diagnostic and was stopped.  Do not attribute that event to this extraction: the fold modules had
   already passed, and no loaded rerun isolated the cause.  Preserve it as a build-triage observation,
   not performance evidence for or against the candidate.
+- Dependent finite-table candidate `2d73a3a` keeps its public model representation-free as
+  `(i : Fin n) -> family i`, while using a wrapped function-backed executable realization permitted
+  by the facilities plan.  Its laws cover tabulation, dependent mapping, arbitrary finite
+  reindexing, reindex identity and composition, and model/get roundtrips.  The first genuine
+  consumer, `TypedCFG.ProgramPlan.block`, now expresses nominal remapping with dependent map while
+  lowering through the sole existing `RecursiveCFGBuilder`; the table creates no parallel CFG
+  authority.  The focused FinTable plus TypedCFG build completed in 3.4 seconds over 13 jobs.  An
+  attempted dependent append/split API is the negative control: `Fin.addCases` left family
+  transports observable and non-definitional at the `castAdd`/`natAdd` boundary, so the API was
+  removed rather than export cast obligations to every consumer.  Append/split should remain on the
+  roadmap until an implementation can internalize those transports.  With only one demonstrated
+  consumer, this remains extraction evidence rather than canonical generic machinery.
 - Bidirectional contract derivation for typed CFGs is not yet present.
   `Gasm.Compiler.TypedCFG.SourceScope` permits contracts to be declared before bodies, but the
   author still supplies them;
