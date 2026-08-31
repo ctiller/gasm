@@ -561,6 +561,18 @@ The following code shapes have enough evidence to investigate but are not canoni
   invocation liveness.  This is physical-grant framing only, not independent-composition authority.
   Do not freeze the frame's exact fields into generic checked-authoring interfaces before a real
   consumer requires them.
+
+  Accepted archive `archive/experimental/checked-store-binding-association-11801508` at
+  `11801508217d6b0969216569371a272e1af01c36` adds one constructor-indexed
+  `StoreBindingAssociation` tying the exact live logical binding and generation to the exact Windows
+  address domain, complete active `PageMapping`, logical byte, and backing frame.
+  `X86StoreRealization` no longer accepts independent current-host, mapped, or translation fields;
+  the sole `MemoryAdmission`/`VerifiedProgram` path retains the association.  Controls reject wrong
+  generation, domain, mapping, backing, and retired state through that association itself.  Its
+  current seven indices and `hostExact` are local to the selected single-invocation spike.  A future
+  consumer that survives unrelated host evolution must construct or transport the association
+  through target-owned `MappingFrame` or an explicit use-host relation, never universalize equality
+  with the original load host.
 ### Proof delivery, termination, and CFG composition
 
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
