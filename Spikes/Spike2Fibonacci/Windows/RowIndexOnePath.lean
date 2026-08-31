@@ -47,18 +47,6 @@ structure Spike2CursorSliceResult (completed : Nat) (initial : X86_64MachineStat
     (initial.rsp + 64).toNat + (spike2IndexPrefixBytes completed).length
   buffer : BufHolds final.memory (initial.rsp + 64) (spike2IndexPrefixBytes completed)
 
-private theorem index_one_rip (state : X86_64MachineState)
-    (hrip : state.rip = 5368713297)
-    (oneDigit : ¬ X86BranchCondition.greaterEqual.holds (spike2AfterIndexCompare state)) :
-    (spike2AfterIndexHeader state).rip = 5368713303 := by
-  simp only [X86BranchCondition.holds] at oneDigit
-  unfold spike2AfterIndexHeader
-  rw [step_jge_rel8_fallthrough_rip _ _ (decide_eq_false_iff_not.mpr oneDigit)]
-  unfold spike2AfterIndexCompare
-  change state.rip + 4 + 2 = 5368713303
-  rw [hrip]
-  rfl
-
 theorem spike2_one_digit_index_buffer (completed : Nat) (state : X86_64MachineState)
     (within : completed < 9)
     (counter : state.gprs .r13 = UInt64.ofNat (completed + 1))
@@ -133,9 +121,24 @@ opaque spike2_one_digit_slice (completed : Nat) (state : X86_64MachineState)
     Spike2CursorSliceResult completed state eventsRev 12 := by
   let header := spike2AfterIndexHeader state
   have oneDigit := spike2_index_counter_one_digit state completed within counter
-  have headerPrefix := spike2_index_header_one_digit_selected_prefix state eventsRev
-    hrip oneDigit safe
-  have headerRip : header.rip = 5368713303 := index_one_rip state hrip oneDigit
+  have placedEntry : state.rip = spike2IndexHeaderPlacement.entryRip := by
+    simpa [spike2IndexHeaderPlacement] using hrip
+  have headerRip : header.rip = 5368713303 := by
+    simpa [header, Spike2IndexHeaderPlacement.destinationRip, spike2IndexHeaderPlacement] using
+      spike2IndexHeaderPlacement.oneDigitDestination state placedEntry oneDigit
+  have boundary := spike2_selected_silent_unaligned header 5368713303 headerRip
+    (by decide) (by decide)
+  have headerSelected : selectedNonInputPlatformCall header.rip header = true := by
+    rw [headerRip]
+    exact boundary.1
+  have headerSilent : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent _
+      header.rip header = none := by
+    rw [headerRip]
+    exact boundary.2
+  have headerStep := spike2_index_header_selected spike2IndexHeaderPlacement .oneDigit state
+    eventsRev placedEntry oneDigit (by simpa [header] using headerSelected)
+      (by simpa [header] using headerSilent) safe
+  have headerPrefix := headerStep.certificate
   have headerFrame := spike2_index_header_registerFrame state
   have headerRsp := headerFrame.rsp.trans rsp
   have headerSafe := headerFrame.fault.trans safe

@@ -17,7 +17,6 @@ theorem spike2_selected_conditional_prefix {instruction : X86_64Instr} {kind : X
     (encoding : ConditionalJumpEncoding instruction kind) (state : X86_64MachineState)
     (taken : kind.holds state) (eventsRev : List AnyEvent)
     (fetch : instructionAtRipIndexed spike2Indexed state.rip = some instruction)
-    (nextAddress : UInt64) (nextRip : (X86_64Instruction.step instruction state).rip = nextAddress)
     (selectedAt : selectedNonInputPlatformCall (X86_64Instruction.step instruction state).rip
       (X86_64Instruction.step instruction state) = true)
     (silent : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent _
@@ -32,7 +31,6 @@ theorem spike2_selected_conditional_fallthrough_prefix {instruction : X86_64Inst
     {kind : X86BranchCondition} (encoding : ConditionalJumpEncoding instruction kind)
     (state : X86_64MachineState) (notTaken : ¬ kind.holds state) (eventsRev : List AnyEvent)
     (fetch : instructionAtRipIndexed spike2Indexed state.rip = some instruction)
-    (nextAddress : UInt64) (nextRip : (X86_64Instruction.step instruction state).rip = nextAddress)
     (selectedAt : selectedNonInputPlatformCall (X86_64Instruction.step instruction state).rip
       (X86_64Instruction.step instruction state) = true)
     (silent : @ExternalCallInterceptor.interceptCall X86_64 AnyEvent _
