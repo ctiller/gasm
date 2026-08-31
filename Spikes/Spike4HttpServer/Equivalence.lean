@@ -63,23 +63,6 @@ def wasiRuntimeObservationFor (environment : Environment) : WasiObservable AnyEv
     (spike4WasiCapabilities.realize spike4WasiArtifact ())
     spike4WasiArtifact (Platform.load spike4WasiArtifact environment)
 
-/-- The Windows contract is a successful native return with the exact HTTP event list.
-All other native observations (process exit, architectural halt, fault, and fuel exhaustion)
-remain distinct constructors and therefore cannot refine this successful outcome. -/
-def spike4WindowsProgramSpecification :
-    ProgramSpecification (WindowsX86_64 AnyEvent) spike4WindowsCapabilities where
-  observe := fun environment _ => .returned (serverEnvironmentSpec environment)
-
-/-- The Linux contract preserves the native outcome classification at the public boundary. -/
-def spike4LinuxProgramSpecification :
-    ProgramSpecification (LinuxX86_64 AnyEvent) spike4LinuxCapabilities where
-  observe := fun environment _ => .returned (serverEnvironmentSpec environment)
-
-/-- WASI retains its target-native resource and completion classifications. -/
-def spike4WasiProgramSpecification :
-    ProgramSpecification WasiPlatform spike4WasiCapabilities where
-  observe := fun environment _ => .completed (serverEnvironmentSpec environment)
-
 /-- The five externally visible lifecycle edges, expressed independently of target execution. -/
 def requestRuntimeSchedule (requests : List ByteArray) : List AnyEvent :=
   let parsed := parserInput requests
@@ -1222,6 +1205,29 @@ def spike4WasiProviderCertificate :
     rcases hprovider with rfl
     rfl
 
+def spike4WindowsEntryCertificate :
+    ProgramEntryCertificate (WindowsX86_64 AnyEvent)
+      spike4WindowsCapabilities spike4WindowsArtifact where
+  entryContext := fun _ => ()
+  entryEstablished := by
+    intro environment
+    exact ⟨spike4WindowsParserConnection⟩
+
+def spike4LinuxEntryCertificate :
+    ProgramEntryCertificate (LinuxX86_64 AnyEvent)
+      spike4LinuxCapabilities spike4LinuxArtifact where
+  entryContext := fun _ => ()
+  entryEstablished := by
+    intro environment
+    exact ⟨spike4LinuxParserConnection⟩
+
+def spike4WasiEntryCertificate :
+    ProgramEntryCertificate WasiPlatform spike4WasiCapabilities spike4WasiArtifact where
+  entryContext := fun _ => ()
+  entryEstablished := by
+    intro environment
+    exact ⟨spike4WasiParserConnection⟩
+
 def spike4WasiEmittedBytes : ByteArray :=
   match emitWasmBinary Wasm.spike4WasmModule Wasm.spike4TypeSignatures with
   | .ok bytes => bytes
@@ -1251,6 +1257,7 @@ theorem spike4_wasi_emits :
 theorem linuxAdmissibilityCertificateOfReturned
     {capabilities : CapabilityComposition (LinuxX86_64 AnyEvent)}
     {artifact : LinuxX86_64Artifact}
+    (entry : ProgramEntryCertificate (LinuxX86_64 AnyEvent) capabilities artifact)
     (runtime : NativeX86_64Runtime AnyEvent)
     (realized : ∀ context, capabilities.realize artifact context = runtime)
     (proofBudget : runtime.proofBudget.evaluatorFuel = 50000)
@@ -1264,10 +1271,10 @@ theorem linuxAdmissibilityCertificateOfReturned
       let initial := Platform.load (P := LinuxX86_64 AnyEvent) artifact environment
       @runProgramOutcomeWithLoops AnyEvent runtime.interceptor base instructions
         50000 initial = .returned (finalState environment) (events environment)) :
-    ProgramAdmissibilityCertificate (LinuxX86_64 AnyEvent) capabilities artifact := by
+    ProgramAdmissibilityCertificate (LinuxX86_64 AnyEvent) capabilities artifact entry := by
   constructor
-  intro environment context _
-  rw [realized context]
+  intro environment
+  rw [realized (entry.entryContext environment)]
   apply linuxX86_64Admissible_of_returned runtime artifact
     (Platform.load (P := LinuxX86_64 AnyEvent) artifact environment)
     (finalState environment) (events environment)
@@ -1283,10 +1290,9 @@ theorem linuxAdmissibilityCertificateOfReturned
 
 def spike4WindowsAdmissibilityCertificate :
     ProgramAdmissibilityCertificate (WindowsX86_64 AnyEvent)
-      spike4WindowsCapabilities spike4WindowsArtifact where
+      spike4WindowsCapabilities spike4WindowsArtifact spike4WindowsEntryCertificate where
   platformAdmissible := by
-    intro environment context _
-    rcases context with ⟨⟩
+    intro environment
     change (let initial := (Platform.load (P := WindowsX86_64 AnyEvent)
       spike4WindowsArtifact environment)
       (@runProgramOutcomeWithLoops AnyEvent spike4WindowsRuntime initial.rip
@@ -1296,15 +1302,15 @@ def spike4WindowsAdmissibilityCertificate :
 
 def spike4WasiAdmissibilityCertificate :
     ProgramAdmissibilityCertificate WasiPlatform spike4WasiCapabilities
-      spike4WasiArtifact where
+      spike4WasiArtifact spike4WasiEntryCertificate where
   platformAdmissible := by
-    intro environment context _
-    rcases context with ⟨⟩
+    intro environment
     exact ⟨spike4WasiEmittedBytes, spike4_wasi_emits⟩
 
 def spike4LinuxAdmissibilityCertificate :=
   linuxAdmissibilityCertificateOfReturned
     (capabilities := spike4LinuxCapabilities) (artifact := spike4LinuxArtifact)
+    spike4LinuxEntryCertificate
     { interceptor := spike4LinuxRuntime, proofBudget := { evaluatorFuel := 50000 } }
     spike4LinuxRealize rfl 4198400 Linux.spike4Instructions
     spike4LinuxLoadedRip spike4LinuxArtifactInstructions
@@ -1317,7 +1323,7 @@ theorem spike4WindowsProgramRun_refines (environment : Environment) :
       (spike4WindowsCapabilities.realize spike4WindowsArtifact ())
       spike4WindowsArtifact
       (Platform.load (P := WindowsX86_64 AnyEvent) spike4WindowsArtifact environment) =
-        spike4WindowsProgramSpecification.observe environment () := by
+        .returned (serverEnvironmentSpec environment) := by
   let certificate := spike4_windows_lifecycle_certificate environment
   change (@runProgramOutcomeWithLoops AnyEvent spike4WindowsRuntime windowsTextBase
     Windows.spike4Instructions 50000
@@ -1330,7 +1336,7 @@ theorem spike4LinuxProgramRun_refines (environment : Environment) :
       (spike4LinuxCapabilities.realize spike4LinuxArtifact ())
       spike4LinuxArtifact
       (Platform.load (P := LinuxX86_64 AnyEvent) spike4LinuxArtifact environment) =
-        spike4LinuxProgramSpecification.observe environment () := by
+        .returned (serverEnvironmentSpec environment) := by
   let certificate := spike4_linux_lifecycle_certificate environment
   change (@runProgramOutcomeWithLoops AnyEvent spike4LinuxRuntime 4198400
     Linux.spike4Instructions 50000
@@ -1342,53 +1348,50 @@ theorem spike4WasiProgramRun_refines (environment : Environment) :
     Platform.run
       (spike4WasiCapabilities.realize spike4WasiArtifact ())
       spike4WasiArtifact (Platform.load spike4WasiArtifact environment) =
-        spike4WasiProgramSpecification.observe environment () := by
+        .completed (serverEnvironmentSpec environment) := by
   exact spike4_wasi_runtime_trace_equivalence environment
 
 def spike4WindowsBehaviorCertificate :
     ProgramBehaviorCertificate (WindowsX86_64 AnyEvent)
-      spike4WindowsCapabilities spike4WindowsArtifact spike4WindowsProgramSpecification where
+      spike4WindowsCapabilities spike4WindowsArtifact spike4WindowsEntryCertificate where
+  spec := fun environment => .returned (serverEnvironmentSpec environment)
   traceEquivalence := by
-    intro environment context _
-    rcases context with ⟨⟩
+    intro environment
     exact spike4WindowsProgramRun_refines environment
 
 def spike4LinuxBehaviorCertificate :
     ProgramBehaviorCertificate (LinuxX86_64 AnyEvent)
-      spike4LinuxCapabilities spike4LinuxArtifact spike4LinuxProgramSpecification where
+      spike4LinuxCapabilities spike4LinuxArtifact spike4LinuxEntryCertificate where
+  spec := fun environment => .returned (serverEnvironmentSpec environment)
   traceEquivalence := by
-    intro environment context _
-    rcases context with ⟨⟩
+    intro environment
     exact spike4LinuxProgramRun_refines environment
 
 def spike4WasiBehaviorCertificate :
     ProgramBehaviorCertificate WasiPlatform spike4WasiCapabilities
-      spike4WasiArtifact spike4WasiProgramSpecification where
+      spike4WasiArtifact spike4WasiEntryCertificate where
+  spec := fun environment => .completed (serverEnvironmentSpec environment)
   traceEquivalence := by
-    intro environment context _
-    rcases context with ⟨⟩
+    intro environment
     exact spike4WasiProgramRun_refines environment
 
 def spike4VerifiedWindowsProgram :
-    VerifiedProgram (WindowsX86_64 AnyEvent) spike4WindowsCapabilities
-      spike4WindowsProgramSpecification :=
+    VerifiedProgram (WindowsX86_64 AnyEvent) spike4WindowsCapabilities :=
   VerifiedProgram.compose "Spike 4: HTTP server (Windows x86-64 + Gasm runtime)"
-    spike4WindowsProgramSpecification spike4WindowsArtifactCertificate spike4WindowsProviderCertificate
+    spike4WindowsArtifactCertificate spike4WindowsProviderCertificate spike4WindowsEntryCertificate
     spike4WindowsAdmissibilityCertificate
     spike4WindowsBehaviorCertificate
 
 def spike4VerifiedLinuxProgram :
-    VerifiedProgram (LinuxX86_64 AnyEvent) spike4LinuxCapabilities
-      spike4LinuxProgramSpecification :=
+    VerifiedProgram (LinuxX86_64 AnyEvent) spike4LinuxCapabilities :=
   VerifiedProgram.compose "Spike 4: HTTP server (Linux x86-64 + Gasm runtime)"
-    spike4LinuxProgramSpecification spike4LinuxArtifactCertificate spike4LinuxProviderCertificate
+    spike4LinuxArtifactCertificate spike4LinuxProviderCertificate spike4LinuxEntryCertificate
     spike4LinuxAdmissibilityCertificate
     spike4LinuxBehaviorCertificate
 
-def spike4VerifiedWasiProgram : VerifiedProgram WasiPlatform spike4WasiCapabilities
-    spike4WasiProgramSpecification :=
+def spike4VerifiedWasiProgram : VerifiedProgram WasiPlatform spike4WasiCapabilities :=
   VerifiedProgram.compose "Spike 4: HTTP server (WASI + Gasm runtime)"
-    spike4WasiProgramSpecification spike4WasiArtifactCertificate spike4WasiProviderCertificate
+    spike4WasiArtifactCertificate spike4WasiProviderCertificate spike4WasiEntryCertificate
     spike4WasiAdmissibilityCertificate
     spike4WasiBehaviorCertificate
 

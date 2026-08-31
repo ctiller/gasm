@@ -57,10 +57,6 @@ def spike1AArch64BareMetalCapabilities : CapabilityComposition (BareMetalAArch64
     intro _ _ provider membership
     exact nomatch provider
 
-def spike1AArch64BareMetalSpecification :
-    ProgramSpecification (BareMetalAArch64 AnyEvent) spike1AArch64BareMetalCapabilities where
-  observe := fun _ _ => .semihostingExited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
-
 theorem spike1_aarch64_baremetal_outcome :
     runBareMetalOutcome spike1AArch64BareMetalInstructions spike1AArch64BareMetalExecutable.load =
       .semihostingExited 0 (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit)) := by
@@ -83,12 +79,20 @@ def spike1AArch64BareMetalProviderCertificate :
     intro provider h
     exact nomatch provider
 
+def spike1AArch64BareMetalEntryCertificate :
+    ProgramEntryCertificate (BareMetalAArch64 AnyEvent)
+      spike1AArch64BareMetalCapabilities spike1AArch64BareMetalArtifact where
+  entryContext := fun _ => ()
+  entryEstablished := by
+    intro environment
+    rfl
+
 def spike1AArch64BareMetalAdmissibilityCertificate :
     ProgramAdmissibilityCertificate (BareMetalAArch64 AnyEvent)
-      spike1AArch64BareMetalCapabilities spike1AArch64BareMetalArtifact where
+      spike1AArch64BareMetalCapabilities spike1AArch64BareMetalArtifact
+      spike1AArch64BareMetalEntryCertificate where
   platformAdmissible := by
-    intro _ context _
-    rcases context with ⟨⟩
+    intro environment
     change (runBareMetalOutcome spike1AArch64BareMetalInstructions
       spike1AArch64BareMetalExecutable.load).isAdmissible
     rw [spike1_aarch64_baremetal_outcome]
@@ -97,19 +101,20 @@ def spike1AArch64BareMetalAdmissibilityCertificate :
 def spike1AArch64BareMetalBehaviorCertificate :
     ProgramBehaviorCertificate (BareMetalAArch64 AnyEvent)
       spike1AArch64BareMetalCapabilities spike1AArch64BareMetalArtifact
-      spike1AArch64BareMetalSpecification where
+      spike1AArch64BareMetalEntryCertificate where
+  spec := fun _ => .semihostingExited 0
+    (runModelTrace (helloWorldSpec : TraceM AnyEvent Unit))
   traceEquivalence := by
-    intro _ context _
-    rcases context with ⟨⟩
+    intro environment
     exact spike1_aarch64_baremetal_outcome
 
 /-- Sole universal verified authority for the AArch64 bare-metal image. -/
 def spike1AArch64VerifiedBareMetalProgram :
-    VerifiedProgram (BareMetalAArch64 AnyEvent) spike1AArch64BareMetalCapabilities
-      spike1AArch64BareMetalSpecification :=
+    VerifiedProgram (BareMetalAArch64 AnyEvent) spike1AArch64BareMetalCapabilities :=
   VerifiedProgram.compose "Spike 1: Bare Metal AArch64 Hello World"
-    spike1AArch64BareMetalSpecification spike1AArch64BareMetalArtifactCertificate
-    spike1AArch64BareMetalProviderCertificate spike1AArch64BareMetalAdmissibilityCertificate
+    spike1AArch64BareMetalArtifactCertificate
+    spike1AArch64BareMetalProviderCertificate spike1AArch64BareMetalEntryCertificate
+    spike1AArch64BareMetalAdmissibilityCertificate
     spike1AArch64BareMetalBehaviorCertificate
 
 end Spikes.Spike1Hello.AArch64BareMetal
