@@ -207,7 +207,8 @@ structure MappedWritable {executable : WindowsExecutable} {before : WindowsHostS
     (loaded : ProcessEntryLoad executable before) (current : WindowsHostState)
     (range : AddressRange) : Prop where
   private mk ::
-  currentIsLoaded : current = loaded.afterHost
+  namespaceMatches : current.hostNamespace = loaded.invocation.hostNamespace
+  invocationLive : loaded.invocation ∈ current.liveInvocations
   committedPresent : committedEntry loaded ∈ current.pageTable
   rangeWellFormed : range.WellFormed
   withinCommitted : stackCommittedRange.Contains range
@@ -220,11 +221,58 @@ theorem mappedWritable (before : WindowsHostState) (executable : WindowsExecutab
     (contained : stackCommittedRange.Contains range) :
     MappedWritable (loadProcessEntry executable before)
       (loadProcessEntry executable before).afterHost range where
-  currentIsLoaded := rfl
+  namespaceMatches := rfl
+  invocationLive := by
+    change before.nextInvocation ∈ before.nextInvocation :: before.liveInvocations
+    exact List.Mem.head _
   committedPresent := committedEntry_mem before executable
   rangeWellFormed := wellFormed
   withinCommitted := contained
   backingTranslation := by intro _ _; rfl
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#windows-process-entry-grant-prerequisite -/
+/-- Target-owned statement that unrelated host evolution preserves one selected active mapping.
+    This is narrower than whole-host equality: it preserves only the namespace, exact committed
+    mapping identity, and invocation liveness required by `MappedWritable`. -/
+structure MappingFrame {executable : WindowsExecutable} {entryBefore : WindowsHostState}
+    (loaded : ProcessEntryLoad executable entryBefore)
+    (before after : WindowsHostState) : Prop where
+  private mk ::
+  namespacePreserved : after.hostNamespace = before.hostNamespace
+  committedPreserved : committedEntry loaded ∈ before.pageTable →
+    committedEntry loaded ∈ after.pageTable
+  invocationPreserved : loaded.invocation ∈ before.liveInvocations →
+    loaded.invocation ∈ after.liveInvocations
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#windows-process-entry-grant-prerequisite -/
+theorem MappedWritable.frame {loaded : ProcessEntryLoad executable entryBefore}
+    {before after : WindowsHostState} {range : AddressRange}
+    (mapped : MappedWritable loaded before range)
+    (frame : MappingFrame loaded before after) :
+    MappedWritable loaded after range where
+  namespaceMatches := frame.namespacePreserved.trans mapped.namespaceMatches
+  invocationLive := frame.invocationPreserved mapped.invocationLive
+  committedPresent := frame.committedPreserved mapped.committedPresent
+  rangeWellFormed := mapped.rangeWellFormed
+  withinCommitted := mapped.withinCommitted
+  backingTranslation := mapped.backingTranslation
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#windows-process-entry-grant-prerequisite -/
+/-- Loading an unrelated invocation only prepends its mappings and live identity, so it frames an
+    already-live selected mapping. No independent-composition authority follows: namespace
+    issuance and address-domain separation remain separate profile obligations. -/
+theorem mappingFrame_load (loaded : ProcessEntryLoad executable entryBefore)
+    (current : WindowsHostState) (other : WindowsExecutable) :
+    MappingFrame loaded current (loadProcessEntry other current).afterHost where
+  namespacePreserved := rfl
+  committedPreserved := by
+    intro present
+    simp [loadProcessEntry, commitStack, guardStack, reserveStack,
+      WindowsHostState.mapPage, WindowsHostState.issue, present]
+  invocationPreserved := by
+    intro live
+    simp [loadProcessEntry, commitStack, guardStack, reserveStack,
+      WindowsHostState.mapPage, WindowsHostState.issue, live]
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Operational root-exit transition. Authority is destroyed with the root mapping; it is not
@@ -252,6 +300,13 @@ theorem committedEntry_not_active_after_teardown
   · simp only [same, ↓reduceIte]
     intro equal
     exact same (congrArg PageMapping.invocation equal)
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+theorem invocation_not_live_after_teardown
+    (loaded : ProcessEntryLoad executable before) (exitCode : UInt32) :
+    loaded.invocation ∉
+      (rootTeardownAfterExitProcess loaded exitCode).afterHost.liveInvocations := by
+  simp [rootTeardownAfterExitProcess, WindowsHostState.retireInvocation]
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 theorem sequential_invocations_ne (before : WindowsHostState) (executable : WindowsExecutable) :
