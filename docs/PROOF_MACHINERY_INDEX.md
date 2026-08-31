@@ -53,6 +53,41 @@ Spike 1 consumer validate the construction.
 The landing deliberately excludes two unrelated ByteArray commits, preserved on
 `codex/stdlib-bytearray-laws`, and does not modify `ScratchSpike3.lean`.
 
+Archive `archive/design/rebuild-candidate-blocked-2bc1c1ee` (`2bc1c1ee`) is **BLOCKED** and grants no
+implementation authority.  Its mandatory human feedback round is valid: when a fallback-boundary
+consumer is not plausibly moving toward roughly ten program-specific proof lines per authored
+assembly line, perform another specification/architecture/lowering iteration and leave a lightweight
+note of the burden and attempted change.  This creates no counters, CI, dashboard, waiver process,
+mandatory abstraction, integration gate, or permission to weaken claims; a direct sound proof may
+still exceed the ratio.  Perform one such feedback iteration for each fallback consumer that
+triggers that condition before owner review; it forces neither adoption nor reusable machinery and
+does not authorize unbounded churn.
+
+The candidate's common-law bundle is accidentally mandatory for every instantiation.  Replace it
+with orthogonal feature-selected bundles and derive irrelevance once from closed selected rows, so
+identity-only, capacity-free, or noncancellable domains pay no unrelated tax.  Its
+`TargetResourceAdmits` is memory-access-only despite claimed provider, lifecycle, and non-memory
+operations; the destination needs an occurrence-indexed target-action realization/admission seam
+with descriptor access as one specialization.  The proposed judgment set and its connection also
+omit result-indexed faults, a general architectural step, and explicit ABI/artifact connection.
+
+Positive relational ghost transport is absent: selected source/domain facts must cross zero-, one-,
+or many-event segments, stuttering/asynchrony, framing, and representation change without replay,
+universal ghost state, or fabricated authority.  Pointwise `lowering_refines` is therefore not a
+trace or applicable memory-consistency refinement.  `DischargeDerivation` lacks preservation,
+transfer, and persistent-protocol conservation and overuses natural-number stage descent instead of
+a well-founded semantic translation.  Its memory appendix is not clause-complete, notably for
+§6.3, §§7.5–7.6, §§8.1–8.3, §§9.1–9.2, and their exact gates.  Its conflict inventory omits
+`REVIEW.md`'s live ghost-transfer, feature-selected burden, exemplar, and progress rules and
+under-scopes Spike 3.
+
+Remaining P2 defects are a generationless parent reference; caller-selectable access pre-state/PC
+rather than derivation from the certified step; an overly linear lifecycle that conflates successful
+cleanup with administrative sealing or recovery-owned outstanding bundles; unmodeled capacity
+shrink/revocation; narrowed baseline wording; allocation-count ambiguity; an unclear source-algorithm
+boundary; and a compound/multishot primary handler.  Compression is unsafe until this union of MP
+and Reviewer findings is reconciled through the semantic-preservation ledger.
+
 Early specification-lowering review is **NARROW**, not accepted design or implementation
 authorization.  Interpret one explicit algebraic effect or capability-directed operation; do not
 introduce a generic handler framework.  AOP is only a metaphor: there are no ambient pointcuts,

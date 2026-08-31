@@ -72,6 +72,39 @@ need not be reconstructible from machine bytes.  Transfer this state at typed ca
 frame components a step does not affect.  Prefer several composable layers over one monolithic ghost
 record.
 
+Treat successful ghost-state transfer across lowering stages as a first-class technique.  The
+source specification owns algorithm/domain mathematics and serialization laws; lowering transports
+those theorems rather than re-proving the algorithm.  A genuinely different algorithm requires a
+new source-level implementation and proof before lowering continues.  A stage-local relation may
+carry a source object, abstract state, history, ownership fact, or theorem that final bytes cannot
+reconstruct.  Its witness relates the selected source/domain fragment, intermediate or target
+pre/post state, zero/one/many-event segment, framed fragments, and required observation or lifecycle
+consequences.  Each edge proves directional preservation or translation; composed simulation
+recovers the source fact transitively through stuttering and asynchronous or interleaved target
+segments.
+
+Transport may preserve generation, split/fuse/transfer, and retained-cleanup evidence, but never
+mint authority.  Authority originates in the owning source/domain policy or target admission.
+Index evidence by the selected source operation, dynamic occurrence where applicable,
+resource/scope/binding generation, target/profile, and relevant state relation; matching bytes,
+address, or PC never permits replay.  Keep ghost languages level-local and projected.  Independent
+products use a closed-row framing/noninterference theorem; selected transfers name their destination
+scope.  Interacting components need a bespoke relation theorem, not a universal ghost world,
+constructor registry, or global ledger.  Lifecycle transport represents revoke, quarantine, and
+disposition explicitly, including capacity shrink and failure effects; it cannot silently drop the
+associated obligations.
+
+Purely proof-relevant ghost state may erase.  Selection, layout, resource use, or other runtime
+control becomes explicit lowering/artifact data with its own refinement.  Adequacy and non-vacuity
+require the relation to arise from the source invariant and real lowering step, survive every
+admitted target transition, and recover the source fact; an unconstrained existential proves
+nothing.  Preserve theorem and relation meaning, not record layout or transport API.  Regenerate
+stage-local adapters, and share transport/composition lemmas only after materially different
+consumers meet the same theorem boundary.  Reject reconstructed-from-bytes provenance, replay across
+occurrence or generation, opaque universal payloads, authority without origin, hidden ledgers, and
+lowering that silently changes the source algorithm.  Prefer a cheaper direct proof when available;
+the advisory proof-burden ratio creates no mechanism or gate.
+
 ## Consider every bound
 
 For the selected routine and property, inventory applicable numeric ranges, input and output sizes,
