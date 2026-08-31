@@ -65,4 +65,39 @@ def WasiObservable.normalizeSuccessfulExit
     (WasiObservable.memoryExhausted requested available).normalizeSuccessfulExit successful =
       .memoryExhausted requested available := rfl
 
+/- REF: docs/PROOF_TACTICS.md#prove-layers-then-compose -/
+/-- Relate an abstract observation to its successful-exit normalization without unfolding the
+    computation which produced it.  Consumers supply only the impossible fuel case and the exact
+    successful payload; every other outcome is preserved by the constructor equations above. -/
+theorem WasiObservable.refines_normalizeSuccessfulExit
+    (successful : List Event → WasiObservable Event) (observation : WasiObservable Event)
+    (notFuel : observation ≠ .fuelExhausted)
+    (successCase : ∀ events, observation = .exited 0 events →
+      .exited 0 events = successful events) :
+    observation = observation.normalizeSuccessfulExit successful := by
+  cases observation with
+  | completed events => rfl
+  | exited code events =>
+      by_cases zero : code = 0
+      · subst code
+        simpa using successCase events rfl
+      · simp [WasiObservable.normalizeSuccessfulExit, zero]
+  | trapped events => rfl
+  | fuelExhausted => exact (notFuel rfl).elim
+  | memoryExhausted requested available => rfl
+
+/- REF: docs/PROOF_TACTICS.md#prove-layers-then-compose -/
+/-- Exclude observable fuel exhaustion by classifying an abstract run outcome once, rather than
+    unfolding or case-splitting an evaluator invocation in every consumer proof. -/
+theorem WasiRunOutcome.observable_ne_fuelExhausted
+    (outcome : WasiRunOutcome)
+    (notFuel : ∀ partialState, outcome ≠ .fuelExhausted partialState) :
+    outcome.observable ≠ .fuelExhausted := by
+  cases outcome with
+  | completed state signal => simp [WasiRunOutcome.observable]
+  | exited state code => simp [WasiRunOutcome.observable]
+  | trapped state => simp [WasiRunOutcome.observable]
+  | fuelExhausted partialState => exact (notFuel partialState rfl).elim
+  | memoryExhausted state requested available => simp [WasiRunOutcome.observable]
+
 end Gasm.Targets.WASI
