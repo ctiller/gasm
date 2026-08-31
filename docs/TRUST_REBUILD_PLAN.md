@@ -40,6 +40,13 @@ They may also record elaboration time and memory already available from normal b
 observations blocks an otherwise sound proof or permits weakening soundness, applicability,
 universality, authority, lifecycle, cleanup, or claimed behavior.
 
+The heuristic also guards against overengineering. Do not add a generic framework, metaprogram,
+generator, checker, certificate layer, registry, or speculative abstraction merely to improve the
+ratio. Any proposed new proof machinery must be escalated to the owner before implementation, with
+the concrete burden it removes, the smallest required interface, and its immediate materially
+different consumers. A direct one-shot proof is preferred when it is the simplest sound applicable
+proof.
+
 The initial ratio measures the fallback assembly-authoring boundary. The end-state source path
 should require no instruction-level proof from an ordinary program author: instruction evidence is
 derived by the selected lowering implementation. Universal inputs, exact artifact identity,
@@ -87,6 +94,9 @@ authoring architecture.
 
 ### 2.1 Abstract blocks and implementation selection
 
+- Interfaces are demand-shaped and minimal: every field corresponds to a current semantic demand,
+  refinement fact, selected effect/failure, or authority obligation. Ease of reasoning and authoring
+  speed are design requirements; speculative flexibility and abstraction for its own sake are not.
 - A source block is defined over typeclasses describing the operations and contracts it requires,
   not over one target instruction vocabulary. Examples include word arithmetic, checked memory,
   formatted output, streaming reads, process termination, and calls to typed capabilities.
@@ -122,6 +132,10 @@ authoring architecture.
 - Authority-bearing operations additionally consume target-minted evidence. A caller-constructible
   law dictionary establishes conditional refinement only; it cannot manufacture physical or
   lifecycle authority.
+- Libraries are un-gameable at their public boundary: sealed constructors and indexed types make
+  detached artifacts, self-selected specifications, invented authority, narrowed environments, and
+  omitted selected obligations unrepresentable. This does not justify more layers than the current
+  demand requires.
 
 ### 2.2 Iterative top-down and bottom-up refinement
 
@@ -363,6 +377,10 @@ may then integrate and push it.
 - `Trust repair` alone integrates reviewed commits into the clean main staging worktree and pushes.
 - Workers may continue on isolated follow-up commits while reviews run, but blocked commits cannot be
   used as templates or cut over.
+- Before implementing any new proof machinery, a worker submits the concrete proposal to the owner
+  for escalation: exact problem, smallest API, immediate consumers, authoring-time benefit, and why
+  existing composition cannot solve it. Design/review may continue meanwhile; implementation waits
+  for the owner's decision.
 - Rebuild is the verb at every scale: begin from the required semantics and current accepted
   boundaries, construct a clean replacement top down, and mine earlier code only as reviewed spare
   parts. No worker is required to preserve an old module boundary, proof shape, intermediate

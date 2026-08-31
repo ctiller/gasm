@@ -48,6 +48,13 @@ place by satisfying the same or a deliberately strengthened boundary, not by pre
 continuity. History remains valuable evidence, but compatibility with discarded proof architecture
 is not itself a requirement.
 
+Rebuild does not mean framework proliferation. The default failure mode is overengineering, so new
+proof machinery—generic frameworks, generators, checkers, certificate layers, registries, and
+speculative abstractions—requires explicit owner escalation before implementation. The proposal must
+name the concrete burden, smallest interface, and immediate consumers. Prefer a small direct proof
+when it is the easiest sound argument. Shared libraries should be un-gameable at their boundary and
+fast to author against, while remaining only as general as demonstrated demand requires.
+
 Large-program construction therefore alternates top-down generation and bottom-up learning:
 
 ```text
