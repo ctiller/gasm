@@ -296,6 +296,15 @@ evidence, and negative boundary after that comparison; it does not own a second 
   encoder, step, frame, and existing `VerifiedProgram` consumer are unchanged.  Validation passed
   the 62-job MOV frontier, 1775/1775 x86 obligations, and reference, license, publishability, and
   diff gates; these checks preserve the existing authority rather than creating new authority.
+- Canonical `83952e5d675a2b0a50b8ec87d239f2423874b2da` extends exact canonical-preimage checking
+  to `0x89` stores.  For W32, a REX prefix is present exactly when REX.R or REX.B is semantically
+  required; W64 retains mandatory REX.W plus meaningful R/B, and REX.X rejects because no selected
+  identity contains an index.  Zero displacement uses mod00 except RBP/R13's forced mod01 zero;
+  RSP/R12 use the literal no-index SIB.  Every accepted control requires full consumption, exact
+  re-encoding, and exact semantic identity, while hostile controls cover redundant prefixes,
+  unsupported addressing aliases, noncanonical displacement spellings, modes, and truncation.
+  Constructor, semantics, frames, and consumers are unchanged.  The 62-job MOV frontier and
+  reference, license, publishability, and diff gates passed; no new authority is claimed.
 - For an expensive exact execution proof, keep the complete certificate in its producer and export
   a separate typed boundary containing only the observations required by the successor.  The
   accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
