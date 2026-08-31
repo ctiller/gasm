@@ -1,0 +1,93 @@
+/-
+Copyright 2026 Craig Tiller
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-/
+
+import Spikes.Spike2Fibonacci.Linux.RowTwoDigitIndex
+import Spikes.Spike2Fibonacci.Linux.RowTailParametric
+import Spikes.Spike2Fibonacci.Linux.DecimalAuthority
+
+/-!
+# Bounded two-digit-index row producer for Linux Spike 2
+
+Rows 10 through 90 share a fixed 26-transition opening, an arbitrary-digit UInt64 decimal
+schedule, and a fixed 19-transition tail.  This module joins those three independently checked
+producers and retains the schedule's quantitative fuel bound.
+-/
+
+namespace Spikes.Spike2Fibonacci.Linux
+
+open Gasm.Core
+open Gasm.Effects
+open Gasm.Targets
+open Gasm.Targets.X86_64
+open Gasm.Targets.X86_64.DecimalSchedule
+open Spikes.Spike2Fibonacci
+open Stdlib.Fmt
+
+set_option autoImplicit false
+set_option maxRecDepth 200000
+set_option maxHeartbeats 5000000
+
+namespace RowDecimalSchedule
+
+open Row8Parametric
+
+/-- The decimal realization ends precisely where the arbitrary-endpoint row tail has its local
+execution evidence. -/
+abbrev TailReadyCallerFrame : CallerFrame :=
+  fun _ formatted => RowTailParametric.Frame formatted
+
+/- REF: docs/PROOF_TACTICS.md#compose-prefix-certificates -/
+/-- A continuing two-digit-index row has a selected prefix bounded by its fixed opening/tail
+cost plus twelve transitions for each value digit. -/
+theorem twoDigitRowPrefix {completed : Nat} {current next : UInt64}
+    {predecessor : X86_64MachineState} {eventsRev : List AnyEvent}
+    (entry : Spike2LinuxRowEntry completed current next predecessor)
+    (twoDigit : 10 ≤ completed + 1)
+    (openingFrame : OpeningFrame predecessor)
+    (openingRestFrame : RowTwoDigitIndex.TwoDigitOpeningRestFrame predecessor)
+    (realization : UInt64DecimalScheduleRealization selectedNonInputPlatformCall spike2Indexed 20
+      current (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor) eventsRev
+      TailReadyCallerFrame) :
+    ∃ requiredFuel formatted emitted,
+      requiredFuel ≤ 45 + 12 * decimalDigitCount current ∧
+      ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed requiredFuel
+        predecessor eventsRev (RowTailParametric.afterRecurrence formatted)
+        (accumulateEvent eventsRev (RowTailParametric.writeEvent formatted))
+        (emitted ++ emittedBy (RowTailParametric.writeEvent formatted)) ∧
+      formatted.rsp = (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor).rsp ∧
+      formatted.gprs .r13 =
+        (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor).gprs .r13 ∧
+      formatted.gprs .r14 =
+        (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor).gprs .r14 ∧
+      formatted.gprs .r15 =
+        (RowTwoDigitIndex.afterTwoDigitValueSetup predecessor).gprs .r15 := by
+  have opening := RowTwoDigitIndex.openingPrefix (eventsRev := eventsRev)
+    entry twoDigit openingFrame
+  have rest := RowTwoDigitIndex.openingRestPrefix (eventsRev := eventsRev) openingRestFrame
+  rcases realization.selectedPrefix_bounded with
+    ⟨decimalFuel, formatted, finalEventsRev, emitted, decimalBound, decimalPrefix,
+      eventsPreserved, restoredRsp, _advancedCursor, _clearedCount, _formatBytes,
+      _preservesR12, preservesR13, preservesR14, preservesR15, tailFrame⟩
+  subst finalEventsRev
+  have tail := RowTailParametric.selectedPrefix (eventsRev := eventsRev) tailFrame
+  refine ⟨26 + decimalFuel + 19, formatted, emitted, ?_, ?_, restoredRsp,
+    preservesR13, preservesR14, preservesR15⟩
+  · omega
+  · simpa using ((opening.append rest).append decimalPrefix).append tail
+
+end RowDecimalSchedule
+
+end Spikes.Spike2Fibonacci.Linux
