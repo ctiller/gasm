@@ -549,6 +549,34 @@ The following code shapes have enough evidence to investigate but are not canoni
   [Cross-consumer proof-architecture dossier review](PROOF_ARCHITECTURE_DOSSIER_REVIEW.md).  It is a
   pressure-test and correction checklist, not a second architecture owner or implementation seam.
 
+### Effect-occurrence quotient candidate
+
+- Design-reviewed but unimplemented: effect equivalence should quantify over every related
+  source/target execution pair and compare canonical finite typed effect-occurrence graphs modulo
+  node renaming.  Labelled relation occurrences and exact path witnesses are authority; vector
+  clocks may only be proved caches.  A proposed effect-owned `Gasm.Effects.CausalTimeline` layer
+  would own selected labelled causality, nonempty disjoint quotient fibers,
+  `ProjectedCausalEdge`, forward/reverse quotient fidelity, acyclicity, renaming invariance, and
+  graph-isomorphism equivalence.  Existing architecture-neutral `Gasm.MemoryModel.Envelope` and
+  `RelationPath` remain structural spare parts and must not acquire effect semantics.
+- A proposed effect-specific `Gasm.Effects.ConsoleCanonicalization` layer would own
+  `ConsoleEvent.out`/`.err` merging: same stream tag, an ordered associative text fold, causally
+  convex fibers, and input/cross-effect/barrier exclusions.  The Windows owner must separately
+  prove a result-aware refinement from the exact `WriteFile` handle generation, return, and
+  committed byte prefix to the emitted `ConsoleEvent.out`; Spike 1 then supplies its source/target
+  execution projections, concrete console-merge eligibility, and final small quotient isomorphism.
+  Current `FileSystemEvent.write` carries only a handle and length, so it cannot silently own this
+  console fold.  A future filesystem canonicalization requires its own observation redesign and
+  cross-effect refinement.
+- Quotient boundary edges derive from raw labelled reachability and preserve incoming and outgoing
+  causality.  The library should pay graph well-formedness, quotient/equivalence/idempotence,
+  fold/partition/congruence, and barrier laws once.
+- `Gasm.Effects.CanonicalizeTrace` is not authority in its current single-thread vector-clock form;
+  replacement or a compatibility facade is only a proposed migration direction.  Timestamps,
+  transitive reductions, deterministic node IDs, universal registries, predecessor pointers, and
+  vector-clock families are rejected abstraction bases.  No implementation or accepted frozen hash
+  exists yet.  Promotion waits for checked TrustRebuild1 code and exact-hash MP/TrustPlan acceptance.
+
 ### Memory-model carriers and provider worlds
 
 - Four isolated memory-model checkpoints demonstrate useful proof shapes but are not integrated and
