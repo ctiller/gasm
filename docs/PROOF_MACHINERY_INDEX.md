@@ -253,6 +253,17 @@ The following code shapes have enough evidence to investigate but are not canoni
   `native_decide` controls, projecting `.cpu` through the old runner, `spec := run`, and central
   value-type edits that invalidate the target closure.  Keep this as a worklist until checked
   consumers and dependency/build evidence identify reusable declarations.
+- Graphics tractability candidate `007212fd127c4e88d408aafb72cf4c643e4124b0` is re-authored directly
+  on `a62ca53` and received a fresh Reviewer exact-hash ACCEPT/no P1, but remains MP-blocked on its
+  environment-prefix theorem; its other proof-economy layers conform.  The canonical finite
+  Environment response list is replay input, not an appendable observation prefix: exhaustion has an
+  explicit operation history, and loading a longer Environment may allocate a new root.  Therefore
+  same-state continuation and prefix preservation across reloads are false.  The current theorem must
+  concern finite execution prefixes of one exact loaded run; `blocked` is an outcome only when the
+  target explicitly models it.  A future open/closed supply and same-root supply transition is a
+  separate design gate.  Outcome reasoning must distinguish normal, blocked, continuing-divergent,
+  and failure cases, and separate fairness-free cleanup safety from fairness-dependent eventual
+  cleanup.  Await an MP-corrected exact hash and renewed design/review.
 - Compiler-roadmap candidate `ee11b405b36c48fca1ebbcd6f4bf9f17c3fa2d0a` contains supported
   evidence but is MP-blocked as a design document.  Its replacement must classify SPIR-V as a
   first-class target ISA while separating shader frontends from platform APIs; scope exception,
