@@ -1,7 +1,7 @@
 # Rebuilt Spike 1: first relational experiment
 
-Status: isolated experiment; not shared machinery, not an emission authority, and not a canonical
-`VerifiedProgram`.
+Status: isolated exact-artifact experiment; not shared machinery and not a canonical
+`VerifiedProgram`. Emission is available only through the stronger private certificate.
 
 ## What is kernel checked
 
@@ -27,6 +27,18 @@ selected success or fatal continuation. Its first provider profile is explicitly
 writable synchronous stdout handle. An overlapped/asynchronous handle is ineligible; in particular,
 `ERROR_IO_PENDING` may not be classified as source `writeFailure`.
 
+`Windows/RelationalExecution.lean` fixes the linked instruction index and PE load state. Ordinary
+steps use production x86 semantics. Provider steps include the exact call occurrence, ABI argument
+and output slots, selected synchronous profile, actual memory bytes, returned count, emitted bytes,
+and source ghost-state transition as one relation. Universal preservation and terminal-refinement
+theorems quantify over every execution admitted by that relation.
+
+`Windows/Witnesses.lean` connects closed traces through the exact artifact: complete output and
+successful exit, missing stdout and fatal exit, a positive short write returning to the WriteFile
+site with the residual slice, and synchronous write failure. `Windows/Certificate.lean` is the sole
+private emission authority and requires the exact artifact, universal safety, universal terminal
+refinement, source conditional progress, and those exact reachability witnesses.
+
 ## Falsifiers
 
 The proposed seam is rejected if any later connection proof admits one of these cases:
@@ -47,25 +59,26 @@ The proposed seam is rejected if any later connection proof admits one of these 
 - a symbolic block proof that is not connected to the exact linked instruction sequence, imports,
   entry point, ABI storage, memory image, and emitted artifact;
 - a deterministic test interceptor presented as universal provider behavior;
-- emission through the experimental package before canonical `VerifiedProgram` is strengthened and
-  the exact artifact/provider execution relation is discharged.
+- emission that bypasses either the canonical strengthened `VerifiedProgram` or this experiment's
+  stronger private exact-artifact certificate.
 
 ## Burden measurement
 
-The selected symbolic program has 29 machine instructions. The first relational file was 246
-physical lines including license, prose, definitions, provider-plan model, and proofs: 8.5 lines per
-assembly instruction. This unstable physical-line ratio is only a one-round human smell test, never
-an authority, denominator, or automated gate. The exact x86/Win64/artifact connection remains
-deliberately unimplemented pending review and must be included in the next informal measurement.
-Craig decides whether any burden warrants another rebuild; this experiment introduces no machinery
-to enforce the ratio.
+The selected symbolic program has 29 machine instructions. Across the source relation, exact
+x86/Win64 relation, concrete witnesses, certificate, and three small artifact facts there are 613
+nonblank theorem-region physical lines: 21.1 proof lines per assembly instruction. The exact count is
+a deliberately conservative smell test (it includes reusable relational framework proofs and
+statement lines), but it misses the 10:1 target by more than twofold. Therefore this round is not a
+successful proof-authoring architecture and must be rebuilt again before Spike 1 is called complete.
+The dominant residual is repetitive closed-trace construction in `Windows/Witnesses.lean`; the next
+round must replace it with a checked trace/plan derivation whose generic soundness theorem produces
+the exact execution evidence. No shared machinery is proposed or extracted without Craig's explicit
+approval.
 
 ## Review gate and next seam
 
-The next change should introduce the correct target-owned relational execution seam: a selected
-provider profile relates an exact boundary occurrence and pre-state to one of its admitted
-post-states and result classes; the initial Windows profile admits only synchronous stdout;
-program execution is a relation over the exact artifact; `VerifiedProgram` quantifies over every
-admitted execution. Existing deterministic execution remains, at most, a derived diagnostic for a
-singleton provider transcript. No public record shape or compatibility cutover should occur until
-MP reviews this experiment and Craig approves any machinery that would become shared.
+MP must now review whether the exact relation and private certificate are strong enough, and whether
+the proposed next rebuild seam—a checked provider-plan derivation with a generic soundness theorem—is
+the correct abstraction. Existing deterministic runtime execution remains only a diagnostic. No
+public record shape, shared proof machinery, or compatibility cutover occurs without Craig's explicit
+approval.

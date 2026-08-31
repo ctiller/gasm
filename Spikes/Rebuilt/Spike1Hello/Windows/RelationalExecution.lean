@@ -306,6 +306,14 @@ inductive Execution (profile : SynchronousStdout) : Config → List TargetEvent 
       ExactStep profile before event middle → Execution profile middle events after →
         Execution profile before (event :: events) after
 
+theorem Execution.append {profile before middle after first second}
+    (left : Execution profile before first middle)
+    (right : Execution profile middle second after) :
+    Execution profile before (first ++ second) after := by
+  induction left with
+  | refl => exact right
+  | tail step rest ih => exact .tail step (ih right)
+
 theorem Execution.preservesAgreement {profile before events after}
     (execution : Execution profile before events after) (agrees : before.Agrees) : after.Agrees := by
   induction execution with
