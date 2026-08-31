@@ -31,6 +31,10 @@ import Spikes.Spike2Fibonacci.Windows.RowTermination
 
 namespace Spikes.Spike2Fibonacci.Windows
 
+local instance (priority := 1100) spike2WindowsRuntimeForEquivalence :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
+
 open Gasm.Core
 open Gasm.Core.Platform
 open Gasm.Core.Verification

@@ -16,6 +16,10 @@ limitations under the License.
 
 namespace Spikes.Spike2Fibonacci.Windows
 
+local instance (priority := 1100) spike2WindowsRuntimeForRowRegisterFrameOne :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
+
 open Gasm.Targets.X86_64 Gasm.Targets.X86_64.Instructions
 
 set_option maxHeartbeats 5000000

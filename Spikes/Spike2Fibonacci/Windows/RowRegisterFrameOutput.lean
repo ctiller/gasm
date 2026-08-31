@@ -16,6 +16,10 @@ limitations under the License.
 
 namespace Spikes.Spike2Fibonacci.Windows
 
+local instance (priority := 1100) spike2WindowsRuntimeForRowRegisterFrameOutput :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
+
 open Gasm.Targets.X86_64
 
 theorem spike2_decimal_setup_registerFrame (state : X86_64MachineState) :

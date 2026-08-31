@@ -17,6 +17,10 @@ import Spikes.Spike2Fibonacci.Windows.RowCounterFacts
 
 namespace Spikes.Spike2Fibonacci.Windows
 
+local instance (priority := 1100) spike2WindowsRuntimeForRowRegisterFrameBase :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
+
 open Gasm.Targets.X86_64
 
 /-- Registers carried unchanged from the driver header to the Win32 call boundary. -/

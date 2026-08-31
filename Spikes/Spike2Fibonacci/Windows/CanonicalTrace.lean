@@ -27,6 +27,10 @@ import Spikes.Spike2Fibonacci.Windows.RowTermination
 
 namespace Spikes.Spike2Fibonacci.Windows
 
+local instance (priority := 1100) spike2WindowsRuntimeForCanonicalTrace :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
+
 open Gasm.Core.Verification
 open Gasm.Effects
 open Gasm.Targets.X86_64

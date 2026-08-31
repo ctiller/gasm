@@ -41,12 +41,15 @@ open Gasm.Targets.X86_64.MacroAssembler
 open Spikes.Spike2Fibonacci
 
 /-- Spike 2's Windows proof is interpreted by the Windows runtime that the final
-    `WindowsX86_64` capability composition realizes.  Keeping this instance at the
-    adapter root prevents the generic cross-platform dispatcher from leaking Linux
-    address tests into every local prefix proof. -/
-@[instance_reducible] instance (priority := 1100) spike2WindowsRuntime :
+    `WindowsX86_64` capability composition realizes.  Proof modules install this
+    definition only as a local instance, preventing either the generic dispatcher from
+    entering the proof or the Spike-local choice from escaping through imports. -/
+@[reducible] def spike2WindowsRuntime :
     ExternalCallInterceptor X86_64 AnyEvent :=
   Gasm.Core.Verification.standardWindowsRuntime AnyEvent
+
+local instance (priority := 1100) spike2WindowsRuntimeForNativeAdapter :
+    ExternalCallInterceptor X86_64 AnyEvent := spike2WindowsRuntime
 
 /-- Local selected-boundary policy for the Windows artifact.  The deliberately
     familiar name keeps the existing prefix vocabulary while making its platform

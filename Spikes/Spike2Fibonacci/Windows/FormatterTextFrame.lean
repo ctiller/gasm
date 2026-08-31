@@ -4,6 +4,10 @@ import Spikes.Spike2Fibonacci.Windows.FormatterDecimal
 
 namespace Spikes.Spike2Fibonacci.Windows
 
+local instance (priority := 1100) spike2WindowsRuntimeForFormatterTextFrame :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
+
 open Gasm.Core Gasm.Targets.X86_64 Gasm.Targets.X86_64.DecimalSegments
 open Gasm.Targets.X86_64.DecimalSchedule
 

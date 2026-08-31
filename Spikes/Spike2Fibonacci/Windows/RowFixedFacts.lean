@@ -17,6 +17,10 @@ import Spikes.Spike2Fibonacci.Windows.FormatterTextInit
 
 namespace Spikes.Spike2Fibonacci.Windows
 
+local instance (priority := 1100) spike2WindowsRuntimeForRowFixedFacts :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
+
 open Gasm.Targets.X86_64
 open Stdlib.Fmt
 

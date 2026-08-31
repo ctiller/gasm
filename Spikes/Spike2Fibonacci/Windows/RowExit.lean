@@ -16,6 +16,10 @@ limitations under the License.
 
 namespace Spikes.Spike2Fibonacci.Windows
 
+local instance (priority := 1100) spike2WindowsRuntimeForRowExit :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
+
 open Gasm.Effects Gasm.Targets Gasm.Targets.X86_64
 
 /-- Typed terminal edge after the structurally completed 90-row driver. -/

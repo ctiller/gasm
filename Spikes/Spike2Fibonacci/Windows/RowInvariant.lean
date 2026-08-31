@@ -17,6 +17,10 @@ import Spikes.Spike2Fibonacci.Windows.RowHookRegisterFrame
 
 namespace Spikes.Spike2Fibonacci.Windows
 
+local instance (priority := 1100) spike2WindowsRuntimeForRowInvariant :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
+
 open Gasm.Effects Gasm.Targets.X86_64
 
 def spike2ExpectedEventsRev : Nat → List AnyEvent

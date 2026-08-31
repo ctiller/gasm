@@ -17,6 +17,10 @@ import Spikes.Spike2Fibonacci.Windows.RowRecurrenceRegister5
 
 namespace Spikes.Spike2Fibonacci.Windows
 
+local instance (priority := 1100) spike2WindowsRuntimeForRowWriteHookSlice :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
+
 open Gasm.Core Gasm.Effects Gasm.Targets Gasm.Targets.Windows
 open Gasm.Targets.X86_64
 

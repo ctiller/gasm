@@ -16,6 +16,10 @@ limitations under the License.
 import Spikes.Spike2Fibonacci.Windows.RowRecurrence5
 
 namespace Spikes.Spike2Fibonacci.Windows
+
+local instance (priority := 1100) spike2WindowsRuntimeForRowRecurrenceRegister5 :
+    Gasm.Targets.X86_64.ExternalCallInterceptor
+    Gasm.Targets.X86_64.X86_64 Gasm.Effects.AnyEvent := spike2WindowsRuntime
 open Gasm.Targets.X86_64
 theorem spike2_recurrence_increment_registers (state : X86_64MachineState) :
     (spike2AfterRecurrenceIncrement state).rsp = state.rsp ∧
