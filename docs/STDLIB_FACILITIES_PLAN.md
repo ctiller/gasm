@@ -95,7 +95,13 @@ real consumers.
 - **Next:** complete append lookup laws, stable key-based sorting over a lawful total
   preorder, and preservation of relative order within comparator-equivalent values.
   For the current non-strict relation, keys are equivalent when precedence holds in
-  both directions; stability preserves original tagged order inside that class.
+  both directions; stability preserves original tagged order inside that class.  The candidate
+  representation-independent statement is `StableOn key beforeKey input output`: equality of each
+  mutual-preorder key-class projection, with `insertionSort_stableOn` requiring
+  `LawfulTotalRelation`.  Identity-key Spike 3 bytes are a vacuous control because mutual ordering
+  forces value equality; a real completion witness needs distinct tagged or nominal records sharing
+  one byte key and must preserve their observable origin order after movement across an intervening
+  key.
 - **Next:** a dependent finite-table contract with semantic model
   `(i : Fin n) -> F i`, extensionality, tabulation, dependent mapping, reindexing by
   finite equivalences, and append/split roundtrips.
@@ -274,15 +280,16 @@ The plan borrows useful boundaries rather than copying APIs:
 Subject to higher-priority Trust/build repairs, the current sequence is:
 
 1. Complete Vec laws and lawful stable key sorting.
-2. Add the generic fallible streaming fold requested by Trust; promote count
-   accounting separately only after domain connection theorems exist.
+2. Add resource-count projections only after two accepted domain connections prove their meaning;
+   the generic fallible fold itself is already present.
 3. Land dependent finite tables; separately promote `FinSet`/`FinMap` only when a
    named compiler migration is accepted.
 4. Promote persistent FIFO and finite worklist facilities independently when their
    first integrations meet the admission gate.
 5. Move neutral ByteArray lemmas atomically across their PNG/Zlib consumers.
 6. Promote alignment, cursor, endian, chunk, and decimal facilities as independent
-   librarian-reviewed slices; none is a prerequisite for landing the others.
+   slices; Librarian indexes evidence and duplicates, while independent Reviewer and Trust own
+   acceptance and integration. None is a prerequisite for landing the others.
 7. Establish the abstract finite-map contract and association-list reference before
    tree and B-tree realizations.
 8. Add bounded source/sink algorithms after two real streaming consumers agree on
@@ -307,8 +314,8 @@ A representation-bearing facility is ready to land when its slice has:
 6. No `sorry`, new axioms, or inappropriate decision-procedure authority.
 7. Focused builds and the repository gates appropriate to its dependency closure.
 8. Documentation that distinguishes present behavior from backlog.
-9. Librarian review for ownership and duplicate extraction, MASM review when the
-   compiler is a consumer, and Trust review for landing/build-health impact.
+9. Librarian indexing for ownership evidence and duplicate search, independent Reviewer judgment,
+   MASM review when the compiler is a consumer, and Trust review for landing/build-health impact.
 
 A theorem/algebra extraction instead requires a canonical definition, minimal named
 hypotheses, universal behavior laws, connection theorems to retained spellings, the
