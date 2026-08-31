@@ -32,6 +32,9 @@ system, privileged, or nondeterministic state, and every SIMD, floating-point, x
 form.  Memory forms wait for the checked authoring seam; SIMD/FP waits for the extended machine state;
 control-flow families wait for their landing-pad model.  Calibration governance does not block this
 pilot when cost data remains loudly `modelInternal` and confers no calibrated performance claim.
+The narrow guarded `HardwareMemoryHarness` provides supplemental sequential evidence for four
+existing scalar `MOV` memory classes, but it is not the registry `ValidationOracle.silicon` owner
+and does not relax this lane's capability/admission exclusion.
 
 Before unconstrained multi-agent scale, require the merge train to run full gates on the merged tree,
 close P8 naming/manifest/equality conflict hygiene, replace curated samples with stronger exhaustive
@@ -439,9 +442,10 @@ strict demand-driven sequencing):
 1. **Wave A — GPR-only ALU/flags forms** (missing Jcc condition families, r8/r16/r32 widths,
    ADC/SBB/BT*, MOVSX/MOVZX widths, etc.): representable in today's state type; safe after
    P3+P4+P6, with P5's marking convention so their coefficients land honest.
-2. **Wave B — memory-operand forms**: after P2's instruction-level capability shape and the
-   harness's scratch-region support, so their semantics are actually
-   fuzzable on silicon and their contracts are the final ones.
+2. **Wave B — memory-operand forms**: after P2's instruction-level capability shape and explicit
+   promotion/integration of the current narrow supplemental scratch validator into registry-owned
+   per-instance validation, so their semantics are actually fuzzable on silicon and their
+   contracts are the final ones. The present four-class leaf alone is not that promotion.
 3. **Wave C — branches/calls variants**: after harness landing-pad support (same Phase 3 item).
 4. **Wave D — SIMD/FP**: only after P1's schema lands; this wave is where the expansion earns
    its keep for the zlib epic, and it is the one that must not be attempted on today's model.

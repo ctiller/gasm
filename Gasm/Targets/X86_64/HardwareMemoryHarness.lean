@@ -48,6 +48,36 @@ private def outputBytes (count : Nat) : Nat := count * recordBytes
 private def scratchStart (count : Nat) : Nat := outputStart + alignUp (outputBytes count) 16
 private def scratchOffset (count index : Nat) : Nat := scratchStart count + index * regionBytes
 
+-- Windows x64 entry has RSP ≡ 8 (mod 16). Subtracting 0x58 both owns every slot below and
+-- restores 16-byte call alignment. The first 32 bytes remain API shadow space.
+private def stackFrameBytes : Nat := 0x58
+private def savedRbxOffset : Nat := 0x20
+private def savedRbpOffset : Nat := 0x28
+private def savedRsiOffset : Nat := 0x30
+private def savedRdiOffset : Nat := 0x38
+private def capturedFlagsOffset : Nat := 0x40
+private def capturedRaxOffset : Nat := 0x48
+
+private structure StackSlot where
+  offset : Nat
+  width : Nat
+
+private def stackSlots : List StackSlot := [
+  ⟨savedRbxOffset, 8⟩, ⟨savedRbpOffset, 8⟩, ⟨savedRsiOffset, 8⟩,
+  ⟨savedRdiOffset, 8⟩, ⟨capturedFlagsOffset, 8⟩, ⟨capturedRaxOffset, 8⟩
+]
+
+private def stackLayoutValid : Bool :=
+  stackFrameBytes < 0x80 &&
+  stackFrameBytes % 16 == 8 &&
+  stackSlots.all (fun slot =>
+    0x20 ≤ slot.offset && slot.width == 8 && slot.offset + slot.width ≤ stackFrameBytes) &&
+  (stackSlots.map StackSlot.offset).eraseDups.length == stackSlots.length
+
+/- REF: docs/TARGETS/WINDOWS.md#13-strict-prohibition-of-red-zone -/
+-- Every harness temporary is in an owned, distinct stack slot. No capture lives below RSP.
+#guard stackLayoutValid
+
 private def putU8 (bytes : ByteArray) (offset : Nat) (value : UInt8) : ByteArray :=
   bytes.set! offset value
 
@@ -116,11 +146,11 @@ private def buildText (layout : SectionLayout) (plans : List Plan) : ByteArray :
   let vehHandlerAddr := imageBase + textRva + jmpToMain.size.toUInt64
 
   let mut mainBody := ByteArray.empty
-  mainBody := mainBody ++ ByteArray.mk #[0x48, 0x83, 0xEC, 0x48]
-  mainBody := mainBody ++ ByteArray.mk #[0x48, 0x89, 0x5C, 0x24, 0x20]
-  mainBody := mainBody ++ ByteArray.mk #[0x48, 0x89, 0x6C, 0x24, 0x28]
-  mainBody := mainBody ++ ByteArray.mk #[0x48, 0x89, 0x74, 0x24, 0x30]
-  mainBody := mainBody ++ ByteArray.mk #[0x48, 0x89, 0x7C, 0x24, 0x38]
+  mainBody := mainBody ++ ByteArray.mk #[0x48, 0x83, 0xEC, stackFrameBytes.toUInt8]
+  mainBody := mainBody ++ ByteArray.mk #[0x48, 0x89, 0x5C, 0x24, savedRbxOffset.toUInt8]
+  mainBody := mainBody ++ ByteArray.mk #[0x48, 0x89, 0x6C, 0x24, savedRbpOffset.toUInt8]
+  mainBody := mainBody ++ ByteArray.mk #[0x48, 0x89, 0x74, 0x24, savedRsiOffset.toUInt8]
+  mainBody := mainBody ++ ByteArray.mk #[0x48, 0x89, 0x7C, 0x24, savedRdiOffset.toUInt8]
   mainBody := mainBody ++ ByteArray.mk #[0x48, 0xB8] ++ uint64ToLittleEndian savedRspVarAddr
   mainBody := mainBody ++ ByteArray.mk #[0x48, 0x89, 0x20]
   mainBody := mainBody ++ ByteArray.mk #[0x48, 0xC7, 0xC1, 0x01, 0x00, 0x00, 0x00]
@@ -159,8 +189,8 @@ private def buildText (layout : SectionLayout) (plans : List Plan) : ByteArray :
     -- The exact production bytes stored by `prepare`; there is no native-side reconstruction.
     block := block ++ plan.instructionBytes
 
-    block := block ++ ByteArray.mk #[0x9C, 0x8F, 0x44, 0x24, 0xF8]
-    block := block ++ ByteArray.mk #[0x48, 0x89, 0x44, 0x24, 0xF0]
+    block := block ++ ByteArray.mk #[0x9C, 0x8F, 0x44, 0x24, capturedFlagsOffset.toUInt8]
+    block := block ++ ByteArray.mk #[0x48, 0x89, 0x44, 0x24, capturedRaxOffset.toUInt8]
     block := block ++ ByteArray.mk #[0x48, 0xB8] ++ uint64ToLittleEndian testOutAddr
     block := block ++ storeRegDisp32 0x48 0x88 40  -- rcx
     block := block ++ storeRegDisp32 0x48 0x90 48  -- rdx
@@ -177,10 +207,10 @@ private def buildText (layout : SectionLayout) (plans : List Plan) : ByteArray :
     block := block ++ storeRegDisp32 0x4C 0xA8 136 -- r13
     block := block ++ storeRegDisp32 0x4C 0xB0 144 -- r14
     block := block ++ storeRegDisp32 0x4C 0xB8 152 -- r15
-    block := block ++ ByteArray.mk #[0x48, 0x8B, 0x4C, 0x24, 0xF8]
+    block := block ++ ByteArray.mk #[0x48, 0x8B, 0x4C, 0x24, capturedFlagsOffset.toUInt8]
     block := block ++ storeRegDisp32 0x48 0x88 160 -- flags through rcx
     block := block ++ loadRegDisp32 0x48 0x88 40   -- restore rcx
-    block := block ++ ByteArray.mk #[0x48, 0x8B, 0x54, 0x24, 0xF0]
+    block := block ++ ByteArray.mk #[0x48, 0x8B, 0x54, 0x24, capturedRaxOffset.toUInt8]
     block := block ++ storeRegDisp32 0x48 0x90 32  -- original rax through rdx
 
     -- Registers are already captured, so rax/rcx/rdx are now scratch temporaries.
@@ -209,10 +239,10 @@ private def buildText (layout : SectionLayout) (plans : List Plan) : ByteArray :
   let mut epilogue := ByteArray.empty
   epilogue := epilogue ++ ByteArray.mk #[0x48, 0xB8] ++ uint64ToLittleEndian savedRspVarAddr
   epilogue := epilogue ++ ByteArray.mk #[0x48, 0x8B, 0x20]
-  epilogue := epilogue ++ ByteArray.mk #[0x48, 0x8B, 0x5C, 0x24, 0x20]
-  epilogue := epilogue ++ ByteArray.mk #[0x48, 0x8B, 0x6C, 0x24, 0x28]
-  epilogue := epilogue ++ ByteArray.mk #[0x48, 0x8B, 0x74, 0x24, 0x30]
-  epilogue := epilogue ++ ByteArray.mk #[0x48, 0x8B, 0x7C, 0x24, 0x38]
+  epilogue := epilogue ++ ByteArray.mk #[0x48, 0x8B, 0x5C, 0x24, savedRbxOffset.toUInt8]
+  epilogue := epilogue ++ ByteArray.mk #[0x48, 0x8B, 0x6C, 0x24, savedRbpOffset.toUInt8]
+  epilogue := epilogue ++ ByteArray.mk #[0x48, 0x8B, 0x74, 0x24, savedRsiOffset.toUInt8]
+  epilogue := epilogue ++ ByteArray.mk #[0x48, 0x8B, 0x7C, 0x24, savedRdiOffset.toUInt8]
   epilogue := epilogue ++ ByteArray.mk #[0x48, 0xC7, 0xC1, 0xF5, 0xFF, 0xFF, 0xFF]
   let getStdHandleIatAddr := imageBase + idataRva
   epilogue := epilogue ++ ByteArray.mk #[0x48, 0xB8] ++ uint64ToLittleEndian getStdHandleIatAddr

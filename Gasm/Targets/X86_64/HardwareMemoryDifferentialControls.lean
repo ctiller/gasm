@@ -78,6 +78,10 @@ private def trailingInstructionByteRejected : Bool :=
 #guard corruptionRejected guardBytes
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Trailing-canary corruption is independently observed and rejected.
+#guard corruptionRejected (guardBytes + payloadBytes)
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Native/model instruction identity is exact; an ignored trailing byte cannot pass.
 #guard trailingInstructionByteRejected
 

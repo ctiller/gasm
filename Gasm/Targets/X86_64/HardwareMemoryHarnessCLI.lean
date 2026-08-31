@@ -46,12 +46,26 @@ private def controls : List Request := [
 private def coverageComplete : Bool :=
   ScratchClass.all.all fun cls => controls.any fun request => request.form.scratchClass == cls
 
+private def negativeCalibration (observations : List Observation) : Except String Unit := do
+  let observation ← match observations with
+    | [] => throw "runtime negative calibration received no native observation"
+    | observation :: _ => pure observation
+  let old := observation.result.regionAfter.get! 0
+  let corrupted := observation.result.regionAfter.set! 0 (old ^^^ 0xff)
+  let mutated := {
+    observation with
+    result := { observation.result with regionAfter := corrupted }
+  }
+  match HardwareMemoryDifferential.compare mutated with
+  | .error _ => pure ()
+  | .ok () => throw "runtime negative calibration accepted a corrupted leading guard"
+
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
--- Adding an admitted constructor without a nonempty native control turns this module red.
+-- Adding an admitted class without a nonempty native control turns this module red.
 #guard coverageComplete
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Executes all four initially admitted MOV memory-form classes through the native guarded scratch
+/-- Executes all four supplemental MOV memory-form classes through the native guarded scratch
     runner and compares them with their exact production `step` semantics. -/
 def main (_args : List String) : IO UInt32 := do
   let result ← run controls
@@ -60,10 +74,15 @@ def main (_args : List String) : IO UInt32 := do
       IO.eprintln s!"x86 scratch-memory harness failed: {msg}"
       pure 1
   | .ok observations =>
-      match compareBatch observations with
+      match negativeCalibration observations with
       | .error msg =>
-          IO.eprintln s!"x86 scratch-memory differential mismatch: {msg}"
+          IO.eprintln s!"x86 scratch-memory negative calibration failed: {msg}"
           pure 1
       | .ok () =>
-          IO.println s!"x86 scratch-memory hardware controls passed ({observations.length} exact guarded observations)"
-          pure 0
+          match compareBatch observations with
+          | .error msg =>
+              IO.eprintln s!"x86 scratch-memory differential mismatch: {msg}"
+              pure 1
+          | .ok () =>
+              IO.println s!"x86 scratch-memory hardware controls passed ({observations.length} exact guarded observations; expected corrupted-guard rejection observed)"
+              pure 0

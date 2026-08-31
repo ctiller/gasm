@@ -237,8 +237,13 @@ combinator, not a universal execution object, and deliberately supplies no behav
   states or resolve no-base SIB/absolute ambiguity, segments, address-size behavior, and atomicity.
   Abstract checked-memory contracts must not freeze this representation or expose Windows mapping
   and binding details.
-- Hardware-memory validation remains disabled until typed vectors carry a rebased scratch-memory
-  preimage and compare the observed postimage and exact footprint.
+- Supplemental hardware-memory validation now exists for a closed four-class scalar `MOV` subset:
+  typed vectors carry a rebased guarded scratch preimage and compare the exact decoded production
+  step with native defined registers/flags and the complete postimage. It is deliberately not the
+  registry's `ValidationOracle.silicon` owner and grants no applicability, mapping, capability,
+  TSO, atomicity, platform admission, or `VerifiedProgram` authority. The canonical registry oracle
+  remains `canFuzzHardware`/`HardwareHarness`; promotion requires an explicit metadata integration
+  rather than treating this supplemental leaf as an allowlist or admission exception.
 
 ### 2.6 Clean-slate consumers
 

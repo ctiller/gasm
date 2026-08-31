@@ -40,18 +40,8 @@ def regionBytes : Nat := guardBytes + payloadBytes + guardBytes
 def accessOffset : Nat := 24
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Closed initial admission list for scratch-memory differential validation.  This is deliberately
-    not inferred from descriptor count: adding another instruction family requires adding a
-    constructor and reviewing its straight-line/non-stack/non-atomic operational semantics. -/
-inductive ScratchMov where
-  | mem8Reg8 (instr : MovMem8Reg8)
-  | mem64DispReg64 (instr : MovMem64DispReg64)
-  | mem64DispImm32 (instr : MovMem64DispImm32)
-  | reg64Mem64Disp (instr : MovReg64Mem64Disp)
-  deriving Inhabited
-
-/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Coverage identity for every constructor in the closed initial memory-form admission list. -/
+/-- Closed initial family inventory for supplemental scratch-memory differential evidence. This is
+    not `ValidationOracle.silicon` and grants no registry, capability, or execution admission. -/
 inductive ScratchClass where
   | mem8Reg8 | mem64DispReg64 | mem64DispImm32 | reg64Mem64Disp
   deriving DecidableEq, Repr, Inhabited
@@ -62,47 +52,86 @@ def ScratchClass.all : List ScratchClass :=
   [.mem8Reg8, .mem64DispReg64, .mem64DispImm32, .reg64Mem64Disp]
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Classifies a closed request for nonvacuous coverage accounting. -/
-def ScratchMov.scratchClass : ScratchMov → ScratchClass
-  | .mem8Reg8 _ => .mem8Reg8
-  | .mem64DispReg64 _ => .mem64DispReg64
-  | .mem64DispImm32 _ => .mem64DispImm32
-  | .reg64Mem64Disp _ => .reg64Mem64Disp
+/-- The inventory is exhaustive over the actual closed class type. -/
+theorem ScratchClass.mem_all (cls : ScratchClass) : cls ∈ ScratchClass.all := by
+  cases cls <;> simp [ScratchClass.all]
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Each admitted class selects exactly one production instruction family. Adding support requires
+    a new class and therefore breaks every exhaustive match and the native coverage control. -/
+def ScratchClass.Instruction : ScratchClass → Type
+  | .mem8Reg8 => MovMem8Reg8
+  | .mem64DispReg64 => MovMem64DispReg64
+  | .mem64DispImm32 => MovMem64DispImm32
+  | .reg64Mem64Disp => MovReg64Mem64Disp
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- One family-indexed supplemental request. The class is stored, not reconstructed by a
+    many-to-one classifier, so a distinct admitted family cannot hide under an existing class. -/
+structure ScratchMov where
+  scratchClass : ScratchClass
+  instr : scratchClass.Instruction
+
+namespace ScratchMov
+
+def mem8Reg8 (instr : MovMem8Reg8) : ScratchMov := ⟨.mem8Reg8, instr⟩
+def mem64DispReg64 (instr : MovMem64DispReg64) : ScratchMov := ⟨.mem64DispReg64, instr⟩
+def mem64DispImm32 (instr : MovMem64DispImm32) : ScratchMov := ⟨.mem64DispImm32, instr⟩
+def reg64Mem64Disp (instr : MovReg64Mem64Disp) : ScratchMov := ⟨.reg64Mem64Disp, instr⟩
+
+instance : Inhabited ScratchMov := ⟨mem8Reg8 default⟩
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- The exact production instruction whose encoder and step function are authoritative for a
     scratch test. -/
-def ScratchMov.pack : ScratchMov → AnyX86_64Instruction
-  | .mem8Reg8 i => ⟨i⟩
-  | .mem64DispReg64 i => ⟨i⟩
-  | .mem64DispImm32 i => ⟨i⟩
-  | .reg64Mem64Disp i => ⟨i⟩
+private def packFor : (cls : ScratchClass) → cls.Instruction → AnyX86_64Instruction
+  | .mem8Reg8, i => ⟨(show MovMem8Reg8 from i)⟩
+  | .mem64DispReg64, i => ⟨(show MovMem64DispReg64 from i)⟩
+  | .mem64DispImm32, i => ⟨(show MovMem64DispImm32 from i)⟩
+  | .reg64Mem64Disp, i => ⟨(show MovReg64Mem64Disp from i)⟩
+
+def pack (form : ScratchMov) : AnyX86_64Instruction :=
+  packFor form.scratchClass form.instr
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Base register admitted by the closed MOV form. -/
-def ScratchMov.baseReg : ScratchMov → Reg64
-  | .mem8Reg8 i => i.dstPtr
-  | .mem64DispReg64 i => i.basePtr
-  | .mem64DispImm32 i => i.basePtr
-  | .reg64Mem64Disp i => i.basePtr
+private def baseRegFor : (cls : ScratchClass) → cls.Instruction → Reg64
+  | .mem8Reg8, i => i.dstPtr
+  | .mem64DispReg64, i => i.basePtr
+  | .mem64DispImm32, i => i.basePtr
+  | .reg64Mem64Disp, i => i.basePtr
 
-private def ScratchMov.hostRegistersSafe : ScratchMov → Bool
-  | .mem8Reg8 i => i.dstPtr != .rsp && i.srcReg != .rsp
-  | .mem64DispReg64 i => i.basePtr != .rsp && i.srcReg != .rsp
-  | .mem64DispImm32 i => i.basePtr != .rsp
-  | .reg64Mem64Disp i => i.basePtr != .rsp && i.dstReg != .rsp
+def baseReg (form : ScratchMov) : Reg64 :=
+  baseRegFor form.scratchClass form.instr
+
+private def hostRegistersSafeFor : (cls : ScratchClass) → cls.Instruction → Bool
+  | .mem8Reg8, i => i.dstPtr != .rsp && i.srcReg != .rsp
+  | .mem64DispReg64, i => i.basePtr != .rsp && i.srcReg != .rsp
+  | .mem64DispImm32, i => i.basePtr != .rsp
+  | .reg64Mem64Disp, i => i.basePtr != .rsp && i.dstReg != .rsp
+
+private def hostRegistersSafe (form : ScratchMov) : Bool :=
+  hostRegistersSafeFor form.scratchClass form.instr
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Expected access class of the closed MOV form, independently checked against `memAccesses`. -/
-def ScratchMov.expectedKind : ScratchMov → MemAccessKind
-  | .mem8Reg8 _ | .mem64DispReg64 _ | .mem64DispImm32 _ => .store
-  | .reg64Mem64Disp _ => .load
+private def expectedKindFor : (cls : ScratchClass) → cls.Instruction → MemAccessKind
+  | .mem8Reg8, _ | .mem64DispReg64, _ | .mem64DispImm32, _ => .store
+  | .reg64Mem64Disp, _ => .load
+
+def expectedKind (form : ScratchMov) : MemAccessKind :=
+  expectedKindFor form.scratchClass form.instr
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Expected width of the closed MOV form, independently checked against `memAccesses`. -/
-def ScratchMov.expectedWidth : ScratchMov → MemWidth
-  | .mem8Reg8 _ => .w8
-  | .mem64DispReg64 _ | .mem64DispImm32 _ | .reg64Mem64Disp _ => .w64
+private def expectedWidthFor : (cls : ScratchClass) → cls.Instruction → MemWidth
+  | .mem8Reg8, _ => .w8
+  | .mem64DispReg64, _ | .mem64DispImm32, _ | .reg64Mem64Disp, _ => .w64
+
+def expectedWidth (form : ScratchMov) : MemWidth :=
+  expectedWidthFor form.scratchClass form.instr
+
+end ScratchMov
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- True exactly for canonical 48-bit x86-64 virtual addresses.  The first hardware-memory slice
@@ -209,15 +238,17 @@ def Plan.modelRegionAfter (plan : Plan) : Except String ByteArray := do
   pure <| readRegion plan.regionBase decoded.state.memory
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Builds a checked address-identity plan for one closed MOV form.
+/-- Builds a checked address-identity plan for one closed MOV form at a selected payload offset.
 
     Rejection is fail-closed.  The production descriptor must be exactly one base-only access and
     must agree with the constructor's independently stated kind/width/base.  RSP, indexed,
     RIP-relative, implicit-memory, multi-access, address-size/segment-override and atomic forms
     have no constructor here.  The guarded region and target access must be nonwrapping and
     canonical, and the descriptor must evaluate to the chosen payload address in the exact
-    pre-state installed in model memory. -/
-def prepare (caseId : UInt64) (form : ScratchMov) (seed : X86_64MachineState)
+    pre-state installed in model memory. The offset parameter exists so the rejection boundary is
+    directly testable; ordinary harness requests use `prepare`'s fixed interior offset. -/
+def prepareAtOffset (selectedOffset : Nat) (caseId : UInt64) (form : ScratchMov)
+    (seed : X86_64MachineState)
     (regionBase : UInt64) : Except String Plan := do
   if !form.hostRegistersSafe then
     throw "RSP base/source/destination operands are excluded from the initial scratch-memory validator"
@@ -225,7 +256,7 @@ def prepare (caseId : UInt64) (form : ScratchMov) (seed : X86_64MachineState)
   if !isCanonical48 regionBase || !isCanonical48 (regionEnd - 1) then
     throw "guarded scratch region is not wholly canonical"
   let payloadBase ← checkedAdd regionBase guardBytes
-  let accessAddress ← checkedAdd payloadBase accessOffset
+  let accessAddress ← checkedAdd payloadBase selectedOffset
   let instruction := form.pack
   let instructionBytes := X86_64Instruction.encode instruction
   let decoded ← decodeSummary instructionBytes
@@ -243,7 +274,7 @@ def prepare (caseId : UInt64) (form : ScratchMov) (seed : X86_64MachineState)
     throw "production descriptor base disagrees with the closed MOV form"
   if spec.ref.index.isSome then
     throw "indexed memory operands are excluded from the initial scratch-memory validator"
-  if accessOffset + spec.width.bytes > payloadBytes then
+  if selectedOffset + spec.width.bytes > payloadBytes then
     throw "declared access does not fit wholly inside the scratch payload"
   let baseValue ← checkedBaseFor accessAddress spec.ref.disp
   let regionBefore := patternedRegion caseId
@@ -268,5 +299,11 @@ def prepare (caseId : UInt64) (form : ScratchMov) (seed : X86_64MachineState)
     accessWidth := spec.width
     regionBefore := regionBefore
   }
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Ordinary harness entry: place the access at the single reviewed interior payload offset. -/
+def prepare (caseId : UInt64) (form : ScratchMov) (seed : X86_64MachineState)
+    (regionBase : UInt64) : Except String Plan :=
+  prepareAtOffset accessOffset caseId form seed regionBase
 
 end Gasm.Targets.X86_64.HardwareMemoryPlan

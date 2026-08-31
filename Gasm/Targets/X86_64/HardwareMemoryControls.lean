@@ -97,6 +97,13 @@ private def noncanonicalRejected : Bool :=
   | .error _ => true
   | .ok _ => false
 
+private def escapingFootprintRejected : Bool :=
+  let seed := (default : X86_64MachineState).setGpr64 .rbx 0xfeedface
+  match prepareAtOffset (payloadBytes - 4) 6
+      (.mem64DispReg64 ⟨.rax, 0, .rbx⟩) seed 0x140004000 with
+  | .error _ => true
+  | .ok _ => false
+
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Positive address-identity control, including the alias-sensitive load where destination and
 -- base are the same register: the checked address is fixed from the pre-state.
@@ -109,5 +116,10 @@ private def noncanonicalRejected : Bool :=
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Negative address control: a noncanonical scratch mapping is rejected.
 #guard noncanonicalRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Negative footprint control: a declared eight-byte store crossing the payload boundary is
+-- rejected before native execution, even though its starting address remains inside the payload.
+#guard escapingFootprintRejected
 
 end Gasm.Targets.X86_64.HardwareMemoryControls
