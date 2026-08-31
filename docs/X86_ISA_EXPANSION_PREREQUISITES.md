@@ -6,7 +6,9 @@ refer to that snapshot and are not an active task board. Current authority/borro
 `docs/MEMORY_MODEL.md` M1/M4; current target and decoder status by `docs/TARGETS/X86_64.md`;
 calibration by `docs/CALIBRATION_GOVERNANCE.md`; and live merge gates by `docs/CI.md`. Where an
 explicit “Current status” paragraph below conflicts with the historical diagnosis, that paragraph
-wins. Nothing in this document is itself implementation.
+wins. The 2026-08-30 qualification in §1 is MP+Reviewer-accepted design guidance; Trust acceptance
+and a landed implementation contract remain pending. Nothing in this document is itself
+implementation.
 
 **The question**: the owner is considering a massive expansion of the x86-64 instruction set —
 a deliberate, eyes-open departure from Law 5 and `docs/VISION.md` §3.3's spike-by-spike
@@ -17,6 +19,33 @@ expensive to unwind than to redo?
 ---
 
 ## 1. Verdict
+
+### Current qualification: controlled scalar scale is ready
+
+The historical “not ready” verdict is too broad when applied to every raw ISA form.  The repository
+is ready for substantial controlled expansion of deterministic scalar instructions whose complete
+behavior fits the current GPR/RFLAGS/fault state and current silicon harness.  This is a pilot lane,
+not a freeze of a complete x86 interface and not permission to claim performance authority.
+
+The lane excludes explicit or implicit memory access, instructions needing new control landing pads,
+system, privileged, or nondeterministic state, and every SIMD, floating-point, x87, or extended-state
+form.  Memory forms wait for the checked authoring seam; SIMD/FP waits for the extended machine state;
+control-flow families wait for their landing-pad model.  Calibration governance does not block this
+pilot when cost data remains loudly `modelInternal` and confers no calibrated performance claim.
+
+Before unconstrained multi-agent scale, require the merge train to run full gates on the merged tree,
+close P8 naming/manifest/equality conflict hygiene, replace curated samples with stronger exhaustive
+finite-domain roundtrip evidence per family, and publish explicit validation levels.  P7 is
+property-relative: author per-instruction step lemmas only after a stable proof-facing API exists;
+otherwise land encode/decode/oracle coverage and defer those lemmas rather than couple new proofs to
+interpreter internals.
+
+This qualification narrows the applicability of the old blocker labels.  P1 blocks instruction
+classes needing absent state, P2 blocks memory forms, and calibration blocks calibrated performance
+claims—not deterministic current-state scalar coverage.  The historical analysis below remains the
+evidence for why expansion outside that lane is still premature.
+
+### Historical assessment verdict
 
 **Not ready today. Expanding now would repeat `wsc` — but not in the place the starting
 hypothesis pointed.**
