@@ -32,6 +32,7 @@ structure Spike2OpeningResult (initial : X86_64MachineState) (eventsRev : List A
   rsp : final.rsp = spike2AfterPrologue.rsp
   fault : final.fault = none
   lowMemory : Spike2RowLowMemory final
+  buffer : BufHolds final.memory (initial.rsp + 64) [0x46, 0x69, 0x62, 0x28]
 
 private theorem main_fallthrough_rip (state : X86_64MachineState)
     (hrip : state.rip = spike2WindowsMainLoopRip)
@@ -84,6 +85,11 @@ opaque spike2_row_opening (completed : Nat) (state : X86_64MachineState)
       rfl
     rsp := literalRsp
     fault := literalFrame.fault.trans mainSafe
-    lowMemory := spike2_fib_literal_lowMemory main mainLow mainRsp }
+    lowMemory := spike2_fib_literal_lowMemory main mainLow mainRsp
+    buffer := by
+      have literalBuffer := spike2_fib_literal_buffer main
+      rw [mainFrame.rsp] at literalBuffer
+      change BufHolds (spike2AfterFibLiteral main).memory (state.rsp + 64) _
+      exact literalBuffer }
 
 end Spikes.Spike2Fibonacci.Windows

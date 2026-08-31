@@ -339,7 +339,7 @@ private theorem StackHolds_push (memory : X86_64Memory) (top : UInt64)
       writeNoWrap (by rw [subNat]; omega) stackNoWrap]
   simp
 
-private theorem BufHolds_write8_after (memory : X86_64Memory) (start writeAddress : UInt64)
+theorem BufHolds_write8_after (memory : X86_64Memory) (start writeAddress : UInt64)
     (byte : UInt64) (written : List UInt8)
     (writeNoWrap : writeAddress.toNat + 1 ≤ 2 ^ 64)
     (after : start.toNat + written.length ≤ writeAddress.toNat)
@@ -358,6 +358,26 @@ private theorem BufHolds_write8_after (memory : X86_64Memory) (start writeAddres
       simp [Nat.mod_eq_of_lt (by omega : start.toNat + 1 < 2 ^ 64)]
     simp only [BufHolds, X86_64Mem.read]
     rw [readSame, ih (start + 1) (by rw [startOne]; omega) (by rw [startOne]; omega)]
+
+theorem BufHolds_write8_append (memory : X86_64Memory) (start writeAddress : UInt64)
+    (byte : UInt8) (written : List UInt8)
+    (holds : BufHolds memory start written)
+    (writeAddressEq : writeAddress = start + written.length.toUInt64)
+    (prefixNoWrap : start.toNat + written.length < 2 ^ 64) :
+    BufHolds (X86_64Mem.write .w8 writeAddress byte.toUInt64 memory) start
+      (written ++ [byte]) := by
+  rw [BufHolds_append]
+  constructor
+  · rw [BufHolds_write8_after]
+    · exact holds
+    · rw [writeAddressEq, UInt64.toNat_add]
+      simp [Nat.toUInt64, Nat.mod_eq_of_lt prefixNoWrap]
+      omega
+    · rw [writeAddressEq, UInt64.toNat_add]
+      simp [Nat.toUInt64, Nat.mod_eq_of_lt prefixNoWrap]
+    · exact prefixNoWrap
+  · rw [writeAddressEq]
+    simp [BufHolds, X86_64Mem.read, X86_64Mem.write]
 
 private theorem byteOfDigit_cast (digit : Nat) (small : digit < 10) :
     UInt64.ofNat digit + 0x30 = (byteOfDigit digit).toUInt64 :=
@@ -763,6 +783,42 @@ private theorem decimalBytesAt_eq_of_BufHolds (memory : X86_64Memory) (start : U
   · simp [decimalBytesAt]
   · intro index left right
     simpa [decimalBytesAt] using BufHolds_getElem memory start bytes holds index right
+
+private theorem BufHolds_of_getElem (memory : X86_64Memory) (start : UInt64)
+    (bytes : List UInt8)
+    (holds : ∀ (index : Nat) (within : index < bytes.length),
+      X86_64Mem.read .w8 (start + UInt64.ofNat index) memory = bytes[index].toUInt64) :
+    BufHolds memory start bytes := by
+  induction bytes generalizing start with
+  | nil => trivial
+  | cons byte rest ih =>
+      constructor
+      · have observed := holds 0 (by simp)
+        change X86_64Mem.read .w8 (start + 0) memory = byte.toUInt64 at observed
+        simpa using observed
+      · apply ih
+        intro index within
+        have observed := holds (index + 1) (by simp; omega)
+        have address : start + UInt64.ofNat (index + 1) =
+            start + 1 + UInt64.ofNat index := by
+          rw [UInt64.ofNat_add]
+          ac_rfl
+        rw [← address]
+        simpa using observed
+
+/-- Convert the decimal schedule's finite byte observation back into the inductive buffer
+predicate used to compose adjacent formatter phases. -/
+theorem BufHolds_of_decimalBytesAt (memory : X86_64Memory) (start : UInt64)
+    (bytes : List UInt8)
+    (holds : decimalBytesAt memory start bytes.length = bytes) :
+    BufHolds memory start bytes := by
+  apply BufHolds_of_getElem
+  intro index within
+  have observed := congrArg (fun values => values[index]!) holds
+  have byteObserved : X86_64Mem.readByte memory (start + UInt64.ofNat index) = bytes[index] := by
+    simpa [decimalBytesAt, within] using observed
+  change (X86_64Mem.readByte memory (start + UInt64.ofNat index)).toUInt64 = _
+  rw [byteObserved]
 
 /-- Reverse-write phase, advancing the stack/buffer cutpoint by one byte. -/
 theorem spike2_decimal_write_phase (value : UInt64) (initial : X86_64MachineState)
