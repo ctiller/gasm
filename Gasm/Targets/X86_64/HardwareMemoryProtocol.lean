@@ -29,16 +29,41 @@ def wireMagic : UInt64 := 0x314d4d484d534147
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Version of the scratch-memory result framing contract. -/
-def wireVersion : UInt32 := 1
+def wireVersion : UInt32 := 2
+
+def planIdentityOffset : Nat := 32
+
+def registerResultOffset : Reg64 → Nat
+  | .rax => planIdentityOffset + planIdentityBytes
+  | .rcx => planIdentityOffset + planIdentityBytes + 8
+  | .rdx => planIdentityOffset + planIdentityBytes + 16
+  | .rbx => planIdentityOffset + planIdentityBytes + 24
+  | .rsp => planIdentityOffset + planIdentityBytes + 32
+  | .rbp => planIdentityOffset + planIdentityBytes + 40
+  | .rsi => planIdentityOffset + planIdentityBytes + 48
+  | .rdi => planIdentityOffset + planIdentityBytes + 56
+  | .r8 => planIdentityOffset + planIdentityBytes + 64
+  | .r9 => planIdentityOffset + planIdentityBytes + 72
+  | .r10 => planIdentityOffset + planIdentityBytes + 80
+  | .r11 => planIdentityOffset + planIdentityBytes + 88
+  | .r12 => planIdentityOffset + planIdentityBytes + 96
+  | .r13 => planIdentityOffset + planIdentityBytes + 104
+  | .r14 => planIdentityOffset + planIdentityBytes + 112
+  | .r15 => planIdentityOffset + planIdentityBytes + 120
+
+def flagsResultOffset : Nat := planIdentityOffset + planIdentityBytes + 128
+def regionResultOffset : Nat := flagsResultOffset + 8
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Fixed record size: framing header, sixteen GPRs, flags, and the complete guarded region. -/
-def recordBytes : Nat := 168 + regionBytes
+/-- Fixed record size: framing header, exact plan identity, sixteen GPRs, flags, and the complete
+    guarded region. -/
+def recordBytes : Nat := regionResultOffset + regionBytes
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- One decoded, case-bound native observation. -/
 structure Result where
   caseId : UInt64
+  planIdentity : ByteArray
   machine : HardwareExecutionResult
   regionAfter : ByteArray
 
@@ -57,12 +82,6 @@ private def getU64 (bytes : ByteArray) (offset : Nat) : Except String UInt64 := 
   let lo ← getU32 bytes offset
   let hi ← getU32 bytes (offset + 4)
   pure (lo.toUInt64 ||| (hi.toUInt64 <<< 32))
-
-private def regOffset : Reg64 → Nat
-  | .rax => 32 | .rcx => 40 | .rdx => 48 | .rbx => 56
-  | .rsp => 64 | .rbp => 72 | .rsi => 80 | .rdi => 88
-  | .r8 => 96 | .r9 => 104 | .r10 => 112 | .r11 => 120
-  | .r12 => 128 | .r13 => 136 | .r14 => 144 | .r15 => 152
 
 private def copyBytes (bytes : ByteArray) (offset count : Nat) : Except String ByteArray := do
   if offset + count > bytes.size then
@@ -90,30 +109,36 @@ def decodeRecord (bytes : ByteArray) (offset : Nat) (expectedCaseId : UInt64) : 
   let reserved2 ← getU8 bytes (offset + 31)
   if reserved0 != 0 || reserved1 != 0 || reserved2 != 0 then
     throw s!"scratch result reserved framing bytes are nonzero for case {expectedCaseId}"
-  let rax ← getU64 bytes (offset + regOffset .rax)
-  let rcx ← getU64 bytes (offset + regOffset .rcx)
-  let rdx ← getU64 bytes (offset + regOffset .rdx)
-  let rbx ← getU64 bytes (offset + regOffset .rbx)
-  let rsp ← getU64 bytes (offset + regOffset .rsp)
-  let rbp ← getU64 bytes (offset + regOffset .rbp)
-  let rsi ← getU64 bytes (offset + regOffset .rsi)
-  let rdi ← getU64 bytes (offset + regOffset .rdi)
-  let r8 ← getU64 bytes (offset + regOffset .r8)
-  let r9 ← getU64 bytes (offset + regOffset .r9)
-  let r10 ← getU64 bytes (offset + regOffset .r10)
-  let r11 ← getU64 bytes (offset + regOffset .r11)
-  let r12 ← getU64 bytes (offset + regOffset .r12)
-  let r13 ← getU64 bytes (offset + regOffset .r13)
-  let r14 ← getU64 bytes (offset + regOffset .r14)
-  let r15 ← getU64 bytes (offset + regOffset .r15)
-  let flags ← getU64 bytes (offset + 160)
-  let regionAfter ← copyBytes bytes (offset + 168) regionBytes
+  let planIdentity ← copyBytes bytes (offset + planIdentityOffset) planIdentityBytes
+  let rax ← getU64 bytes (offset + registerResultOffset .rax)
+  let rcx ← getU64 bytes (offset + registerResultOffset .rcx)
+  let rdx ← getU64 bytes (offset + registerResultOffset .rdx)
+  let rbx ← getU64 bytes (offset + registerResultOffset .rbx)
+  let rsp ← getU64 bytes (offset + registerResultOffset .rsp)
+  let rbp ← getU64 bytes (offset + registerResultOffset .rbp)
+  let rsi ← getU64 bytes (offset + registerResultOffset .rsi)
+  let rdi ← getU64 bytes (offset + registerResultOffset .rdi)
+  let r8 ← getU64 bytes (offset + registerResultOffset .r8)
+  let r9 ← getU64 bytes (offset + registerResultOffset .r9)
+  let r10 ← getU64 bytes (offset + registerResultOffset .r10)
+  let r11 ← getU64 bytes (offset + registerResultOffset .r11)
+  let r12 ← getU64 bytes (offset + registerResultOffset .r12)
+  let r13 ← getU64 bytes (offset + registerResultOffset .r13)
+  let r14 ← getU64 bytes (offset + registerResultOffset .r14)
+  let r15 ← getU64 bytes (offset + registerResultOffset .r15)
+  let flags ← getU64 bytes (offset + flagsResultOffset)
+  let regionAfter ← copyBytes bytes (offset + regionResultOffset) regionBytes
   let gprs : Reg64 → UInt64
     | .rax => rax | .rcx => rcx | .rdx => rdx | .rbx => rbx
     | .rsp => rsp | .rbp => rbp | .rsi => rsi | .rdi => rdi
     | .r8 => r8 | .r9 => r9 | .r10 => r10 | .r11 => r11
     | .r12 => r12 | .r13 => r13 | .r14 => r14 | .r15 => r15
-  pure { caseId := caseId, machine := { gprs := gprs, flags := flags, faulted := faultByte == 1 }, regionAfter := regionAfter }
+  pure {
+    caseId := caseId
+    planIdentity := planIdentity
+    machine := { gprs := gprs, flags := flags, faulted := faultByte == 1 }
+    regionAfter := regionAfter
+  }
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Decodes a batch with exact length and order.  Short, extra, duplicate, omitted, or reordered

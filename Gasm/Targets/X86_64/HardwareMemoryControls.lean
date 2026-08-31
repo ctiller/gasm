@@ -44,7 +44,7 @@ private def controlFrame (caseId : UInt64) : ByteArray := Id.run do
   bytes := putU64 bytes 16 caseId
   bytes := putU32 bytes 24 regionBytes.toUInt32
   for i in [0:regionBytes] do
-    bytes := putU8 bytes (168 + i) ((i * 13 + 7) % 256).toUInt8
+    bytes := putU8 bytes (regionResultOffset + i) ((i * 13 + 7) % 256).toUInt8
   bytes
 
 private def decodedExactly (caseId : UInt64) (bytes : ByteArray) : Bool :=
@@ -104,6 +104,19 @@ private def escapingFootprintRejected : Bool :=
   | .error _ => true
   | .ok _ => false
 
+private def movzxByteLoadAccepted : Bool :=
+  let seed := (default : X86_64MachineState).setGpr64 .r13 0xffffffffffffffff
+  match prepare 7 (.movzxR64Mem8 ⟨.r13, .r15, 0x7f⟩) seed 0x140004000 with
+  | .error _ => false
+  | .ok plan =>
+      match plan.decodeAndStep with
+      | .error _ => false
+      | .ok decoded =>
+          plan.accessKind == .load &&
+          plan.accessWidth == .w8 &&
+          decoded.state.gprs .r13 ==
+            (X86_64Mem.readByte plan.initialState.memory plan.accessAddress).toUInt64
+
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Positive address-identity control, including the alias-sensitive load where destination and
 -- base are the same register: the checked address is fixed from the pre-state.
@@ -121,5 +134,10 @@ private def escapingFootprintRejected : Bool :=
 -- Negative footprint control: a declared eight-byte store crossing the payload boundary is
 -- rejected before native execution, even though its starting address remains inside the payload.
 #guard escapingFootprintRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- The distinct MOVZX family is admitted as an exact one-byte load, and its production step
+-- replaces every destination bit with the zero-extended byte rather than retaining stale high bits.
+#guard movzxByteLoadAccepted
 
 end Gasm.Targets.X86_64.HardwareMemoryControls

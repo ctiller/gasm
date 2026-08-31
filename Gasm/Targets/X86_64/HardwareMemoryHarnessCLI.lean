@@ -28,6 +28,7 @@ private def seededState : X86_64MachineState :=
   let state := (default : X86_64MachineState).setGpr64 .rbx 0x0123456789abcdef
   let state := state.setGpr64 .rcx 0xfedcba9876543210
   let state := state.setGpr64 .r10 0x8877665544332211
+  let state := state.setGpr64 .r13 0xffffffffffffffff
   { state with flags := 0x8d5 }
 
 private def controls : List Request := [
@@ -40,32 +41,34 @@ private def controls : List Request := [
   -- Immediate store covers a production encoding whose data is not sourced from a GPR.
   { caseId := 0x104, form := .mem64DispImm32 ⟨.r11, 0, 0x87654321⟩, seed := seededState },
   -- Byte store proves the validator does not silently widen the declared footprint.
-  { caseId := 0x105, form := .mem8Reg8 ⟨.r12, .rcx⟩, seed := seededState }
+  { caseId := 0x105, form := .mem8Reg8 ⟨.r12, .rcx⟩, seed := seededState },
+  -- Byte load into an all-ones destination proves the production step zero-extends rather than
+  -- preserving stale high bits; the nonzero displacement also exercises its distinct codec path.
+  { caseId := 0x106, form := .movzxR64Mem8 ⟨.r13, .r15, 0x7f⟩, seed := seededState }
 ]
 
 private def coverageComplete : Bool :=
   ScratchClass.all.all fun cls => controls.any fun request => request.form.scratchClass == cls
 
 private def negativeCalibration (observations : List Observation) : Except String Unit := do
-  let observation ← match observations with
+  let baseline ← match observations with
     | [] => throw "runtime negative calibration received no native observation"
     | observation :: _ => pure observation
-  let old := observation.result.regionAfter.get! 0
-  let corrupted := observation.result.regionAfter.set! 0 (old ^^^ 0xff)
-  let mutated := {
-    observation with
-    result := { observation.result with regionAfter := corrupted }
-  }
-  match HardwareMemoryDifferential.compare mutated with
-  | .error _ => pure ()
-  | .ok () => throw "runtime negative calibration accepted a corrupted leading guard"
+  HardwareMemoryDifferential.calibrateLeadingGuardRejection baseline
+  HardwareMemoryDifferential.calibratePayloadNeighborRejection baseline
+  HardwareMemoryDifferential.calibrateTrailingGuardRejection baseline
+  let movzx ← match observations.find? fun observation =>
+      observation.plan.form.scratchClass == .movzxR64Mem8 with
+    | some observation => pure observation
+    | none => throw "runtime negative calibration received no MOVZX native observation"
+  HardwareMemoryDifferential.calibrateMovzxStaleHighBitsRejection movzx
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Adding an admitted class without a nonempty native control turns this module red.
 #guard coverageComplete
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Executes all four supplemental MOV memory-form classes through the native guarded scratch
+/-- Executes all five supplemental MOV/MOVZX memory-form classes through the native guarded scratch
     runner and compares them with their exact production `step` semantics. -/
 def main (_args : List String) : IO UInt32 := do
   let result ← run controls
@@ -84,5 +87,5 @@ def main (_args : List String) : IO UInt32 := do
               IO.eprintln s!"x86 scratch-memory differential mismatch: {msg}"
               pure 1
           | .ok () =>
-              IO.println s!"x86 scratch-memory hardware controls passed ({observations.length} exact guarded observations; expected corrupted-guard rejection observed)"
+              IO.println s!"x86 scratch-memory hardware controls passed ({observations.length} exact guarded observations; all four negative calibrations rejected)"
               pure 0

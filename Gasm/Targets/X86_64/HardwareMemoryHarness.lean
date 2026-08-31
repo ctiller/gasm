@@ -35,8 +35,11 @@ structure Request where
   deriving Inhabited
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- A checked plan paired with the native observation bearing the same framed case identity. -/
+/-- A checked plan paired with the native observation bearing the same framed case identity.
+    The constructor is harness-owned: callers may inspect an observation, but cannot relabel its
+    plan or fabricate a result/plan pairing after native execution. -/
 structure Observation where
+  private mk ::
   plan : Plan
   result : Result
 
@@ -108,6 +111,7 @@ private def makeRdata (plans : List Plan) : ByteArray := Id.run do
     bytes := putU32 bytes (out + 12) recordBytes.toUInt32
     bytes := putU64 bytes (out + 16) plan.caseId
     bytes := putU32 bytes (out + 24) regionBytes.toUInt32
+    bytes := putBytes bytes (out + planIdentityOffset) plan.planIdentity
     bytes := putBytes bytes (scratchOffset plans.length i) plan.regionBefore
   bytes
 
@@ -192,26 +196,26 @@ private def buildText (layout : SectionLayout) (plans : List Plan) : ByteArray :
     block := block ++ ByteArray.mk #[0x9C, 0x8F, 0x44, 0x24, capturedFlagsOffset.toUInt8]
     block := block ++ ByteArray.mk #[0x48, 0x89, 0x44, 0x24, capturedRaxOffset.toUInt8]
     block := block ++ ByteArray.mk #[0x48, 0xB8] ++ uint64ToLittleEndian testOutAddr
-    block := block ++ storeRegDisp32 0x48 0x88 40  -- rcx
-    block := block ++ storeRegDisp32 0x48 0x90 48  -- rdx
-    block := block ++ storeRegDisp32 0x48 0x98 56  -- rbx
-    block := block ++ storeRegDisp32 0x48 0xA0 64  -- rsp
-    block := block ++ storeRegDisp32 0x48 0xA8 72  -- rbp
-    block := block ++ storeRegDisp32 0x48 0xB0 80  -- rsi
-    block := block ++ storeRegDisp32 0x48 0xB8 88  -- rdi
-    block := block ++ storeRegDisp32 0x4C 0x80 96  -- r8
-    block := block ++ storeRegDisp32 0x4C 0x88 104 -- r9
-    block := block ++ storeRegDisp32 0x4C 0x90 112 -- r10
-    block := block ++ storeRegDisp32 0x4C 0x98 120 -- r11
-    block := block ++ storeRegDisp32 0x4C 0xA0 128 -- r12
-    block := block ++ storeRegDisp32 0x4C 0xA8 136 -- r13
-    block := block ++ storeRegDisp32 0x4C 0xB0 144 -- r14
-    block := block ++ storeRegDisp32 0x4C 0xB8 152 -- r15
+    block := block ++ storeRegDisp32 0x48 0x88 (registerResultOffset .rcx)
+    block := block ++ storeRegDisp32 0x48 0x90 (registerResultOffset .rdx)
+    block := block ++ storeRegDisp32 0x48 0x98 (registerResultOffset .rbx)
+    block := block ++ storeRegDisp32 0x48 0xA0 (registerResultOffset .rsp)
+    block := block ++ storeRegDisp32 0x48 0xA8 (registerResultOffset .rbp)
+    block := block ++ storeRegDisp32 0x48 0xB0 (registerResultOffset .rsi)
+    block := block ++ storeRegDisp32 0x48 0xB8 (registerResultOffset .rdi)
+    block := block ++ storeRegDisp32 0x4C 0x80 (registerResultOffset .r8)
+    block := block ++ storeRegDisp32 0x4C 0x88 (registerResultOffset .r9)
+    block := block ++ storeRegDisp32 0x4C 0x90 (registerResultOffset .r10)
+    block := block ++ storeRegDisp32 0x4C 0x98 (registerResultOffset .r11)
+    block := block ++ storeRegDisp32 0x4C 0xA0 (registerResultOffset .r12)
+    block := block ++ storeRegDisp32 0x4C 0xA8 (registerResultOffset .r13)
+    block := block ++ storeRegDisp32 0x4C 0xB0 (registerResultOffset .r14)
+    block := block ++ storeRegDisp32 0x4C 0xB8 (registerResultOffset .r15)
     block := block ++ ByteArray.mk #[0x48, 0x8B, 0x4C, 0x24, capturedFlagsOffset.toUInt8]
-    block := block ++ storeRegDisp32 0x48 0x88 160 -- flags through rcx
-    block := block ++ loadRegDisp32 0x48 0x88 40   -- restore rcx
+    block := block ++ storeRegDisp32 0x48 0x88 flagsResultOffset -- flags through rcx
+    block := block ++ loadRegDisp32 0x48 0x88 (registerResultOffset .rcx)
     block := block ++ ByteArray.mk #[0x48, 0x8B, 0x54, 0x24, capturedRaxOffset.toUInt8]
-    block := block ++ storeRegDisp32 0x48 0x90 32  -- original rax through rdx
+    block := block ++ storeRegDisp32 0x48 0x90 (registerResultOffset .rax)
 
     -- Registers are already captured, so rax/rcx/rdx are now scratch temporaries.
     block := block ++ ByteArray.mk #[0x48, 0xB8] ++ uint64ToLittleEndian testOutAddr
@@ -219,7 +223,7 @@ private def buildText (layout : SectionLayout) (plans : List Plan) : ByteArray :
     for chunkIndex in List.range (regionBytes / 8) do
       let offset := chunkIndex * 8
       block := block ++ ByteArray.mk #[0x48, 0x8B, 0x4A, offset.toUInt8]
-      block := block ++ storeRegDisp32 0x48 0x88 (168 + offset)
+      block := block ++ storeRegDisp32 0x48 0x88 (regionResultOffset + offset)
 
     block := block ++ ByteArray.mk #[0x48, 0xB8] ++ uint64ToLittleEndian savedRspVarAddr
     block := block ++ ByteArray.mk #[0x48, 0x8B, 0x20]
@@ -322,7 +326,7 @@ def run (requests : List Request)
       | .error msg => return .error msg
     if results.any (·.machine.faulted) then
       return .error "scratch-memory harness observed an instruction fault in a nonfaulting mapped plan"
-    pure <| .ok (plans.zip results |>.map fun pair => { plan := pair.1, result := pair.2 })
+    pure <| .ok (plans.zip results |>.map fun pair => Observation.mk pair.1 pair.2)
   catch e =>
     pure <| .error s!"scratch-memory harness failed to spawn or execute: {e}"
 

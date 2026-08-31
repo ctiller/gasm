@@ -237,7 +237,8 @@ combinator, not a universal execution object, and deliberately supplies no behav
   states or resolve no-base SIB/absolute ambiguity, segments, address-size behavior, and atomicity.
   Abstract checked-memory contracts must not freeze this representation or expose Windows mapping
   and binding details.
-- Supplemental hardware-memory validation now exists for a closed four-class scalar `MOV` subset:
+- Supplemental hardware-memory validation now exists for a closed five-class scalar `MOV`/`MOVZX`
+  subset:
   typed vectors carry a rebased guarded scratch preimage and compare the exact decoded production
   step with native defined registers/flags and the complete postimage. It is deliberately not the
   registry's `ValidationOracle.silicon` owner and grants no applicability, mapping, capability,
