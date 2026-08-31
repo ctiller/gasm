@@ -48,6 +48,8 @@ import Gasm.MemoryModel.CpuGraphCoherencePath
 import Gasm.MemoryModel.CpuGraphCoherencePathControls
 import Gasm.MemoryModel.Envelope
 import Gasm.MemoryModel.EnvelopeControls
+import Gasm.MemoryModel.BindingHistory
+import Gasm.MemoryModel.BindingHistoryControls
 import Gasm.MemoryModel.ProgramOrderPath
 import Gasm.MemoryModel.ProgramOrderPathControls
 
