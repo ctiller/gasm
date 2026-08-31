@@ -60,6 +60,8 @@ def modelTraceCanonical : List AnyEvent :=
 /-- Constructive proof of semantic trace equivalence between high-level sorting spec and lowered machine execution on canonical input. -/
 theorem spike3_canonical_effect_trace_equivalence_inst :
     (asmTraceCanonical == modelTraceCanonical) = true := by
+  rw [show modelTraceCanonical = canonicalEffectTrace by
+    exact sortLinesSpec_defaultInputLines_trace]
   native_decide
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/

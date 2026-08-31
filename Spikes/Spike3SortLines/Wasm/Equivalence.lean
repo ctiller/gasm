@@ -86,6 +86,12 @@ def specTraceCanonical : List AnyEvent := [
   Inject.inject (ProcessEvent.exit 0)
 ]
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The WASI regression's historical explicit trace is the shared platform-neutral canonical
+trace, so native and WASI target proofs consume one model boundary. -/
+theorem specTraceCanonical_eq_shared : specTraceCanonical = canonicalEffectTrace := by
+  rfl
+
 /- REF: docs/SYSTEM_EFFECTS.md#1-universal-environment-oracle-and-syscall-effects -/
 /-- The operational target is parameterized by the canonical environment, not a Bool or a finite
     collection of samples. `environmentInputLines` is its shared executable byte-stream model. -/

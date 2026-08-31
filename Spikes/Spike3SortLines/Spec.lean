@@ -168,4 +168,25 @@ def sortLinesSpec [Monad m] [MonadConsole m] [MonadProcess m] : m Unit := do
 /-- Canonical default input lines for standard test execution. -/
 def defaultInputLines : List String := ["cherry", "apple", "banana"]
 
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The explicit observable trace shared by every canonical Spike 3 target regression. -/
+def canonicalEffectTrace : List AnyEvent := [
+  Inject.inject (ConsoleEvent.out "apple"),
+  Inject.inject (ConsoleEvent.out "\r\n"),
+  Inject.inject (ConsoleEvent.out "banana"),
+  Inject.inject (ConsoleEvent.out "\r\n"),
+  Inject.inject (ConsoleEvent.out "cherry"),
+  Inject.inject (ConsoleEvent.out "\r\n"),
+  Inject.inject (ProcessEvent.exit 0)
+]
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The platform-neutral executable model produces the explicit canonical trace.  Target proofs
+can therefore concentrate on their production execution and reuse this result without evaluating
+the sorting model inside each platform wrapper. -/
+theorem sortLinesSpec_defaultInputLines_trace :
+    runModelTrace (sortLinesSpec : TraceM AnyEvent Unit) defaultInputLines =
+      canonicalEffectTrace := by
+  decide +kernel
+
 end Spikes.Spike3SortLines
