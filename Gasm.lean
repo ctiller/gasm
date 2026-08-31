@@ -103,6 +103,7 @@ import Gasm.Targets.X86_64.SemanticsFuzzer
 -- what makes them run on an ordinary `lake build` rather than only when something happens to
 -- pull in the module.
 import Gasm.Targets.X86_64.MemoryFrameAudit
+import Gasm.Targets.X86_64.StackStorePrefix
 
 import Gasm.Execution.QEMUAArch64
 
