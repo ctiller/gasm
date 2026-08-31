@@ -105,6 +105,7 @@ import Gasm.Targets.X86_64.SemanticsFuzzer
 import Gasm.Targets.X86_64.MemoryFrameAudit
 import Gasm.Targets.X86_64.StackStorePrefix
 import Gasm.Targets.X86_64.StackStorePrefixLink
+import Gasm.Targets.X86_64.StackStorePrefixExecution
 
 import Gasm.Execution.QEMUAArch64
 
