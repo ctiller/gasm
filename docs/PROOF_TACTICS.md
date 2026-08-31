@@ -154,6 +154,14 @@ read-source helpers (`4433e1d`, `4c980cf`) centralize endpoint, source, value, c
 adjacency consequences this way; `e4857567` similarly reuses the canonical premise-free
 program-order transitivity law.  Do not bundle unrelated facts simply to make a larger theorem.
 
+## Close tiny carrier controls without equality instances
+
+For a small private finite-carrier fixture, do not add `DecidableEq` to a public type merely so
+`simp` can prove constructor inequality or `List.Nodup`.  M0 envelope checkpoint `ecd5f9e` constructs
+`List.Nodup.cons` and `List.Mem` witnesses explicitly and closes impossible constructor equalities by
+inductive no-confusion (`cases equality`).  The dependency-free focused build remained under two
+seconds.  This is a fixture technique, not evidence for a new finite-set library abstraction.
+
 ## Lift target steps through small generic algebras
 
 When two targets repeat only the list induction around their own one-step facts, keep those semantic
