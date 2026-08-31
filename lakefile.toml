@@ -25,7 +25,7 @@ name = "gasm"
 version = "0.1.0"
 defaultTargets = [
   "Gasm", "Spikes", "Stdlib", "GateSubprocess",
-  "X86DispatchExhaustive", "X86InstructionCensusControls",
+  "X86DispatchExhaustive", "X86InstructionCensusControls", "X86InstructionCensusIsolation",
   "check_gates_axioms", "check_refs_coverage_full"
 ]
 
@@ -62,6 +62,12 @@ roots = ["Gasm.Targets.X86_64.RoundtripGate.DispatchExhaustive"]
 [[lean_lib]]
 name = "X86InstructionCensusControls"
 roots = ["Gasm.Targets.X86_64.InstructionCensusControls"]
+
+# Compiles the real production Gasm umbrella and asserts that no direct or transitive route leaks
+# the hostile control instance into its environment.
+[[lean_lib]]
+name = "X86InstructionCensusIsolation"
+roots = ["Tools.X86InstructionCensusIsolation"]
 
 # Law 10 axiom-level gate verifier: walks every compiled declaration in
 # Gasm/Stdlib/Spikes and cross-checks its axiom dependencies (Lean's own
