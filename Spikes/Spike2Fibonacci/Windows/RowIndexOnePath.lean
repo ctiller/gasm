@@ -41,6 +41,10 @@ structure Spike2CursorSliceResult (completed : Nat) (initial : X86_64MachineStat
   cursorAboveStack : final.rsp.toNat ≤ (final.gprs .rdi).toNat
   cursorAbove : spike2RowLowMemoryTop ≤ (final.gprs .rdi).toNat
   cursorRoom : (final.gprs .rdi).toNat + 22 < 2 ^ 64
+  cursor : final.gprs .rdi =
+    initial.rsp + 64 + UInt64.ofNat (spike2IndexPrefixBytes completed).length
+  cursorNat : (final.gprs .rdi).toNat =
+    (initial.rsp + 64).toNat + (spike2IndexPrefixBytes completed).length
   buffer : BufHolds final.memory (initial.rsp + 64) (spike2IndexPrefixBytes completed)
 
 private theorem index_one_rip (state : X86_64MachineState)
@@ -160,6 +164,15 @@ opaque spike2_one_digit_slice (completed : Nat) (state : X86_64MachineState)
       decide
     cursorAbove := bounds.1
     cursorRoom := bounds.2
+    cursor := by
+      rw [spike2_one_digit_cursor, headerFrame.rsp]
+      simp [spike2IndexPrefixBytes, Stdlib.Fmt.formatDecimal,
+        Stdlib.Fmt.digits_single (completed + 1) (by omega), Nat.toUInt64]
+      bv_decide
+    cursorNat := by
+      rw [spike2_one_digit_cursor, headerFrame.rsp, rsp, spike2_after_prologue_rsp_eq]
+      simp [spike2IndexPrefixBytes, Stdlib.Fmt.formatDecimal,
+        Stdlib.Fmt.digits_single (completed + 1) (by omega), UInt64.toNat_add]
     buffer := spike2_one_digit_index_buffer completed header within
       (headerFrame.r13.trans counter) headerRsp (by
         rw [show header.memory = state.memory by rfl, headerFrame.rsp]

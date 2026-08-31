@@ -106,6 +106,15 @@ opaque spike2_two_digit_tail_slice (completed : Nat) (state : X86_64MachineState
       decide
     cursorAbove := bounds.1
     cursorRoom := bounds.2
+    cursor := by
+      rw [spike2_two_digit_cursor]
+      simp [spike2IndexPrefixBytes,
+        formatDecimal_two_digits (completed + 1) (by omega) (by omega), Nat.toUInt64]
+      bv_decide
+    cursorNat := by
+      rw [spike2_two_digit_cursor, rsp, spike2_after_prologue_rsp_eq]
+      simp [spike2IndexPrefixBytes,
+        formatDecimal_two_digits (completed + 1) (by omega) (by omega), UInt64.toNat_add]
     buffer := spike2_two_digit_tail_buffer completed state lower upper rsp holds }
 
 end Spikes.Spike2Fibonacci.Windows

@@ -71,7 +71,7 @@ theorem spike2_writeFile_call_lowMemory (state : X86_64MachineState)
   exact pushed.of_memory_eq (spike2_after_writeFile_call_memory state)
 
 structure Spike2WriteHookResult (initial : X86_64MachineState)
-    (eventsRev : List AnyEvent) where
+    (eventsRev : List AnyEvent) (bytes : List UInt8) where
   final : X86_64MachineState
   finalEventsRev : List AnyEvent
   emitted : List AnyEvent
@@ -83,13 +83,19 @@ structure Spike2WriteHookResult (initial : X86_64MachineState)
   rip : final.rip = 5368713523
   rsp : final.rsp = spike2AfterPrologue.rsp
   fault : final.fault = none
+  emittedExact : emitted = [Inject.inject (ConsoleEvent.out (decodeWriteFileBytes bytes))]
 
 opaque spike2_write_hook_slice (state : X86_64MachineState) (eventsRev : List AnyEvent)
+    (bytes : List UInt8)
     (hrip : state.rip = 5368713517) (rsp : state.rsp = spike2AfterPrologue.rsp)
     (writtenPointer : state.gprs .r9 = state.rsp + 40)
     (safe : state.fault = none) (low : Spike2RowLowMemory state)
-    (writeFileIat : state.read64 5368721424 = 5368721424) :
-    Spike2WriteHookResult state eventsRev := by
+    (writeFileIat : state.read64 5368721424 = 5368721424)
+    (bufferArgument : state.gprs .rdx = state.rsp + 64)
+    (lengthArgument : (state.gprs .r8).toNat = bytes.length)
+    (buffer : BufHolds state.memory (state.rsp + 64) bytes)
+    (bufferNoWrap : (state.rsp + 64).toNat + bytes.length < 2 ^ 64) :
+    Spike2WriteHookResult state eventsRev bytes := by
   let called := spike2AfterWriteFileCall state
   let final := (writeFileHook (Event := AnyEvent) called).1
   have target := spike2_writeFile_call_target state hrip writeFileIat
@@ -106,6 +112,22 @@ opaque spike2_write_hook_slice (state : X86_64MachineState) (eventsRev : List An
     rsp := observations.2.1
     r13 := observations.2.2.1
     fault := observations.2.2.2 }
+  have calledMemory : called.memory =
+      X86_64Mem.write .w64 (state.rsp - 8) (state.rip + 6) state.memory := by rfl
+  have calledBuffer : BufHolds called.memory (state.rsp + 64) bytes := by
+    rw [calledMemory, BufHolds_write64_before]
+    · exact buffer
+    · rw [rsp, spike2_after_prologue_rsp_eq]
+      decide
+    · rw [rsp, spike2_after_prologue_rsp_eq]
+      decide
+    · exact bufferNoWrap
+  let shape : WriteFileEmissionShape called (state.rsp + 64) bytes := {
+    bufferArgument := by exact bufferArgument
+    lengthArgument := by exact lengthArgument
+    content := calledBuffer }
+  letI : WriteFileEmissionShape called (state.rsp + 64) bytes := shape
+  have emittedExact := writeFileHook_emits_shape called (state.rsp + 64) bytes
   exact {
     final := final
     finalEventsRev := accumulateEvent eventsRev (writeFileHook (Event := AnyEvent) called).2
@@ -116,6 +138,7 @@ opaque spike2_write_hook_slice (state : X86_64MachineState) (eventsRev : List An
     lowMemory := hookLow
     rip := by rw [observations.1, hrip]; rfl
     rsp := observations.2.1.trans rsp
-    fault := observations.2.2.2.trans safe }
+    fault := observations.2.2.2.trans safe
+    emittedExact := emittedExact }
 
 end Spikes.Spike2Fibonacci.Windows

@@ -359,6 +359,28 @@ theorem BufHolds_write8_after (memory : X86_64Memory) (start writeAddress : UInt
     simp only [BufHolds, X86_64Mem.read]
     rw [readSame, ih (start + 1) (by rw [startOne]; omega) (by rw [startOne]; omega)]
 
+/-- A word write wholly before a byte buffer preserves that buffer.  This is the reusable
+call-frame rule needed when a native CALL pushes its return address below an output buffer. -/
+theorem BufHolds_write64_before (memory : X86_64Memory) (start writeAddress : UInt64)
+    (value : UInt64) (bytes : List UInt8)
+    (writeNoWrap : writeAddress.toNat + 8 ≤ 2 ^ 64)
+    (before : writeAddress.toNat + 8 ≤ start.toNat)
+    (bufferNoWrap : start.toNat + bytes.length < 2 ^ 64) :
+    BufHolds (X86_64Mem.write .w64 writeAddress value memory) start bytes =
+      BufHolds memory start bytes := by
+  induction bytes generalizing start with
+  | nil => rfl
+  | cons byte rest ih =>
+    simp only [List.length_cons] at bufferNoWrap
+    have readSame := X86_64Mem.readByte_write_disjoint .w64 writeAddress value memory start
+      writeNoWrap (Or.inr before)
+    have startOne : (start + 1).toNat = start.toNat + 1 := by
+      rw [UInt64.toNat_add]
+      simp [Nat.mod_eq_of_lt (by omega : start.toNat + 1 < 2 ^ 64)]
+    simp only [BufHolds, X86_64Mem.read]
+    rw [readSame, ih (start + 1) (by rw [startOne]; omega)
+      (by rw [startOne]; omega)]
+
 theorem BufHolds_write8_append (memory : X86_64Memory) (start writeAddress : UInt64)
     (byte : UInt8) (written : List UInt8)
     (holds : BufHolds memory start written)
@@ -420,6 +442,8 @@ structure Spike2ExtractionFacts (value : UInt64) (initial : X86_64MachineState)
   text3424 : state.read64 5368713424 = initial.read64 5368713424
   text3444 : state.read64 5368713444 = initial.read64 5368713444
   text3457 : state.read64 5368713457 = initial.read64 5368713457
+  aboveEntryMemory : ∀ address, initial.rsp.toNat ≤ address.toNat →
+    X86_64Mem.readByte state.memory address = X86_64Mem.readByte initial.memory address
   lowMemory : ∀ address, address.toNat + 8 ≤ 5368721440 →
     state.read64 address = initial.read64 address
   activeRip : completed < decimalDigitCount value → state.rip = 5368713424
@@ -460,6 +484,7 @@ private theorem extraction_text_frame {value : UInt64} {initial state final : X8
   have room : 8 ≤ state.rsp.toNat := by
     have := frame.stackRoom
     have := holds.rspAccounting
+    have := holds.within
     omega
   have subNat : (state.rsp - 8).toNat = state.rsp.toNat - 8 := by
     exact toNat_sub_eight state.rsp room
@@ -475,6 +500,32 @@ private theorem extraction_text_frame {value : UInt64} {initial state final : X8
     have := holds.rspAccounting
     omega
   exact spike2_extraction_preserves_text_word effect address noWrap below
+
+private theorem extraction_above_entry_frame {value : UInt64}
+    {initial state final : X86_64MachineState}
+    {initialEventsRev eventsRev : List AnyEvent} {completed : Nat}
+    (frame : Spike2DecimalFrame value initial)
+    (holds : Spike2ExtractionFacts value initial initialEventsRev completed state eventsRev)
+    (effect : ExtractionPassEffect 236 state final) (address : UInt64)
+    (above : initial.rsp.toNat ≤ address.toNat) :
+    X86_64Mem.readByte final.memory address = X86_64Mem.readByte state.memory address := by
+  have room : 8 ≤ state.rsp.toNat := by
+    have := frame.stackRoom
+    have := holds.rspAccounting
+    have := holds.within
+    omega
+  have subNat : (state.rsp - 8).toNat = state.rsp.toNat - 8 :=
+    toNat_sub_eight state.rsp room
+  have noWrap : (state.rsp - 8).toNat + 8 ≤ 2 ^ 64 := by
+    rw [subNat]
+    have upper := state.rsp.toNat_lt_size
+    change state.rsp.toNat < 18446744073709551616 at upper
+    omega
+  apply effect.preservesMemoryAt address noWrap
+  right
+  rw [subNat]
+  have accounting := holds.rspAccounting
+  omega
 
 /-- The extraction half, discharged one named body at a time.  No trace of all digits is
 evaluated: the pass effect advances the boundary invariant by one quotient/remainder step. -/
@@ -544,6 +595,12 @@ theorem spike2_decimal_extraction_phase (value : UInt64) (initial : X86_64Machin
       intro address addressBound
       exact (extraction_text_frame frame holds within effect address addressBound).trans
         (holds.lowMemory address addressBound)
+    have finalAboveEntryMemory : ∀ address, initial.rsp.toNat ≤ address.toNat →
+        X86_64Mem.readByte final.memory address =
+          X86_64Mem.readByte initial.memory address := by
+      intro address above
+      exact (extraction_above_entry_frame frame holds effect address above).trans
+        (holds.aboveEntryMemory address above)
     by_cases small : holds.remaining < 10
     · have quotientZero : UInt64.ofNat ((state.gprs .rax).toNat / 10) = 0 := by
         rw [remainingNat]
@@ -605,6 +662,7 @@ theorem spike2_decimal_extraction_phase (value : UInt64) (initial : X86_64Machin
         text3424 := finalText3424Initial
         text3444 := finalText3444Initial
         text3457 := finalText3457Initial
+        aboveEntryMemory := finalAboveEntryMemory
         lowMemory := finalLowMemory
         activeRip := ?_
         completedRip := ?_ }⟩
@@ -679,6 +737,7 @@ theorem spike2_decimal_extraction_phase (value : UInt64) (initial : X86_64Machin
         text3424 := finalText3424Initial
         text3444 := finalText3444Initial
         text3457 := finalText3457Initial
+        aboveEntryMemory := finalAboveEntryMemory
         lowMemory := finalLowMemory
         activeRip := fun _ => finalRip
         completedRip := ?_ }⟩
@@ -712,6 +771,9 @@ structure Spike2WriteFacts (value : UInt64) (initial : X86_64MachineState)
   text3424 : state.read64 5368713424 = initial.read64 5368713424
   text3444 : state.read64 5368713444 = initial.read64 5368713444
   text3457 : state.read64 5368713457 = initial.read64 5368713457
+  beforeBufferMemory : ∀ address, initial.rsp.toNat ≤ address.toNat →
+    address.toNat < (initial.gprs .rdi).toNat →
+    X86_64Mem.readByte state.memory address = X86_64Mem.readByte initial.memory address
   lowMemory : ∀ address, address.toNat + 8 ≤ 5368721440 →
     state.read64 address = initial.read64 address
   activeRip : completed < decimalDigitCount value → state.rip = 5368713444
@@ -729,6 +791,9 @@ structure Spike2DecimalCallerFrame (initial final : X86_64MachineState) : Prop w
   text3424 : final.read64 5368713424 = initial.read64 5368713424
   text3444 : final.read64 5368713444 = initial.read64 5368713444
   text3457 : final.read64 5368713457 = initial.read64 5368713457
+  beforeBufferMemory : ∀ address, initial.rsp.toNat ≤ address.toNat →
+    address.toNat < (initial.gprs .rdi).toNat →
+    X86_64Mem.readByte final.memory address = X86_64Mem.readByte initial.memory address
   lowMemory : ∀ address, address.toNat + 8 ≤ 5368721440 →
     final.read64 address = initial.read64 address
 
@@ -743,6 +808,7 @@ private theorem write_text_frame {value : UInt64} {initial state final : X86_64M
   have noWrap : (state.gprs .rdi).toNat + 1 ≤ 2 ^ 64 := by
     rw [holds.rdiNat]
     have := frame.bufferTop
+    have := holds.within
     omega
   have below : address.toNat + 8 ≤ (state.gprs .rdi).toNat := by
     rw [holds.rdiNat]
@@ -750,6 +816,24 @@ private theorem write_text_frame {value : UInt64} {initial state final : X86_64M
     have := frame.bufferAboveStack
     omega
   exact spike2_write_preserves_text_word effect address noWrap below
+
+private theorem write_before_buffer_frame {value : UInt64}
+    {initial state final : X86_64MachineState}
+    {initialEventsRev eventsRev : List AnyEvent} {completed : Nat}
+    (frame : Spike2DecimalFrame value initial)
+    (holds : Spike2WriteFacts value initial initialEventsRev completed state eventsRev)
+    (effect : WritePassEffect 243 state final) (address : UInt64)
+    (below : address.toNat < (initial.gprs .rdi).toNat) :
+    X86_64Mem.readByte final.memory address = X86_64Mem.readByte state.memory address := by
+  have noWrap : (state.gprs .rdi).toNat + 1 ≤ 2 ^ 64 := by
+    rw [holds.rdiNat]
+    have := frame.bufferTop
+    have := holds.within
+    omega
+  apply effect.preservesMemoryAt address noWrap
+  left
+  rw [holds.rdiNat]
+  omega
 
 theorem BufHolds_getElem (memory : X86_64Memory) (start : UInt64)
     (bytes : List UInt8) (holds : BufHolds memory start bytes) (index : Nat)
@@ -784,7 +868,7 @@ private theorem decimalBytesAt_eq_of_BufHolds (memory : X86_64Memory) (start : U
   · intro index left right
     simpa [decimalBytesAt] using BufHolds_getElem memory start bytes holds index right
 
-private theorem BufHolds_of_getElem (memory : X86_64Memory) (start : UInt64)
+theorem BufHolds_of_getElem (memory : X86_64Memory) (start : UInt64)
     (bytes : List UInt8)
     (holds : ∀ (index : Nat) (within : index < bytes.length),
       X86_64Mem.read .w8 (start + UInt64.ofNat index) memory = bytes[index].toUInt64) :
@@ -897,6 +981,14 @@ theorem spike2_decimal_write_phase (value : UInt64) (initial : X86_64MachineStat
         intro address addressBound
         exact (write_text_frame frame holds within effect address addressBound).trans
           (holds.lowMemory address addressBound)
+      have finalBeforeBufferMemory : ∀ address,
+          initial.rsp.toNat ≤ address.toNat →
+          address.toNat < (initial.gprs .rdi).toNat →
+          X86_64Mem.readByte final.memory address =
+            X86_64Mem.readByte initial.memory address := by
+        intro address above below
+        exact (write_before_buffer_frame frame holds effect address below).trans
+          (holds.beforeBufferMemory address above below)
       have cursorNoWrap : (state.gprs .rdi).toNat + 1 ≤ 2 ^ 64 := by
         rw [holds.rdiNat]
         have := frame.bufferTop
@@ -1021,6 +1113,7 @@ theorem spike2_decimal_write_phase (value : UInt64) (initial : X86_64MachineStat
           text3424 := finalText3424Initial
           text3444 := finalText3444Initial
           text3457 := finalText3457Initial
+          beforeBufferMemory := finalBeforeBufferMemory
           lowMemory := finalLowMemory
           activeRip := by intro impossible; rw [restEmpty] at restAccounting; simp at restAccounting; omega
           completedRip := fun _ => finalRip }⟩
@@ -1075,6 +1168,7 @@ theorem spike2_decimal_write_phase (value : UInt64) (initial : X86_64MachineStat
           text3424 := finalText3424Initial
           text3444 := finalText3444Initial
           text3457 := finalText3457Initial
+          beforeBufferMemory := finalBeforeBufferMemory
           lowMemory := finalLowMemory
           activeRip := fun _ => finalRip
           completedRip := by
@@ -1115,6 +1209,7 @@ theorem spike2_uint64_decimal_realization (value : UInt64) (initial : X86_64Mach
       text3424 := rfl
       text3444 := rfl
       text3457 := rfl
+      aboveEntryMemory := fun _ _ => rfl
       lowMemory := fun _ _ => rfl
       activeRip := fun _ => frame.entry
       completedRip := ?_ }⟩
@@ -1156,6 +1251,9 @@ theorem spike2_uint64_decimal_realization (value : UInt64) (initial : X86_64Mach
       text3424 := extract.text3424
       text3444 := extract.text3444
       text3457 := extract.text3457
+      beforeBufferMemory := by
+        intro address above below
+        exact extract.aboveEntryMemory address above
       lowMemory := extract.lowMemory
       activeRip := fun _ => rip
       completedRip := ?_ }⟩
@@ -1200,6 +1298,7 @@ theorem spike2_uint64_decimal_realization (value : UInt64) (initial : X86_64Mach
         text3424 := write.text3424
         text3444 := write.text3444
         text3457 := write.text3457
+        beforeBufferMemory := write.beforeBufferMemory
         lowMemory := write.lowMemory }⟩
 
 /-- Quantitative form of the concrete decimal realization.  The public schedule producer already

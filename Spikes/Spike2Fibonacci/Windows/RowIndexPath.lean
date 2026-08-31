@@ -32,6 +32,10 @@ structure Spike2IndexPathResult (completed : Nat) (initial : X86_64MachineState)
   cursorAboveStack : final.rsp.toNat ≤ (final.gprs .rdi).toNat
   cursorAbove : spike2RowLowMemoryTop ≤ (final.gprs .rdi).toNat
   cursorRoom : (final.gprs .rdi).toNat + 22 < 2 ^ 64
+  cursor : final.gprs .rdi =
+    initial.rsp + 64 + UInt64.ofNat (spike2IndexPrefixBytes completed).length
+  cursorNat : (final.gprs .rdi).toNat =
+    (initial.rsp + 64).toNat + (spike2IndexPrefixBytes completed).length
   buffer : BufHolds final.memory (initial.rsp + 64) (spike2IndexPrefixBytes completed)
 
 /-- Provider boundary for the machine implementation that formats the bounded row index.
@@ -63,6 +67,8 @@ private opaque spike2_index_path_impl (completed : Nat) (state : X86_64MachineSt
       cursorAboveStack := path.cursorAboveStack
       cursorAbove := path.cursorAbove
       cursorRoom := path.cursorRoom
+      cursor := by rw [path.cursor, opening.registers.rsp]
+      cursorNat := by rw [path.cursorNat, opening.registers.rsp]
       buffer := by
         have buffer := path.buffer
         rw [opening.registers.rsp] at buffer
@@ -86,6 +92,10 @@ private opaque spike2_index_path_impl (completed : Nat) (state : X86_64MachineSt
       cursorAboveStack := tail.cursorAboveStack
       cursorAbove := tail.cursorAbove
       cursorRoom := tail.cursorRoom
+      cursor := by
+        rw [tail.cursor, head.registers.rsp, opening.registers.rsp]
+      cursorNat := by
+        rw [tail.cursorNat, head.registers.rsp, opening.registers.rsp]
       buffer := by
         have buffer := tail.buffer
         rw [head.registers.rsp, opening.registers.rsp] at buffer

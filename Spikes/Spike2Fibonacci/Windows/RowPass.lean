@@ -28,19 +28,35 @@ theorem spike2_row_pass (completed : Nat) (state : X86_64MachineState)
         state eventsRev final finalEventsRev emitted ∧
       Spike2RowInvariant (completed + 1) final finalEventsRev := by
   let index := Spike2IndexFormatter.run completed state eventsRev within holds
-  rcases spike2_decimal_slice index.final eventsRev index.rip
+  have indexCursor : index.final.gprs .rdi =
+      index.final.rsp + 64 + UInt64.ofNat (spike2IndexPrefixBytes completed).length := by
+    rw [index.registers.rsp]
+    exact index.cursor
+  have indexCursorNat : (index.final.gprs .rdi).toNat =
+      (index.final.rsp + 64).toNat + (spike2IndexPrefixBytes completed).length := by
+    rw [index.registers.rsp]
+    exact index.cursorNat
+  have indexBuffer : BufHolds index.final.memory (index.final.rsp + 64)
+      (spike2IndexPrefixBytes completed) := by
+    rw [index.registers.rsp]
+    exact index.buffer
+  rcases spike2_decimal_slice completed index.final eventsRev index.rip
       (index.registers.rsp.trans holds.rsp)
       (index.registers.fault.trans holds.fault) index.lowMemory
-      index.cursorAboveStack index.cursorAbove index.cursorRoom with
+      index.cursorAboveStack index.cursorAbove index.cursorRoom indexCursor indexCursorNat
+      indexBuffer with
     ⟨decimalFuel, decimalFinal, decimalEventsRev, decimalEmitted, decimalBound,
-      decimalPrefix, decimalRegisters, decimalFibRegisters, decimalLow, decimalRip, decimalCursorAbove,
-      decimalCursorRoom⟩
-  let output := spike2_output_setup_slice decimalFinal decimalEventsRev decimalRip
+      decimalPrefix, decimalRegisters, decimalFibRegisters, decimalLow, decimalBuffer,
+      decimalCursor, decimalCursorNat, decimalRip, decimalCursorAbove, decimalCursorRoom⟩
+  let rowBytes := spike2IndexPrefixBytes completed ++
+    Stdlib.Fmt.formatDecimal ((spike2AfterDecimalSetup index.final).gprs .rax).toNat
+  let output := spike2_output_setup_slice decimalFinal decimalEventsRev rowBytes decimalRip
     (decimalRegisters.rsp.trans (index.registers.rsp.trans holds.rsp))
     (decimalRegisters.fault.trans (index.registers.fault.trans holds.fault)) decimalLow
-    decimalCursorAbove decimalCursorRoom
-  let hook := spike2_write_hook_slice output.final decimalEventsRev output.rip output.rsp
-    output.writtenPointer output.fault output.lowMemory output.writeFileIat
+    decimalCursorAbove decimalCursorRoom decimalCursor decimalCursorNat decimalBuffer
+  let hook := spike2_write_hook_slice output.final decimalEventsRev (rowBytes ++ [13, 10])
+    output.rip output.rsp output.writtenPointer output.fault output.lowMemory output.writeFileIat
+    output.bufferArgument output.lengthArgument output.buffer output.bufferNoWrap
   rcases spike2_recurrence_slice hook.final hook.finalEventsRev hook.rip hook.rsp hook.fault
       hook.lowMemory with
     ⟨final, recurrencePrefix, finalLow, finalRip, finalRsp, finalCounter, finalFibA, finalFibB,
