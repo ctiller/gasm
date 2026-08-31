@@ -118,6 +118,16 @@ private def mutatedExactPreimageRejected : Bool :=
     let initialState := { plan.initialState with memory := memory }
     { plan with initialState := initialState }
 
+private def coherentPreimageCopiesRejected : Bool :=
+  planMutationRejected fun plan =>
+    let index := (plan.accessAddress - plan.regionBase).toNat
+    let old := plan.regionBefore.get! index
+    let changed := old ^^^ 0xff
+    let regionBefore := plan.regionBefore.set! index changed
+    let memory := X86_64Mem.writeByte plan.initialState.memory plan.accessAddress changed
+    let initialState := { plan.initialState with memory := memory }
+    { plan with regionBefore := regionBefore, initialState := initialState }
+
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- An exact model-shaped observation is accepted.
 #guard baselineAccepted
@@ -173,5 +183,9 @@ private def mutatedExactPreimageRejected : Bool :=
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Initial memory must equal the exact stored guarded preimage, even at an overwritten store byte.
 #guard mutatedExactPreimageRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Mutating both stored preimage copies cannot relabel the independently generated case pattern.
+#guard coherentPreimageCopiesRejected
 
 end Gasm.Targets.X86_64.HardwareMemoryDifferentialControls

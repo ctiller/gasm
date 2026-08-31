@@ -251,6 +251,8 @@ private def Plan.validateDecodedAccess (plan : Plan) (accesses : List MemAccessS
     throw s!"case {plan.caseId}: decoded plan contains a noncanonical guarded or access address"
   if plan.regionBefore.size != regionBytes then
     throw s!"case {plan.caseId}: stored guarded preimage length is not exact"
+  if plan.regionBefore != patternedRegion plan.caseId then
+    throw s!"case {plan.caseId}: stored guarded preimage disagrees with its independent case pattern"
   if readRegion plan.regionBase plan.initialState.memory != plan.regionBefore then
     throw s!"case {plan.caseId}: exact guarded preimage disagrees with the stored initial memory"
 
