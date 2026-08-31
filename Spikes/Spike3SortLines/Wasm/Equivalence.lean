@@ -148,7 +148,10 @@ theorem spike3WasmFiniteSpec_preparationExhausted (environment : Environment) (e
   cases h : spike3WasmTraceFor environment with
   | completed events' => simp [Spike3WasmObservedOutcome.ofObservable]
   | exited code events' =>
-      simp [Spike3WasmObservedOutcome.ofObservable]
+      by_cases failure : code = spike3ResourceFailureExitCode
+      · subst code
+        simp [Spike3WasmObservedOutcome.ofObservable]
+      · simp [Spike3WasmObservedOutcome.ofObservable, failure]
   | trapped events' => simp [Spike3WasmObservedOutcome.ofObservable]
   | fuelExhausted => simp [Spike3WasmObservedOutcome.ofObservable]
   | memoryExhausted requested available => simp [Spike3WasmObservedOutcome.ofObservable]
@@ -176,81 +179,124 @@ structure Spike3WasmBehavior (environment : Environment) where
     spike3WasmTraceFor environment = .exited 0 events →
       events = byteSortOutput (sortByteLines (environmentInputLines environment))
 
+theorem WasiRunOutcome.observable_ne_fuelExhausted
+    (outcome : WasiRunOutcome)
+    (notFuel : ∀ partialState, outcome ≠ .fuelExhausted partialState) :
+    outcome.observable ≠ .fuelExhausted := by
+  cases outcome with
+  | completed state signal => simp [WasiRunOutcome.observable]
+  | exited state code => simp [WasiRunOutcome.observable]
+  | trapped state => simp [WasiRunOutcome.observable]
+  | fuelExhausted partialState => exact (notFuel partialState rfl).elim
+  | memoryExhausted state requested available => simp [WasiRunOutcome.observable]
+
 theorem Spike3WasmBehavior.noFuelExhausted
     (behavior : Spike3WasmBehavior environment) :
     spike3WasmTraceFor environment ≠ .fuelExhausted := by
-  intro exhausted
-  cases hrun : spike3WasmRunFor environment with
-  | completed state signal => simp [spike3WasmTraceFor, hrun] at exhausted
-  | exited state code => simp [spike3WasmTraceFor, hrun] at exhausted
-  | trapped state => simp [spike3WasmTraceFor, hrun] at exhausted
-  | fuelExhausted partialState => exact behavior.productionRunWithinFuel partialState hrun
-  | memoryExhausted state requested available =>
-      simp [spike3WasmTraceFor, hrun] at exhausted
+  unfold spike3WasmTraceFor
+  apply WasiRunOutcome.observable_ne_fuelExhausted
+  exact behavior.productionRunWithinFuel
+
+/-- Normalize one already-observed outcome without reducing the computation that produced it. -/
+def normalizeWasmObservation
+    (success observation : WasiObservable AnyEvent) : WasiObservable AnyEvent :=
+  match observation with
+  | .exited 0 _ => success
+  | observation => observation
+
+theorem normalizeWasmObservation_of_memoryExhausted
+    (success observation : WasiObservable AnyEvent)
+    (exhausted : observation = .memoryExhausted requested available) :
+    normalizeWasmObservation success observation =
+      .memoryExhausted requested available := by
+  subst observation
+  rfl
+
+theorem normalizeWasmObservation_of_trapped
+    (success observation : WasiObservable AnyEvent)
+    (trapped : observation = .trapped events) :
+    normalizeWasmObservation success observation = .trapped events := by
+  subst observation
+  rfl
+
+theorem normalizeWasmObservation_of_completed
+    (success observation : WasiObservable AnyEvent)
+    (completed : observation = .completed events) :
+    normalizeWasmObservation success observation = .completed events := by
+  subst observation
+  rfl
+
+theorem normalizeWasmObservation_of_nonzeroExit
+    (success observation : WasiObservable AnyEvent)
+    (nonzero : code ≠ 0)
+    (exited : observation = .exited code events) :
+    normalizeWasmObservation success observation = .exited code events := by
+  subst observation
+  simp [normalizeWasmObservation, nonzero]
+
+theorem observation_refines_normalizeWasmObservation
+    (success observation : WasiObservable AnyEvent) :
+    observation ≠ .fuelExhausted →
+    (∀ events, observation = .exited 0 events → .exited 0 events = success) →
+    observation = normalizeWasmObservation success observation := by
+  cases observation with
+  | completed events => intros; rfl
+  | exited code events =>
+      intro _ successCase
+      by_cases zero : code = 0
+      · subst code
+        simpa [normalizeWasmObservation] using successCase events rfl
+      · simp [normalizeWasmObservation, zero]
+  | trapped events => intros; rfl
+  | fuelExhausted =>
+      intro noFuel
+      exact False.elim (noFuel rfl)
+  | memoryExhausted requested available => intros; rfl
 
 /-- The verified post-seal contract normalizes exactly the successful-exit payload and excludes
     fuel exhaustion through the separately proved per-environment grant.  The raw finite
     observation is still available as `spike3WasmFiniteSpec`, preserving the platform's complete
     outcome vocabulary for diagnostics and preparation reasoning. -/
-def spike3WasmSpecification (behavior : Spike3WasmBehavior environment) : WasiObservable AnyEvent :=
-  match h : spike3WasmTraceFor environment with
-  | .exited 0 _ => spike3WasmSuccessSpec environment
-  | .fuelExhausted => False.elim (behavior.noFuelExhausted h)
-  | observation => observation
+def spike3WasmSpecification (_behavior : Spike3WasmBehavior environment) : WasiObservable AnyEvent :=
+  normalizeWasmObservation (spike3WasmSuccessSpec environment)
+    (spike3WasmTraceFor environment)
 
 /-- A rejected linear-memory capability remains an observable contract outcome. -/
 theorem spike3WasmSpecification_memoryExhausted (behavior : Spike3WasmBehavior environment)
     (exhausted : spike3WasmTraceFor environment = .memoryExhausted requested available) :
     spike3WasmSpecification behavior = .memoryExhausted requested available := by
   unfold spike3WasmSpecification
-  rw [exhausted]
+  exact normalizeWasmObservation_of_memoryExhausted _ _ exhausted
 
 /-- Traps and clean fall-through remain distinct from source-level success. -/
 theorem spike3WasmSpecification_trapped (behavior : Spike3WasmBehavior environment)
     (trapped : spike3WasmTraceFor environment = .trapped events) :
     spike3WasmSpecification behavior = .trapped events := by
   unfold spike3WasmSpecification
-  rw [trapped]
+  exact normalizeWasmObservation_of_trapped _ _ trapped
 
 theorem spike3WasmSpecification_completed (behavior : Spike3WasmBehavior environment)
     (completed : spike3WasmTraceFor environment = .completed events) :
     spike3WasmSpecification behavior = .completed events := by
   unfold spike3WasmSpecification
-  rw [completed]
+  exact normalizeWasmObservation_of_completed _ _ completed
 
 theorem spike3WasmSpecification_nonzeroExit (behavior : Spike3WasmBehavior environment)
     (nonzero : code ≠ 0)
     (exited : spike3WasmTraceFor environment = .exited code events) :
     spike3WasmSpecification behavior = .exited code events := by
   unfold spike3WasmSpecification
-  rw [exited]
-  simp [nonzero]
+  exact normalizeWasmObservation_of_nonzeroExit _ _ nonzero exited
 
 theorem Spike3WasmBehavior.refinesSpecification
     (behavior : Spike3WasmBehavior environment) :
     spike3WasmTraceFor environment = spike3WasmSpecification behavior := by
-  cases h : spike3WasmTraceFor environment with
-  | completed events =>
-      unfold spike3WasmSpecification
-      rw [h]
-  | exited code events =>
-      by_cases zero : code = 0
-      · subst code
-        unfold spike3WasmSpecification
-        rw [h]
-        exact congrArg (WasiObservable.exited 0)
-          (behavior.successfulExitIsSorted events h)
-      · unfold spike3WasmSpecification
-        rw [h]
-        simp [zero]
-  | trapped events =>
-      unfold spike3WasmSpecification
-      rw [h]
-  | fuelExhausted =>
-      exact False.elim (behavior.noFuelExhausted h)
-  | memoryExhausted requested available =>
-      unfold spike3WasmSpecification
-      rw [h]
+  unfold spike3WasmSpecification
+  apply observation_refines_normalizeWasmObservation
+  · exact behavior.noFuelExhausted
+  intro events exited
+  simpa [spike3WasmSuccessSpec] using congrArg (WasiObservable.exited 0)
+    (behavior.successfulExitIsSorted events exited)
 
 /-- A `VerifiedProgram` is constructible only from the full behavior proof above.  In particular,
     a caller cannot supply the old success-only `spike3WasmSuccessSpec` equality and erase a
