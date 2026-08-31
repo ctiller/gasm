@@ -128,6 +128,16 @@ domain, substitute a second evaluator, or move work behind a new name and call t
 Compare the same consumer before and after, and keep an unchanged-direction or deliberately malformed
 control when it distinguishes the mechanism from mere relocation.
 
+Interpret the advisory 10:1 figure as upper pressure on marginal bespoke proof bulk relative to the
+assembly semantics or implementation being justified--never as staffing, author/reviewer counts, or
+a soundness threshold.  Repeatedly needing roughly ten lines of one-off proof per implementation
+line is a signal to look for missing family lemmas, indexed descriptors, automation, or a misplaced
+boundary.  Mature routine flow should aim in the opposite direction: roughly one line of marginal
+glue per ten lines of ordinary implementation, while allowing substantial foundational proofs that
+amortize across families and future targets.  A poor ratio triggers redesign review; it never permits
+omitting or weakening a necessary proof, and it creates no counter, quota, CI gate, or acceptance
+rule.
+
 Accepted `Gasm.Proof.LocalExecution` removed duplicated list induction while leaving both targets'
 semantics local.  The decimal-pass split reduced the consumer's invalidation frontier; moving the same
 facts without reversing dependency direction produced essentially no improvement.  These are evidence

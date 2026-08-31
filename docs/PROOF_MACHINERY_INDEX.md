@@ -50,12 +50,16 @@ with authority minted by the target; source-visible contracts remain separate fr
 and mappings.
 
 The replacement must also retain the checked-access leaf checklist and current `MemRef`/hardware
-no-freeze gates and assign shared facts to noncircular library owners.  The 10:1 proof-burden ratio
-is a human-facing architecture smell test only: an overage prompts judgment, while an underage
-proves nothing.  Do not add counters, manifests, charging or amortization infrastructure, CI gates,
-semantic proof-budget indices, or acceptance rules around it.  Soundness, applicability,
-universality, authority, lifecycle, and cleanup cannot be weakened to improve the ratio.  Cutover
-deletion remains unpushed until review and the substantive gates pass.
+no-freeze gates and assign shared facts to noncircular library owners.  The advisory 10:1 figure is
+an upper-pressure observation about marginal bespoke proof bulk per assembly-semantics or
+implementation line--not staffing or reviewer counts.  Repeated ordinary work near that burden
+suggests missing shared lemmas or a misplaced boundary; mature routine flow aims roughly at the
+inverse marginal glue burden while allowing large foundations that amortize across families and
+targets.  An overage prompts judgment and an underage proves nothing.  Do not add counters,
+manifests, charging or amortization infrastructure, CI gates, semantic proof-budget indices, or
+acceptance rules around it.  Soundness, applicability, universality, authority, lifecycle, and
+cleanup cannot be weakened to improve the ratio.  Cutover deletion remains unpushed until review
+and the substantive gates pass.
 This is a blocked design checkpoint, not permission to implement or integrate the old proof chain.
 Archived follow-up plan `archive/design/trust-rebuild-plan-f97b3bd5` (`f97b3bd5`) remains blocked
 until it removes its blanket `Sᵢ₊₁ → Sᵢ` and supersession-record requirement.  Intermediate layers
@@ -357,6 +361,39 @@ evidence, and negative boundary after that comparison; it does not own a second 
   production-profile instance.  Public target-local raw serializers still exist as migration debt,
   so their existence neither carries a verification claim nor proves mechanically that every
   repository emission path is already gated.
+
+## Nonnormative proof-design references
+
+These papers are design comparisons, not governing semantics, trusted code, or evidence for the
+proof-burden heuristic.
+
+- Kommrusch, Monperrus, and Pouchet's
+  [S4Eq paper](https://par.nsf.gov/servlets/purl/10333807) demonstrates a useful proposer/checker
+  split: an untrusted learned search emits an explicit rewrite sequence, while a deterministic
+  checker validates each rule application and the final equality.  Self-supervised selection of
+  hard examples is relevant to proof-search improvement.  Gasm may reuse that architecture, but not
+  the paper's domain assumptions or failure classification.  S4Eq studies pure straight-line/SESE
+  AST programs with known interfaces and excludes the aliasing, side effects, pointers, control
+  flow, and concurrency central to Gasm.  Soundness remains conditional on the manually implemented
+  rewrite rules and checker.  Search failure is incompleteness, so Gasm must report “not proved” or
+  “unknown,” never semantic non-equivalence.  Model confidence supplies no admission authority and
+  the paper provides no empirical basis for a 10:1 proof-burden ratio.
+- Recoules et al.'s [TInA paper](https://arxiv.org/abs/1903.06407) supports per-artifact translation
+  validation, lowering architecture-specific binary semantics into a small neutral IR, and
+  proof-oriented recovery of types, predicates, unpacked logical values, expressions, and loop
+  structure.  Its warning that declared inline-assembly inputs, outputs, and clobbers require
+  checking parallels Gasm's descriptor-versus-step obligation.  TInA's CFG-isomorphism,
+  blockwise-SMT, and `-O0` recompilation method cannot freeze Gasm CFG shape or replace relational
+  phase invariants that admit code motion.  A failed proof followed by fuzzing is supplemental
+  evidence, not validated equivalence.  Its binary lifter, compiler/debug mapping, and SMT solver
+  remain trusted or correlated risks, while system instructions, interrupts, floats, dynamic jumps,
+  concurrency, and general CFGs lie outside its demonstrated scope.
+
+  Appendix E visibly presents division self-rewrites such as `x udiv x → 1` without a displayed
+  nonzero premise.  Do not call this a paper bug without first resolving the source language's
+  division-by-zero semantics; use it only as a reminder that plausible algebra is not validation and
+  rewrite implementations stay outside the trusted base.  TInA's generated-C-statements figures are
+  unrelated to marginal proof bulk and establish no 10:1 target.
 
 ## Admission record
 
