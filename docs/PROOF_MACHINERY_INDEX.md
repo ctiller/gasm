@@ -263,7 +263,9 @@ The following code shapes have enough evidence to investigate but are not canoni
   target explicitly models it.  A future open/closed supply and same-root supply transition is a
   separate design gate.  Outcome reasoning must distinguish normal, blocked, continuing-divergent,
   and failure cases, and separate fairness-free cleanup safety from fairness-dependent eventual
-  cleanup.  Await an MP-corrected exact hash and renewed design/review.
+  cleanup.  Replacement `c178dd7424f5535d295ba449da97404b68398184` on `a62ca53` corrects
+  these semantics and is MP exact-hash accepted.  Reviewer verdict and integration remain pending;
+  it is not established machinery.
 - Compiler-roadmap candidate `ee11b405b36c48fca1ebbcd6f4bf9f17c3fa2d0a` contains supported
   evidence but is MP-blocked as a design document.  Its replacement must classify SPIR-V as a
   first-class target ISA while separating shader frontends from platform APIs; scope exception,
