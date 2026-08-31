@@ -810,6 +810,15 @@ The following code shapes have enough evidence to investigate but are not canoni
   construction invariant.  Do not promote cached-field revalidation without these owner-local
   consumer checks.
 
+  Second repair `archive/experimental/x86-consumer-preimage-gap-fc231645`
+  (`fc231645cca4829e585d7609c378b5c86fa6d15e`) closes the coherent RSP mutation and adds
+  form-independent kind/width checks, but remains **BLOCKED**.  Its preimage check compares two
+  mutable copies: changing the overwritten store byte in both `regionBefore` and modeled initial
+  memory preserves equality, leaves the native postimage unchanged, and lets `compare` succeed.
+  Bind `regionBefore` to the independently defined `patternedRegion caseId`, retain its equality to
+  modeled memory, and add a coherent two-field mutation control.  Equality between coordinated
+  candidate fields is not independent calibration evidence.
+
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
   precondition-indexed `SafeUnder` is the right proof-economical goal shape.  But public
