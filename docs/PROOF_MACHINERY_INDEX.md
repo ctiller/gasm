@@ -25,12 +25,13 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Preserve an x86 64-bit read across a lower, non-wrapping write | `Gasm.Targets.X86_64.X86_64Mem.read64_write_below` | x86-64 memory semantics | Spike 2 decimal authority and Spike 5 native proofs | address arithmetic, write width, nowrap, and strict-below premises remain explicit; this is not a target-independent memory model |
 | Show bounded finite exploration contains only normative reachable states | `Gasm.MemoryModel.FiniteSearch.Enumerator.search_sound` | memory-model presentation/search boundary | the checked incomplete-enumerator negative control exercises the one-way guarantee | completeness is separate and may not be inferred from bounded fuel or a finite result |
 | Preserve dependent CFG identity through lowering or nominal remapping | `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock`, `lower_ref_exact`, and `lowerDefinitions_mapBlockId_block` | compiler CFG authoring/lowering | typed CFG lowering and x86-64 control-point remapping | matching names or entries do not substitute for equality of the complete dependent definition |
-| Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.UInt64DecimalScheduleRealization` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection |
+| Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.DecimalSchedule.UInt64DecimalScheduleRealization.selectedPrefix_bounded` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection; the fuel theorem supplies no resource authority |
 | Cache an exact selected x86 production prefix | `ProductionPrefix.SelectedPrefix.Cutpoint` | x86-64 eventful production semantics | canonical evidence carried by `LocalBlockRun` | a cutpoint proves an exact prefix only; it does not classify the caller's logical phase or prove termination |
 | Discharge and compose an x86 local body contract | `LocalBlockDischarge`, `LocalBlockDischarge.refine`, and `LocalBlockRun.then` | x86-64 local contract/production-prefix bridge | accepted implementation-hole mechanism for proof-directed blocks | contracts and middle-entry facts remain explicit; CFG identity, placement, terminal outcomes, and artifact authority are separate |
 | Stop a finite fold at the first refused input | `Stdlib.fallibleFold`, `fallibleFold_conservation`, `fallibleFold_acceptedPrefix`, and `fallibleFold_refused_boundary` | dependency-light pure control algebra | Zlib streaming plus Spike 5 accepted and zero-capacity refusal outcomes | resource identity, reclamation, cleanup, effects, target execution, and artifact authority remain consumer-owned |
 | Lower bounded structured straight-line code to Microsoft x64 | `StructuredStraightLineMicrosoftX64Entry.lowerFunction` and its `LocalCertificate` | compiler's target-specific local lowering layer | canonical bounded Microsoft x64 entry backend | exact clobbers and local semantics are proved; process entry, non-return, platform outcome, PE placement, and `VerifiedProgram` authority remain separate |
 | Resume production execution after a proved local straight-line body | `ContextualStraightLinePlacement`, `RuntimeSilentOn`, and the target prefix-runner theorems | target production execution bridge | Microsoft x64 and AArch64 compiler-bulk spikes | the local certificate supplies no lookup, host-silence, ABI, outcome, artifact, admission, or `VerifiedProgram` authority |
+| Replace a compiler body while retaining one selected functional theorem | the AArch64 and Microsoft x64 differential modules' `FunctionalDelta` and `FunctionalDelta.realize` | each compiler target's local realization layer | runnable AArch64 and Windows x64 compiler-bulk spikes | only the named result property is transported; replacement bytes, frames, clobbers, classification, placement, runtime behavior, and final authority are regenerated or re-proved |
 
 ## Proven composition patterns
 
@@ -63,6 +64,12 @@ evidence, and negative boundary after that comparison; it does not own a second 
   versus 12.64 seconds.  The reusable pattern is an observation-shaped invalidation boundary, not
   a new facts namespace.  Register-frame, `does_not_use_memory`, jump, and syscall summaries are
   likely consumers; their instruction and platform semantics remain owner-local.
+- For the composed decimal schedule, `UInt64DecimalScheduleRealization.selectedPrefix_bounded`
+  packages both invariant loops and proves required fuel at most `12 * decimalDigitCount value`.
+  Canonical `7088d9d` replaces 38 lines of Spike 2 phase reconstruction with one owner-theorem
+  application while preserving the exact selected prefix, final frame, formatted bytes, and event
+  facts.  The `7 + 5` coefficient is derived from the extraction and reverse-write pass certificates;
+  it is not a runtime capability, allocation budget, or arbitrary proof-search limit.
 - For fallible finite processing, `Stdlib.Control.FallibleFold` makes the accepted prefix, first
   refusal, retained remainder, conservation, and committed-state chain explicit.  Canonical
   `89c46f7` supplies the pure algebra, `c107938` connects Zlib compression and decompression by exact
@@ -87,6 +94,13 @@ evidence, and negative boundary after that comparison; it does not own a second 
   Local execution is not platform execution; instruction execution does not establish ABI placement;
   and a native exit result is regression evidence rather than authority.  Empty exports accurately
   describe a process-entry executable, but are not evidence of a callable-library boundary.
+- For a hand-optimized target body, relate the exact replacement to the compiler baseline only on
+  properties the consumer observes.  The AArch64 and Microsoft x64 differential modules transport
+  the selected result theorem and regenerate target-structural facts from the replacement segment;
+  they do not copy the baseline's bytes, clobbers, input frames, placement, or authority.  X64 bridge
+  `8485743` is consumed by runnable spike `88edac5`, which replaces nine generated instructions with
+  one `mov rax, 42`, regenerates its ten bytes and local frames, then separately re-proves placement,
+  runtime silence, terminal dispatch, artifact identity, admission, and final composition.
 
 ## Admission record
 
@@ -127,6 +141,9 @@ Two useful precedents are:
 - `8b39389` closes the Windows compiler-bulk process-entry spike by joining a contextual generated
   body to a separately proved ABI/terminal tail.  `e741e96` and `4a3b394` demonstrate the same
   typed-slice discipline for the Linux Spike 2 exit and its structural prefixes.
+- `7088d9d` moves the bounded two-phase decimal prefix theorem to the schedule realization that owns
+  it.  `8485743` adds the Microsoft x64 property-relative differential bridge, and `88edac5` proves
+  its exact replacement through the same runnable process-entry `VerifiedProgram` path.
 
 Commit identifiers are provenance, not API names.  Follow the declarations above on current main;
 use the commits to inspect the reviewed extraction delta.

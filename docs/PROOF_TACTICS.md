@@ -107,6 +107,14 @@ In particular, store safety and placement in a selected pass and derive its arch
 do not store the same large dependent effect proposition a second time.  This keeps layout and
 runtime consumers cached when only schedule composition changes.
 
+Make the composed quantitative bound a theorem of that owning schedule.  Canonical
+`UInt64DecimalScheduleRealization.selectedPrefix_bounded` derives a real selected production prefix
+with fuel at most `12 * decimalDigitCount value`: seven transitions per extraction pass plus five
+per reverse-write pass.  Commit `7088d9d` moved the 38-line phase reconstruction out of Spike 2;
+the consumer now applies the owner theorem directly.  This is a mathematical/operational transition
+bound derived from the phase certificates, not permission to infer runtime resource authority or to
+hide arbitrary proof-search fuel.
+
 The measured invalidation boundary is part of the evidence.  On `25a375f`, a representative warm
 edit frontier fell from 12.64 seconds and seven rebuilt modules to 5.54 seconds and three modules on
 Polonius; the pass module fell from 1.5 seconds to 0.761 seconds, with no semantic or proof-authority
@@ -297,6 +305,19 @@ implementation and artifact being emitted.
 At the compiler-frontend lowering layer, `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock` is the
 accepted differential pattern: retain source entry and topology properties, and re-prove only the
 dimensions changed by structural terminator replacement.
+
+The AArch64 and Microsoft x64 straight-line backends now demonstrate the target-body form of this
+pattern.  Each target-owned `FunctionalDelta` relates one exact replacement body to a compiler
+certificate only through the selected result observation.  X64 additionally requires an explicit
+memory-preservation premise from the replacement segment contract.  AArch64 instead admits a list
+of its frame-preserving macro `Instruction`s and derives memory, SP, NZCV, fault, and termination
+frames structurally.  Each `FunctionalDelta.realize` transports the source-result theorem while
+regenerating that target's replacement instructions, bytes, fallthrough, frames, clobbers, and
+control-flow classification.  It deliberately does not inherit baseline input-register
+preservation.  Canonical x64 bridge `8485743` is exercised end to end by `88edac5`, which proves
+placement, runtime silence, terminal outcome, artifact connection, admission, and the sole
+`VerifiedProgram` separately for the exact one-instruction replacement.  A property not selected by
+the consumer is neither inherited nor silently claimed.
 
 ## Charge proofs where the risk appears
 
