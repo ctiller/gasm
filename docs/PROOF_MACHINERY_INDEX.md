@@ -797,6 +797,19 @@ The following code shapes have enough evidence to investigate but are not canoni
   capability, mapping, TSO, atomicity, platform-admission, registry-oracle, or `VerifiedProgram`
   authority.
 
+  Follow-up consumer candidate
+  `archive/experimental/x86-consumer-host-register-gap-1d7d2232`
+  (`1d7d2232cb0b79edad2a2b92c9041957cf96682c`) is **BLOCKED**.  Its `decodeAndStep`
+  revalidates several cached plan fields but omits the mandatory `form.hostRegistersSafe` premise.
+  A coherent mutation can change the form and exact bytes to use RSP as the base and set modeled
+  RSP to the payload; all added checks pass even though the native harness cannot install that RSP
+  because it owns the host stack, and the comparator omits RSP.  The consumer must check
+  host-register safety and carry a coherent form/bytes/prestate rejection control.  It must also
+  recheck decoded kind and width against the form expectation, and either verify that the native
+  initial-memory region equals `regionBefore` or state precisely that preimage coherence is only a
+  construction invariant.  Do not promote cached-field revalidation without these owner-local
+  consumer checks.
+
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
   precondition-indexed `SafeUnder` is the right proof-economical goal shape.  But public
