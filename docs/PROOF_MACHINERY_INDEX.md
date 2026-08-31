@@ -303,13 +303,17 @@ The following code shapes have enough evidence to investigate but are not canoni
   base; its implementation and later projection layers remain design/review-gated.
 
   The first binding-history proposal is not accepted: an arbitrary strict order grants excess
-  authority, and its live-resolution rule did not identify the exact later use occurrence.  MP's
-  provisional replacement uses nominal `BindingRecord`s, a transition predecessor/rank chain,
-  capture at one frontier transition, and an exact use-to-capture map, all represented by finite exact
-  carriers and maps.  A captured binding is derived from `frontier.after` and cannot redirect after a
-  later rebind.  Temporal latest/liveness properties wait for exact `Envelope` relation-path
-  witnesses; alias semantics wait for profile evidence.  Reviewer design verdict is pending and no
-  code is authorized.
+  authority, and its live-resolution rule did not identify the exact later use occurrence.  A second
+  transition-only frontier also failed: inherited/load-time bindings contradict
+  `predecessor = none -> before = none` and may be captured before any transition.  MP's current
+  provisional replacement adds `BindingRootId` and `RootRecord` with a key and initial optional
+  binding; defines `Frontier` as either root or transition; stores only predecessor plus `after` on
+  transitions and derives `before`; and makes each exact use-to-capture map name a `Frontier`.  A
+  captured binding is derived from that frontier and cannot redirect after rebind.  Global
+  key/generation uniqueness covers root- and transition-named bindings, preventing resurrection of
+  an old identity.  Root origin/liveness and temporal latest properties wait for target-owned exact
+  relation-path admission; alias semantics wait for profile evidence.  Reviewer design verdict is
+  pending and no code is authorized.
 
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
