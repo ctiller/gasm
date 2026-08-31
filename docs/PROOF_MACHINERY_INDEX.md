@@ -278,6 +278,15 @@ evidence, and negative boundary after that comparison; it does not own a second 
   reject hostile prefixes, modes, SIB/index forms, displacement aliases, and truncations.  Encoder,
   instruction semantics, frames, consumers, and authority are unchanged; this repair supplies no
   new native, platform, admission, or `VerifiedProgram` claim.
+- Canonical `e56f084f6c01c1c56eddf4df666c17730873a23e` repairs `0xC7 /0` by making width and
+  represented addressing select an explicit nominal store identity.  W=0 admits only the existing
+  exact RSP dword identity; W=1 admits the exact RSP qword identity or the represented general qword
+  store with sign-extended imm32 semantics.  The prior decoder could relabel W=0 as qword, ignore
+  the ModRM extension, SIB, or displacement, and under-consume RIP-relative input.  Positive controls
+  require decoded identity, complete consumed length, and re-encode equality together.  Hostile
+  controls reproduce width, `/extension`, SIB, RIP, displacement, REX, prefix, mode, and truncation
+  failures.  The focused MOV frontier built 62 jobs.  This is a decoder identity/stream-boundary
+  repair, not new native, platform, admission, consumer, or `VerifiedProgram` authority.
 - For an expensive exact execution proof, keep the complete certificate in its producer and export
   a separate typed boundary containing only the observations required by the successor.  The
   accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
