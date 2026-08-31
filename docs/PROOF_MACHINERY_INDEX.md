@@ -808,6 +808,17 @@ The following code shapes have enough evidence to investigate but are not canoni
   target bridge must separately prove real-access coverage and reachable-entry preconditions.  Do
   not use this archive as an implementation base.
 
+  First repair `archive/experimental/access-audit-repair-5ad9e489`
+  (`5ad9e48905b20f67aa58792aa0357e1c01502799`) is also **BLOCKED**.  Making the `Checked`
+  constructor and evaluator private does not seal the abstraction: public `run` still returns a
+  pattern-matchable `Outcome`, and Lean exposes generated `Checked.casesOn`, `rec`, and `recOn`
+  eliminators.  An external client can observe denial, choose `pure 999`, prove the replacement
+  safe with `Safe.pure`, and obtain a fabricated allowed result.  The added control exercises only
+  fail-closed `bind`, so it misses this external-eliminator attack.  Preserve its useful coverage
+  deferral and `SafeUnder` proof economy, but require either fixed checked syntax/derivations, a
+  genuinely hidden evaluator/eliminator surface, or a certificate coupling safety to load-bearing
+  semantic-access coverage and origin.  The next repair needs external negative controls.
+
 ### Proof delivery, termination, and CFG composition
 
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
