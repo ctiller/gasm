@@ -200,6 +200,15 @@ The following code shapes have enough evidence to investigate but are not canoni
   non-CPU sentinel.  M0 imposes only laws selected by that structure, not every target consistency
   theorem; an unselected single-threaded program incurs no concurrency premise.
 
+  Exact checkpoint `ecd5f9ec5da481c4eca0ee85765c9571f709ad24` successfully implements only the
+  thin structural `Envelope` slice and passed primary-design conformance review, pending independent
+  Reviewer and Trust.  It uses existential event coverage, finite duplicate-free carriers,
+  event-agent and relation-endpoint laws, nonsemantic carrier-list order, proportionate eliminators,
+  and private positive plus malformed-carrier controls.  Its negative boundary is deliberate: it
+  proves no target fidelity, execution admission, binding or aliasing law, consequence semantics, or
+  placeholder for later layers.  Binding-history work therefore remains gated; this checkpoint does
+  not complete M0 or the native-thread demonstration.
+
   Signature review accepted the layer split but held implementation for four failures.  An
   unrestricted `PathConsequence.value` could invent completion, visibility, or resource return
   without profile admission.  Capturing a value plus generation inequality did not correlate the
