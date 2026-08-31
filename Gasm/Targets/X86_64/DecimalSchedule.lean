@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Targets.X86_64.DecimalPass
+import Gasm.Targets.X86_64.SelectedLoopTermination
 import Stdlib.Fmt.UInt64DecimalSchedule
 
 /-!
@@ -189,6 +190,66 @@ theorem selectedPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86
     extractionEvents ++ writeEvents, extractionPrefix.append writePrefix,
     eventsPreserved, restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
     preservesR14, preservesR15, callerFramePreserved⟩
+
+/- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
+/-- Quantitative form of `selectedPrefix`.  The bound follows from the same phase certificates:
+seven selected transitions per extraction pass and five per reverse-write pass. -/
+theorem selectedPrefix_bounded {Event : Type} [interceptor : ExternalCallInterceptor X86_64 Event]
+    {selected : Gasm.Core.Address → X86_64MachineState → Bool}
+    {indexed : List (UInt64 × X86_64Instr)} {capacity : Nat} {value : UInt64}
+    {initial : X86_64MachineState} {initialEventsRev : List Event} {callerFrame : CallerFrame}
+    (realization : UInt64DecimalScheduleRealization selected indexed capacity value initial
+      initialEventsRev callerFrame) :
+    ∃ requiredFuel final finalEventsRev emitted,
+      requiredFuel ≤ 12 * decimalDigitCount value ∧
+      ProductionPrefix.SelectedPrefix selected indexed requiredFuel initial initialEventsRev
+        final finalEventsRev emitted ∧
+      finalEventsRev = initialEventsRev ∧
+      final.rsp = initial.rsp ∧
+      final.gprs .rdi = initial.gprs .rdi + UInt64.ofNat (decimalDigitCount value) ∧
+      final.gprs .rcx = 0 ∧
+      decimalBytesAt final.memory (initial.gprs .rdi) (decimalDigitCount value) =
+        formatDecimal value.toNat ∧
+      final.gprs .r12 = initial.gprs .r12 ∧ final.gprs .r13 = initial.gprs .r13 ∧
+      final.gprs .r14 = initial.gprs .r14 ∧ final.gprs .r15 = initial.gprs .r15 ∧
+      callerFrame initial final := by
+  cases realization with
+  | @ofPhases extractInvariant writeInvariant extraction write extractInitial startWrite
+      _capacityFits _outputNoWrap completed =>
+    let extractStep : SelectedFuelBoundedInvariantLoopStep selected indexed
+        (decimalDigitCount value) extractInvariant := {
+      maxFuel := 7
+      run := by
+        intro completed state eventsRev within holds
+        rcases extraction.run completed state eventsRev within holds with
+          ⟨backDisp, stackLower, pass, next⟩
+        exact ⟨7, extractionFinal backDisp state, eventsRev, [], by decide, by decide,
+          pass.selectedPrefix, next⟩ }
+    rcases extractStep.iterate initial initialEventsRev extractInitial with
+      ⟨middle, middleEventsRev, extractionEvents, extractionFuel, extractionPrefix,
+        extractionBound, middleInvariant⟩
+    let writeStep : SelectedFuelBoundedInvariantLoopStep selected indexed
+        (decimalDigitCount value) writeInvariant := {
+      maxFuel := 5
+      run := by
+        intro completed state eventsRev within holds
+        rcases write.run completed state eventsRev within holds with
+          ⟨backDisp, stackUpper, outputLimit, pass, next⟩
+        exact ⟨5, writeFinal backDisp state, eventsRev, [], by decide, by decide,
+          pass.selectedPrefix, next⟩ }
+    rcases writeStep.iterate middle middleEventsRev
+        (startWrite middle middleEventsRev middleInvariant) with
+      ⟨final, finalEventsRev, writeEvents, writeFuel, writePrefix, writeBound, finalInvariant⟩
+    rcases completed final finalEventsRev finalInvariant with
+      ⟨finalEventsEq, restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12,
+        preservesR13, preservesR14, preservesR15, callerFramePreserved⟩
+    refine ⟨extractionFuel + writeFuel, final, finalEventsRev,
+      extractionEvents ++ writeEvents, ?_, extractionPrefix.append writePrefix,
+      finalEventsEq, restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12,
+      preservesR13, preservesR14, preservesR15, callerFramePreserved⟩
+    change extractionFuel ≤ decimalDigitCount value * 7 at extractionBound
+    change writeFuel ≤ decimalDigitCount value * 5 at writeBound
+    omega
 
 /- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
 /-- The selected prefix can be forgotten only at a consumer that explicitly needs the ordinary

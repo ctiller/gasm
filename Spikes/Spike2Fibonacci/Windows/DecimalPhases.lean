@@ -1324,43 +1324,6 @@ theorem spike2_uint64_decimal_selected_prefix_bounded (value : UInt64)
       final.gprs .r12 = initial.gprs .r12 ∧ final.gprs .r13 = initial.gprs .r13 ∧
       final.gprs .r14 = initial.gprs .r14 ∧ final.gprs .r15 = initial.gprs .r15 ∧
       Spike2DecimalCallerFrame initial final := by
-  let realization := spike2_uint64_decimal_realization value initial initialEventsRev frame
-  cases realization with
-  | @ofPhases extractInvariant writeInvariant extraction write extractInitial startWrite
-      _capacityFits _outputNoWrap completed =>
-  let extractStep : SelectedFuelBoundedInvariantLoopStep selectedNonInputPlatformCall
-      spike2Indexed (decimalDigitCount value) extractInvariant := {
-    maxFuel := 7
-    run := by
-      intro completed state eventsRev within holds
-      rcases extraction.run completed state eventsRev within holds with
-        ⟨backDisp, stackLower, pass, next⟩
-      exact ⟨7, extractionFinal backDisp state, eventsRev, [], by decide, by decide,
-        pass.selectedPrefix, next⟩ }
-  rcases extractStep.iterate initial initialEventsRev extractInitial with
-    ⟨middle, middleEventsRev, extractionEvents, extractionFuel, extractionPrefix,
-      extractionBound, middleInvariant⟩
-  let writeStep : SelectedFuelBoundedInvariantLoopStep selectedNonInputPlatformCall
-      spike2Indexed (decimalDigitCount value) writeInvariant := {
-    maxFuel := 5
-    run := by
-      intro completed state eventsRev within holds
-      rcases write.run completed state eventsRev within holds with
-        ⟨backDisp, stackUpper, outputLimit, pass, next⟩
-      exact ⟨5, writeFinal backDisp state, eventsRev, [], by decide, by decide,
-        pass.selectedPrefix, next⟩ }
-  rcases writeStep.iterate middle middleEventsRev
-      (startWrite middle middleEventsRev middleInvariant) with
-    ⟨final, finalEventsRev, writeEvents, writeFuel, writePrefix, writeBound, finalInvariant⟩
-  rcases completed final finalEventsRev finalInvariant with
-    ⟨finalEventsEq, restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
-      preservesR14, preservesR15, callerFrame⟩
-  refine ⟨extractionFuel + writeFuel, final, finalEventsRev,
-    extractionEvents ++ writeEvents, ?_, extractionPrefix.append writePrefix,
-    finalEventsEq, restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
-    preservesR14, preservesR15, callerFrame⟩
-  change extractionFuel ≤ decimalDigitCount value * 7 at extractionBound
-  change writeFuel ≤ decimalDigitCount value * 5 at writeBound
-  omega
+  exact (spike2_uint64_decimal_realization value initial initialEventsRev frame).selectedPrefix_bounded
 
 end Spikes.Spike2Fibonacci.Windows
