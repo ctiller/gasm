@@ -124,11 +124,17 @@ private theorem outside_committed_not_mapped :
   omega
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
-private theorem authored_mapping_without_load_rejected (current : WindowsHostState)
-    (notLoaded : current ≠ processEntryLoad.afterHost) :
-    ¬ MappedWritable processEntryLoad current (byteRange entryState) := by
+private def unmappedRoot : WindowsHostState :=
+  WindowsHostState.root selectedHost.beforeHost.hostNamespace
+
+private def loadFromUnmappedRoot : ProcessEntryLoad executable unmappedRoot :=
+  loadProcessEntry executable unmappedRoot
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem mapping_without_load_rejected :
+    ¬ MappedWritable loadFromUnmappedRoot unmappedRoot (byteRange entryState) := by
   intro mapped
-  exact notLoaded mapped.currentIsLoaded
+  simpa [unmappedRoot, WindowsHostState.root] using mapped.invocationLive
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private def missingInvalidationWorld : World ObligationId ObligationKind :=
@@ -150,6 +156,21 @@ private def secondProcessEntryLoad :
 private theorem consecutive_invocation_ids_differ :
     secondProcessEntryLoad.invocation ≠ invocation := by
   exact sequential_invocations_ne selectedHost.beforeHost executable
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem second_load_changes_host_state :
+    secondProcessEntryLoad.afterHost ≠ processEntryLoad.afterHost := by
+  intro equal
+  have generationEqual := congrArg WindowsHostState.nextGeneration equal
+  change processEntryLoad.afterHost.nextGeneration + 1 =
+    processEntryLoad.afterHost.nextGeneration at generationEqual
+  omega
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem mapped_grant_frames_across_second_load :
+    MappedWritable processEntryLoad secondProcessEntryLoad.afterHost (byteRange entryState) := by
+  exact selectedMappedWritable.frame
+    (mappingFrame_load processEntryLoad processEntryLoad.afterHost executable)
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem consecutive_worlds_are_disjoint :
@@ -281,6 +302,13 @@ private theorem post_retirement_store_rejected :
       (rootTeardownAfterExitProcess processEntryLoad 0).afterHost (byteRange entryState) := by
   intro mapped
   exact committedEntry_not_active_after_teardown processEntryLoad 0 mapped.committedPresent
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
+private theorem post_retirement_liveness_rejected :
+    ¬ MappedWritable processEntryLoad
+      (rootTeardownAfterExitProcess processEntryLoad 0).afterHost (byteRange entryState) := by
+  intro mapped
+  exact invocation_not_live_after_teardown processEntryLoad 0 mapped.invocationLive
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#required-negative-controls -/
 private theorem recipient_free_return_not_claimed (recipient : InvocationId) :
