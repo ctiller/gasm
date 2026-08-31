@@ -69,4 +69,40 @@ theorem decode_of_registered_success
     prefixRejects]
   simp only [tryDecoders, localSuccess]
 
+private def rejectingControlDecoder :
+    ByteArray → Nat → Except String (AnyX86_64Instruction × Nat) :=
+  fun _ _ => .error "routing rejection control"
+
+private def successfulControlDecoder (result : AnyX86_64Instruction × Nat) :
+    ByteArray → Nat → Except String (AnyX86_64Instruction × Nat) :=
+  fun _ _ => .ok result
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Private positive control: the routing premise is inhabitable and a rejecting prefix exposes
+the later successful decoder.  This is fixture evidence only, not an instruction codec claim. -/
+private theorem rejecting_prefix_exposes_later_control
+    (bytes : ByteArray) (offset : Nat) (result : AnyX86_64Instruction × Nat) :
+    tryDecoders [rejectingControlDecoder, successfulControlDecoder result] bytes offset =
+      .ok result := by
+  rfl
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Private negative boundary: a successful prefix is not a rejecting prefix.  Consequently the
+shared lifting theorem cannot be used to skip an earlier decoder that already claimed the bytes. -/
+private theorem successful_prefix_not_rejecting_control
+    (bytes : ByteArray) (offset : Nat) (result : AnyX86_64Instruction × Nat) :
+    ¬ RejectsAt (successfulControlDecoder result) bytes offset := by
+  rintro ⟨error, impossible⟩
+  cases impossible
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Private shadowing control: if the first decoder succeeds, `tryDecoders` returns that result
+and never consults the later success. -/
+private theorem successful_prefix_shadows_later_control
+    (bytes : ByteArray) (offset : Nat)
+    (first second : AnyX86_64Instruction × Nat) :
+    tryDecoders [successfulControlDecoder first, successfulControlDecoder second] bytes offset =
+      .ok first := by
+  rfl
+
 end Gasm.Targets.X86_64.DecoderRouting
