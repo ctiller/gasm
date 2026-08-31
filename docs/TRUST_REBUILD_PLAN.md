@@ -155,8 +155,8 @@ For round `i`:
 
 1. A typed intermediate specification `Sᵢ` refines or implements the stable root behavior `S₀`.
 2. The selected lowering generates assembly `Aᵢ` and proves `Aᵢ` implements `Sᵢ`.
-3. Inspection, differential execution, cost modeling, and proof-burden measurement of `Aᵢ` produce
-   design feedback—not proof authority.
+3. Inspection, differential execution, cost modeling, and an optional informal burden observation
+   of `Aᵢ` produce design feedback—not proof authority.
 4. A revised intermediate specification `Sᵢ₊₁` captures the better representation, operation,
    block boundary, or performance contract suggested by that feedback.
 5. A named refinement/equivalence theorem reconnects `Sᵢ₊₁` to the stable top-level specification
@@ -306,7 +306,8 @@ Spike 1 cutover, then Spike 2 target lowering/integration
    by the four-statement pathfinder. Its selected Windows implementation must produce the accepted
    closed-execution leaf; the author starts from the logical block, not its instruction list.
 3. Before pathfinder implementation, accept a checked-access contract that requires:
-   - descriptor occurrences indexed by exact program position;
+   - each descriptor occurrence identified by the full §2.5 tuple: dynamic use/certified step
+     occurrence, descriptor ordinal, exact fetched instruction, and invocation pre-state;
    - address, range, kind, width, and non-wrapping derived from the production descriptor/pre-state;
    - generic coverage treated as conditional evidence, explicitly not authority;
    - live generation/binding plus target/profile-owned host, mapping, and physical realization;
@@ -323,7 +324,7 @@ Spike 1 cutover, then Spike 2 target lowering/integration
    imports, and authority provenance.
 6. Build Spike 1 once as the materially different second consumer and review it before declaring the
    shared interface a template. This is the Phase B rebuild increment, not a separate prior Spike 1.
-7. Perform one measured feedback round: inspect the first generated pathfinder/Spike 1 assembly,
+7. Perform one feedback round: inspect the first generated pathfinder/Spike 1 assembly,
    improve one intermediate abstraction or lowering boundary, regenerate it, and demonstrate that
    unaffected proofs transport rather than being rewritten.
 8. Declare the template only after MP and Reviewer accept both consumers and all shared-library
