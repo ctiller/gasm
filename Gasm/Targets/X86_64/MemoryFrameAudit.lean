@@ -52,7 +52,7 @@ executable costs a full-tree import (~830s measured) on every gate run.
 
 namespace Gasm.Targets.X86_64.MemoryFrameAudit
 
-open Lean
+open Lean Meta
 open Gasm.Targets.X86_64.Instructions
 
 /- REF: docs/MEMORY_HOOK.md#32-sealing-the-raw-field-what-makes-the-chokepoint-mechanical-not-conventional -/
@@ -91,6 +91,17 @@ def frameNamespace : Name := `Gasm.Targets.X86_64.MemoryFrame
     instead (register-only forms are a one-liner via the batch lemmas). -/
 def frameCoverageDebtCeiling : Nat := 0
 
+private def expectedFrameTheoremType (predicate typeName : Name) : MetaM Expr := do
+  withLocalDeclD `i (mkConst typeName) fun i => do
+    let body ← mkAppM predicate #[i]
+    mkForallFVars #[i] body
+
+private def hasExactFrameTheorem (env : Environment) (declName predicate typeName : Name) :
+    MetaM Bool := do
+  let some info := env.find? declName | return false
+  let expected ← expectedFrameTheoremType predicate typeName
+  isDefEq info.type expected
+
 -- AUDIT 1: no module outside `MemoryCell.lean` may name an `X86_64Memory` eliminator.
 run_cmd do
   let env ← Lean.getEnv
@@ -121,16 +132,25 @@ run_cmd do
 -- AUDIT 2: every registered instruction form needs a `writesWithin`/`readsWithin` pair.
 run_cmd do
   let env ← Lean.getEnv
-  let mut missing : Array Name := #[]
-  for tyName in Registry.expectedInstructionTypes do
-    -- The open existential wrapper has no memory behaviour of its own; it forwards to whatever
-    -- concrete instruction it holds, each of which is audited on its own row.
-    if tyName == ``AnyX86_64Instruction then continue
-    let base := frameNamespace.str tyName.getString!
-    let hasW := env.contains (base.str "writesWithin")
-    let hasR := env.contains (base.str "readsWithin")
-    unless hasW && hasR do
-      missing := missing.push tyName
+  let missing ← Lean.Elab.Command.liftTermElabM do
+    let mut missing : Array Name := #[]
+    for tyName in Registry.expectedInstructionTypes do
+      -- The open existential wrapper has no memory behaviour of its own; it forwards to whatever
+      -- concrete instruction it holds, each of which is audited on its own row.
+      if tyName == ``AnyX86_64Instruction then continue
+      let base := frameNamespace.str tyName.getString!
+      let hasW ← hasExactFrameTheorem env (base.str "writesWithin")
+        ``Gasm.Targets.X86_64.MemoryFrame.WritesWithin tyName
+      let hasR ← hasExactFrameTheorem env (base.str "readsWithin")
+        ``Gasm.Targets.X86_64.MemoryFrame.ReadsWithin tyName
+      unless hasW && hasR do
+        missing := missing.push tyName
+      -- A theorem with an extra section premise must not satisfy the exact closed obligation.
+      let exactW ← expectedFrameTheoremType ``Gasm.Targets.X86_64.MemoryFrame.WritesWithin tyName
+      let hidden := mkForall `_ BinderInfo.default (mkConst ``True) exactW
+      if ← isDefEq exactW hidden then
+        throwError "Memory frame audit self-test failed: hidden theorem premise was accepted"
+    pure missing
   if missing.size > frameCoverageDebtCeiling then
     throwError s!"Memory frame-theorem coverage audit failed.\n\
       {missing.size} registered instruction form(s) lack a `writesWithin`/`readsWithin` pair in \

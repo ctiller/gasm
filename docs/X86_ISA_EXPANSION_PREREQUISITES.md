@@ -201,11 +201,13 @@ during this assessment), and two shards already needing `maxRecDepth 4000`.
 checks each family through its own shard, isolates full-fan-in dispatch exhaustiveness, and records
 the improved rebuild topology in `docs/TARGETS/X86_64.md` §5. The filesystem/import-closure hole is
 closed by `scripts/check_instructions_umbrella.py`, which fails when an instruction family on disk
-is absent from `Instructions.lean`. The adjacent hand-maintained pipeline surfaces are closed by
-`scripts/check_x86_family_pipeline.py`: every concrete family must have matching round-trip and
-memory-frame shards/imports, registry population/count entries, and a global-dispatch theorem.
-Its mutation suite demonstrates named rejection of omissions rather than treating a green static
-scan as sufficient evidence. The expensive `DispatchExhaustive.lean` proof remains outside the
+is absent from `Instructions.lean`, without trying to recognize declaration syntax. The adjacent
+pipeline surfaces are checked from Lean's compiled environment: `FamilyPipelineAudit.lean`
+derives families from live instances and compares actual typed witness multisets and exact closed
+round-trip theorem types; `MemoryFrameAudit.lean` checks exact frame-theorem types; and
+`DispatchExhaustive.lean` derives and checks every global-dispatch theorem. Compiled planted
+controls reject omissions, duplicates, dead witnesses, and hidden premises. The expensive
+`DispatchExhaustive.lean` proof remains outside the
 hot `Gasm` umbrella but is a declared `X86DispatchExhaustive` build target; aggregate memory
 pressure from many concurrent proof shards remains a scaling concern.
 

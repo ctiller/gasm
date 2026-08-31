@@ -26,7 +26,7 @@ The current hosted selection is:
 
 | CI slice | Events | Platform | Commands selected |
 |---|---|---|---|
-| Linters | push, PR, manual | Ubuntu once | `check_refs`, `check_full_refs_gate_wiring`, `check_no_exception_ledgers`, `check_no_ignored_lean_sources`, `check_verification_authority`, `check_gates`, `check_publishable`, `check_licenses`, `check_doc_facade`, `check_orphan_modules`, `check_instructions_umbrella`, `check_x86_family_pipeline` |
+| Linters | push, PR, manual | Ubuntu once | `check_refs`, `check_full_refs_gate_wiring`, `check_no_exception_ledgers`, `check_no_ignored_lean_sources`, `check_verification_authority`, `check_gates`, `check_publishable`, `check_licenses`, `check_doc_facade`, `check_orphan_modules`, `check_instructions_umbrella` |
 | Proofs | push, PR, manual | Windows + Ubuntu | `python scripts/build_full.py`, then the complete `proofs` group: the explicitly opted-in full-repository `check_refs_coverage` launcher, `check_gates_axioms`, `test_roundtrip`, `check_x86_obligations`, `check_aarch64_obligations` |
 | Fast tests | push | Windows + Ubuntu | `python scripts/build_full.py`, then `test_zlib`, `test_png`, `test_smolalloc` |
 | Spike tests | PR, manual | Windows | the three Stdlib tests, Windows Spike 1–5 tests, and Wasm Spike 1–3 tests |

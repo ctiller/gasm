@@ -20,9 +20,9 @@ limitations under the License.
 -- instruction file that exists on disk but is imported nowhere is invisible to a whole-program
 -- environment walk, since Lean only sees declarations reachable through the current file's
 -- import graph, not every `.lean` file Lake happens to compile as part of the library glob. Adding
--- a new Instructions/<Foo>.lean file MUST add an `import` line here (in addition to giving it a
--- RoundtripGate/<Foo>.lean shard and an `expectedInstructionTypes` entry in Registry.lean) or its
--- instance(s) will silently not be audited, registered, or gated.
+-- a new Instructions/<Foo>.lean file MUST be reachable here. The filesystem gate enforces that
+-- closure; compiled audits then derive its semantic family, typed witnesses, and exact proof
+-- obligations from Lean's environment rather than parsing declaration source.
 --
 -- B1 iteration 2 (build-perf: Instructions.lean aggregator sharding): this file is now
 -- intentionally import-only. `X86_64Instr`, the `TargetArch X86_64` instance, and
