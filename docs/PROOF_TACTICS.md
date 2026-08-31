@@ -178,6 +178,24 @@ and final artifact connection.  Give each layer a small contract and a frame law
 systems, prove chunk composition independently of chunk boundaries.  For sorting, keep immutable
 line contents separate from the mutable permutation and algorithm-specific ordered region.
 
+## Compose generated bodies with tiny authority tails
+
+Keep a generated straight-line body behind its local certificate, then connect it to the production
+runner with exact contextual placement and runtime-silence evidence.  State the small handwritten
+ABI and terminal suffix as a separate named typed slice.  Carry only the exact RIP, fault, frame,
+low-memory, and result facts that cross the join; discharge placement and terminal classification at
+that boundary.  Compose the pieces only in the production runner and the final
+`VerifiedProgram.compose` value.
+
+The Windows compiler-bulk spike at `8b39389` follows this pattern: its arbitrary-environment body
+theorem is algebraic, not a fabricated process-entry ABI; a separate three-instruction tail reserves
+40 bytes of call space, moves RAX to RCX, and reaches the exact linked `ExitProcess` provider.  Linux
+Spike 2 commits `e741e96` and `4a3b394` use named terminal-tail and structural-prefix slices rather
+than unfolding the whole runner.  Neither a successful local fold nor executing the tail proves ABI
+placement, termination, artifact identity, or admission by itself.  Native exit 42 is regression
+evidence, not proof authority.  Empty exports are honest for these process-entry executables, but do
+not demonstrate a callable library boundary.
+
 ## Keep finite search subordinate to the model
 
 At the memory-model presentation layer, prove that every enumerated seed and successor belongs to
