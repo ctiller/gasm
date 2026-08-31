@@ -20,6 +20,7 @@ namespace Gasm.Targets.X86_64.HardwareMemoryDifferential
 
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
+open Gasm.Targets.X86_64.HardwareHarness
 open Gasm.Targets.X86_64.HardwareMemoryPlan
 open Gasm.Targets.X86_64.HardwareMemoryHarness
 
@@ -40,18 +41,7 @@ private def compareRegion (plan : Plan) (actualRegion : ByteArray) : Except Stri
         throw s!"case {plan.caseId}: guarded postimage byte {index} mismatch (model={expectedRegion.get! index}, native={actualRegion.get! index})"
     | none => throw s!"case {plan.caseId}: guarded postimage mismatch"
 
-/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Compares one case against the exact production step used to construct its plan.  RSP is the
-    sole excluded register because the Windows harness owns its stack; the planner rejects every
-    admitted form that reads or writes RSP.  All other GPRs, defined arithmetic flags, model fault
-    status, and every byte of both canaries plus payload are checked. -/
-def compare (observation : Observation) : Except String Unit := do
-  let plan := observation.plan
-  if observation.result.caseId != plan.caseId then
-    throw s!"case {plan.caseId}: native result identity disagrees with the checked plan"
-  if observation.result.planIdentity != plan.planIdentity then
-    throw s!"case {plan.caseId}: native result plan identity disagrees with the exact form/bytes/pre-state"
-  let native := observation.result.machine
+private def compareMachine (plan : Plan) (native : HardwareExecutionResult) : Except String Unit := do
   let decoded ← plan.decodeAndStep
   let model := decoded.state
   if model.faulted then
@@ -65,17 +55,65 @@ def compare (observation : Observation) : Except String Unit := do
   let mask := arithmeticStatusMask &&& (~~~undefined)
   if (model.flags &&& mask) != (native.flags &&& mask) then
     throw s!"case {plan.caseId}: defined arithmetic flags mismatch"
+
+private def movzxDestination? (form : ScratchMov) : Option Reg64 :=
+  match form with
+  | ⟨.movzxR64Mem8, instruction⟩ => some instruction.dstReg
+  | _ => none
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Compares one case against the exact production step used to construct its plan.  RSP is the
+    sole excluded register because the Windows harness owns its stack; the planner rejects every
+    admitted form that reads or writes RSP.  All other GPRs, defined arithmetic flags, model fault
+    status, and every byte of both canaries plus payload are checked. -/
+def compare (observation : Observation) : Except String Unit := do
+  let plan := observation.plan
+  if observation.result.caseId != plan.caseId then
+    throw s!"case {plan.caseId}: native result identity disagrees with the checked plan"
+  if observation.result.planIdentity != plan.planIdentity then
+    throw s!"case {plan.caseId}: native result plan identity disagrees with the exact form/bytes/pre-state"
+  compareMachine plan observation.result.machine
   compareRegion plan observation.result.regionAfter
+
+private def calibrateRegionByteRejection (observation : Observation) (index : Nat)
+    (label : String) : Except String Unit := do
+  let actual := observation.result.regionAfter
+  let corrupted := actual.set! index (actual.get! index ^^^ 0xff)
+  match compareRegion observation.plan corrupted with
+  | .error _ => pure ()
+  | .ok () => throw s!"runtime negative calibration accepted corrupted {label} byte {index}"
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Exercises the exact guarded-postimage comparator against a locally corrupted leading canary.
     No transformed `Observation` escapes, so calibration cannot repair or relabel native evidence. -/
-def calibrateLeadingGuardRejection (observation : Observation) : Except String Unit := do
-  let actual := observation.result.regionAfter
-  let corrupted := actual.set! 0 (actual.get! 0 ^^^ 0xff)
-  match compareRegion observation.plan corrupted with
+def calibrateLeadingGuardRejection (observation : Observation) : Except String Unit :=
+  calibrateRegionByteRejection observation 0 "leading-canary"
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Corrupts the first payload byte, which is outside the selected interior access, and requires
+    the complete-region comparator to reject it without constructing a transformed observation. -/
+def calibratePayloadNeighborRejection (observation : Observation) : Except String Unit :=
+  calibrateRegionByteRejection observation guardBytes "payload-neighbor"
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Corrupts the first trailing-canary byte and requires complete-region rejection. -/
+def calibrateTrailingGuardRejection (observation : Observation) : Except String Unit :=
+  calibrateRegionByteRejection observation (guardBytes + payloadBytes) "trailing-canary"
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Flips a high destination bit in a MOVZX result and requires the complete GPR comparator to
+    reject it.  Only local machine data is changed; no forged `Observation` is returned. -/
+def calibrateMovzxStaleHighBitsRejection (observation : Observation) : Except String Unit := do
+  let destination ← match movzxDestination? observation.plan.form with
+    | some destination => pure destination
+    | none => throw "MOVZX high-bit calibration requires a MOVZX observation"
+  let native := observation.result.machine
+  let corruptedGprs := fun reg =>
+    if reg == destination then native.gprs reg ^^^ 0x100 else native.gprs reg
+  let corrupted := { native with gprs := corruptedGprs }
+  match compareMachine observation.plan corrupted with
   | .error _ => pure ()
-  | .ok () => throw "runtime negative calibration accepted a corrupted leading guard"
+  | .ok () => throw "runtime negative calibration accepted stale MOVZX destination high bits"
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Runs the exact comparator over a nonempty batch.  An enabled batch producing no observations

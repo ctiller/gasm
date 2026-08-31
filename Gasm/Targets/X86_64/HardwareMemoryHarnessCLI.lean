@@ -51,10 +51,17 @@ private def coverageComplete : Bool :=
   ScratchClass.all.all fun cls => controls.any fun request => request.form.scratchClass == cls
 
 private def negativeCalibration (observations : List Observation) : Except String Unit := do
-  let observation ← match observations with
+  let baseline ← match observations with
     | [] => throw "runtime negative calibration received no native observation"
     | observation :: _ => pure observation
-  HardwareMemoryDifferential.calibrateLeadingGuardRejection observation
+  HardwareMemoryDifferential.calibrateLeadingGuardRejection baseline
+  HardwareMemoryDifferential.calibratePayloadNeighborRejection baseline
+  HardwareMemoryDifferential.calibrateTrailingGuardRejection baseline
+  let movzx ← match observations.find? fun observation =>
+      observation.plan.form.scratchClass == .movzxR64Mem8 with
+    | some observation => pure observation
+    | none => throw "runtime negative calibration received no MOVZX native observation"
+  HardwareMemoryDifferential.calibrateMovzxStaleHighBitsRejection movzx
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Adding an admitted class without a nonempty native control turns this module red.
@@ -80,5 +87,5 @@ def main (_args : List String) : IO UInt32 := do
               IO.eprintln s!"x86 scratch-memory differential mismatch: {msg}"
               pure 1
           | .ok () =>
-              IO.println s!"x86 scratch-memory hardware controls passed ({observations.length} exact guarded observations; expected corrupted-guard rejection observed)"
+              IO.println s!"x86 scratch-memory hardware controls passed ({observations.length} exact guarded observations; all four negative calibrations rejected)"
               pure 0
