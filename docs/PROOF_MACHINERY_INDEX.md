@@ -240,6 +240,19 @@ The following code shapes have enough evidence to investigate but are not canoni
   canonical landed hash exists yet.  `d9685b5` remains namespace-only and runner work remains
   gated on signature migration.  This is an accepted design candidate, not current-main established
   machinery.
+- The graphics proof-economy worklist seeks theorem boundaries that preserve universal provider,
+  memory, and authority claims while keeping final verification tractable.  Candidate shapes are: a
+  total byte decoder paired with a sparse exact-write footprint and complement frame theorem; a
+  head-strict provider transition with independent operation/response counters and append-only
+  disposition history; definitional lifting of ordinary CPU steps over the provider wrapper; proof
+  obligations selected only by imported capabilities; local `ProgramArtifact`, provider, entry,
+  admissibility, and behavior certificates composed without unfolding final runners; structural or
+  kernel negative controls instead of evaluation shortcuts; and SPIR-V instruction/value-family
+  interfaces whose changes remain leaf-local.  Known failed shapes are provider queues inside ISA
+  state, phantom or rank-2 hiding presented as freshness, a shared operation/response counter,
+  `native_decide` controls, projecting `.cpu` through the old runner, `spec := run`, and central
+  value-type edits that invalidate the target closure.  Keep this as a worklist until checked
+  consumers and dependency/build evidence identify reusable declarations.
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
