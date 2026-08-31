@@ -195,6 +195,10 @@ evidence, and negative boundary after that comparison; it does not own a second 
   production-profile instance.  Public target-local raw serializers still exist as migration debt,
   so their existence neither carries a verification claim nor proves mechanically that every
   repository emission path is already gated.
+- For shared `ByteArray` proofs, use the Lean-only observation bridge in
+  `Stdlib/Data/ByteArray.lean`.  It connects `.get!` to proof-facing `getElem`, proves push
+  observations, and supplies extensionality; PNG and Zlib equivalence proofs are its two direct
+  consumers.  Lean core remains the owner of append, identity, associativity, and extract laws.
 
 ## Admission record
 
@@ -805,7 +809,7 @@ The following code shapes have enough evidence to investigate but are not canoni
   optimization is dependency-fanout avoidance through exact nominal descriptors and a leaf-owned
   extension, not lower per-process memory or generic final-emission authority.  The selected raw
   codec in `0a31cb8` remains evidence only for the target-owned encoding boundary.
-### Byte and prefix utility candidates
+### Byte and prefix utilities
 
 - Bounded byte reads appear in ELF, x86-64, AArch64, PNG, Zlib, and Gzip.  A first cursor slice
   should validate against two consumers with the same offset/progress needs while keeping format
@@ -814,10 +818,9 @@ The following code shapes have enough evidence to investigate but are not canoni
   extracted independently of cursor control flow.
 - Variable-fuel production-prefix composition exists in x86-64 `EventfulSegment`; it stays
   target-owned until a second accepted consumer demonstrates the same algebra.
-- Generic `ByteArray` observation facts in `Stdlib/Data/ByteArray.lean` are shared by PNG and Zlib
-  without inheriting a codec dependency.  Replacing
-  `ByteArray` with `Vec Byte` is a migration candidate, not a wholesale alias substitution: require
-  observation and roundtrip bridges plus one demonstration consumer before changing representation.
+- Replacing `ByteArray` with `Vec Byte` is a migration candidate, not a wholesale alias
+  substitution: reuse the established observation bridge and require roundtrip bridges plus one
+  demonstration consumer before changing representation.
 
 Candidate status is intentionally visible: it tells agents where the delta may be removable without
 pretending the reusable contract has already been established.

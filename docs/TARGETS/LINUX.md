@@ -218,11 +218,11 @@ file this project's own writer produces satisfies it, but an arbitrary/adversari
 `Elf64Parsed` need not (e.g. two `Elf64_Shdr` entries sharing one `sh_offset` breaks the
 sorted-chunk-append reconstruction). Proving `parseElf64 (serializeElf64Parsed x) = .ok x` for
 such well-formed `x` is a real, further engineering task, not merely an unstated gap: it needs
-`ByteArray.get!`/`.extract` lemmas through `++` (append) that do not yet exist in this tree
-(`Stdlib/Data/ByteArray.lean` only has `.push`-indexed lemmas today), plus the
-`WellFormed` predicate itself. **Status**: tracked as follow-on work, not attempted in this
-pass; the empirical parser-stability fuzzer above is this pass's substitute evidence, per this
-project's own established PNG-parser precedent (`Stdlib/Png/StabilityFuzzer.lean`'s own header
+the `Stdlib/Data/ByteArray.lean` `.get!`/`getElem` bridge applied with Lean core's append/extract
+laws across the parser's indices, plus the `WellFormed` predicate itself. **Status**: tracked as
+follow-on work, not attempted in this pass; the empirical parser-stability fuzzer above is this
+pass's substitute evidence, per this project's own established PNG-parser precedent
+(`Stdlib/Png/StabilityFuzzer.lean`'s own header
 makes the identical trade explicitly).
 
 ---

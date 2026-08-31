@@ -152,8 +152,9 @@ names must not imply complete exploration.
 
 The first extractions should be driven by concrete duplication:
 
-- **Next:** move generic `ByteArray` lemmas out of the Zlib namespace and update PNG
-  and Zlib atomically.
+- **Present:** the shared `.get!` observation, push, and extensionality laws live in
+  Lean-only `Stdlib.Data.ByteArray`; PNG and Zlib consume them directly.  Any PNG-local
+  append/extract cleanup is a separate slice and should prefer Lean core laws.
 - **Candidate:** target-neutral alignment arithmetic with exact divisibility and bound
   laws, extracted into a small Gasm-level Core/Data leaf rather than Stdlib so Effects
   and Targets do not reverse the dependency direction. The existing behavior at zero
@@ -287,7 +288,7 @@ Subject to higher-priority Trust/build repairs, the current sequence is:
    append/index laws, with a standalone runnable Vec/ByteVec test. Do not attach new
    corollaries or guards to the old Spike 3 proof tree during the VerifiedProgram
    proof-template reset; a rebuilt Spike consumer remains the completion gate.
-3. **Implemented candidate:** move the shared `.get!` observation/push/extensionality
+3. **Implemented:** move the shared `.get!` observation/push/extensionality
    laws into import-light `Stdlib.Data.ByteArray` and migrate PNG/Zlib atomically.
    PNG-local append/extract cleanup remains separate and should prefer Lean core laws.
 4. Add resource-count projections only after two accepted domain connections prove their meaning;
@@ -347,7 +348,7 @@ promotion requires filling any missing consumer, bound, and cost evidence.
 | ByteVec | `Stdlib/Containers/ByteVec.lean` | ByteArray bridge; prospective decoders | exact size/get/get?/list/conversion observations; append agreement without client HEq | Present bridge API and runnable test; target adoption not yet demonstrated |
 | Stable key sort | `Stdlib/Containers/Sort.lean` | Spike 3 model and tagged executable regression; MASM record sorting | exact class-projection stability within mutual-preorder equivalence `beforeKey a b = true` and `beforeKey b a = true` | Present; nonvacuous tagged demonstration |
 | Dependent finite table | function tables in RecursiveCFGBuilder and TypedCFG | prospective compiler role and definition tables | extensionality, dependent get/map, reindex, append/split | Candidate; named migration required |
-| Generic ByteArray observations | `Stdlib/Data/ByteArray.lean` | Zlib and PNG equivalence proofs | exact `.get!`/`getElem` connection, push observations, extensionality; Lean-only dependency | Present candidate; runnable codec validation pending review |
+| Generic ByteArray observations | `Stdlib/Data/ByteArray.lean` | Zlib and PNG equivalence proofs | exact `.get!`/`getElem` connection, push observations, extensionality; Lean-only dependency | Present; focused proofs and both codec demonstrations pass |
 | Alignment arithmetic | Linux ELF and Windows PE emitters | two linker/emitter paths below Stdlib | preserve zero policy; positive-alignment divisibility and minimality | Candidate Gasm Core/Data leaf; ownership review required |
 | UInt64 decimal bridge | present Fmt UInt64 writer/bounds and HTTP decimal handling | Fmt, HTTP, Spike 2 | connection theorem and behavior-preserving HTTP migration; add only a demonstrated missing partition lemma | Next bridge; re-check ownership |
 | Fallible finite fold | Trust streaming request | Zlib streaming and Spike 5 | atomic refusal, retained remainder, prefix conservation, committed-state chain, exact legacy refinement | Present; runnable accepted/refused demonstration |
