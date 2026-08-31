@@ -30,6 +30,7 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Discharge and compose an x86 local body contract | `LocalBlockDischarge`, `LocalBlockDischarge.refine`, and `LocalBlockRun.then` | x86-64 local contract/production-prefix bridge | accepted implementation-hole mechanism for proof-directed blocks | contracts and middle-entry facts remain explicit; CFG identity, placement, terminal outcomes, and artifact authority are separate |
 | Stop a finite fold at the first refused input | `Stdlib.fallibleFold`, `fallibleFold_conservation`, `fallibleFold_acceptedPrefix`, and `fallibleFold_refused_boundary` | dependency-light pure control algebra | Zlib streaming plus Spike 5 accepted and zero-capacity refusal outcomes | resource identity, reclamation, cleanup, effects, target execution, and artifact authority remain consumer-owned |
 | Lower bounded structured straight-line code to Microsoft x64 | `StructuredStraightLineMicrosoftX64Entry.lowerFunction` and its `LocalCertificate` | compiler's target-specific local lowering layer | canonical bounded Microsoft x64 entry backend | exact clobbers and local semantics are proved; process entry, non-return, platform outcome, PE placement, and `VerifiedProgram` authority remain separate |
+| Resume production execution after a proved local straight-line body | `ContextualStraightLinePlacement`, `RuntimeSilentOn`, and the target prefix-runner theorems | target production execution bridge | Microsoft x64 and AArch64 compiler-bulk spikes | the local certificate supplies no lookup, host-silence, ABI, outcome, artifact, admission, or `VerifiedProgram` authority |
 
 ## Proven composition patterns
 
@@ -77,6 +78,15 @@ evidence, and negative boundary after that comparison; it does not own a second 
   `11f60475de851c4abab0e6938890d2be7d61603e`.  Absence of a callable certificate is honest; a later
   PE terminal `VerifiedProgram` must still establish process entry, observer exclusions, placement,
   outcome, and final artifact authority.
+- For a runnable process-entry program, retain the long generated body as local evidence and prove a
+  tiny handwritten ABI/terminal tail as a named typed slice.  Canonical Windows spike `8b39389`
+  consumes a `LocalCertificate` through exact contextual placement and runtime silence, then proves
+  `sub rsp, 40`, RAX-to-RCX transfer, and the linked `ExitProcess` call separately before the sole
+  `VerifiedProgram.compose`.  Linux Spike 2 commits `e741e96` and `4a3b394` similarly close a named
+  terminal tail and structural prefix while carrying exact RIP, fault, frame, and low-memory facts.
+  Local execution is not platform execution; instruction execution does not establish ABI placement;
+  and a native exit result is regression evidence rather than authority.  Empty exports accurately
+  describe a process-entry executable, but are not evidence of a callable-library boundary.
 
 ## Admission record
 
@@ -114,6 +124,9 @@ Two useful precedents are:
   the runnable accepted/refused Spike 5 demonstration respectively.
 - `11f6047` lands the bounded Microsoft x64 local backend after removing self-asserted authority
   metadata; it is a compiler-local certificate, not completion of the PE `VerifiedProgram` slice.
+- `8b39389` closes the Windows compiler-bulk process-entry spike by joining a contextual generated
+  body to a separately proved ABI/terminal tail.  `e741e96` and `4a3b394` demonstrate the same
+  typed-slice discipline for the Linux Spike 2 exit and its structural prefixes.
 
 Commit identifiers are provenance, not API names.  Follow the declarations above on current main;
 use the commits to inspect the reviewed extraction delta.
