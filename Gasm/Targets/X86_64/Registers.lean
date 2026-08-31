@@ -733,8 +733,8 @@ abbrev X86_64MachineState.read8 (s : X86_64MachineState) (a : Address) : UInt64 
 
 /- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
 /-- Reads a 4-byte little-endian doubleword from machine memory, through the sealed hook. This is
-    one of the "missing widths" `docs/MEMORY_HOOK.md` §1.1 names: before this hook,
-    `MovReg32RspDisp32.step` re-implemented this ladder inline because no `read32` existed. -/
+    one of the "missing widths" `docs/MEMORY_HOOK.md` §1.1 names: before this hook, the former
+    RSP-specific W32 MOV load re-implemented this ladder inline because no `read32` existed. -/
 abbrev X86_64MachineState.read32 (s : X86_64MachineState) (a : Address) : UInt64 :=
   X86_64Mem.read .w32 a s.memory
 

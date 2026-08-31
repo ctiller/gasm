@@ -51,14 +51,14 @@ def accessOffset : Nat := 24
     not `ValidationOracle.silicon` and grants no registry, capability, or execution admission. -/
 inductive ScratchClass where
   | mem8Reg8 | mem32DispReg32 | mem64DispReg64 | mem64DispImm32 | reg64Mem64Disp
-  | movzxR64Mem8
+  | reg32Mem32Disp | movzxR64Mem8
   deriving DecidableEq, Repr, Inhabited
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Complete finite inventory of the initial admitted classes. -/
 def ScratchClass.all : List ScratchClass :=
   [.mem8Reg8, .mem32DispReg32, .mem64DispReg64, .mem64DispImm32, .reg64Mem64Disp,
-   .movzxR64Mem8]
+   .reg32Mem32Disp, .movzxR64Mem8]
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- The inventory is exhaustive over the actual closed class type. -/
@@ -74,6 +74,7 @@ def ScratchClass.Instruction : ScratchClass → Type
   | .mem64DispReg64 => MovMem64DispReg64
   | .mem64DispImm32 => MovMem64DispImm32
   | .reg64Mem64Disp => MovReg64Mem64Disp
+  | .reg32Mem32Disp => MovReg32Mem32Disp
   | .movzxR64Mem8 => MovzxR64Mem8
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
@@ -90,6 +91,7 @@ def mem32DispReg32 (instr : MovMem32DispReg32) : ScratchMov := ⟨.mem32DispReg3
 def mem64DispReg64 (instr : MovMem64DispReg64) : ScratchMov := ⟨.mem64DispReg64, instr⟩
 def mem64DispImm32 (instr : MovMem64DispImm32) : ScratchMov := ⟨.mem64DispImm32, instr⟩
 def reg64Mem64Disp (instr : MovReg64Mem64Disp) : ScratchMov := ⟨.reg64Mem64Disp, instr⟩
+def reg32Mem32Disp (instr : MovReg32Mem32Disp) : ScratchMov := ⟨.reg32Mem32Disp, instr⟩
 def movzxR64Mem8 (instr : MovzxR64Mem8) : ScratchMov := ⟨.movzxR64Mem8, instr⟩
 
 instance : Inhabited ScratchMov := ⟨mem8Reg8 default⟩
@@ -103,6 +105,7 @@ private def packFor : (cls : ScratchClass) → cls.Instruction → AnyX86_64Inst
   | .mem64DispReg64, i => ⟨(show MovMem64DispReg64 from i)⟩
   | .mem64DispImm32, i => ⟨(show MovMem64DispImm32 from i)⟩
   | .reg64Mem64Disp, i => ⟨(show MovReg64Mem64Disp from i)⟩
+  | .reg32Mem32Disp, i => ⟨(show MovReg32Mem32Disp from i)⟩
   | .movzxR64Mem8, i => ⟨(show MovzxR64Mem8 from i)⟩
 
 def pack (form : ScratchMov) : AnyX86_64Instruction :=
@@ -116,6 +119,7 @@ private def baseRegFor : (cls : ScratchClass) → cls.Instruction → Reg64
   | .mem64DispReg64, i => i.basePtr
   | .mem64DispImm32, i => i.basePtr
   | .reg64Mem64Disp, i => i.basePtr
+  | .reg32Mem32Disp, i => i.basePtr
   | .movzxR64Mem8, i => i.basePtr
 
 def baseReg (form : ScratchMov) : Reg64 :=
@@ -127,6 +131,7 @@ private def hostRegistersSafeFor : (cls : ScratchClass) → cls.Instruction → 
   | .mem64DispReg64, i => i.basePtr != .rsp && i.srcReg != .rsp
   | .mem64DispImm32, i => i.basePtr != .rsp
   | .reg64Mem64Disp, i => i.basePtr != .rsp && i.dstReg != .rsp
+  | .reg32Mem32Disp, i => i.basePtr != .rsp && reg32To64 i.dstReg != .rsp
   | .movzxR64Mem8, i => i.basePtr != .rsp && i.dstReg != .rsp
 
 private def hostRegistersSafe (form : ScratchMov) : Bool :=
@@ -136,7 +141,7 @@ private def hostRegistersSafe (form : ScratchMov) : Bool :=
 /-- Expected access class of the closed MOV form, independently checked against `memAccesses`. -/
 private def expectedKindFor : (cls : ScratchClass) → cls.Instruction → MemAccessKind
   | .mem8Reg8, _ | .mem32DispReg32, _ | .mem64DispReg64, _ | .mem64DispImm32, _ => .store
-  | .reg64Mem64Disp, _ | .movzxR64Mem8, _ => .load
+  | .reg64Mem64Disp, _ | .reg32Mem32Disp, _ | .movzxR64Mem8, _ => .load
 
 def expectedKind (form : ScratchMov) : MemAccessKind :=
   expectedKindFor form.scratchClass form.instr
@@ -147,6 +152,7 @@ private def expectedWidthFor : (cls : ScratchClass) → cls.Instruction → MemW
   | .mem8Reg8, _ => .w8
   | .mem32DispReg32, _ => .w32
   | .mem64DispReg64, _ | .mem64DispImm32, _ | .reg64Mem64Disp, _ => .w64
+  | .reg32Mem32Disp, _ => .w32
   | .movzxR64Mem8, _ => .w8
 
 def expectedWidth (form : ScratchMov) : MemWidth :=

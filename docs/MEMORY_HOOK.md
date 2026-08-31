@@ -46,7 +46,8 @@ carry"* — Law 11's fail-to-assemble bar, not a runtime check.
 This document designs that hook: what instructions call, how the capability proof is
 carried and enforced at assemble time, what the perf side records and how it stays
 falsifiable, the migration path for the existing 88 instruction forms, the effect on
-existing proofs, and how faults become distinguishable observations.
+existing proofs, and how faults become distinguishable observations. Counts in the baseline below
+are explicitly historical measurements, not a live registry census.
 
 ### 1.1 Verified pre-MH1 baseline (the evidence this design is grounded in)
 
@@ -54,7 +55,7 @@ existing proofs, and how faults become distinguishable observations.
 | :-- | :-- |
 | 14 of 88 instruction forms touch memory | `MovRspDispByte`, `MovRspDispImm32`, `MovRspDispImm64`, `MovMem8Reg8`, `MovMem64DispReg64`, `MovMem64DispImm32`, `MovReg64Mem64Disp`, `MovzxR64Mem8`, `MovReg32RspDisp32`, `PushR64`, `PopR64`, `CallRipRel`, `CallRel32`, `RetOp` — enumerated from `Gasm/Targets/X86_64/Registry.lean` + each `step`'s body |
 | The machine model's only memory primitives are five helpers + raw field access | `X86_64MachineState.read64`/`write8`/`write64`/`push64`/`pop64` (`Gasm/Targets/X86_64/Registers.lean:226-265`); the field itself is `memory : Address → Byte`, total, public |
-| Instruction steps already bypass even those helpers | `MovRspDispImm32.step` inlines a raw 4-byte store lambda (`Mov.lean:166-173` — no `write32` helper exists so it was re-implemented inline); `MovzxR64Mem8.step` and `MovReg32RspDisp32.step` read raw `s.memory addr` bytes inline. The missing widths already caused the exact per-instruction re-implementation this hook exists to end |
+| Instruction steps already bypass even those helpers | `MovRspDispImm32.step` inlined a raw 4-byte store lambda (no `write32` helper existed); `MovzxR64Mem8.step` and the former RSP-specific W32 MOV load read raw memory bytes inline. The missing widths already caused the exact per-instruction re-implementation this hook exists to end |
 | Non-instruction code also writes memory raw | `Gasm/Targets/Windows/Win32API.lean` hooks (`readFileHook`/`recvHook` write destination buffers via raw `memory := fun a => ...` lambdas, lines 112–136, 214–217); the linkers' `loadMemory` installs the image raw |
 | Zero capability call sites | Law 11's own Status line; `MemoryPerm`/`MemoryPermissions`/`BlockM` have no call sites outside `Gasm/Core` |
 | Memory cost is 14 sets of inline, uncited literals | every load is flat `latencyCycles := 4`, every store `1`, duplicated per instance; 0 of 88 forms cite any calibrated or vendored source (`docs/TECHNICAL_NOTES.md` §2) |
@@ -268,7 +269,8 @@ The memory-form obligations are discharged either directly from the correspondin
 through exact shared derivations whose premises bind the descriptor to the semantic step. The first
 singleton-store consumers are `MovMem32DispReg32` and `MovMem64DispReg64`; register-only forms use
 the shared memory-preservation derivation. The first singleton-load consumers are
-`MovReg32RspDisp32` and `MovReg64Mem64Disp`. The proofs live in the
+`MovReg32Mem32Disp` and `MovReg64Mem64Disp`. The W32 family now subsumes the former
+RSP-specific identity. The proofs live in the
 `RoundtripGate/*`-style per-family shard convention so a new memory form cannot land
 without them. **Status** (corrected 2026-08-28): this line previously read "unbuilt; MH1
 (field + 14 real descriptors + frame lemmas for the memory families), with the
@@ -324,7 +326,7 @@ exists nowhere (no store-form step lemma exists in the tree):
 set is built** across `Gasm/Targets/X86_64/MemoryFrame/`, with byte-granular read-over-write,
 exact singleton store/load derivations, and `initRegion` read-back proved in shared modules and a
 Law-13 negative control in `MemoryFrame/NegativeControl.lean`. The W32/W64 register-to-memory
-stores above are the first singleton-store consumers; `MovReg32RspDisp32` and
+stores above are the first singleton-store consumers; `MovReg32Mem32Disp` and
 `MovReg64Mem64Disp` are the first singleton-load consumers.
 The disjointness lemmas are `omega`-class arithmetic over
 `UInt64` intervals; wraparound at 2⁶⁴ is handled the way `MemoryPerm.validRange`

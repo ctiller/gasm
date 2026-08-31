@@ -32,8 +32,9 @@ system, privileged, or nondeterministic state, and every SIMD, floating-point, x
 form.  Memory forms wait for the checked authoring seam; SIMD/FP waits for the extended machine state;
 control-flow families wait for their landing-pad model.  Calibration governance does not block this
 pilot when cost data remains loudly `modelInternal` and confers no calibrated performance claim.
-The narrow guarded `HardwareMemoryHarness` provides supplemental sequential evidence for five
-existing scalar `MOV`/`MOVZX` memory classes, but it is not the registry
+The narrow guarded `HardwareMemoryHarness` provides supplemental sequential evidence for a closed,
+exhaustively classified set of scalar `MOV`/`MOVZX` memory classes, including the canonical general
+W32 load, but it is not the registry
 `ValidationOracle.silicon` owner and does not relax this lane's capability/admission exclusion.
 
 Before unconstrained multi-agent scale, require the merge train to run full gates on the merged tree,

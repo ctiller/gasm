@@ -218,22 +218,22 @@ theorem MovRspDispImm32.readsWithin (i : MovRspDispImm32) : ReadsWithin i := by
     exact congrArg UInt8.toUInt64 (X86_64Mem.readByte_write_inside .w32 _ _ _ _ k hk)
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
-theorem MovReg32RspDisp32.writesWithin (i : MovReg32RspDisp32) : WritesWithin i := by
+theorem MovReg32Mem32Disp.writesWithin (i : MovReg32Mem32Disp) : WritesWithin i := by
   apply registerOnly_writesWithin i
   intro s
   rfl
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
-theorem MovReg32RspDisp32.readsWithin (i : MovReg32RspDisp32) : ReadsWithin i := by
+theorem MovReg32Mem32Disp.readsWithin (i : MovReg32Mem32Disp) : ReadsWithin i := by
   apply singleLoad_readsWithin i .w32
-    ⟨some .rsp, none, signExtend8To64 i.disp⟩
+    ⟨some i.basePtr, none, signExtend8To64 i.disp⟩
     (fun s v => { s.setGpr32 i.dstReg v.toUInt32 with
-      rip := s.rip + (4 + if (reg32Code i.dstReg).2 then 1 else 0) })
+      rip := s.rip + (movReg32Mem32DispEncodedLength i).toUInt64 })
   · rfl
   · intro s1 s2 hout
     simp [MemRef.effectiveAddress, hout.2.1]
   · intro s
-    simp [X86_64Instruction.step, MemRef.effectiveAddress, X86_64MachineState.rsp,
+    simp [X86_64Instruction.step, MemRef.effectiveAddress,
       X86_64MachineState.setGpr32]
   · intro s1 s2 v hout
     obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout

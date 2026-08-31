@@ -48,7 +48,11 @@ private def controls : List Request := [
   { caseId := 0x106, form := .movzxR64Mem8 ⟨.r13, .r15, 0x7f⟩, seed := seededState },
   -- The enclosing R14 value has nonzero upper bits. A missing operand-size distinction would
   -- write eight bytes; exact W32 semantics write only D4 C3 B2 A1 and preserve the upper neighbor.
-  { caseId := 0x107, form := .mem32DispReg32 ⟨.r9, 0x80, .r14d⟩, seed := seededState }
+  { caseId := 0x107, form := .mem32DispReg32 ⟨.r9, 0x80, .r14d⟩, seed := seededState },
+  -- General W32 load uses a distinct base and an R14 destination preloaded with nonzero upper
+  -- bits. The comparison therefore observes both the selected address and mandatory clearing of
+  -- destination bits 63:32 without relying on destination/base aliasing.
+  { caseId := 0x108, form := .reg32Mem32Disp ⟨.r14d, .r9, 0x80⟩, seed := seededState }
 ]
 
 private def coverageComplete : Bool :=
@@ -66,6 +70,11 @@ private def negativeCalibration (observations : List Observation) : Except Strin
     | some observation => pure observation
     | none => throw "runtime negative calibration received no MOVZX native observation"
   HardwareMemoryDifferential.calibrateMovzxStaleHighBitsRejection movzx
+  let load32 ← match observations.find? fun observation =>
+      observation.plan.form.scratchClass == .reg32Mem32Disp with
+    | some observation => pure observation
+    | none => throw "runtime negative calibration received no 32-bit load native observation"
+  HardwareMemoryDifferential.calibrateLoad32StaleHighBitsRejection load32
   let store32 ← match observations.find? fun observation =>
       observation.plan.form.scratchClass == .mem32DispReg32 with
     | some observation => pure observation
@@ -77,7 +86,7 @@ private def negativeCalibration (observations : List Observation) : Except Strin
 #guard coverageComplete
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Executes all six supplemental MOV/MOVZX memory-form classes through the native guarded scratch
+/-- Executes all seven supplemental MOV/MOVZX memory-form classes through the native guarded scratch
     runner and compares them with their exact production `step` semantics. -/
 def main (_args : List String) : IO UInt32 := do
   let result ← run controls
@@ -96,5 +105,5 @@ def main (_args : List String) : IO UInt32 := do
               IO.eprintln s!"x86 scratch-memory differential mismatch: {msg}"
               pure 1
           | .ok () =>
-              IO.println s!"x86 scratch-memory hardware controls passed ({observations.length} exact guarded observations; all five negative calibrations rejected)"
+              IO.println s!"x86 scratch-memory hardware controls passed ({observations.length} exact guarded observations; all six negative calibrations rejected)"
               pure 0

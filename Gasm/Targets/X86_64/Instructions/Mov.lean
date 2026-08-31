@@ -557,6 +557,128 @@ instance : X86_64Instruction MovReg64Mem64Disp where
     (curatedUInt8Cases.map (MovReg64Mem64Disp.mk .r15 .r15 ·))
   memAccesses := movReg64Mem64DispAccesses
 
+/- REF: intel-sdm#vol=2;instr=MOV;part=description -/
+/-- MOV dstReg32, DWORD PTR [basePtr + disp8]: Reads a 32-bit value from general user-space
+    memory and zero-extends it into the architectural 64-bit destination register. -/
+structure MovReg32Mem32Disp where
+  dstReg  : Reg32
+  basePtr : Reg64
+  disp    : UInt8
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- The exact singleton read footprint shared by semantics, uop derivation, and memory-frame
+    automation. -/
+@[simp] def movReg32Mem32DispAccesses (i : MovReg32Mem32Disp) : List MemAccessSpec :=
+  [⟨.load, .w32, ⟨some i.basePtr, none, signExtend8To64 i.disp⟩⟩]
+
+/-- The two optional bytes in the canonical exact-disp8 encoding. This shape is shared by the
+    encoder and operational RIP update so their length accounting cannot drift. -/
+structure MovReg32Mem32DispEncodingShape where
+  rexPresent : Bool
+  sibPresent : Bool
+  deriving DecidableEq, Repr
+
+def movReg32Mem32DispEncodingShape (i : MovReg32Mem32Disp) :
+    MovReg32Mem32DispEncodingShape :=
+  { rexPresent := (reg32Code i.dstReg).2 || (reg64Code i.basePtr).2
+    sibPresent := (reg64Code i.basePtr).1 == 4 }
+
+def movReg32Mem32DispEncodedLength (i : MovReg32Mem32Disp) : Nat :=
+  let shape := movReg32Mem32DispEncodingShape i
+  3 + (if shape.rexPresent then 1 else 0) + (if shape.sibPresent then 1 else 0)
+
+def encodeMovReg32Mem32Disp (i : MovReg32Mem32Disp) : ByteArray :=
+  let (dstCode, dstExt) := reg32Code i.dstReg
+  let (baseCode, baseExt) := reg64Code i.basePtr
+  let shape := movReg32Mem32DispEncodingShape i
+  let rexPrefix :=
+    if shape.rexPresent then #[makeRex false dstExt false baseExt] else #[]
+  let sib := if shape.sibPresent then #[makeSIB 0 4 4] else #[]
+  ByteArray.mk rexPrefix ++
+    ByteArray.mk (#[0x8B, makeModRM 1 dstCode baseCode] ++ sib ++ #[i.disp])
+
+theorem encodeMovReg32Mem32Disp_size (i : MovReg32Mem32Disp) :
+    (encodeMovReg32Mem32Disp i).size = movReg32Mem32DispEncodedLength i := by
+  simp [encodeMovReg32Mem32Disp, movReg32Mem32DispEncodedLength,
+    movReg32Mem32DispEncodingShape] <;>
+    split <;> simp_all <;> split <;> simp_all <;> rfl
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
+instance : X86_64Instruction MovReg32Mem32Disp where
+  encode := encodeMovReg32Mem32Disp
+
+  step i s :=
+    -- The effective address is deliberately evaluated from the pre-state. This keeps dst=base
+    -- correct even though the 32-bit destination write clears the register's upper half.
+    let addr := s.gprs i.basePtr + signExtend8To64 i.disp
+    let val := (s.read32 addr).toUInt32
+    let s' := s.setGpr32 i.dstReg val
+    { s' with rip := s.rip + (movReg32Mem32DispEncodedLength i).toUInt64 }
+
+  toUops i := derivedMemUops (movReg32Mem32DispAccesses i) defaultMemCostModel
+  toNASM i :=
+    if i.disp == 0 then
+      s!"mov {i.dstReg}, dword [{i.basePtr}]"
+    else
+      s!"mov {i.dstReg}, dword [{i.basePtr} {formatDisp8 i.disp}]"
+  toLean i := s!"mov_reg32_mem32_disp .{i.dstReg} .{i.basePtr} {formatHex8 i.disp}"
+  canFuzzHardware _ := false
+  validationOracle _ := .nasmEncoding "general memory-operand form; the sealed guarded scratch-memory differential is supplemental evidence and does not grant silicon admission"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  generateFuzzStates _ rng := ([], rng)
+  roundtripCases :=
+    (allReg32List.map (MovReg32Mem32Disp.mk · .rax 0)) ++
+    (allReg64List.map (MovReg32Mem32Disp.mk .eax · 0)) ++
+    (curatedUInt8Cases.map (MovReg32Mem32Disp.mk .eax .rax ·)) ++
+    (extendedReg32Pairs.map fun p => MovReg32Mem32Disp.mk p.1 (reg32To64 p.2) 0) ++
+    (curatedUInt8Cases.map (MovReg32Mem32Disp.mk .r15d .r15 ·))
+  memAccesses := movReg32Mem32DispAccesses
+
+theorem MovReg32Mem32Disp.step_rip (i : MovReg32Mem32Disp) (s : X86_64MachineState) :
+    (X86_64Instruction.step i s).rip =
+      s.rip + (X86_64Instruction.encode i).size.toUInt64 := by
+  change s.rip + (movReg32Mem32DispEncodedLength i).toUInt64 =
+    s.rip + (encodeMovReg32Mem32Disp i).size.toUInt64
+  rw [encodeMovReg32Mem32Disp_size]
+
+theorem MovReg32Mem32Disp.step_preserves_other_projections (i : MovReg32Mem32Disp)
+    (s : X86_64MachineState) :
+    let s' := X86_64Instruction.step i s
+    s'.flags = s.flags ∧
+    s'.stdinBuffer = s.stdinBuffer ∧
+    s'.incomingRequests = s.incomingRequests ∧
+    s'.fault = s.fault ∧
+    (∀ r, r ≠ reg32To64 i.dstReg → s'.gprs r = s.gprs r) := by
+  dsimp
+  refine ⟨rfl, rfl, rfl, rfl, ?_⟩
+  intro r hne
+  simp [X86_64Instruction.step, X86_64MachineState.setGpr32, hne]
+
+theorem MovReg32Mem32Disp.step_destination_exact_zero_extended (i : MovReg32Mem32Disp)
+    (s : X86_64MachineState) :
+    (X86_64Instruction.step i s).gprs (reg32To64 i.dstReg) =
+      (s.read32 (s.gprs i.basePtr + signExtend8To64 i.disp)).toUInt32.toUInt64 := by
+  simp [X86_64Instruction.step, X86_64MachineState.setGpr32]
+
+/- REF: intel-sdm#vol=1;sec=3.3.7;part=address-calculations-in-64-bit-mode -/
+/-- Effective-address addition is architectural UInt64 addition. These model controls exercise
+    both positive and negative disp8 wrap without asking the native scratch harness to map a
+    noncanonical host address. -/
+theorem movReg32Mem32Disp_effective_address_wrap_controls :
+    let positiveSeed :=
+      ((default : X86_64MachineState).setGpr64 .rax 0xffffffffffffffff).write32
+        0 0x89abcdef
+    let positive := X86_64Instruction.step
+      (MovReg32Mem32Disp.mk .ecx .rax 1) positiveSeed
+    let negativeSeed :=
+      ((default : X86_64MachineState).setGpr64 .rax 0).write32
+        0xffffffffffffffff 0x76543210
+    let negative := X86_64Instruction.step
+      (MovReg32Mem32Disp.mk .ecx .rax 0xff) negativeSeed
+    positive.gprs .rcx = 0x89abcdef ∧ negative.gprs .rcx = 0x76543210 := by
+  decide
+
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- MOV reg32, imm32 helper. -/
 def mov_r32 (dst : Reg32) (imm : UInt32) : AnyX86_64Instruction :=
@@ -611,6 +733,12 @@ def mov_mem64_disp_imm (basePtr : Reg64) (disp : UInt8) (imm : UInt32) : AnyX86_
 /-- MOV dstReg64, QWORD PTR [basePtr + disp8] helper. -/
 def mov_reg64_mem64_disp (dstReg basePtr : Reg64) (disp : UInt8) : AnyX86_64Instruction :=
   ⟨MovReg64Mem64Disp.mk dstReg basePtr disp⟩
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- MOV dstReg32, DWORD PTR [basePtr + disp8] helper. -/
+def mov_reg32_mem32_disp (dstReg : Reg32) (basePtr : Reg64) (disp : UInt8) :
+    AnyX86_64Instruction :=
+  ⟨MovReg32Mem32Disp.mk dstReg basePtr disp⟩
 
 /- REF: intel-sdm#vol=2;instr=MOVZX;part=description -/
 /-- MOVZX dstReg64, BYTE PTR [basePtr + disp8]: Moves 8-bit byte from memory with zero-extension into 64-bit register. -/
@@ -672,60 +800,18 @@ instance : X86_64Instruction MovzxR64Mem8 where
     (curatedUInt8Cases.map (MovzxR64Mem8.mk .r15 .r15 ·))
   memAccesses := movzxR64Mem8Accesses
 
-/- REF: intel-sdm#vol=2;instr=MOV;part=description -/
-/-- MOV dstReg32, DWORD PTR [RSP + disp8]: Reads 32-bit value from stack memory with 32-to-64-bit zero extension. -/
-structure MovReg32RspDisp32 where
-  dstReg : Reg32
-  disp   : UInt8
-  deriving DecidableEq, Repr, Inhabited
-
-/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
-/-- See `movRspDispByteAccesses`'s doc comment for why this is hoisted rather than duplicated
-    inline between `memAccesses` and `toUops`. -/
-@[simp] def movReg32RspDisp32Accesses (i : MovReg32RspDisp32) : List MemAccessSpec :=
-  [⟨.load, .w32, ⟨some .rsp, none, signExtend8To64 i.disp⟩⟩]
-
-/- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
-instance : X86_64Instruction MovReg32RspDisp32 where
-  encode i :=
-    let (dstCode, dstExt) := reg32Code i.dstReg
-    let rexPrefix := if dstExt then #[makeRex false dstExt false false] else #[]
-    ByteArray.mk rexPrefix ++ ByteArray.mk #[0x8B, makeModRM 1 dstCode 4, makeSIB 0 4 4, i.disp]
-
-  step i s :=
-    let addr := s.rsp + signExtend8To64 i.disp
-    let val := (s.read32 addr).toUInt32
-    let s' := s.setGpr32 i.dstReg val
-    let len := 4 + (if (reg32Code i.dstReg).2 then 1 else 0)
-    { s' with rip := s.rip + len }
-
-  toUops i := derivedMemUops (movReg32RspDisp32Accesses i) defaultMemCostModel
-  -- Signed-displacement formatting is load-bearing here too (see the sibling fix throughout this
-  -- file, found via P4(a)'s registry-derived encoding fuzzer,
-  -- docs/X86_ISA_EXPANSION_PREREQUISITES.md): `{i.disp.toNat}` rendered `0x80` (disp=`0x80`, i.e.
-  -- signed -128) as the POSITIVE literal "128", which does not fit a signed disp8 (-128..127) by
-  -- NASM's reading, forcing it to a disp32 SIB encoding instead of the disp8 SIB form `encode`
-  -- always emits. `formatDisp8` supplies the correct sign.
-  toNASM i := s!"mov {i.dstReg}, dword [rsp {formatDisp8 i.disp}]"
-  toLean i := s!"mov_r32_rsp .{i.dstReg} {formatHex8 i.disp}"
-  canFuzzHardware _ := false
-  validationOracle _ := .nasmEncoding "memory-operand or RSP-relative addressing form; HardwareHarness has no scratch-memory-region support yet, and the memory-operand capability contract is also unbuilt (see docs/X86_ISA_EXPANSION_PREREQUISITES.md P2/P4) -- encoding is NASM-cross-checked instead"
-  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
-  generateFuzzStates _ rng := ([], rng)
-  roundtripCases :=
-    (allReg32List.map (MovReg32RspDisp32.mk · 0x00)) ++ (curatedUInt8Cases.map (MovReg32RspDisp32.mk .eax ·)) ++
-    (curatedUInt8Cases.map (MovReg32RspDisp32.mk .r15d ·))
-  memAccesses := movReg32RspDisp32Accesses
-
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- MOVZX dstReg64, BYTE PTR [basePtr + disp8] helper. -/
 def movzx_r64_mem8 (dstReg basePtr : Reg64) (disp : UInt8 := 0) : AnyX86_64Instruction :=
   ⟨MovzxR64Mem8.mk dstReg basePtr disp⟩
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
-/-- MOV dstReg32, DWORD PTR [RSP + disp8] helper. -/
+/-- Compatibility spelling for the canonical general disp8 family at base RSP. -/
 def mov_r32_rsp (dstReg : Reg32) (disp : UInt8) : AnyX86_64Instruction :=
-  ⟨MovReg32RspDisp32.mk dstReg disp⟩
+  mov_reg32_mem32_disp dstReg .rsp disp
+
+@[simp] theorem mov_r32_rsp_is_canonical_general_identity (dstReg : Reg32) (disp : UInt8) :
+    mov_r32_rsp dstReg disp = mov_reg32_mem32_disp dstReg .rsp disp := rfl
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- MOV dstReg64, QWORD PTR [RSP + disp8] helper. -/
@@ -755,8 +841,8 @@ theorem mov_mem64_disp_imm_sign_extension_soundness :
 /-- Co-located decoder for the MOV/MOVZX family: `0xB8..0xBF` (MOV reg, imm — 32-bit or 64-bit
     depending on REX.W), `0x88` (MOV byte ptr [mem], reg8), `0x89` (MOV r64, r64 or MOV
     [base+disp], reg64 when REX.W=1; MOV [base+disp], reg32 when REX.W=0), `0x8B`
-    (MOV r64, [base+disp] when REX.W=1, or the fixed MOV r32,
-    [RSP+disp8] form when REX.W=0), `0xC6` (MOV byte ptr [RSP+disp8], imm8, RSP-only), `0xC7`
+    (MOV r64, [base+disp] when REX.W=1, or MOV r32, [base+disp] when REX.W=0),
+    `0xC6` (MOV byte ptr [RSP+disp8], imm8, RSP-only), `0xC7`
     (MOV [mem], imm32, with the same RSP/R12 canonicalization `encode` uses), and `0x0F 0xB6`
     (MOVZX r64, byte ptr [base+disp]). Preserves every soundness fix the original monolithic
     branch carried (the 0x8B REX.W-conditioned width switch; SIB-base-4 deriving R12 via `rexB`
@@ -765,7 +851,7 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
   -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
   match parseRexAndOpcode bytes offset with
   | .error e => .error e
-  | .ok (_, rexW, rexR, rexX, rexB, opcode, opOffset) =>
+  | .ok (hasRex, rexW, rexR, rexX, rexB, opcode, opOffset) =>
     if opcode >= 0xB8 && opcode <= 0xBF then
       let regCode := opcode - 0xB8
       if rexW then
@@ -888,53 +974,85 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
         else
           .error "movTryDecode: unsupported mod field for 0x89 MOV"
     else if opcode == 0x8B then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (mod, reg, rm, modPos) =>
-        if rexW then
-          let dstReg := codeToReg64 reg rexR
-          if mod == 0 then
-            if rm == 4 then
-              match readUInt8 bytes modPos with
-              | .error e => .error e
-              | .ok _sib =>
-                let basePtr := codeToReg64 4 rexB
-                .ok (mov_reg64_mem64_disp dstReg basePtr 0, (modPos + 1) - offset)
-            else
-              let basePtr := codeToReg64 rm rexB
-              .ok (mov_reg64_mem64_disp dstReg basePtr 0, modPos - offset)
-          else if mod == 1 then
-            if rm == 4 then
-              match readUInt8 bytes modPos with
-              | .error e => .error e
-              | .ok _sib =>
-                match readUInt8 bytes (modPos + 1) with
+      if rexX then
+        .error "movTryDecode: unsupported indexed REX.X form for 0x8B MOV"
+      else if !rexW && hasRex && !rexR && !rexB then
+        .error "movTryDecode: redundant REX prefix for 32-bit 0x8B MOV"
+      else
+        match readModRM bytes opOffset with
+        | .error e => .error e
+        | .ok (mod, reg, rm, modPos) =>
+          if rexW then
+            let dstReg := codeToReg64 reg rexR
+            if mod == 0 then
+              if rm == 4 then
+                match readUInt8 bytes modPos with
+                | .error e => .error e
+                | .ok sib =>
+                  if sib == makeSIB 0 4 4 then
+                    let basePtr := codeToReg64 4 rexB
+                    .ok (mov_reg64_mem64_disp dstReg basePtr 0, (modPos + 1) - offset)
+                  else
+                    .error "movTryDecode: unsupported indexed/noncanonical SIB for 64-bit 0x8B MOV"
+              else if rm == 5 then
+                .error "movTryDecode: unsupported RIP-relative 64-bit 0x8B MOV"
+              else
+                let basePtr := codeToReg64 rm rexB
+                .ok (mov_reg64_mem64_disp dstReg basePtr 0, modPos - offset)
+            else if mod == 1 then
+              if rm == 4 then
+                match readUInt8 bytes modPos with
+                | .error e => .error e
+                | .ok sib =>
+                  if sib == makeSIB 0 4 4 then
+                    match readUInt8 bytes (modPos + 1) with
+                    | .error e => .error e
+                    | .ok disp8 =>
+                      if disp8 == 0 then
+                        .error "movTryDecode: noncanonical zero displacement for 64-bit 0x8B MOV"
+                      else
+                        let basePtr := codeToReg64 4 rexB
+                        .ok (mov_reg64_mem64_disp dstReg basePtr disp8,
+                          (modPos + 2) - offset)
+                  else
+                    .error "movTryDecode: unsupported indexed/noncanonical SIB for 64-bit 0x8B MOV"
+              else
+                match readUInt8 bytes modPos with
                 | .error e => .error e
                 | .ok disp8 =>
-                  let basePtr := codeToReg64 4 rexB
-                  .ok (mov_reg64_mem64_disp dstReg basePtr disp8, (modPos + 2) - offset)
+                  if disp8 == 0 && rm != 5 then
+                    .error "movTryDecode: noncanonical zero displacement for 64-bit 0x8B MOV"
+                  else
+                    let basePtr := codeToReg64 rm rexB
+                    .ok (mov_reg64_mem64_disp dstReg basePtr disp8,
+                      (modPos + 1) - offset)
             else
-              match readUInt8 bytes modPos with
-              | .error e => .error e
-              | .ok disp8 =>
-                let basePtr := codeToReg64 rm rexB
-                .ok (mov_reg64_mem64_disp dstReg basePtr disp8, (modPos + 1) - offset)
+              .error "movTryDecode: unsupported mod field for 64-bit 0x8B MOV"
           else
-            .error "movTryDecode: unsupported mod field for 0x8B MOV"
-        else
-          -- 32-bit form: the only encodable pattern is MovReg32RspDisp32's fixed [RSP + disp8]
-          -- SIB encoding (mod=1, rm=4, base=4), disp8 always present.
-          if mod == 1 && rm == 4 then
-            match readUInt8 bytes modPos with
-            | .error e => .error e
-            | .ok _sib =>
-              match readUInt8 bytes (modPos + 1) with
-              | .error e => .error e
-              | .ok disp8 =>
-                let dstReg32 := codeToReg32 reg rexR
-                .ok (mov_r32_rsp dstReg32 disp8, (modPos + 2) - offset)
-          else
-            .error "movTryDecode: unsupported mod/rm field for 32-bit 0x8B MOV"
+            let dstReg := codeToReg32 reg rexR
+            if mod == 1 then
+              if rm == 4 then
+                match readUInt8 bytes modPos with
+                | .error e => .error e
+                | .ok sib =>
+                  if sib == makeSIB 0 4 4 then
+                    match readUInt8 bytes (modPos + 1) with
+                    | .error e => .error e
+                    | .ok disp8 =>
+                      let basePtr := codeToReg64 4 rexB
+                      .ok (mov_reg32_mem32_disp dstReg basePtr disp8,
+                        (modPos + 2) - offset)
+                  else
+                    .error "movTryDecode: unsupported indexed/noncanonical SIB for 32-bit 0x8B MOV"
+              else
+                match readUInt8 bytes modPos with
+                | .error e => .error e
+                | .ok disp8 =>
+                  let basePtr := codeToReg64 rm rexB
+                  .ok (mov_reg32_mem32_disp dstReg basePtr disp8,
+                    (modPos + 1) - offset)
+            else
+              .error "movTryDecode: 32-bit 0x8B MOV requires canonical mod=01 disp8"
     else if opcode == 0xC6 then
       match readModRM bytes opOffset with
       | .error e => .error e

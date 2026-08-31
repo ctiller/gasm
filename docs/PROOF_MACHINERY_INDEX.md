@@ -201,7 +201,7 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Compose frame facts without clobber-order obligations | `preserves_comp`, `preservesOutside_comp`, `preservesOutside_comp_append` | target-independent observation algebra | x86-64 segment composition and the shared list-execution consumers | append is only a conservative union representation; uniqueness and order are irrelevant |
 | Preserve an x86 64-bit read across a lower, non-wrapping write | `Gasm.Targets.X86_64.X86_64Mem.read64_write_below` | x86-64 memory semantics | Spike 2 decimal authority and Spike 5 native proofs | address arithmetic, write width, nowrap, and strict-below premises remain explicit; this is not a target-independent memory model |
 | Derive an exact singleton-store frame | `X86_64Mem.readByte_write_outside_addresses`, `readByte_write_inside`, `MemoryFrame.singleStore_writesWithin`, and `singleStore_readsWithin` | x86-64 memory and frame semantics | `MovMem32DispReg32` and `MovMem64DispReg64` | exact singleton descriptor and step-memory equality are mandatory; address, value, and non-memory projection congruence remain consumer facts; this supplies no admission or artifact authority |
-| Derive an exact singleton-load read frame | `MemoryFrame.singleLoad_readsWithin`, with `registerOnly_writesWithin` for the separate no-write frame | x86-64 memory and frame semantics | `MovReg32RspDisp32` and `MovReg64Mem64Disp` | exact singleton descriptor, address congruence, one-read step factorization, and memory-insensitive post transformation are mandatory; write preservation remains a separate audited obligation |
+| Derive an exact singleton-load read frame | `MemoryFrame.singleLoad_readsWithin`, with `registerOnly_writesWithin` for the separate no-write frame | x86-64 memory and frame semantics | `MovReg32Mem32Disp` and `MovReg64Mem64Disp` | exact singleton descriptor, address congruence, one-read step factorization, and memory-insensitive post transformation are mandatory; write preservation remains a separate audited obligation |
 | Show bounded finite exploration contains only normative reachable states | `Gasm.MemoryModel.FiniteSearch.Enumerator.search_sound` | memory-model presentation/search boundary | the checked incomplete-enumerator negative control exercises the one-way guarantee | completeness is separate and may not be inferred from bounded fuel or a finite result |
 | Preserve dependent CFG identity through lowering or nominal remapping | `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock`, `lower_ref_exact`, and `lowerDefinitions_mapBlockId_block` | compiler CFG authoring/lowering | typed CFG lowering and x86-64 control-point remapping | matching names or entries do not substitute for equality of the complete dependent definition |
 | Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.DecimalSchedule.UInt64DecimalScheduleRealization.selectedPrefix_bounded` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection; the fuel theorem supplies no resource authority |
@@ -237,7 +237,8 @@ evidence, and negative boundary after that comparison; it does not own a second 
 - Accepted extraction `archive/accepted/x86-singleton-load-frame-aa80e2b1`
   (`aa80e2b184e043a33d5cd6d34e7ae8b3dd4cb7c6`; reviewed successor
   `dda5776618e4acea13c98e689672f6d1946c29e3`) adds `singleLoad_readsWithin` for
-  `MovReg32RspDisp32` and `MovReg64Mem64Disp`.  One exact singleton `.load` descriptor,
+  the former RSP-specific W32 load (now subsumed by `MovReg32Mem32Disp`) and
+  `MovReg64Mem64Disp`. One exact singleton `.load` descriptor,
   effective-address congruence, a step factorization through that width read, and a post transformer
   parametric under `agreeOutsideMemory` derive declared-read dependence via `agreeOn` and
   `X86_64Mem.read_congr'`.  The empty store footprint discharges `StoreAgreeOn`.
@@ -1011,7 +1012,8 @@ The following code shapes have enough evidence to investigate but are not canoni
   harness's existing nonclaims and final-authority boundary remain in force.
 
   Provisional singleton-load scope from canonical `4c6fbf4c` permits a `MemoryFrame.Common`
-  experiment for exactly `MovReg32RspDisp32` and `MovReg64Mem64Disp`.  Retain
+  experiment for the W32 MOV load family and `MovReg64Mem64Disp`. The W32 family has since been
+  canonicalized as `MovReg32Mem32Disp`, subsuming the former RSP-specific identity. Retain
   `registerOnly_writesWithin` under its existing name and implementation, correct its documentation
   to the genuinely generic no-memory-change meaning, and reuse it for both load consumers; do not
   introduce an alias or rename its existing call sites.  Proposed `singleLoad_readsWithin` requires

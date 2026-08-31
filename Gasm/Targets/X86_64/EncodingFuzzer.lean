@@ -96,9 +96,9 @@ def shiftByOneHazardPrefixes : List String :=
          ModRM form.
       3. Shift instructions (`shiftByOneHazardPrefixes`) with immediate exactly 1: NASM emits the
          dedicated shift-by-1 short form instead of the general immediate form.
-      4. `MovReg32RspDisp32` (`mov_r32_rsp`) and `LeaRspDisp32` (`lea_rsp32`) with `disp = 0`:
-         both `encode` implementations unconditionally emit a full displacement (`mod=01`
-         forced-disp8 for the former, `mod=10` forced-disp32 for the latter, even when the value
+      4. `MovReg32Mem32Disp` (`mov_reg32_mem32_disp`) and `LeaRspDisp32` (`lea_rsp32`) with
+         `disp = 0`: both `encode` implementations unconditionally emit a full displacement
+         (`mod=01` exact-disp8 for the former, `mod=10` forced-disp32 for the latter, even when the value
          is exactly `0`) -- unlike every sibling RSP/memory form in this file, which special-cases
          `disp == 0` to the shorter `mod=00` (no displacement byte) form both in `encode` and in
          `toNASM`. NASM optimizes `[rsp + 0x0]`-shaped text down to the shorter `mod=00` form
@@ -122,9 +122,9 @@ def encodingFuzzerCandidates : List AnyX86_64Instruction :=
     let xchgHazard := s.startsWith "xchg_r64"
     let accumHazard := accumulatorImm32HazardPrefixes.any fun p => s.startsWith (p ++ " .rax ")
     let shiftOneHazard := shiftByOneHazardPrefixes.any fun p => s.startsWith p && s.endsWith " 0x1"
-    let movR32RspZeroDispHazard := s.startsWith "mov_r32_rsp" && s.endsWith " 0x0"
+    let movR32MemZeroDispHazard := s.startsWith "mov_reg32_mem32_disp" && s.endsWith " 0x0"
     let leaRsp32ZeroDispHazard := s.startsWith "lea_rsp32" && s.endsWith "(0)"
-    !(xchgHazard || accumHazard || shiftOneHazard || movR32RspZeroDispHazard || leaRsp32ZeroDispHazard)
+    !(xchgHazard || accumHazard || shiftOneHazard || movR32MemZeroDispHazard || leaRsp32ZeroDispHazard)
 
 /- REF: docs/X86_ISA_EXPANSION_PREREQUISITES.md#p4-blocking-make-per-instruction-validation-obligations-mandatory-and-visible -/
 /-- Generates a pseudo-random instruction by picking uniformly from

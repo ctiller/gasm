@@ -117,6 +117,21 @@ private def movzxByteLoadAccepted : Bool :=
           decoded.state.gprs .r13 ==
             (X86_64Mem.readByte plan.initialState.memory plan.accessAddress).toUInt64
 
+private def generalW32LoadAccepted : Bool :=
+  let seed := (default : X86_64MachineState).setGpr64 .r14 0x88776655a1b2c3d4
+  match prepare 8 (.reg32Mem32Disp ⟨.r14d, .r9, 0x80⟩) seed 0x140004000 with
+  | .error _ => false
+  | .ok plan =>
+      match plan.decodeAndStep, plan.modelRegionAfter with
+      | .ok decoded, .ok regionAfter =>
+          plan.accessKind == .load &&
+          plan.accessWidth == .w32 &&
+          decoded.state.gprs .r14 ==
+            (plan.initialState.read32 plan.accessAddress).toUInt32.toUInt64 &&
+          decoded.state.gprs .r14 >>> 32 == 0 &&
+          regionAfter == plan.regionBefore
+      | _, _ => false
+
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Positive address-identity control, including the alias-sensitive load where destination and
 -- base are the same register: the checked address is fixed from the pre-state.
@@ -139,5 +154,10 @@ private def movzxByteLoadAccepted : Bool :=
 -- The distinct MOVZX family is admitted as an exact one-byte load, and its production step
 -- replaces every destination bit with the zero-extended byte rather than retaining stale high bits.
 #guard movzxByteLoadAccepted
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- The canonical general W32 load has one exact four-byte read, clears the destination's upper
+-- half, and leaves the complete guarded memory region unchanged.
+#guard generalW32LoadAccepted
 
 end Gasm.Targets.X86_64.HardwareMemoryControls
