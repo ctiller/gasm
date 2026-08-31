@@ -268,6 +268,16 @@ evidence, and negative boundary after that comparison; it does not own a second 
   or prefixes, and truncation.  The focused MOV frontier built 62 jobs.  This is exact target
   encoding, decoding, semantics, and frame evidence only; it adds no native, platform, consumer, or
   `VerifiedProgram` authority.
+- Canonical `e964f9e0d9b78aecf768353ec68f725af180baf2` repairs the existing `0x88` byte-store
+  decoder to be an exact inverse on the encoder's represented subset.  Decoder and encoder use the
+  same REX-presence predicate, preserving the exact low-byte register bank, independent REX.R/B,
+  canonical no-index SIB/base identity, and forced zero displacement for RBP/R13.  The prior decoder
+  could relabel legacy high-byte sources as low-byte registers, indexed or RIP-relative addresses as
+  base-only, erase nonzero displacement, and under-consume the RIP form.  Controls first reproduce
+  those concrete semantic and stream-boundary ambiguities, then lock canonical reverse cases and
+  reject hostile prefixes, modes, SIB/index forms, displacement aliases, and truncations.  Encoder,
+  instruction semantics, frames, consumers, and authority are unchanged; this repair supplies no
+  new native, platform, admission, or `VerifiedProgram` claim.
 - For an expensive exact execution proof, keep the complete certificate in its producer and export
   a separate typed boundary containing only the observations required by the successor.  The
   accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
