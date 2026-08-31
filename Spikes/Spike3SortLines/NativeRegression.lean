@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Spikes.Spike3SortLines.NativeOutcome
+import Spikes.Spike3SortLines.StableSortRegression
 
 /-! Explicit operational probes for the bounded native Spike 3 artifact.  These are regression
     observations, deliberately not theorems and not substitutes for the universal runtime-boundary
@@ -52,9 +53,10 @@ end Spikes.Spike3SortLines
 
 /-- Explicit executable regression target for bounded native resource outcomes. -/
 def main : IO UInt32 := do
-  if Spikes.Spike3SortLines.nativeResourceRegressionPassed then
-    IO.println "[PASS] Spike 3 native resource outcomes"
+  if Spikes.Spike3SortLines.nativeResourceRegressionPassed &&
+      Spikes.Spike3SortLines.taggedStableSortRegressionPassed then
+    IO.println "[PASS] Spike 3 native resource outcomes and tagged stable sort"
     return 0
   else
-    IO.eprintln "[FAIL] Spike 3 native resource outcomes"
+    IO.eprintln "[FAIL] Spike 3 native resource outcomes or tagged stable sort"
     return 1

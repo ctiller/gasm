@@ -17,6 +17,7 @@ limitations under the License.
 import Gasm.Effects.Trace
 import Init.Data.List.Lex
 import Spikes.Spike3SortLines.Input
+import Stdlib.Containers.Sort
 
 /-! Executable, byte-total specification for Spike 3.
 
@@ -48,16 +49,12 @@ def byteLineLe : List UInt8 → List UInt8 → Bool
     if left == right then byteLineLe leftRest rightRest else decide (left < right)
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
-def insertByteLine (line : List UInt8) : List (List UInt8) → List (List UInt8)
-  | [] => [line]
-  | current :: rest =>
-    if byteLineLe line current then line :: current :: rest
-    else current :: insertByteLine line rest
+def insertByteLine (line : List UInt8) : List (List UInt8) → List (List UInt8) :=
+  Stdlib.Sort.insert byteLineLe line
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
-def sortByteLines : List (List UInt8) → List (List UInt8)
-  | [] => []
-  | line :: rest => insertByteLine line (sortByteLines rest)
+def sortByteLines : List (List UInt8) → List (List UInt8) :=
+  Stdlib.Sort.insertionSort byteLineLe
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 /-- The executable byte comparator is precisely the ordinary lexicographic order on byte lists.
@@ -109,69 +106,41 @@ theorem byteLineLe_total (left right : List UInt8) :
   · exact Or.inr ((byteLineLe_eq_true_iff right left).mpr rightLeft)
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
+/-- The byte-line comparator supplies the reusable standard-library sorting laws. -/
+theorem byteLineLawfulOrder : Stdlib.Sort.LawfulOrder byteLineLe where
+  refl := byteLineLe_refl
+  trans := byteLineLe_trans
+  antisymm := byteLineLe_antisymm
+  total := byteLineLe_total
+
+/- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 /-- Inserting one line rearranges no existing line and adds exactly that line. -/
 theorem insertByteLine_perm (line : List UInt8) (lines : List (List UInt8)) :
     (insertByteLine line lines).Perm (line :: lines) := by
-  induction lines with
-  | nil => simp [insertByteLine]
-  | cons current rest ih =>
-    unfold insertByteLine
-    split
-    · exact List.Perm.refl _
-    · exact (List.Perm.cons current ih).trans (List.Perm.swap line current rest)
+  simpa [insertByteLine] using Stdlib.Sort.insert_perm byteLineLe line lines
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 /-- Insertion preserves pairwise lexicographic ordering. -/
 theorem insertByteLine_pairwise_le (line : List UInt8) {lines : List (List UInt8)}
     (ordered : List.Pairwise (fun left right : List UInt8 => left ≤ right) lines) :
     List.Pairwise (fun left right : List UInt8 => left ≤ right) (insertByteLine line lines) := by
-  induction lines with
-  | nil => simp [insertByteLine]
-  | cons current rest ih =>
-    rw [List.pairwise_cons] at ordered
-    unfold insertByteLine
-    by_cases lineBefore : byteLineLe line current = true
-    · simp only [lineBefore]
-      apply List.Pairwise.cons
-      · intro next nextMember
-        have nextCases : next = current ∨ next ∈ rest := by simpa using nextMember
-        rcases nextCases with equal | nextMember
-        · cases equal
-          exact (byteLineLe_eq_true_iff line current).mp lineBefore
-        · calc
-            line ≤ current := (byteLineLe_eq_true_iff line current).mp lineBefore
-            _ ≤ next := ordered.1 next nextMember
-      · exact List.Pairwise.cons ordered.1 ordered.2
-    · simp only [lineBefore]
-      apply List.Pairwise.cons
-      · intro next nextMember
-        have currentLeLine : current ≤ line := by
-          rcases List.le_total line current with lineLeCurrent | currentLeLine
-          · exact False.elim
-              (lineBefore ((byteLineLe_eq_true_iff line current).mpr lineLeCurrent))
-          · exact currentLeLine
-        have nextCases : next = line ∨ next ∈ rest := by
-          simpa using (List.Perm.mem_iff (insertByteLine_perm line rest)).mp nextMember
-        rcases nextCases with nextIsLine | nextRest
-        · cases nextIsLine
-          exact currentLeLine
-        · exact ordered.1 next nextRest
-      · exact ih ordered.2
+  have genericOrdered : Stdlib.Sort.SortedBy byteLineLe lines := by
+    simpa [Stdlib.Sort.SortedBy, byteLineLe_eq_true_iff] using ordered
+  have inserted := Stdlib.Sort.insert_sorted byteLineLe
+    byteLineLawfulOrder.toLawfulTotalRelation line genericOrdered
+  simpa [insertByteLine, Stdlib.Sort.SortedBy, byteLineLe_eq_true_iff] using inserted
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 theorem sortByteLines_pairwise_le (lines : List (List UInt8)) :
     List.Pairwise (fun left right : List UInt8 => left ≤ right) (sortByteLines lines) := by
-  induction lines with
-  | nil => simp [sortByteLines]
-  | cons line rest ih => exact insertByteLine_pairwise_le line ih
+  have sorted := Stdlib.Sort.insertionSort_sorted byteLineLe
+    byteLineLawfulOrder.toLawfulTotalRelation lines
+  simpa [sortByteLines, Stdlib.Sort.SortedBy, byteLineLe_eq_true_iff] using sorted
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 theorem sortByteLines_perm (lines : List (List UInt8)) :
     (sortByteLines lines).Perm lines := by
-  induction lines with
-  | nil => exact List.Perm.refl _
-  | cons line rest ih =>
-    exact (insertByteLine_perm line _).trans (List.Perm.cons line ih)
+  simpa [sortByteLines] using Stdlib.Sort.insertionSort_perm byteLineLe lines
 
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#1-overview-high-level-architecture -/
 /-- Observable output for a sorted byte-line sequence. Each completed input line is emitted with

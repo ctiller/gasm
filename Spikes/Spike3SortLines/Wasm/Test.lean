@@ -18,6 +18,7 @@ import Lean
 import Gasm.Core.Verification
 import Gasm.Targets.WASI.ABI
 import Spikes.Spike3SortLines.Spec
+import Spikes.Spike3SortLines.StableSortRegression
 import Spikes.Spike3SortLines.Wasm.Program
 import Spikes.Spike3SortLines.Wasm.Equivalence
 import Spikes.Common.WasmHostRunner
@@ -34,6 +35,11 @@ open Spikes.Spike3SortLines.Wasm
     2. Host Runtime Verification: Executes the emitted Wasm binary via host Node.js WASI runtime with piped stdin across multiple datasets. -/
 def main : IO UInt32 := do
   IO.println "=== Running Spike 3 (WebAssembly / WASI Line Sorter) Test Suite ==="
+
+  if !taggedStableSortRegressionPassed then
+    IO.eprintln "FAILED: tagged equal-key records did not retain origin order"
+    return 1
+  IO.println "[PASS] Generic stable sort retained tagged equal-key origin order."
 
   -- 1. In-Lean Formal Trace Verification
   IO.println "[*] 1. In-Lean Formal Semantic Verification..."

@@ -18,6 +18,7 @@ import Lean
 import Gasm.Core.Types
 import Gasm.Core.Verification
 import Spikes.Spike3SortLines.Spec
+import Spikes.Spike3SortLines.StableSortRegression
 import Spikes.Spike3SortLines.Linux.Program
 import Spikes.Spike3SortLines.Linux.Equivalence
 
@@ -29,6 +30,11 @@ open Gasm.Core.Verification
 /-- Comprehensive test suite for Linux Spike 3: verifies sorting functional correctness, permutation soundness, and stdin-piped binary execution. -/
 def runTests : IO UInt32 := do
   IO.println "=== Running Spike 3 Linux (Stdin Lexicographical Sorter) Test Suite ==="
+
+  if !taggedStableSortRegressionPassed then
+    IO.eprintln "FAILED: tagged equal-key records did not retain origin order"
+    return 1
+  IO.println "[PASS] Generic stable sort retained tagged equal-key origin order."
 
   -- 1. Functional Sorting Unit Tests
   let test1 := sortStrings []

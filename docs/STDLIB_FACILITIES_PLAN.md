@@ -91,11 +91,11 @@ real consumers.
 ### 4.1 Sequences and finite tables
 
 - **Present:** representation-independent `Vec` model, Array-backed realization,
-  `ByteVec` bridge, executable operations, and reference insertion sort.
-- **Next:** complete append lookup laws, stable key-based sorting over a lawful total
-  preorder, and preservation of relative order within comparator-equivalent values.
-  For the current non-strict relation, keys are equivalent when precedence holds in
-  both directions; stability preserves original tagged order inside that class.
+  `ByteVec` bridge, executable operations, reference insertion sort, and stable
+  key-based sorting over a lawful total preorder. For the non-strict relation, keys
+  are equivalent when precedence holds in both directions; stability preserves the
+  exact original tagged-record sequence inside every such class.
+- **Next:** complete append lookup laws.
 - **Next:** a dependent finite-table contract with semantic model
   `(i : Fin n) -> F i`, extensionality, tabulation, dependent mapping, reindexing by
   finite equivalences, and append/split roundtrips.
@@ -326,7 +326,7 @@ promotion requires filling any missing consumer, bound, and cost evidence.
 
 | Facility | Current spellings | Consumers / pressure | Required law or boundary | State |
 | --- | --- | --- | --- | --- |
-| Vec and stable key sort | `Stdlib/Containers/*` | Spike 3 and MASM record sorting | tagged-input stability within mutual-preorder equivalence `beforeKey a b = true` and `beforeKey b a = true` | Next |
+| Vec and stable key sort | `Stdlib/Containers/*` | Spike 3 model and tagged executable regression; MASM record sorting | exact class-projection stability within mutual-preorder equivalence `beforeKey a b = true` and `beforeKey b a = true` | Present; nonvacuous tagged demonstration |
 | Dependent finite table | function tables in RecursiveCFGBuilder and TypedCFG | compiler role and definition tables | extensionality, dependent get/map, reindex, append/split | Next |
 | Generic ByteArray lemmas | `Stdlib/Zlib/ByteArrayBridge.lean` | Zlib and PNG | exact list/array observation bridges; no Zlib dependency | Next |
 | `Nat.alignUp` | Linux ELF and Windows PE emitters | two linker/emitter paths | preserve zero policy; positive-alignment divisibility and minimality | Next |

@@ -140,10 +140,14 @@ modeled and linked before that claim may be made.
 ## 5. Mathematical Sortedness & Permutation Theorems
 
 The functional specification defines `sortStrings : List String → List String` and an
-`IsSorted` predicate. The checked theorem population is narrower than the intended general
-contract: `sortStrings_nil`, `sortStrings_single`, and one concrete three-element example exist.
-There is no universal sortedness theorem and no universal permutation theorem in the tree yet.
-Those remain required before the mathematical contract below can be claimed for arbitrary lists.
+`IsSorted` predicate. The byte-total model retains the public `insertByteLine` and
+`sortByteLines` names as transparent wrappers over `Stdlib.Sort`. Its universal theorems prove
+pairwise lexicographic ordering and permutation for arbitrary byte-line lists. The standard
+library separately proves projected-key stability by exact mutual-preorder class projections.
+`StableSortRegression.lean` makes that claim non-vacuous with distinct tagged records sharing an
+equal byte key: a smaller intervening record moves ahead while the equal-key origins remain in
+their original order. These pure model facts do not establish target execution or artifact
+authority; those remain subject to the simulation boundary below.
 
 ### 5.1 Framed ghost line-world layer
 
