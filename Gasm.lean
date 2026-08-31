@@ -50,6 +50,8 @@ import Gasm.MemoryModel.Envelope
 import Gasm.MemoryModel.EnvelopeControls
 import Gasm.MemoryModel.AddressRange
 import Gasm.MemoryModel.AddressRangeControls
+import Gasm.MemoryModel.AccessAudit
+import Gasm.MemoryModel.AccessAuditControls
 import Gasm.MemoryModel.EnvelopeOccurrencePath
 import Gasm.MemoryModel.EnvelopeOccurrencePathControls
 import Gasm.MemoryModel.BindingHistory
