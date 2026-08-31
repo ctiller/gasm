@@ -658,6 +658,30 @@ plan chooses no ISA, register allocation, spills, flags, ABI, CFG block, layout,
 handwritten optimized leaves may instead prove the same source/result and selected frame contracts.
 Target realization and differential replacement remain separate proof-producing layers.
 
+## Structured Microsoft x64 process-entry backend
+
+`Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry` realizes the same bounded portable
+plans for a deliberately narrow Microsoft-x64 process-entry boundary. RCX/RDX/R8/R9 are the four
+selected inputs, RAX is the result, R10/R11 are operand scratch, and seven creation-order
+temporaries use RBX/RSI/RDI/R12--R15. `Fits` rejects plans that exceed that finite assignment.
+
+Those temporary registers are nonvolatile in the Microsoft x64 callable ABI, so this backend does
+not claim to produce a callable function. Its `LocalCertificate` exposes the exact clobber list;
+the absence of a callable certificate is the honest boundary, with no proof-free entry/callable
+tag. A later target-owned spike must prove that the body is the PE process entry and every path
+reaches an explicit non-returning process outcome. It must close or universally exclude
+fallthrough, return, unwind, callbacks/reentrancy, exception or fault continuation, teardown
+observers, and any caller continuation that could observe the clobbers. Naming `ExitProcess` does
+not itself discharge those obligations. A future callable wrapper must preserve or reallocate the
+nonvolatile registers.
+
+Within that boundary, the certificate connects the named structured Lean function to portable
+code, macro segments, exact x86 instructions and bytes, the local RAX result, input and memory
+preservation, fault preservation, exact RIP advance, declared GPR clobbers, and nominal
+control-flow freedom. It remains frontend evidence only: lookup, runtime interception, PE layout,
+ExitProcess realization, artifact identity, admission, and `VerifiedProgram` composition belong to
+the separate spike and target layers.
+
 ## Structured AArch64 bounded backend
 
 `Gasm.Compiler.Word.StructuredStraightLineAArch64` is the first target realization of those
