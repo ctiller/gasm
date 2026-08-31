@@ -210,13 +210,22 @@ The following code shapes have enough evidence to investigate but are not canoni
   establishment is insufficient unless changed to participate in the load transition.  No globally
   comparable erased correlation token is exposed.
 
-  MP-authored candidate `a4976bfe5ae9fb994ed8ed3a5597e99b32092194` (parent canonical main
+  Blocked candidate `a4976bfe5ae9fb994ed8ed3a5597e99b32092194` (parent canonical main
   `31d1ac6`) specifies `LoadDiscipline`, a stateless `Unit` adapter, sole-`VerifiedProgram` world
   threading, and a selected `GenerativeLoadCertificate`.  The graphics specialization allocates its
   root plus operation/response identities in the exact load transition and rejects phantom or
-  existential authority.  Checks pass; Reviewer verdict and Trust integration are pending.
-  `d9685b5` remains namespace-only and runner work remains blocked.  This is a concrete design
-  candidate, not established machinery.
+  existential authority.  Reviewer and Trust blocked the candidate because `WorldWF` may be empty,
+  making every universal load, `VerifiedProgram`, and generative-certificate law vacuous.  The repair
+  must supply a target-owned `initialWorld` with `initialWorld_wf`, or an equivalent well-formed outer
+  session start actually consumed by production; share the one exact dependent load result across
+  entry establishment, admissibility, and behavior; and derive distinct roots for two sequential
+  loads through that world.  For the stateless discipline, `Unit` and `True` provide the witness
+  definitionally.  Superseding candidate `a88a6b1240d3e969cc881d233808fa0bd6e02c35`
+  adds the initial world and proof, production world threading, one named dependent load-result index
+  shared by entry/admissibility/behavior, a generative certificate tied to that exact
+  discipline/result, witness-consuming handles, and derived two-load root distinctness.  Reviewer
+  re-check is pending.  `d9685b5` remains namespace-only and runner work remains blocked.  This is a
+  repaired design candidate, not integrated or established machinery.
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
