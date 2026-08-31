@@ -110,4 +110,42 @@ theorem lookup_store_after_allocate (state : X86_64MachineState) (value : UInt8)
   rw [afterAllocate_rip]
   exact lookup_store state.rip value textNoWrap
 
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- The selected allocation remains the first production fetch when the checked prefix is
+followed by an arbitrary real continuation.  This is the form consumed by a whole-program
+`VerifiedProgram` demonstration rather than by the detached two-instruction index. -/
+@[simp] theorem lookup_allocate_with_continuation (base : UInt64) (value : UInt8)
+    (continuation : List X86_64Instr) :
+    instructionAtRipIndexed
+        (indexInstructions base (instructions value ++ continuation)) base =
+      some (sub_rsp frameSize) := by
+  simp [instructions, indexInstructions, indexInstructions.loop, instructionAtRipIndexed]
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- The selected store remains the second production fetch in a complete artifact.  The explicit
+text nonwrap premise prevents the first and second instruction addresses from aliasing modulo
+`2^64`; no assumption is made about the continuation. -/
+theorem lookup_store_with_continuation (base : UInt64) (value : UInt8)
+    (continuation : List X86_64Instr) (textNoWrap : base.toNat + 9 ≤ 2 ^ 64) :
+    instructionAtRipIndexed
+        (indexInstructions base (instructions value ++ continuation)) (base + 4) =
+      some (mov_rsp_byte byteOffset value) := by
+  change instructionAtRipIndexed
+      ((base, sub_rsp frameSize) ::
+        (base + 4, mov_rsp_byte byteOffset value) :: _) (base + 4) =
+    some (mov_rsp_byte byteOffset value)
+  simp [instructionAtRipIndexed, base_ne_storeRip base textNoWrap]
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- Executing the allocation reaches the exact selected store fetch in a complete program. -/
+theorem lookup_store_after_allocate_with_continuation (state : X86_64MachineState)
+    (value : UInt8) (continuation : List X86_64Instr)
+    (textNoWrap : state.rip.toNat + 9 ≤ 2 ^ 64) :
+    instructionAtRipIndexed
+        (indexInstructions state.rip (instructions value ++ continuation))
+        (afterAllocate state).rip =
+      some (mov_rsp_byte byteOffset value) := by
+  rw [afterAllocate_rip]
+  exact lookup_store_with_continuation state.rip value continuation textNoWrap
+
 end Gasm.Targets.X86_64.StackStorePrefixLink

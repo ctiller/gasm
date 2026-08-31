@@ -93,4 +93,56 @@ theorem runProgramOutcomeLoop_prefix {Event : Type}
   exact (productionPrefix state eventsRev value textNoWrap initialSafe allocateSilent storeSilent).run
     continuationFuel
 
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- Exact two-step certificate for the selected store prefix inside an arbitrary complete
+production instruction stream.  This prevents the demonstration from proving only a detached
+two-instruction surrogate while emitting and admitting a different artifact. -/
+theorem productionPrefixWithContinuation {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (state : X86_64MachineState) (eventsRev : List Event) (value : UInt8)
+    (continuation : List X86_64Instr)
+    (textNoWrap : state.rip.toNat + 9 ≤ 2 ^ 64)
+    (initialSafe : state.fault = none)
+    (allocateSilent : interceptor.interceptCall
+      (afterAllocate state).rip (afterAllocate state) = none)
+    (storeSilent : interceptor.interceptCall
+      (afterStore value state).rip (afterStore value state) = none) :
+    ProductionPrefix
+      (indexInstructions state.rip (instructions value ++ continuation)) 2 state eventsRev
+      (afterStore value state) eventsRev [] := by
+  apply ProductionPrefix.ordinary (sub_rsp_sequential frameSize)
+    (lookup_allocate_with_continuation state.rip value continuation) allocateSilent
+  · change (afterAllocate state).fault = none
+    change state.fault = none
+    exact initialSafe
+  apply ProductionPrefix.ordinary (store_sequential value)
+    (lookup_store_after_allocate_with_continuation state value continuation textNoWrap) storeSilent
+  · change (afterStore value state).fault = none
+    rw [afterStore_fault]
+    exact initialSafe
+  exact ProductionPrefix.nil _ _
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- The actual production runner for a complete artifact consumes the checked prefix and reaches
+the exact post-store state before delegating to its unchanged continuation. -/
+theorem runProgramOutcomeLoop_prefixWithContinuation {Event : Type}
+    [interceptor : ExternalCallInterceptor X86_64 Event]
+    (state : X86_64MachineState) (eventsRev : List Event) (value : UInt8)
+    (continuation : List X86_64Instr)
+    (textNoWrap : state.rip.toNat + 9 ≤ 2 ^ 64)
+    (initialSafe : state.fault = none)
+    (allocateSilent : interceptor.interceptCall
+      (afterAllocate state).rip (afterAllocate state) = none)
+    (storeSilent : interceptor.interceptCall
+      (afterStore value state).rip (afterStore value state) = none)
+    (continuationFuel : Nat) :
+    runProgramOutcomeLoop
+        (indexInstructions state.rip (instructions value ++ continuation))
+        (2 + continuationFuel) state eventsRev =
+      runProgramOutcomeLoop
+        (indexInstructions state.rip (instructions value ++ continuation))
+        continuationFuel (afterStore value state) eventsRev := by
+  exact (productionPrefixWithContinuation state eventsRev value continuation textNoWrap initialSafe
+    allocateSilent storeSilent).run continuationFuel
+
 end Gasm.Targets.X86_64.StackStorePrefixExecution
