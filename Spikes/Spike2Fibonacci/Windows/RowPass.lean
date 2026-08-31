@@ -27,7 +27,7 @@ theorem spike2_row_pass (completed : Nat) (state : X86_64MachineState)
       ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed fuel
         state eventsRev final finalEventsRev emitted ∧
       Spike2RowInvariant (completed + 1) final finalEventsRev := by
-  let index := spike2_index_path completed state eventsRev within holds
+  let index := Spike2IndexFormatter.run completed state eventsRev within holds
   rcases spike2_decimal_slice index.final eventsRev index.rip
       (index.registers.rsp.trans holds.rsp)
       (index.registers.fault.trans holds.fault) index.lowMemory

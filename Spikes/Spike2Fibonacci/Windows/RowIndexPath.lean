@@ -32,8 +32,17 @@ structure Spike2IndexPathResult (completed : Nat) (initial : X86_64MachineState)
   cursorAboveStack : final.rsp.toNat ≤ (final.gprs .rdi).toNat
   cursorAbove : spike2RowLowMemoryTop ≤ (final.gprs .rdi).toNat
   cursorRoom : (final.gprs .rdi).toNat + 22 < 2 ^ 64
+  buffer : BufHolds final.memory (initial.rsp + 64) (spike2IndexPrefixBytes completed)
 
-opaque spike2_index_path (completed : Nat) (state : X86_64MachineState)
+/-- Provider boundary for the machine implementation that formats the bounded row index.
+Consumers receive the complete control-flow and byte-buffer certificate without seeing whether
+the implementation selected its one- or two-digit path. -/
+class Spike2IndexFormatter where
+  run (completed : Nat) (state : X86_64MachineState) (eventsRev : List AnyEvent)
+    (within : completed < 90) (holds : Spike2RowInvariant completed state eventsRev) :
+    Spike2IndexPathResult completed state eventsRev
+
+private opaque spike2_index_path_impl (completed : Nat) (state : X86_64MachineState)
     (eventsRev : List AnyEvent) (within : completed < 90)
     (holds : Spike2RowInvariant completed state eventsRev) :
     Spike2IndexPathResult completed state eventsRev := by
@@ -41,7 +50,7 @@ opaque spike2_index_path (completed : Nat) (state : X86_64MachineState)
   by_cases one : completed < 9
   · let path := spike2_one_digit_slice completed opening.final eventsRev one
       (opening.registers.r13.trans holds.counter) opening.rip opening.rsp opening.fault
-      opening.lowMemory
+      opening.lowMemory (by rw [opening.registers.rsp]; exact opening.buffer)
     exact {
       fuel := 6 + path.fuel
       final := path.final
@@ -53,13 +62,17 @@ opaque spike2_index_path (completed : Nat) (state : X86_64MachineState)
       rip := path.rip
       cursorAboveStack := path.cursorAboveStack
       cursorAbove := path.cursorAbove
-      cursorRoom := path.cursorRoom }
+      cursorRoom := path.cursorRoom
+      buffer := by
+        have buffer := path.buffer
+        rw [opening.registers.rsp] at buffer
+        exact buffer }
   · have lower : 9 ≤ completed := by omega
     let head := spike2_two_digit_head_slice completed opening.final eventsRev lower within
       (opening.registers.r13.trans holds.counter) opening.rip opening.rsp opening.fault
-      opening.lowMemory
-    let tail := spike2_two_digit_tail_slice head.final eventsRev head.rip head.rsp head.fault
-      head.lowMemory
+      opening.lowMemory (by rw [opening.registers.rsp]; exact opening.buffer)
+    let tail := spike2_two_digit_tail_slice completed head.final eventsRev head.rip lower within
+      head.rsp head.fault head.lowMemory (by rw [head.registers.rsp]; exact head.buffer)
     exact {
       fuel := 6 + 12 + tail.fuel
       final := tail.final
@@ -72,6 +85,13 @@ opaque spike2_index_path (completed : Nat) (state : X86_64MachineState)
       rip := tail.rip
       cursorAboveStack := tail.cursorAboveStack
       cursorAbove := tail.cursorAbove
-      cursorRoom := tail.cursorRoom }
+      cursorRoom := tail.cursorRoom
+      buffer := by
+        have buffer := tail.buffer
+        rw [head.registers.rsp, opening.registers.rsp] at buffer
+        exact buffer }
+
+instance : Spike2IndexFormatter where
+  run := spike2_index_path_impl
 
 end Spikes.Spike2Fibonacci.Windows

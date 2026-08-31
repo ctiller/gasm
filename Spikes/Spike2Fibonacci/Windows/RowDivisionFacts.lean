@@ -18,6 +18,17 @@ import Spikes.Spike2Fibonacci.Windows.RowFormatter
 namespace Spikes.Spike2Fibonacci.Windows
 
 open Gasm.Targets.X86_64 Gasm.Targets.X86_64.Instructions
+open Stdlib.Fmt
+
+/-- Numbers in the formatter's two-digit range have exactly the quotient and remainder digits. -/
+theorem formatDecimal_two_digits (n : Nat) (lower : 10 ≤ n) (upper : n < 100) :
+    formatDecimal n = [byteOfDigit (n / 10), byteOfDigit (n % 10)] := by
+  unfold formatDecimal
+  rw [show digits n = digits (n / 10) ++ [n % 10] by
+    rw [digits]
+    simp [show ¬ n < 10 by omega]]
+  rw [digits_single _ (by omega)]
+  rfl
 
 private theorem division_step (state : X86_64MachineState) :
     let s1 := X86_64Instruction.step (mov_r64 .rax .r13) state

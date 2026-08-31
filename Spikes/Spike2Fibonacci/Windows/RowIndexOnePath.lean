@@ -27,7 +27,7 @@ def spike2IndexPrefixBytes (completed : Nat) : List UInt8 :=
   [0x46, 0x69, 0x62, 0x28] ++ Stdlib.Fmt.formatDecimal (completed + 1) ++
     [0x29, 0x20, 0x3d, 0x20]
 
-structure Spike2CursorSliceResult (initial : X86_64MachineState)
+structure Spike2CursorSliceResult (completed : Nat) (initial : X86_64MachineState)
     (eventsRev : List AnyEvent) (maxFuel : Nat) where
   fuel : Nat
   final : X86_64MachineState
@@ -41,6 +41,7 @@ structure Spike2CursorSliceResult (initial : X86_64MachineState)
   cursorAboveStack : final.rsp.toNat ≤ (final.gprs .rdi).toNat
   cursorAbove : spike2RowLowMemoryTop ≤ (final.gprs .rdi).toNat
   cursorRoom : (final.gprs .rdi).toNat + 22 < 2 ^ 64
+  buffer : BufHolds final.memory (initial.rsp + 64) (spike2IndexPrefixBytes completed)
 
 private theorem index_one_rip (state : X86_64MachineState)
     (hrip : state.rip = 5368713297)
@@ -123,8 +124,9 @@ opaque spike2_one_digit_slice (completed : Nat) (state : X86_64MachineState)
     (eventsRev : List AnyEvent) (within : completed < 9)
     (counter : state.gprs .r13 = UInt64.ofNat (completed + 1))
     (hrip : state.rip = 5368713297) (rsp : state.rsp = spike2AfterPrologue.rsp)
-    (safe : state.fault = none) (low : Spike2RowLowMemory state) :
-    Spike2CursorSliceResult state eventsRev 12 := by
+    (safe : state.fault = none) (low : Spike2RowLowMemory state)
+    (holds : BufHolds state.memory (state.rsp + 64) [0x46, 0x69, 0x62, 0x28]) :
+    Spike2CursorSliceResult completed state eventsRev 12 := by
   let header := spike2AfterIndexHeader state
   have oneDigit := spike2_index_counter_one_digit state completed within counter
   have headerPrefix := spike2_index_header_one_digit_selected_prefix state eventsRev
@@ -157,6 +159,10 @@ opaque spike2_one_digit_slice (completed : Nat) (state : X86_64MachineState)
         spike2_after_prologue_rsp_eq]
       decide
     cursorAbove := bounds.1
-    cursorRoom := bounds.2 }
+    cursorRoom := bounds.2
+    buffer := spike2_one_digit_index_buffer completed header within
+      (headerFrame.r13.trans counter) headerRsp (by
+        rw [show header.memory = state.memory by rfl, headerFrame.rsp]
+        exact holds) }
 
 end Spikes.Spike2Fibonacci.Windows

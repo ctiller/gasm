@@ -18,11 +18,16 @@ namespace Spikes.Spike2Fibonacci.Windows
 
 open Gasm.Effects Gasm.Targets.X86_64
 
+structure Spike2TwoDigitTensResult (initial : X86_64MachineState)
+    (eventsRev : List AnyEvent)
+    extends Spike2FramedSliceResult initial eventsRev 4 5368713377 where
+  realizes : final = spike2AfterTwoDigitTens initial
+
 opaque spike2_two_digit_tens_slice (state : X86_64MachineState)
     (eventsRev : List AnyEvent) (hrip : state.rip = 5368713362)
     (rsp : state.rsp = spike2AfterPrologue.rsp) (safe : state.fault = none)
     (low : Spike2RowLowMemory state) :
-    Spike2FramedSliceResult state eventsRev 4 5368713377 := by
+    Spike2TwoDigitTensResult state eventsRev := by
   let final := spike2AfterTwoDigitTens state
   have frame := spike2_two_digit_tens_registerFrame state
   exact {
@@ -36,6 +41,7 @@ opaque spike2_two_digit_tens_slice (state : X86_64MachineState)
       rfl
     rsp := frame.rsp.trans rsp
     fault := frame.fault.trans safe
-    lowMemory := spike2_two_digit_tens_lowMemory state low rsp }
+    lowMemory := spike2_two_digit_tens_lowMemory state low rsp
+    realizes := rfl }
 
 end Spikes.Spike2Fibonacci.Windows
