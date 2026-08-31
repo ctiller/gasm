@@ -110,7 +110,7 @@ The following code shapes have enough evidence to investigate but are not canoni
   remove premises implied by stronger evidence and package consequences sharing one semantic
   witness--not to bundle independent facts into one theorem.  Promote declarations only after their
   exact commits integrate and current main contains the named modules.
-- Exact fallible-fold candidate `e533d83` demonstrates a deliberately narrow generic ownership
+- Fallible-fold candidate lineage beginning at `e533d83` demonstrates a deliberately narrow generic ownership
   boundary in `Stdlib.Control.FallibleFold`.  The generic layer owns only committed state, the
   accepted prefix, first refused input, untouched tail, and conservation plus accepted-transition
   theorems.  Spike 3's additive bridge preserves its existing pure ingestion and classified sort
@@ -134,15 +134,21 @@ The following code shapes have enough evidence to investigate but are not canoni
   directly; `driveStreamingViaFallibleFold_eq` still preserves the legacy driver for arbitrary push
   function, state, scope, and input, and compression plus decompression consume it.  The initial
   focused bridge build completed green in about 2.3 seconds over 23 jobs.  Reviewer confirmed the
-  corrected difference-list formula, order, and linear-materialization explanation; do not transfer
-  the initial measurement or canonical status without a corrected run and integration.  The useful
+  corrected difference-list formula, order, and linear-materialization explanation; the initial
+  measurement does not transfer to the corrected implementation.  The useful
   proof pattern generalizes over the output accumulator, splits both the recursive
   fold result and legacy driver result, uses associativity on success, and eliminates incompatible
   failure equalities.  Direct rewriting beneath the fold's accepted-prefix reconstruction match did
-  not fire; split the recursive fold result instead.  The prior Spike 5 `RuntimeContext` mismatch
-  was repaired and independently accepted at `80f19e7`; it is no longer a blocker attributable to
-  this extraction.  No runnable whole-program connection has yet been reported to this ledger, so
-  independent review and an exact completion report still precede canonical promotion.
+  not fire; split the recursive fold result instead.
+
+  Final semantic candidate `8e76f811fe77714c67660c440c9c848dcccb07e5` and runnable demo/docs
+  `b417b82c0fd6a7dad34887b8603547dfaa2fbc11`, based on the Trust line from `1dc7686`, were
+  independently accepted.  `Build Test` passed 115 jobs and `lake exe test_spike5` passed, emitting
+  closed PE, Linux, and WASI `VerifiedProgram`s.  The same target exercises a nonvacuous fold-backed
+  success and exact zero-capacity `.resourceExhausted` outcome.  The facilities roadmap marks the
+  finite fallible fold Present on that candidate line.  This closes the prior runnable-demonstration
+  gap, but the declarations remain in the candidate ledger until Trust confirms integration into
+  current main.
 
   The abstraction negative control is equally important: a proposed generic
   `ResourceAccounting` count snapshot was removed because it had neither two domain connections nor
