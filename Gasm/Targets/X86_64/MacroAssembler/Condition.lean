@@ -23,6 +23,24 @@ open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.MacroAssembler
 
+/- REF: docs/MACRO_ASSEMBLER.md#structured-microsoft-x64-branch-blocks -/
+/-- Reuse one target-owned branch predicate as the core typed-CFG condition. This changes only its
+    nominal presentation; the `holds` predicate is definitionally identical. -/
+def conditionCode : X86BranchCondition → Gasm.Core.ConditionCode X86_64
+  | .equal => ⟨"equal", X86BranchCondition.equal.holds⟩
+  | .notEqual => ⟨"not-equal", X86BranchCondition.notEqual.holds⟩
+  | .less => ⟨"signed-less", X86BranchCondition.less.holds⟩
+  | .lessEqual => ⟨"signed-less-equal", X86BranchCondition.lessEqual.holds⟩
+  | .greater => ⟨"signed-greater", X86BranchCondition.greater.holds⟩
+  | .greaterEqual => ⟨"signed-greater-equal", X86BranchCondition.greaterEqual.holds⟩
+  | .below => ⟨"unsigned-below", X86BranchCondition.below.holds⟩
+  | .above => ⟨"unsigned-above", X86BranchCondition.above.holds⟩
+  | .aboveOrEqual => ⟨"unsigned-above-equal", X86BranchCondition.aboveOrEqual.holds⟩
+
+@[simp] theorem conditionCode_holds (kind : X86BranchCondition) (state : X86_64MachineState) :
+    (conditionCode kind).holds state ↔ kind.holds state := by
+  cases kind <;> rfl
+
 /- REF: docs/MACRO_ASSEMBLER.md#x86-64-comparison-condition-macros -/
 /-- One exact register comparison with law-bearing equal and unsigned-below flag semantics.
 
