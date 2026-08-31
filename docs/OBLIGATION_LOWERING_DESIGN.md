@@ -1049,6 +1049,14 @@ different allocation, target-specific operations, or a different effect route.
 Optimization or fusion may move interception across stages only with an explicit
 equivalence/refinement theorem and conserved inherited and introduced obligations.
 
+At the fallback assembly-authoring boundary, if a consumer is not plausibly on a path toward
+roughly ten lines of program-specific proof per authored assembly line, another
+specification-to-lowering-to-assembly feedback round is mandatory. The round records the expected
+source of the burden and the abstraction, contract, library, or lowering change attempted. This is
+an informal estimate, not metric machinery, a soundness or integration gate, or permission to
+weaken any claim. A final sound implementation may exceed 10:1, but it may not skip the required
+iteration merely by explaining the ratio.
+
 Repeated motifs may become shared abstract operations only after they are independently specified
 and materially different consumers exhibit the same proof boundary. What is reused is the highest
 target-independent semantic fact that remains true, plus small routine proof adapters. Intermediate
