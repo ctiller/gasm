@@ -164,6 +164,8 @@ use the commits to inspect the reviewed extraction delta.
 
 The following code shapes have enough evidence to investigate but are not canonical generic APIs:
 
+### Memory-model carriers and provider worlds
+
 - Four isolated memory-model checkpoints demonstrate useful proof shapes but are not integrated and
   must not be read as current-main APIs.  Reverse-completeness fixture `2059cd3` consumes actual
   `ReachesAt` evidence and the exact transition relation; widening the relation with one unenumerated
@@ -245,6 +247,8 @@ The following code shapes have enough evidence to investigate but are not canoni
   `a83a5441054be8385eade44ce24e78cfb0cd3a49` within GitHub main
   `a62ca537f33e12be117f50c507fd462f92c3a5b9`.  `d9685b5` remains namespace-only; target consumers
   still require their own exact transitions and authority proofs.
+### Graphics and compiler proof economy
+
 - The graphics proof-economy worklist seeks theorem boundaries that preserve universal provider,
   memory, and authority claims while keeping final verification tractable.  Candidate shapes are: a
   total byte decoder paired with a sparse exact-write footprint and complement frame theorem; a
@@ -289,6 +293,8 @@ The following code shapes have enough evidence to investigate but are not canoni
 - Graphics candidates `733501b`, `6044dad`, and `5c405ca` remain integration-blocked on old base
   `da60357`: rebasing them would resurrect noncanonical `WINDOWS_VULKAN_PROFILE.md`.  Any retained
   mechanism must be re-authored on canonical `a62ca53` and independently reviewed again.
+### Resource, concurrency, and checked access
+
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
@@ -423,6 +429,8 @@ The following code shapes have enough evidence to investigate but are not canoni
   checked family.  Neither total x86 memory nor the logical world derives the grant.  Prototype
   declarations remain provisional and profile-local; commit `934d39a` is only a temporary
   integration repair, not the stable M1 implementation base.
+### Proof delivery, termination, and CFG composition
+
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
   Spike 3 still needs a theorem over every finite stdin with explicit reservation, allocation,
   read, output, exhaustion, and cleanup outcomes before its downstream production certificates can
@@ -488,6 +496,8 @@ The following code shapes have enough evidence to investigate but are not canoni
   19.2 GiB before cancellation.  The separated final equivalence target built in approximately
   4.4 seconds warm.  Host-runtime instances remain module-local or platform-indexed so an x86
   interceptor cannot enter Linux or generic instance search.
+### Linker and target-family admission
+
 - A provisional linked-text boundary reported after accepted main `4863346` separates reusable
   local execution facts from platform admission.  A finite, reviewed linked-text authority should
   expose only the property needed at named reachable successors--for the current x86 use case,
@@ -535,6 +545,8 @@ The following code shapes have enough evidence to investigate but are not canoni
   optimization is dependency-fanout avoidance through exact nominal descriptors and a leaf-owned
   extension, not lower per-process memory or generic final-emission authority.  The selected raw
   codec in `0a31cb8` remains evidence only for the target-owned encoding boundary.
+### Byte and prefix utility candidates
+
 - Bounded byte reads appear in ELF, x86-64, AArch64, PNG, Zlib, and Gzip.  A first cursor slice
   should validate against two consumers with the same offset/progress needs while keeping format
   errors and validation consumer-owned.
