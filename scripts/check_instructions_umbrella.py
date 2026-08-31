@@ -48,6 +48,8 @@ UMBRELLA_FILE = REPO_ROOT / "Gasm" / "Targets" / "X86_64" / "Instructions.lean"
 IMPORT_PREFIX = "Gasm.Targets.X86_64.Instructions."
 CONTROL_MODULE = "Gasm.Targets.X86_64.InstructionCensusControls"
 CONTROL_TARGET = "X86InstructionCensusControls"
+ISOLATION_MODULE = "Tools.X86InstructionCensusIsolation"
+ISOLATION_TARGET = "X86InstructionCensusIsolation"
 
 
 def modules_on_disk() -> set[str]:
@@ -91,33 +93,21 @@ def compute() -> dict[str, object]:
         frontier.extend(graph.get(module, set()))
     referenced = roots | set().union(*graph.values()) if graph else roots
     lake_config = tomllib.loads((REPO_ROOT / "lakefile.toml").read_text(encoding="utf-8"))
-    control_targets = [
-        library for library in lake_config.get("lean_lib", [])
-        if library.get("name") == CONTROL_TARGET
-    ]
-    control_target_exact = (
-        len(control_targets) == 1 and
-        control_targets[0].get("roots") == [CONTROL_MODULE]
-    )
-    control_default = CONTROL_TARGET in lake_config.get("defaultTargets", [])
-    control_importers: list[str] = []
-    exact_import = re.compile(rf"^\s*import\s+{re.escape(CONTROL_MODULE)}\s*$", re.MULTILINE)
-    for source_root in ("Gasm", "Spikes", "Stdlib"):
-        for path in (REPO_ROOT / source_root).rglob("*.lean"):
-            if path == REPO_ROOT / "Gasm/Targets/X86_64/InstructionCensusControls.lean":
-                continue
-            if exact_import.search(path.read_text(encoding="utf-8")):
-                control_importers.append(path.relative_to(REPO_ROOT).as_posix())
-    for facade in (REPO_ROOT / "Gasm.lean", REPO_ROOT / "Spikes.lean", REPO_ROOT / "Stdlib.lean"):
-        if facade.is_file() and exact_import.search(facade.read_text(encoding="utf-8")):
-            control_importers.append(facade.relative_to(REPO_ROOT).as_posix())
+    libraries = lake_config.get("lean_lib", [])
+    def exact_target(name: str, root: str) -> bool:
+        matches = [library for library in libraries if library.get("name") == name]
+        return len(matches) == 1 and matches[0].get("roots") == [root]
+    control_target_exact = exact_target(CONTROL_TARGET, CONTROL_MODULE)
+    isolation_target_exact = exact_target(ISOLATION_TARGET, ISOLATION_MODULE)
+    defaults = lake_config.get("defaultTargets", [])
     return {
         "modules": len(modules),
         "missing_from_umbrella": sorted(modules - reachable),
         "stale_in_umbrella": sorted(referenced - modules),
         "control_target_exact": control_target_exact,
-        "control_default_target": control_default,
-        "control_library_importers": sorted(control_importers),
+        "control_default_target": CONTROL_TARGET in defaults,
+        "isolation_target_exact": isolation_target_exact,
+        "isolation_default_target": ISOLATION_TARGET in defaults,
     }
 
 
@@ -125,7 +115,7 @@ def result_exit_code(result: dict[str, object]) -> int:
     return 1 if (
         result["missing_from_umbrella"] or result["stale_in_umbrella"] or
         not result["control_target_exact"] or not result["control_default_target"] or
-        result["control_library_importers"]
+        not result["isolation_target_exact"] or not result["isolation_default_target"]
     ) else 0
 
 
@@ -133,8 +123,8 @@ def print_report(result: dict[str, object]) -> None:
     if result_exit_code(result) == 0:
         print(
             f"OK: Instructions.lean reaches all {result['modules']} Instructions/**/*.lean "
-            "modules through local imports; hostile census controls are a default gate-only root "
-            "and absent from library import closures."
+            "modules through local imports; hostile controls and the compiled production-environment "
+            "isolation audit are exact default gate roots."
         )
         return
     print("Instructions.lean umbrella completeness check FAILED.", file=sys.stderr)
@@ -149,16 +139,11 @@ def print_report(result: dict[str, object]) -> None:
             f"  Umbrella imports with no file on disk: {result['stale_in_umbrella']}",
             file=sys.stderr,
         )
-    if not result["control_target_exact"] or not result["control_default_target"]:
+    if (not result["control_target_exact"] or not result["control_default_target"] or
+            not result["isolation_target_exact"] or not result["isolation_default_target"]):
         print(
-            "  InstructionCensusControls must be the exact X86InstructionCensusControls lean_lib "
-            "root and a Lake default target run by the authoritative build gate.",
-            file=sys.stderr,
-        )
-    if result["control_library_importers"]:
-        print(
-            "  Hostile census control leaked into library imports: "
-            f"{result['control_library_importers']}",
+            "  InstructionCensusControls and the compiled production-environment isolation audit "
+            "must be exact Lake default roots run by the authoritative build gate.",
             file=sys.stderr,
         )
 
