@@ -630,7 +630,7 @@ theorem spike2_decimal_extraction_phase (value : UInt64) (initial : X86_64Machin
           simpa only [final, extractionFinal] using silentFinal)
       have pass : SelectedExtractionPass (Event := AnyEvent) selectedNonInputPlatformCall
           spike2Indexed 236 0 state :=
-        ⟨placement, pre, safe, Or.inr fallthrough, effect⟩
+        ⟨placement, pre, safe, Or.inr fallthrough⟩
       have oneDigit := formatDecimal_single holds.remaining small
       have nextCompleted : completed + 1 = decimalDigitCount value := by
         have lengths := congrArg List.length decomposition
@@ -702,7 +702,7 @@ theorem spike2_decimal_extraction_phase (value : UInt64) (initial : X86_64Machin
           simpa only [final, extractionFinal] using silentFinal)
       have pass : SelectedExtractionPass (Event := AnyEvent) selectedNonInputPlatformCall
           spike2Indexed 236 0 state :=
-        ⟨placement, pre, safe, Or.inl taken, effect⟩
+        ⟨placement, pre, safe, Or.inl taken⟩
       have stepFormat := formatDecimal_step holds.remaining large
       have nextDecomposition : formatDecimal value.toNat =
           formatDecimal (holds.remaining / 10) ++
@@ -1086,7 +1086,7 @@ theorem spike2_decimal_write_phase (value : UInt64) (initial : X86_64MachineStat
             simpa only [final, writeFinal] using silentFinal)
         have pass : SelectedWritePass (Event := AnyEvent) selectedNonInputPlatformCall
             spike2Indexed 243 initial.rsp (UInt64.ofNat (2 ^ 64 - 1)) state :=
-          ⟨placement, pre, safe, Or.inr fallthrough, effect⟩
+          ⟨placement, pre, safe, Or.inr fallthrough⟩
         refine ⟨243, initial.rsp, UInt64.ofNat (2 ^ 64 - 1), pass, ?_⟩
         refine ⟨{
           events := holds.events
@@ -1147,7 +1147,7 @@ theorem spike2_decimal_write_phase (value : UInt64) (initial : X86_64MachineStat
             simpa only [final, writeFinal] using silentFinal)
         have pass : SelectedWritePass (Event := AnyEvent) selectedNonInputPlatformCall
             spike2Indexed 243 initial.rsp (UInt64.ofNat (2 ^ 64 - 1)) state :=
-          ⟨placement, pre, safe, Or.inl taken, effect⟩
+          ⟨placement, pre, safe, Or.inl taken⟩
         refine ⟨243, initial.rsp, UInt64.ofNat (2 ^ 64 - 1), pass, ?_⟩
         refine ⟨{
           events := holds.events
