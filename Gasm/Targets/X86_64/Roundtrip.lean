@@ -40,6 +40,7 @@ import Gasm.Targets.X86_64.Instructions.Cmov
 import Gasm.Targets.X86_64.Instructions.Call
 import Gasm.Targets.X86_64.Instructions.Ret
 import Gasm.Targets.X86_64.Decoder
+import Gasm.Targets.X86_64.DecoderRouting
 import Gasm.Targets.X86_64.Assembler
 
 namespace Gasm.Targets.X86_64.Roundtrip
