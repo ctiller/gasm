@@ -19,6 +19,7 @@ import Gasm.Targets.X86_64.HardwareMemoryDifferential
 namespace Gasm.Targets.X86_64.HardwareMemoryDifferentialControls
 
 open Gasm.Targets.X86_64
+open Gasm.Targets.X86_64.Instructions
 open Gasm.Targets.X86_64.HardwareHarness
 open Gasm.Targets.X86_64.HardwareMemoryPlan
 open Gasm.Targets.X86_64.HardwareMemoryProtocol
@@ -101,6 +102,22 @@ private def mutatedOutOfPayloadRejected : Bool :=
 private def mutatedRegionLayoutRejected : Bool :=
   planMutationRejected fun plan => { plan with regionBase := plan.regionBase + 1 }
 
+private def coherentRspFormRejected : Bool :=
+  planMutationRejected fun plan =>
+    let form : ScratchMov := .mem64DispReg64 ⟨.rsp, 0, .rbx⟩
+    let initialState := plan.initialState.setGpr64 .rsp plan.accessAddress
+    { plan with
+      form := form
+      instructionBytes := X86_64Instruction.encode form.pack
+      initialState := initialState }
+
+private def mutatedExactPreimageRejected : Bool :=
+  planMutationRejected fun plan =>
+    let old := X86_64Mem.readByte plan.initialState.memory plan.accessAddress
+    let memory := X86_64Mem.writeByte plan.initialState.memory plan.accessAddress (old ^^^ 0xff)
+    let initialState := { plan.initialState with memory := memory }
+    { plan with initialState := initialState }
+
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- An exact model-shaped observation is accepted.
 #guard baselineAccepted
@@ -148,5 +165,13 @@ private def mutatedRegionLayoutRejected : Bool :=
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Region and payload coordinates remain one exact guarded layout.
 #guard mutatedRegionLayoutRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Coherent form/bytes/prestate mutation cannot bypass the native harness's RSP ownership.
+#guard coherentRspFormRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Initial memory must equal the exact stored guarded preimage, even at an overwritten store byte.
+#guard mutatedExactPreimageRejected
 
 end Gasm.Targets.X86_64.HardwareMemoryDifferentialControls

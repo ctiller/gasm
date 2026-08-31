@@ -209,11 +209,19 @@ structure DecodedStep where
   accesses : List MemAccessSpec
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Reads the entire guarded scratch region from model memory. -/
+def readRegion (regionBase : UInt64) (memory : X86_64Memory) : ByteArray :=
+  ByteArray.mk <| ((List.range regionBytes).map (fun i =>
+    X86_64Mem.readByte memory (regionBase + i.toUInt64))).toArray
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Revalidates the decoded production descriptor against the stored plan and its exact pre-state.
     This check is intentionally owner-local: it hardens the supplemental hardware consumer but
     proves no memory authority, mapping, target fidelity beyond this plan, or execution admission. -/
 private def Plan.validateDecodedAccess (plan : Plan) (accesses : List MemAccessSpec) :
     Except String Unit := do
+  if !plan.form.hostRegistersSafe then
+    throw s!"case {plan.caseId}: decoded closed form uses RSP, which the native harness owns"
   let spec ← match accesses with
     | [spec] => pure spec
     | specs => throw s!"case {plan.caseId}: decoded plan must expose exactly one access, got {specs.length}"
@@ -221,6 +229,10 @@ private def Plan.validateDecodedAccess (plan : Plan) (accesses : List MemAccessS
     throw s!"case {plan.caseId}: decoded access kind disagrees with the stored plan"
   if spec.width != plan.accessWidth then
     throw s!"case {plan.caseId}: decoded access width disagrees with the stored plan"
+  if spec.kind != plan.form.expectedKind then
+    throw s!"case {plan.caseId}: decoded access kind disagrees with the independent closed family"
+  if spec.width != plan.form.expectedWidth then
+    throw s!"case {plan.caseId}: decoded access width disagrees with the independent closed family"
   let actual := spec.addressRange plan.initialState
   let expected : Gasm.MemoryModel.AddressRange :=
     { start := plan.accessAddress, length := plan.accessWidth.bytes }
@@ -239,6 +251,8 @@ private def Plan.validateDecodedAccess (plan : Plan) (accesses : List MemAccessS
     throw s!"case {plan.caseId}: decoded plan contains a noncanonical guarded or access address"
   if plan.regionBefore.size != regionBytes then
     throw s!"case {plan.caseId}: stored guarded preimage length is not exact"
+  if readRegion plan.regionBase plan.initialState.memory != plan.regionBefore then
+    throw s!"case {plan.caseId}: exact guarded preimage disagrees with the stored initial memory"
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Decodes and steps the exact stored production bytes.  This is the model authority used by the
@@ -263,12 +277,6 @@ def Plan.decodeAndStep (plan : Plan) : Except String DecodedStep :=
           undefinedFlagsMask := X86_64Instruction.undefinedFlagsMask decoded
           accesses := accesses
         }
-
-/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Reads the entire guarded scratch region from model memory. -/
-def readRegion (regionBase : UInt64) (memory : X86_64Memory) : ByteArray :=
-  ByteArray.mk <| ((List.range regionBytes).map (fun i =>
-    X86_64Mem.readByte memory (regionBase + i.toUInt64))).toArray
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Model postimage corresponding to the exact decoded bytes of a checked plan. -/
