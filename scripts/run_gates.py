@@ -636,6 +636,17 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "NON-family file is correctly ignored. Measured 0.5s; needs no build (pure "
                  "filesystem-vs-import-list diff).",
          "cmd": [py, "scripts/check_instructions_umbrella.py"], "slow": False, "tools": ["python"], "depends_on": []},
+        {"key": "check_x86_family_pipeline", "desc": "python scripts/check_x86_family_pipeline.py",
+         "group": "linters",
+         "long": "Instruction-scale x86 family onboarding closure. Derives concrete decoder "
+                 "families from Instructions/*.lean instances, then requires matching local "
+                 "roundtrip shards/declarations, hot-path and DispatchExhaustive imports, a "
+                 "global dispatch-reachability theorem, Registry population/count entries, and "
+                 "MemoryFrame shards/imports. Lean and MemoryFrameAudit remain responsible for "
+                 "proof correctness; this fast gate prevents hand-maintained pipeline surfaces "
+                 "from silently omitting a new family. Its --self-test plants nine independent "
+                 "wiring defects in a temporary fixture and requires each named failure.",
+         "cmd": [py, "scripts/check_x86_family_pipeline.py"], "slow": False, "tools": ["python"], "depends_on": []},
         {"key": "test_roundtrip", "desc": "lake exe test_roundtrip",
          "group": "proofs",
          "long": "x86-64 decode/encode roundtrip suite (registry gate's ~21 native_decide shards "

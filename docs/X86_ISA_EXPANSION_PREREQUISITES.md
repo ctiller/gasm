@@ -201,9 +201,13 @@ during this assessment), and two shards already needing `maxRecDepth 4000`.
 checks each family through its own shard, isolates full-fan-in dispatch exhaustiveness, and records
 the improved rebuild topology in `docs/TARGETS/X86_64.md` §5. The filesystem/import-closure hole is
 closed by `scripts/check_instructions_umbrella.py`, which fails when an instruction family on disk
-is absent from `Instructions.lean`. The expensive `DispatchExhaustive.lean` proof remains outside
-the default umbrella under an explicit orphan/CI caveat, and aggregate memory pressure from many
-concurrent proof shards remains a scaling concern; neither reopens the former invisible-file hole.
+is absent from `Instructions.lean`. The adjacent hand-maintained pipeline surfaces are closed by
+`scripts/check_x86_family_pipeline.py`: every concrete family must have matching round-trip and
+memory-frame shards/imports, registry population/count entries, and a global-dispatch theorem.
+Its mutation suite demonstrates named rejection of omissions rather than treating a green static
+scan as sufficient evidence. The expensive `DispatchExhaustive.lean` proof remains outside the
+hot `Gasm` umbrella but is a declared `X86DispatchExhaustive` build target; aggregate memory
+pressure from many concurrent proof shards remains a scaling concern.
 
 **Cost of getting it wrong**: not correctness — throughput. Retrofitting B3 under 250 families
 means restructuring a 7,000-line decoder instead of a 774-line one, with every family's gate in

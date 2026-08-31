@@ -70,10 +70,16 @@ INSTRUCTIONS_DIR = REPO_ROOT / "Gasm" / "Targets" / "X86_64" / "Instructions"
 UMBRELLA_FILE = REPO_ROOT / "Gasm" / "Targets" / "X86_64" / "Instructions.lean"
 IMPORT_PREFIX = "Gasm.Targets.X86_64.Instructions."
 
-# Matches `instance : X86_64Instruction Foo where` and `instance : X86_64Instruction Foo := ...`
-# -- deliberately permissive about the RHS, since only "does this file register at least one
-# instance" matters here, not the instance's own shape.
-INSTANCE_DECL_RE = re.compile(r"^\s*instance\s*:\s*X86_64Instruction\b", re.MULTILINE)
+# Matches named or anonymous `instance ... : X86_64Instruction Foo` declarations and is
+# deliberately permissive about the RHS, since only "does this file register at least one
+# instance" matters here, not the instance's own shape. The planted family uses a named instance
+# so that syntax cannot regress to invisibility while anonymous instances continue to dominate the
+# production tree.
+INSTANCE_DECL_RE = re.compile(
+    r"^\s*instance(?:\s+(?:[A-Za-z_][A-Za-z0-9_']*|«[^»]+»))?\s*:\s*"
+    r"X86_64Instruction\b",
+    re.MULTILINE,
+)
 
 
 def is_family_file(path: Path) -> bool:
@@ -184,7 +190,7 @@ SELF_TEST_FAMILY_CONTENT = """\
 structure UmbrellaGateSelfTestScratch where
   dummy : Nat
 
-instance : X86_64Instruction UmbrellaGateSelfTestScratch where
+instance umbrellaGateSelfTestInstruction : X86_64Instruction UmbrellaGateSelfTestScratch where
 """
 
 SELF_TEST_INFRA_CONTENT = """\

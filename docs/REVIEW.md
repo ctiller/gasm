@@ -304,6 +304,14 @@ This subsection specifies what the two Law 10 gate tools implement, so that Pill
     x86 umbrella in both directions and has a planted-family self-test. This prevents a family from
     being invisible to registry/environment audits merely because Lean never imported it. See
     `docs/TARGETS/X86_64.md` §5 and the script's module docstring.
+15. **x86 Family-Pipeline Completeness:** `python scripts/check_x86_family_pipeline.py` must
+    return exit code 0. Starting from concrete `X86_64Instruction` instances, it checks that each
+    decoder family has its round-trip proof shard and aggregate import, registry population/count
+    entries, global-dispatch import and reachability theorem, and memory-frame shard/import. Its
+    temporary-tree self-test plants nine distinct omissions and requires each to turn the gate
+    red. This is wiring evidence only: Lean checks the proof terms, `MemoryFrameAudit` checks
+    per-instruction frame coverage, and neither this script nor those structural certificates
+    grant target fidelity or `VerifiedProgram` authority.
 
 ### 4.1.2 Reference Coverage Tooling Specification
 
