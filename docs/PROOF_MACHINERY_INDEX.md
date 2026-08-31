@@ -211,6 +211,7 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Refine one successful observation without unfolding its producer | `WasiObservable.normalizeSuccessfulExit`, its constructor equations, and `WasiObservable.refines_normalizeSuccessfulExit` | WASI observation algebra | Spike 3 Wasm equivalence | the consumer must prove the exact success payload and exclude fuel exhaustion; evaluator, outcome vocabulary, runtime bounds, and `VerifiedProgram` authority are unchanged |
 | Prove projected-key insertion-sort stability | `Stdlib.Sort.StableOn` and `insertionSort_stableOn` | pure container algebra | Spike 3 byte-line model plus distinct tagged equal-key regression | ordering and permutation are separate theorems; target execution and artifact authority remain consumer-owned |
 | Lower bounded structured straight-line code to Microsoft x64 | `StructuredStraightLineMicrosoftX64Entry.lowerFunction` and its `LocalCertificate` | compiler's target-specific local lowering layer | canonical bounded Microsoft x64 entry backend | exact clobbers and local semantics are proved; process entry, non-return, platform outcome, PE placement, and `VerifiedProgram` authority remain separate |
+| Bind a replaceable Microsoft x64 leaf into the stable symbolic CFG | `StructuredLeafMicrosoftX64CFG.Body`, `Body.ofGenerated`, `Body.ofReplacement`, `Terminal`, and `realizes` | compiler's target-specific leaf/typed-CFG bridge | generated backend and handwritten differential bodies | exact bytes, result, frames, clobbers, and control-flow freedom are retained; the caller still owns termination, emitted terminator semantics, layout, graph closure, admission, artifact identity, and `VerifiedProgram` authority |
 | Resume production execution after a proved local straight-line body | `ContextualStraightLinePlacement`, `RuntimeSilentOn`, and the target prefix-runner theorems | target production execution bridge | Microsoft x64 and AArch64 compiler-bulk spikes | the local certificate supplies no lookup, host-silence, ABI, outcome, artifact, admission, or `VerifiedProgram` authority |
 | Replace a compiler body while retaining one selected functional theorem | the AArch64 and Microsoft x64 differential modules' `FunctionalDelta` and `FunctionalDelta.realize` | each compiler target's local realization layer | runnable AArch64 and Windows x64 compiler-bulk spikes | only the named result property is transported; replacement bytes, frames, clobbers, classification, placement, runtime behavior, and final authority are regenerated or re-proved |
 | Emit production bytes from whole-program proof authority | `Gasm.Core.Platform.emitVerifiedProgram` | platform-neutral whole-program boundary | compiler-bulk plus migrated Spike 1, 2, 4, and 5 emitters/tests | serialization consumes an exact `VerifiedProgram` and may still return an error; public target-local serializers remain migration debt, while raw fuzzing requires `FuzzingEmitter` and confers no verification claim |
@@ -365,6 +366,16 @@ evidence, and negative boundary after that comparison; it does not own a second 
   authority.  The delivered differential control remains the nine-instruction-to-one-instruction
   Microsoft x64 replacement above.  Earlier hand-expanded IDs and noncanonical held commit
   `29b21f0b` are not provenance for this chain; use these repository-resolved canonical objects.
+- Canonical `f2adc350aa5fd1c3a306a962c7dd55af6ceca129` turns that replacement boundary into one
+  implementation-neutral typed-CFG leaf contract.  `Body.ofGenerated` and `Body.ofReplacement`
+  retain each selected body's exact instructions, bytes, source-indexed RAX result, memory/fault/RIP
+  frames, clobbers, outside-clobber preservation, and constructor-derived control-flow freedom.
+  `afterBody_ghostFrame` changes only the physical machine, while caller-owned `Terminal` supplies
+  an exhaustive target-free logical terminator before `realizes` constructs the existing
+  `StructuredCFG.RealizesLeaf` premise.  The one-instruction handwritten control enters through the
+  same `Body` as generated code.  This preserves stable source expression and symbolic topology
+  without copying implementation identity, and it supplies no emitted terminator step, layout,
+  graph closure, platform admission, artifact identity, or final `VerifiedProgram` authority.
 - For production emission, pass the final `VerifiedProgram` to platform-neutral
   `emitVerifiedProgram`; handle its `Except` result rather than bypassing the proof boundary with a
   target serializer.  Canonical `94da7dd` migrated Spike 2 Linux's emitter and test to this path;
@@ -1122,6 +1133,12 @@ The following code shapes have enough evidence to investigate but are not canoni
   The slice must replace brittle current inventory counts in `MEMORY_HOOK.md`,
   `X86_ISA_EXPANSION_PREREQUISITES.md`, and any exact-initial-family hardware prose with qualitative
   mechanically audited language.  It broadens no World, ABI, CFG, shared-memory, or authority layer.
+
+  Canonical migration `71864fa48f53c7104b5f1d610b0ad1284c72f3bc` and documentation cleanup
+  `190104845cf9083011da94b55683fa883ba84736` realize the one-identity ruling: current code and
+  consumer references use `MovReg32Mem32Disp`, while the former RSP-specific identity is gone.
+  Follow current declarations for the accepted target-owned family; the design scope above remains
+  the admission and negative boundary, not a generic load framework or compatibility API.
 
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
