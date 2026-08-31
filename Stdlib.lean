@@ -20,7 +20,7 @@ import Stdlib.SmolAlloc.Program
 import Stdlib.SmolAlloc.Equivalence
 import Stdlib.SmolAlloc.WasmTests
 
-import Stdlib.Zlib.ByteArrayBridge
+import Stdlib.Data.ByteArray
 import Stdlib.Containers
 import Stdlib.Zlib.CRC32
 import Stdlib.Zlib.Adler32

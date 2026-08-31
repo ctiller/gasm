@@ -814,8 +814,8 @@ The following code shapes have enough evidence to investigate but are not canoni
   extracted independently of cursor control flow.
 - Variable-fuel production-prefix composition exists in x86-64 `EventfulSegment`; it stays
   target-owned until a second accepted consumer demonstrates the same algebra.
-- Generic `ByteArray` facts in `Stdlib/Zlib/ByteArrayBridge.lean` are shared by PNG and Zlib but
-  should move atomically so the neutral module does not inherit a codec dependency.  Replacing
+- Generic `ByteArray` observation facts in `Stdlib/Data/ByteArray.lean` are shared by PNG and Zlib
+  without inheriting a codec dependency.  Replacing
   `ByteArray` with `Vec Byte` is a migration candidate, not a wholesale alias substitution: require
   observation and roundtrip bridges plus one demonstration consumer before changing representation.
 

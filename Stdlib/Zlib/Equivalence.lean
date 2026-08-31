@@ -15,7 +15,7 @@ limitations under the License.
 -/
 
 import Lean
-import Stdlib.Zlib.ByteArrayBridge
+import Stdlib.Data.ByteArray
 import Stdlib.Zlib.CRC32
 import Stdlib.Zlib.Adler32
 import Stdlib.Zlib.Deflate

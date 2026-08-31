@@ -46,7 +46,18 @@ The Array representation is certified but not opaque: Lean exposes the structure
 constructor even though its fields have private names. Clients should use the public
 operations and model laws as an API discipline, not rely on enforced abstraction.
 
-## 4. Umbrella API and evolution
+## 4. ByteArray observation bridge
+
+`Stdlib.Data.ByteArray` is an import-light bridge between Lean's separately implemented
+`.get!` operation and the proof-facing `[i]!`/proof-carrying `getElem` observations.
+It proves that push preserves every earlier byte, exposes the appended byte at the old
+size, and supplies `.get!` extensionality. PNG and Zlib both consume these generic laws;
+the module imports only Lean and carries no codec, effect, target, or program authority.
+
+Lean core already owns general ByteArray append, identity, associativity, and extract
+laws. Stdlib should use those directly rather than creating competing spellings.
+
+## 5. Umbrella API and evolution
 
 `Stdlib.Containers` is the supported umbrella import, and the repository-level
 `Stdlib` facade re-exports it.  New container operations should ship with model laws,

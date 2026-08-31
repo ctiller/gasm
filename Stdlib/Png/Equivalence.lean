@@ -18,7 +18,7 @@ import Lean
 import Stdlib.Png.Spec
 import Stdlib.Png.Filter
 import Stdlib.Png.Streaming
-import Stdlib.Zlib.ByteArrayBridge
+import Stdlib.Data.ByteArray
 
 /-
 ## Generic `ByteArray` push/get! plumbing (PA10)
@@ -28,7 +28,7 @@ import Stdlib.Zlib.ByteArrayBridge
 `.get!` interacts with `.push` on an otherwise-arbitrary `ByteArray`. The four bridge
 lemmas PA10 built for exactly this (`ByteArray.get!_eq_getElem_bang`/`get!_push_lt`/
 `get!_push_eq`/`ext_get!`) were, per this header's original note, never PNG-specific; they
-now live in `Stdlib/Zlib/ByteArrayBridge.lean` (hoisted unchanged for PA16's LZ77 proofs,
+now live in `Stdlib/Data/ByteArray.lean` (hoisted unchanged for PA16's LZ77 proofs,
 which sit below PNG in the dependency order) and are imported here. -/
 
 namespace Stdlib.Png
