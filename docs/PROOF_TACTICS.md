@@ -124,6 +124,15 @@ interception, live-register frames, and the back edge remain in the Spike 2 owne
 endpoint-parametric certificate composition; it does not establish the whole 90-row termination
 theorem or justify a new target-independent variable-fuel framework.
 
+Carry the successor's typed boundary through that composition instead of making the successor
+rediscover it from the final machine state.  Canonical `866e7c6a` has the fixed recurrence tail
+re-establish `Spike2LinuxRowEntry` from three explicit counter/current/next projections and its
+local frame.  The arbitrary-digit row producer preserves those projections across the decimal
+schedule and returns the next entry beside the exact selected-prefix certificate.  Keeping the
+projections explicit avoids unfolding the large dependent producer merely to recover register
+equalities.  This is the seam needed by a future structural row iterator; it does not itself prove
+the 90-row iteration or termination theorem.
+
 The measured invalidation boundary is part of the evidence.  On `25a375f`, a representative warm
 edit frontier fell from 12.64 seconds and seven rebuilt modules to 5.54 seconds and three modules on
 Polonius; the pass module fell from 1.5 seconds to 0.761 seconds, with no semantic or proof-authority
@@ -140,6 +149,14 @@ floor.  The useful boundary therefore exports only the next control point, recur
 registers, event delta, fault status, and the smallest output-memory frame, with the exact production
 prefix retained behind an opaque projection.  Prove one parameterized row step and compose it by
 structural induction; copying one opaque consumer per concrete row merely moves the scaling defect.
+
+Measure the exact closed proposition before choosing kernel decision.  Canonical `51a8c766`
+replaces `native_decide` with `decide +kernel` for Spike 3 Linux's empty-input trace regression;
+that small theorem remains a pointwise regression, not a universal theorem or `VerifiedProgram`.
+Applying the same proof shape to the canonical trace exceeded its resource envelope and was stopped
+and reverted.
+When a closed evaluator proof leaves its resource envelope, retain exact production semantics but
+switch the proof shape to selected-prefix or phase certificates and structural composition.
 
 ## Cache exact producers behind narrow typed boundaries
 

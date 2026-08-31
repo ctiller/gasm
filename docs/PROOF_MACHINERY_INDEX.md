@@ -79,6 +79,13 @@ evidence, and negative boundary after that comparison; it does not own a second 
   evidence without specializing the tail to two passes.  Syscall interception, row-entry facts,
   live registers, and the back edge stay spike-owned; this is a proven composition pattern, not a
   generic row or termination library.
+- Carry the successor's typed boundary alongside an exact variable-length certificate when the next
+  composition layer would otherwise have to unfold the producer.  Canonical `866e7c6a` has
+  `RowTailParametric.afterRecurrence_entry` reconstruct `Spike2LinuxRowEntry` from the tail frame
+  and explicit counter/current/next projections, while
+  `RowDecimalSchedule.twoDigitRowPrefix_successor` preserves those projections through the bounded
+  decimal producer and returns the next entry.  This is a row-iteration seam, not the iteration or
+  termination proof itself.
 - For fallible finite processing, `Stdlib.Control.FallibleFold` makes the accepted prefix, first
   refusal, retained remainder, conservation, and committed-state chain explicit.  Canonical
   `89c46f7` supplies the pure algebra, `c107938` connects Zlib compression and decompression by exact
@@ -167,6 +174,13 @@ Two useful precedents are:
 - `9bcb4f2` demonstrates endpoint-parametric suffix framing and preserves the exact fixed-plus-
   variable fuel bound while composing real selected production prefixes.  It closes one continuing
   row shape, not the universal 90-row termination theorem.
+- `866e7c6a` carries that composed row certificate into a typed successor entry using only explicit
+  local projections and the fixed-tail frame.  It avoids re-elaborating the large dependent producer
+  and supplies the boundary a future structural iterator should consume; no iterator or whole-run
+  theorem is admitted by this commit.
+- `51a8c766` kernel-checks the exact Spike 3 Linux empty-input regression with `decide +kernel`.
+  The corresponding canonical-trace attempt exceeded its resource envelope and was reverted, so the
+  admitted technique is small-vector closure only, not monolithic decision of large traces.
 
 Commit identifiers are provenance, not API names.  Follow the declarations above on current main;
 use the commits to inspect the reviewed extraction delta.
