@@ -53,6 +53,15 @@ Spike 1 consumer validate the construction.
 The landing deliberately excludes two unrelated ByteArray commits, preserved on
 `codex/stdlib-bytearray-laws`, and does not modify `ScratchSpike3.lean`.
 
+The current proof-lowering authority is the clean-slate trio
+`PROOF_LOWERING_CORE_DESIGN.md`, `MEMORY_MODEL_PRESERVATION_INVENTORY.md`, and
+`PROPOSED_PROOF_ARCHITECTURE.md`. Earlier plans, reviews, capability/obligation encodings and proof
+facades are historical spare parts. The new design uses minimum-sufficient property-directed
+demands, owner-sealed nonterminal obligation routing, and proof-producing selected interpretation;
+it preserves no intermediate datatype or API merely because it exists. The fallback 10:1 signal
+causes exactly one human specification/ownership/lowering review with no acceptance effect and no
+repeat-until-convergence machinery. New shared/public proof machinery still requires Craig's prior
+approval and a materially different second consumer.
 An entry is not permission to force a proof through the nearest abstraction.  Start with the exact
 caller-visible theorem, compare it with the reusable result, and keep the semantic delta in the
 layer that owns it.  If adapting the library costs as much as proving the local fact, record the

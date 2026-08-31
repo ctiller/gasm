@@ -367,8 +367,10 @@ Linux/Windows/bare metal, mutex implementation, wait adapter, fairness and async
 ### Source package and monadic operations
 
 Source proofs own the logical shared invariant and final counter/result. Operations spawn/donate,
-acquire with result, update, release, park/wake, join/detach and root termination. Each carries
+acquire with result, update, release, join/detach and root termination. Each carries
 healthy/not-acquired/recovery/not-recoverable where selected and exact lifecycle results.
+Parking, waking and scheduler registration belong to the selected mutex/scheduler realization unless
+the precious root deliberately makes one observable.
 
 ### Selected tree and lowering stages
 
@@ -447,8 +449,8 @@ design boundary is wrong; higher burden for a genuinely novel implementation is 
 | Spike 2 root | Recommend all rows or first refusal with exact committed prefix and distinct terminal result | Craig decision required |
 | Spike 3 root | Recommend stable, final unterminated record, explicit preparation/output/cleanup results | Craig decision required |
 | S4/S5/graphics/multi profiles | Narrow explicit first profiles, no completeness claim | Owner decisions required before implementation |
-| Cutover | Whole-spike atomic by default | Accepted design rule; exception needs unique canonical authority theorem |
-| Interface validation | Pathfinder plus Spike 1 universal VP roots before freeze | Proposed review gate, not implementation authority |
+| Cutover | Whole-spike atomic by default | Proposed design rule; exception needs unique canonical authority theorem |
+| Interface validation | Pathfinder plus Spike 1 universal VP roots before current use | Proposed validation gate, not implementation or compatibility authority |
 
 ## 12. Validation and cutover gates
 

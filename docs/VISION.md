@@ -361,20 +361,21 @@ Memory safety and proof modularity are the same feature: the capability tokens t
 an unsafe access fail to assemble (Law 11) are also the frame conditions that let routine
 proofs compose without global reasoning.
 
-**DSLs are the unit of proof leverage.** A lesson imported from prior projects: a DSL in
-Lean is a superpower for proofs, because theorems are proven about the *language in
-total* — once — and then apply to every program written in it. Well-designed DSLs
-compose, so lemma libraries stack: a bit-reader language inside an assembly language
-inside a syscall-effect language, each layer carrying its own total theorems. The
-operating rule: **anywhere there is a population of artifacts — even a closed
-population, even a population of one — reach for a DSL.** A closed population gets
-exhaustive language-level theorems (the instruction registry's roundtrip gate is exactly
-this shape); a population of one still profits when the DSL separates the proof into a
-reusable language-level part and a small program-level part. This is the concrete
-mechanism behind everything in §4: step lemmas and composition rules are total theorems
-about the assembly DSL; contracts are total theorems about the effect DSL; and proving
-languages instead of programs is precisely what makes proof cost sublinear in system
-size at the scale below.
+**Rebuild is the unit of proof leverage.** Work top down from owner-level semantics,
+lower through the smallest useful typed abstraction, inspect the resulting artifact,
+then rebuild the disposable intermediate specification and lowering when code quality or
+proof burden exposes a bad boundary. Previous rounds are spare parts, not compatibility
+commitments. This law applies fractally: to whole programs, stages, blocks, combinators,
+and local representations.
+
+DSLs and shared combinators are powerful when a real population and a materially
+different second consumer justify them. They are not the default for a population of
+one. A one-shot direct proof or local lemma is preferred when it is the smallest sound
+applicable construction. New shared/public machinery requires owner approval before
+implementation. The long-run direction is spec to typed abstract blocks to selected
+proof-producing realizations and exact artifacts; ordinary instruction, frame, CFG and
+ABI facts come from owner libraries, while program authors retain only source proofs and
+an irreducible local relation.
 
 **The scale target makes decomposition the first-class problem.** The target systems
 (§1, The Target Systems) are millions to tens of millions of lines in conventional-

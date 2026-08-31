@@ -1,8 +1,9 @@
 # Trust proof rebuild plan
 
-**Status:** proposed architecture and active execution plan. MP owns design refinement; Reviewer
-owns execution-plan falsification. Neither review blocks isolated experimentation, but no rebuilt
-spike becomes canonical until both applicable findings are closed.
+**Status:** historical execution plan, superseded for proof-lowering architecture by
+`PROOF_LOWERING_CORE_DESIGN.md`, `MEMORY_MODEL_PRESERVATION_INVENTORY.md`, and the current
+`PROPOSED_PROOF_ARCHITECTURE.md`. The body below is retained as spare-parts evidence; its roles,
+iteration process, abstraction choices and compatibility implications are not current authority.
 
 This plan replaces the existing spike proof architecture. It does not refactor, migrate, wrap, or
 generalize the old `Equivalence.lean` chains. Git history preserves those chains as requirements,

@@ -195,10 +195,11 @@ M0--M9 contains no process creation/image/reap/inheritance/cross-process authori
 constructor. Preserve generative domain qualification, binding generations, relational results,
 resource-specific failure, and the negative rule that task join is not process observation. Detailed
 future meaning remains solely in `FUTURE_PROCESS_MODEL.md` and activates consumer-by-consumer after
-M9; it is not current closure. Current logical cross-domain sharing is frozen COW snapshot only and
-must generation-rebind to fresh backing before any store. A future physical COW realization triggers
-on every store-class effect, not ordinary writes alone; opaque child/image writable sharing requires
-explicit environment-interference authority.
+M9; it is not current closure. In the deferred process/COW profile, sharing between distinct logical
+private regions is a frozen snapshot and must generation-rebind to fresh backing before any store.
+A future physical COW realization triggers on every store-class effect, not ordinary writes alone;
+opaque child/image writable sharing requires explicit environment-interference authority. This does
+not prohibit separately specified shared backing in GPU, device, IOMMU or other domain profiles.
 
 ## 8. Lock and synchronization-library contract
 
@@ -215,7 +216,7 @@ Source: [§7 Lock Invariants and Unlock Obligations](MEMORY_MODEL.md#7-lock-inva
 | [§7.3 Typed Obligations](MEMORY_MODEL.md#73-typed-obligations) | Preserve typed release, recovery, withdrawal, join/detach, wait-unregister, keep-alive, allocation/view and OS-resource obligations with safe result-indexed evolution. | Arbitrary permissions/obligation replacement is outside checked authoring. Scheduler registrations differ from author obligations. Destruction is the exact resource inverse and forced holder termination is unsupported absent a recovery profile. |
 | [§7.4 Implementations](MEMORY_MODEL.md#74-implementations-and-library-selection) | Each implementation supplies core/auxiliary representation, state and lifecycle, linearization/results, owner policy, event realization, progress, parking, and exact refinement. Selection is trait-directed. | `ParkedMutex32` is preferred, not universal. Packed/specialized designs prove width/alignment/scope, reachability, payload preservation, result/visibility, wait/lost-wakeup, notification, target and validation claims. Handler eligibility is separately proved. The CPU-thread M5-S contract is not automatically eligible for shader/device agents: a target proves topology participation, visibility, safety, no-deadlock and progress; spinning/blocking is rejected without independent forward progress, while collective/barrier plans require convergent or dynamically uniform participation. |
 | [§7.5 Multi-lock](MEMORY_MODEL.md#75-multi-lock-ordering-and-deadlock-demands) | Per-lock safety does not prove program deadlock freedom. A demand may use well-founded rank, multi-lock primitive, rollback/backoff, scheduler/transaction plan, fusion, or another explicit acyclic wait proof. | Fusion must preserve authority union, progress, observability, footprint and performance; mention of synchronization alone selects nothing. |
-| [§7.6 Future libraries](MEMORY_MODEL.md#76-future-cpu-synchronization-library-profiles) | Read/write locks expose compatible shared-reader guards or one exclusive-writer guard and pin upgrade/downgrade, preference, recovery and progress. Condition variables atomically release the selected mutex and register the wait, retain the predicate-loop duty, permit profile-spurious wake, and reacquire a valid guard for every returned result. Semaphores own bounded generative permits with exact initial/max count, overflow, timeout/cancel, visibility, destruction and progress. | Deferred and independently profiled. Negative controls reject wake-as-predicate/publication, permit-as-mutex, reader/writer overlap, lost registration, duplicate permits and unsafe destruction. |
+| [§7.6 Future libraries](MEMORY_MODEL.md#76-future-cpu-synchronization-library-profiles) | Read/write locks expose compatible shared-reader guards or one exclusive-writer guard and pin upgrade/downgrade, preference, recovery and progress. Condition variables atomically release the selected mutex and register the wait, retain the predicate-loop duty, permit profile-spurious wake, and reacquire a valid guard for each success, timeout, cancellation or interruption result admitted by the selected contract. Invalid or unsupported invocation is not silently promoted into such a result. Semaphores own bounded generative permits with exact initial/max count, overflow, timeout/cancel, visibility, destruction and progress. | Deferred and independently profiled. Negative controls reject wake-as-predicate/publication, permit-as-mutex, reader/writer overlap, lost registration, duplicate permits and unsafe destruction. |
 
 ## 9. Scheduler, asynchronous contexts, and waits
 
