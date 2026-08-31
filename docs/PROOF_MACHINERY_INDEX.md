@@ -234,21 +234,63 @@ Reusable extraction should leave a short audit trail.  Record:
    normative prose with a link.
 
 A design is not documentation-complete while a live conflict remains unaccounted for.
-`MEMORY_MODEL.md` is the canonical owner of authority and resource algebra, obligations,
-cancellation state, lifecycle, cleanup, accounting/governors, and dynamic generations.
-`SYSTEM_EFFECTS.md` owns portable source-level effect vocabulary and semantics plus explicit
-lowering/interpretation shape; it consumes and never redefines the memory-model algebra.
-`ABI_CONTEXT.md` owns transport and projection of logical context across boundaries and creates no
-second ownership or cleanup system.  Alignment work explicitly rejects every dual-ledger or
-dual-owner interpretation.
+Current document boundaries do not dictate the clean destination.  The proposed destination starts
+from precious root specifications that own the complete admissible behavior envelope: observables,
+safety, causality, permitted failure and partial effects, and claimed progress.  Effect/capability
+contracts declare typed operations, polar demands/constraints/offers, authority pre/postconditions,
+transfers, and retained obligations.  A small target-neutral parameterized resource/scope relation
+layer supplies generative identity, modality/lifecycle/conservation schemas, cancellation phases,
+dispositions, capacity/admission, and failure-domain laws.  It is neither a universal
+`Resource`/`Obligation` sum nor a runtime framework.  Domain policy libraries instantiate their own
+authority and obligation languages and refine those schemas; lowering explicitly selects handlers
+and proves refinement, composition, and local conservation.
+
+Memory-model roots continue to own `rf`/`co`/`fr`/`po`/`sw`/`hb` and target-indexed memory/device
+relations.  ISA layers own architectural definedness, targets own physical admission, ABI layers
+transport context, and artifacts record the selected tree as evidence rather than semantic
+authority.  Required cross-domain laws include non-fabrication, generation non-revival,
+conservation including outstanding cleanup, no scope-close erasure, cancellation as neither
+visibility nor rollback, exact race winners, irreversible-prefix monotonicity, consequence
+separation, explicit forced-termination failure domains, live-plus-reserved capacity bounds,
+explicit composition/noninterference and handler selection, and conservative applicability with
+demonstrated irrelevance before omitting a proof burden.  This split must be checked against both
+god-object and dual-owner failure modes.
 
 The current high-risk alignment ledger includes `EQUIVALENCE_PROOFS.md` reactive liveness;
 `ARCHITECTURE.md`, `REVIEW.md`, and `VISION.md` spike normativity; `SYSTEM_EFFECTS.md` hidden or
 typeclass selection and logging semantics; `ABI_CONTEXT.md` cancellation phases;
 `COMPILER_PLAN.md`'s old lowering flow; and Spike 4 parser exhaustion versus server overload.
 It also audits `OBLIGATIONS_AND_CAUSALITY.md`, `API_STATE_MODELS.md`, `READ_BINDER_CONTRACT.md`,
-`SPIKES/SPIKE3_SORT_LINES.md`, `SPIKES/SPIKE5_GZIP.md`, and `TARGETS/WASI.md` against that ownership
-split.
+`SPIKES/SPIKE3_SORT_LINES.md`, `SPIKES/SPIKE5_GZIP.md`, and `TARGETS/WASI.md` against both the current
+conflict inventory and the proposed destination.
+Concrete P1 conflicts are unconditional reactive liveness; Spike 4's HTTP 414 versus overload
+classification and premature scope discharge; blanket cooperative-cancellation assumptions; the
+wrong stdlib cancellation owner; and partial-read types that cannot express a committed prefix plus
+terminal status.  The earlier sole-`MEMORY_MODEL` destination verdict is superseded.
+`MEMORY_MODEL.md` and `SYSTEM_EFFECTS.md` may be split or rebuilt; the reissued audit records current
+state and clean destination in separate columns.
+`MEMORY_MODEL.md` remains the authoritative semantic baseline until a successor is accepted.  Every
+destination design and documentation change supplies a clause-level preservation ledger naming:
+the existing section, claim, invariant, negative control, or gate; its destination owner and exact
+successor clause; and whether its meaning is preserved, generalized, strengthened, intentionally
+changed, or deferred.  Generalized, changed, or deferred entries include adversarial rationale,
+affected target profiles, counterexamples, and proof/validation consequences.  A `no successor`
+entry blocks the reorganization unless Craig explicitly approves removal.  The old text becomes
+historical only after semantic coverage is proved and reviewed.  Semantic commitments are frozen;
+document packaging and Lean interfaces are not.  Any split includes a memory-domain specialization
+that recovers every moved claim and negative control.
+
+The high-risk preservation set includes authority/provenance before ordering and the rule that bytes
+do not manufacture provenance; generative identities and stale-generation rejection; loan and
+obligation conservation; distinct ISA/program/scheduler/observable causality; architecture-neutral
+events without TSO leakage; native x86 TSO and AArch64 weak-memory profiles; agent-local store
+buffers/reservations; plain versus atomic operations; synchronization witnesses; result-indexed
+lock/wait authority; queue-node and withdrawal obligations; and separation of completion,
+notification, observation, resource return, reclamation, delivery, and persistence.  It also
+preserves that wake is not visibility and CPU barriers are not cache maintenance; DMA/device/IOMMU
+binding generations; cancellation as neither rollback nor synchronization; interrupt-path and
+failure-domain separation; trace-quotient fidelity; bare-metal, hosted, futex/parking and progress
+assumptions; honest QEMU/hardware validation boundaries; and stage/reference-intake gates.
 Every decision touching one of these names its canonical owner and marks each affected document for
 amendment, replacement by an owner link, or historical/non-normative status.
 
