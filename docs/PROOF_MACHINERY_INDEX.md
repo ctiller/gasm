@@ -797,17 +797,7 @@ The following code shapes have enough evidence to investigate but are not canoni
   capability, mapping, TSO, atomicity, platform-admission, registry-oracle, or `VerifiedProgram`
   authority.
 
-  Fifth-class extension `archive/experimental/x86-guarded-movzx-alias-gap-f3e6b846`
-  (`f3e6b846af70b80a14bb753a6fa7d7f3e8b89c2c`) is **BLOCKED** despite its family/load/w8,
-  case/preimage, full 64-bit zero-extension, and stale-bit controls.  A coherent mutation changes
-  `MOVZX R13, byte [R15+0x7f]` to the exact bytes for `[R13+0x7f]` and sets modeled pre-state R13 to
-  `accessAddress-0x7f`; the load overwrites that changed base, so public `compare` accepts the
-  unchanged native result even though native execution used different bytes.  Require a
-  native-framed owner identity covering exact emitted form, bytes, and pre-state--or prevent
-  caller-authored plans from entering comparison evidence--plus this R15-to-R13 alias control.
-  The supplemental-only nonclaims above remain in force.
-
-  Follow-up consumer candidate
+  First repair
   `archive/experimental/x86-consumer-host-register-gap-1d7d2232`
   (`1d7d2232cb0b79edad2a2b92c9041957cf96682c`) is **BLOCKED**.  Its `decodeAndStep`
   revalidates several cached plan fields but omits the mandatory `form.hostRegistersSafe` premise.
@@ -837,6 +827,28 @@ The following code shapes have enough evidence to investigate but are not canoni
   Retagging only `plan.caseId += 0x100` therefore preserves every validation check.  Require a
   full-width or injective identity anchor, unavoidable result/plan case-ID binding, and an explicit
   `+0x100` retag control before treating independent calibration as established.
+
+  The fifth guarded class, `archive/experimental/x86-guarded-movzx-alias-gap-f3e6b846`
+  (`f3e6b846af70b80a14bb753a6fa7d7f3e8b89c2c`), is **BLOCKED** despite its family/load/w8,
+  case/preimage, full 64-bit zero-extension, and stale-bit controls.  A coherent mutation changes
+  `MOVZX R13, byte [R15+0x7f]` to the exact bytes for `[R13+0x7f]` and sets modeled pre-state R13 to
+  `accessAddress-0x7f`; the load overwrites that changed base, so public `compare` accepts the
+  unchanged native result even though native execution used different bytes.  Require a
+  native-framed owner identity covering exact emitted form, bytes, and pre-state--or prevent
+  caller-authored plans from entering comparison evidence--plus this R15-to-R13 alias control.
+  The supplemental-only nonclaims above remain in force.
+
+  Fourth repair `archive/experimental/x86-sealed-observation-controls-632d6eb5`
+  (`632d6eb5987c27cd15af6c0061140e5094d46362`) is **BLOCKED** only on control coverage.  Its
+  owner-derived length-delimited plan identity is adequate for the closed admitted inventory,
+  decode/step recomputes it and binds `caseId`, and the private `Observation` constructor prevents
+  external Plan/Result pairing or record-update laundering.  The coherent MOVZX relabel control
+  closes the prior attack, and its leading-canary falsifier remains present.  Before approval,
+  restore the three missing sealed non-transforming falsifiers for stale MOVZX destination high
+  bits, payload corruption outside the declared access, and trailing canary corruption.  They may
+  call private comparison helpers but must not expose observation construction or transformation.
+  The fixed inventory does not justify generic collision-proof machinery; this is test restoration,
+  not interface growth.
 
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
