@@ -287,6 +287,15 @@ evidence, and negative boundary after that comparison; it does not own a second 
   controls reproduce width, `/extension`, SIB, RIP, displacement, REX, prefix, mode, and truncation
   failures.  The focused MOV frontier built 62 jobs.  This is a decoder identity/stream-boundary
   repair, not new native, platform, admission, consumer, or `VerifiedProgram` authority.
+- Canonical `54628d789049bc4f31012f53c953cdbbf45c6120` applies the same exact-preimage rule to
+  the existing `0xC6 /0` RSP byte-store identity.  Constructor identity now requires the `/0`
+  extension, exact RSP no-index SIB, prefix policy, canonical displacement spelling, complete
+  consumption, exact re-encoding, and exact `toLean` identity together.  Negative controls partition
+  nonzero group extensions, non-RSP or indexed/no-base SIB aliases, REX and other prefixes,
+  zero-disp and wider-mode aliases, register mode, and every truncation boundary.  The constructor,
+  encoder, step, frame, and existing `VerifiedProgram` consumer are unchanged.  Validation passed
+  the 62-job MOV frontier, 1775/1775 x86 obligations, and reference, license, publishability, and
+  diff gates; these checks preserve the existing authority rather than creating new authority.
 - For an expensive exact execution proof, keep the complete certificate in its producer and export
   a separate typed boundary containing only the observations required by the successor.  The
   accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
