@@ -139,28 +139,14 @@ the normative relation; `Gasm.MemoryModel.FiniteSearch` then lifts those facts t
 soundness.  Reverse completeness is a separate obligation, required only when a concrete tool
 advertises complete enumeration for its stated finite scope.
 
-Test reverse completeness by widening the normative transition relation with one valid edge the
-enumerator omits.  The private positive control in `2059cd3` consumes actual `ReachesAt` evidence and
-the exact step relation, so this mutation breaks its proof.  A theorem that only shows
-`state ≤ fuel → reported` and survives the mutation has characterized an encoding or index, not
-normative reachability.
-
-## Minimize premises around one semantic witness
-
-When stronger evidence already entails a premise, derive it inside the reusable theorem instead of
-charging every caller.  When several stable consequences depend on the same existential witness,
-package them together so consumers destruct that witness once.  The accepted from-read and atomic
-read-source helpers (`4433e1d`, `4c980cf`) centralize endpoint, source, value, coherence, and
-adjacency consequences this way; `e4857567` similarly reuses the canonical premise-free
-program-order transitivity law.  Do not bundle unrelated facts simply to make a larger theorem.
-
 ## Close tiny carrier controls without equality instances
 
 For a small private finite-carrier fixture, do not add `DecidableEq` to a public type merely so
-`simp` can prove constructor inequality or `List.Nodup`.  M0 envelope checkpoint `ecd5f9e` constructs
-`List.Nodup.cons` and `List.Mem` witnesses explicitly and closes impossible constructor equalities by
-inductive no-confusion (`cases equality`).  The dependency-free focused build remained under two
-seconds.  This is a fixture technique, not evidence for a new finite-set library abstraction.
+`simp` can prove constructor inequality or `List.Nodup`.  Independently reviewed, isolated M0
+envelope checkpoint `ecd5f9e` constructs `List.Nodup.cons` and `List.Mem` witnesses explicitly and
+closes impossible constructor equalities by inductive no-confusion (`cases equality`).  Reviewer
+rebuilt both Envelope modules together in about 1.35 seconds.  This is a fixture technique, not a
+current-main API or evidence for a new finite-set library abstraction.
 
 ## Lift target steps through small generic algebras
 

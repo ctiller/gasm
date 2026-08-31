@@ -28,10 +28,6 @@ diagnostic until repeated accepted cases justify new machinery.
 | Compose frame facts without clobber-order obligations | `preserves_comp`, `preservesOutside_comp`, `preservesOutside_comp_append` | target-independent observation algebra | x86-64 segment composition and the shared list-execution consumers | append is only a conservative union representation; uniqueness and order are irrelevant |
 | Preserve an x86 64-bit read across a lower, non-wrapping write | `Gasm.Targets.X86_64.X86_64Mem.read64_write_below` | x86-64 memory semantics | Spike 2 decimal authority and Spike 5 native proofs | address arithmetic, write width, nowrap, and strict-below premises remain explicit; this is not a target-independent memory model |
 | Show bounded finite exploration contains only normative reachable states | `Gasm.MemoryModel.FiniteSearch.Enumerator.search_sound` | memory-model presentation/search boundary | the checked incomplete-enumerator negative control exercises the one-way guarantee | completeness is separate and may not be inferred from bounded fuel or a finite result |
-| Prove bounded finite exploration complete for one exact finite fixture | reverse completeness in `Gasm.MemoryModel.FiniteSearchPositiveControls` (`2059cd3`) | private memory-model validation fixture | its proof consumes actual `ReachesAt` and the exact transition relation | fixture-only evidence; widening the relation with an unenumerated edge breaks the proof, and no generic completeness or production authority follows |
-| Reuse canonical program-order transitivity | `ProgramOrderProjection.po_trans` | CPU-graph program-order projection | `ProgramOrderPath` (`e4857567`) removed its duplicate transitivity proof | the premise-free canonical consequence is reused unchanged; no stronger ordering relation is inferred |
-| Recover stable from-read endpoint, source, and value facts | `fr_support`, `fr_source_value` | CPU-graph derived from-read layer | downstream from-read proofs (`4433e1d`) share the same existential source witness | target classification and independent facts remain outside the package |
-| Recover a canonical atomic read source across fragments | atomic source/value/coherence/adjacency package in `Gasm.MemoryModel.CpuGraphAtomicRead` | CPU-graph atomic-read layer | combined-RMW controls (`4c980cf`) | redundant `readAt` premises are derived, not requested; this proves neither target classification nor linearization |
 | Preserve dependent CFG identity through lowering or nominal remapping | `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock`, `lower_ref_exact`, and `lowerDefinitions_mapBlockId_block` | compiler CFG authoring/lowering | typed CFG lowering and x86-64 control-point remapping | matching names or entries do not substitute for equality of the complete dependent definition |
 | Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.UInt64DecimalScheduleRealization` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection |
 | Cache an exact selected x86 production prefix | `ProductionPrefix.SelectedPrefix.Cutpoint` | x86-64 eventful production semantics | canonical evidence carried by `LocalBlockRun` | a cutpoint proves an exact prefix only; it does not classify the caller's logical phase or prove termination |
@@ -68,12 +64,6 @@ diagnostic until repeated accepted cases justify new machinery.
   versus 12.64 seconds.  The reusable pattern is an observation-shaped invalidation boundary, not
   a new facts namespace.  Register-frame, `does_not_use_memory`, jump, and syscall summaries are
   likely consumers; their instruction and platform semantics remain owner-local.
-- Before exporting a helper, remove premises already implied by its strongest supplied evidence.
-  `e4857567` reused the canonical premise-free program-order transitivity law instead of maintaining
-  a duplicate path proof.  `4433e1d` and `4c980cf` package stable endpoint, source, value, coherence,
-  and adjacency consequences around the same existential read-source witness, so consumers do not
-  reconstruct that witness or resupply derivable `readAt` facts.  Package consequences that share
-  one semantic witness; do not accumulate independent facts merely to produce a large theorem.
 
 ## Admission record
 
@@ -109,6 +99,17 @@ use the commits to inspect the reviewed extraction delta.
 
 The following code shapes have enough evidence to investigate but are not canonical generic APIs:
 
+- Four isolated memory-model checkpoints demonstrate useful proof shapes but are not integrated and
+  must not be read as current-main APIs.  Reverse-completeness fixture `2059cd3` consumes actual
+  `ReachesAt` evidence and the exact transition relation; widening the relation with one unenumerated
+  edge breaks the proof, unlike the rejected insensitive shape `state <= fuel -> reported`.
+  `e4857567` removes a duplicate program-order transitivity proof by reusing the canonical
+  premise-free `ProgramOrderProjection.po_trans`.  `4433e1d` and `4c980cf` package endpoint, source,
+  value, coherence, and adjacency consequences around the same existential read-source witness so
+  consumers do not reconstruct it or resupply derivable `readAt` facts.  The candidate lesson is to
+  remove premises implied by stronger evidence and package consequences sharing one semantic
+  witness--not to bundle independent facts into one theorem.  Promote declarations only after their
+  exact commits integrate and current main contains the named modules.
 - Exact fallible-fold candidate `e533d83` demonstrates a deliberately narrow generic ownership
   boundary in `Stdlib.Control.FallibleFold`.  The generic layer owns only committed state, the
   accepted prefix, first refused input, untouched tail, and conservation plus accepted-transition
@@ -132,15 +133,16 @@ The following code shapes have enough evidence to investigate but are not canoni
   legacy projection.  Generic conservation, accepted-prefix, and refused-boundary laws now apply
   directly; `driveStreamingViaFallibleFold_eq` still preserves the legacy driver for arbitrary push
   function, state, scope, and input, and compression plus decompression consume it.  The initial
-  focused bridge build completed green in about 2.3 seconds over 23 jobs; `4a6b806` is under exact
-  reviewer re-review, so do not transfer that measurement or canonical status without the corrected
-  run.  The useful proof pattern generalizes over the output accumulator, splits both the recursive
+  focused bridge build completed green in about 2.3 seconds over 23 jobs.  Reviewer confirmed the
+  corrected difference-list formula, order, and linear-materialization explanation; do not transfer
+  the initial measurement or canonical status without a corrected run and integration.  The useful
+  proof pattern generalizes over the output accumulator, splits both the recursive
   fold result and legacy driver result, uses associativity on success, and eliminates incompatible
   failure equalities.  Direct rewriting beneath the fold's accepted-prefix reconstruction match did
-  not fire; split the recursive fold result instead.  A runnable Spike 5 connection remains blocked
-  by a pre-existing `Runtime.lean` `RuntimeContext` mismatch, so the second library consumer is not a
-  whole-program completion claim.  Independent review and that runnable connection still precede
-  canonical promotion.
+  not fire; split the recursive fold result instead.  The prior Spike 5 `RuntimeContext` mismatch
+  was repaired and independently accepted at `80f19e7`; it is no longer a blocker attributable to
+  this extraction.  No runnable whole-program connection has yet been reported to this ledger, so
+  independent review and an exact completion report still precede canonical promotion.
 
   The abstraction negative control is equally important: a proposed generic
   `ResourceAccounting` count snapshot was removed because it had neither two domain connections nor
@@ -180,7 +182,10 @@ The following code shapes have enough evidence to investigate but are not canoni
   retrieval time.  The latest correction adds a fifth control: distinct nominal `OperationId` and
   `ResponseId` tags do not establish distinct generative histories if both draw from one aliased
   sequence.  Give them independent counters, exact advance conditions, and separate
-  prefix-preserving disposition histories, with controls that reject cross-history reuse.
+  prefix-preserving disposition histories, with controls that reject cross-history reuse.  The
+  callback transcript must also be result-indexed: callback fault, process termination, or nonreturn
+  is terminal, and a `GetMessage` result exists only after every retrieval-time callback returns
+  normally.  These are active design constraints, not landed provider machinery.
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
@@ -189,7 +194,9 @@ The following code shapes have enough evidence to investigate but are not canoni
   return, queue reclamation, delivery, acknowledgement, persistence, and GPU completion remain
   distinct unless a selected profile proves a relation between them.  Reusable helpers should
   preserve these indexed obligations across the same witness; they must not collapse them into a
-  count, Boolean completion flag, or destructive table update.
+  count, Boolean completion flag, or destructive table update.  Readiness need not forbid enqueue:
+  enqueue may consume a registered wait.  The correction is that pre-enqueue one-shot readiness is
+  not the durable post-enqueue evidence needed for exact generation retirement.
 - The first multithreading vertical-demo ruling requires actual emitted Windows x86-64
   `CreateThread`, successful thread-object wait/close, and the sole production `VerifiedProgram`.
   Its first payload is deliberately one-shot: child ordinary store, join publication, then parent
@@ -200,14 +207,24 @@ The following code shapes have enough evidence to investigate but are not canoni
   non-CPU sentinel.  M0 imposes only laws selected by that structure, not every target consistency
   theorem; an unselected single-threaded program incurs no concurrency premise.
 
-  Exact checkpoint `ecd5f9ec5da481c4eca0ee85765c9571f709ad24` successfully implements only the
-  thin structural `Envelope` slice and passed primary-design conformance review, pending independent
-  Reviewer and Trust.  It uses existential event coverage, finite duplicate-free carriers,
+  The Windows demo must totalize `CreateThread`, thread-object wait, and close failures while
+  preserving every result-indexed obligation.  `WAIT_OBJECT_0` supplies the selected join-publication
+  synchronization; actual concurrency permits the child to execute before `CreateThread` returns.
+  Any proof assuming parent-return-before-child is therefore a scheduler trace, not this demo.
+
+  Accuracy follow-up `67bf9db02bb335b373d558feb142fe10d1a15c47` supersedes `4a27b2e` on
+  canonical main `2a0ff225ae8521ceeed31c60f92ccbeffa79dc4c`.  It preserves the MP- and
+  independently Reviewer-accepted semantics of `ecd5f9ec5da481c4eca0ee85765c9571f709ad24`.
+  Reviewer nevertheless held the exact first public shape because the current ternary relation
+  `Prop` has no stable relation-occurrence identity; exact redesign and re-review are required before
+  Trust integration.  The checkpoint implements only the thin
+  structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
   event-agent and relation-endpoint laws, nonsemantic carrier-list order, proportionate eliminators,
-  and private positive plus malformed-carrier controls.  Its negative boundary is deliberate: it
-  proves no target fidelity, execution admission, binding or aliasing law, consequence semantics, or
-  placeholder for later layers.  Binding-history work therefore remains gated; this checkpoint does
-  not complete M0 or the native-thread demonstration.
+  and private positive plus malformed-carrier controls.  Public `Domains` carries opaque
+  `Consequence` vocabulary for the heterogeneous envelope, but proves no consequence carrier
+  membership, identity, occurrence/path binding, semantics, fidelity, admission, or authority.  It
+  likewise proves no target fidelity, execution admission, binding, or aliasing law.  Binding-history
+  work remains gated; this checkpoint does not complete M0 or the native-thread demonstration.
 
   Signature review accepted the layer split but held implementation for four failures.  An
   unrestricted `PathConsequence.value` could invent completion, visibility, or resource return
@@ -227,7 +244,8 @@ The following code shapes have enough evidence to investigate but are not canoni
   continuation can observe them.  Keep the exact clobber set and make no callable claim.  This is an
   applicability boundary, not an ABI exception: a future callable wrapper must consume that clobber
   set and prove ordinary preservation.  Do not extract a generic save/restore API before that real
-  consumer demonstrates the reusable shape.
+  consumer demonstrates the reusable shape.  Reviewer found this ruling sound under the stated
+  no-caller/no-unwind/no-callback exclusions; it remains unlanded.
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
   Spike 3 still needs a theorem over every finite stdin with explicit reservation, allocation,
   read, output, exhaustion, and cleanup outcomes before its downstream production certificates can
