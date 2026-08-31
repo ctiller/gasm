@@ -29,6 +29,7 @@ private def seededState : X86_64MachineState :=
   let state := state.setGpr64 .rcx 0xfedcba9876543210
   let state := state.setGpr64 .r10 0x8877665544332211
   let state := state.setGpr64 .r13 0xffffffffffffffff
+  let state := state.setGpr64 .r14 0x88776655a1b2c3d4
   { state with flags := 0x8d5 }
 
 private def controls : List Request := [
@@ -44,7 +45,10 @@ private def controls : List Request := [
   { caseId := 0x105, form := .mem8Reg8 ⟨.r12, .rcx⟩, seed := seededState },
   -- Byte load into an all-ones destination proves the production step zero-extends rather than
   -- preserving stale high bits; the nonzero displacement also exercises its distinct codec path.
-  { caseId := 0x106, form := .movzxR64Mem8 ⟨.r13, .r15, 0x7f⟩, seed := seededState }
+  { caseId := 0x106, form := .movzxR64Mem8 ⟨.r13, .r15, 0x7f⟩, seed := seededState },
+  -- The enclosing R14 value has nonzero upper bits. A missing operand-size distinction would
+  -- write eight bytes; exact W32 semantics write only D4 C3 B2 A1 and preserve the upper neighbor.
+  { caseId := 0x107, form := .mem32DispReg32 ⟨.r9, 0x80, .r14d⟩, seed := seededState }
 ]
 
 private def coverageComplete : Bool :=
@@ -62,13 +66,18 @@ private def negativeCalibration (observations : List Observation) : Except Strin
     | some observation => pure observation
     | none => throw "runtime negative calibration received no MOVZX native observation"
   HardwareMemoryDifferential.calibrateMovzxStaleHighBitsRejection movzx
+  let store32 ← match observations.find? fun observation =>
+      observation.plan.form.scratchClass == .mem32DispReg32 with
+    | some observation => pure observation
+    | none => throw "runtime negative calibration received no 32-bit store native observation"
+  HardwareMemoryDifferential.calibrateStore32UpperNeighborRejection store32
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Adding an admitted class without a nonempty native control turns this module red.
 #guard coverageComplete
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
-/-- Executes all five supplemental MOV/MOVZX memory-form classes through the native guarded scratch
+/-- Executes all six supplemental MOV/MOVZX memory-form classes through the native guarded scratch
     runner and compares them with their exact production `step` semantics. -/
 def main (_args : List String) : IO UInt32 := do
   let result ← run controls
@@ -87,5 +96,5 @@ def main (_args : List String) : IO UInt32 := do
               IO.eprintln s!"x86 scratch-memory differential mismatch: {msg}"
               pure 1
           | .ok () =>
-              IO.println s!"x86 scratch-memory hardware controls passed ({observations.length} exact guarded observations; all four negative calibrations rejected)"
+              IO.println s!"x86 scratch-memory hardware controls passed ({observations.length} exact guarded observations; all five negative calibrations rejected)"
               pure 0

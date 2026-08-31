@@ -285,6 +285,36 @@ theorem MovRspDispImm64.readsWithin (i : MovRspDispImm64) : ReadsWithin i := by
     exact congrArg UInt8.toUInt64 (X86_64Mem.readByte_write_inside .w64 _ _ _ _ k hk)
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovMem32DispReg32.writesWithin (i : MovMem32DispReg32) : WritesWithin i := by
+  intro s a ha
+  simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
+    MemAccessSpec.addresses, MemRef.effectiveAddress] at ha
+  have h0 : s.gprs i.basePtr + signExtend8To64 i.disp ≠ a := by simpa using ha 0 (by decide)
+  have h1 : s.gprs i.basePtr + signExtend8To64 i.disp + 1 ≠ a := by simpa using ha 1 (by decide)
+  have h2 : s.gprs i.basePtr + signExtend8To64 i.disp + 2 ≠ a := by simpa using ha 2 (by decide)
+  have h3 : s.gprs i.basePtr + signExtend8To64 i.disp + 3 ≠ a := by simpa using ha 3 (by decide)
+  show X86_64Mem.read .w8 a (X86_64Instruction.step i s).memory = X86_64Mem.read .w8 a s.memory
+  simp only [X86_64Instruction.step, X86_64Mem.read, X86_64Mem.readByte,
+    X86_64MachineState.write32, X86_64Mem.write, beq_self_eq_true, if_true]
+  simp [Ne.symm h0, Ne.symm h1, Ne.symm h2, Ne.symm h3]
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovMem32DispReg32.readsWithin (i : MovMem32DispReg32) : ReadsWithin i := by
+  intro s1 s2 hout _
+  obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+  constructor
+  · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+      simp only [X86_64Instruction.step] <;>
+      simp_all
+  · intro a ha
+    simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
+      MemAccessSpec.addresses, MemRef.effectiveAddress] at ha
+    obtain ⟨k, hk, hak⟩ := ha
+    subst hak
+    simp only [X86_64Instruction.step, X86_64MachineState.write32, X86_64Mem.read, hgprs]
+    exact congrArg UInt8.toUInt64 (X86_64Mem.readByte_write_inside .w32 _ _ _ _ k hk)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 theorem MovMem64DispReg64.writesWithin (i : MovMem64DispReg64) : WritesWithin i := by
   intro s a ha
   simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,

@@ -116,6 +116,16 @@ def calibrateMovzxStaleHighBitsRejection (observation : Observation) : Except St
   | .ok () => throw "runtime negative calibration accepted stale MOVZX destination high bits"
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Corrupts the first byte above an admitted W32 store and requires the complete-region
+    comparator to reject it.  The family check prevents this calibration from becoming a vague
+    fixed-offset test for some other access width. -/
+def calibrateStore32UpperNeighborRejection (observation : Observation) : Except String Unit := do
+  if observation.plan.form.scratchClass != .mem32DispReg32 then
+    throw "W32 upper-neighbor calibration requires a 32-bit register store observation"
+  let accessIndex := (observation.plan.accessAddress - observation.plan.regionBase).toNat
+  calibrateRegionByteRejection observation (accessIndex + 4) "W32-upper-neighbor"
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Runs the exact comparator over a nonempty batch.  An enabled batch producing no observations
     is a hard coverage failure rather than a vacuous pass. -/
 def compareBatch (observations : List Observation) : Except String Unit := do
