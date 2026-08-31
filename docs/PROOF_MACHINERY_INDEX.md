@@ -878,6 +878,24 @@ The following code shapes have enough evidence to investigate but are not canoni
   harness; the applicability, capability, mapping, memory-model, platform-admission,
   registry-oracle, and `VerifiedProgram` nonclaims remain unchanged.
 
+  GPR Milestone 1 extension `archive/experimental/x86-gpr-m1-decoder-gap-ffc83591`
+  (`ffc835915214672875292883e84a3b75bebd9501`) is **BLOCKED** on decoder admission.  Its
+  `MovMem32DispReg32` production encoding, step, descriptors, uops, roundtrip, and exact W32 frame
+  are correct for the supported base-only forms.  It also correctly handles the REX.W width split,
+  extension bits, RSP/R12 SIB emission, RBP/R13 forced displacement, 32-bit source truncation, and
+  four-byte read/write footprints.  Sealed plan identity remains intact, a source with nonzero high
+  32 bits detects accidental widened writes, and the byte-after-footprint calibrator reaches the
+  private full-region comparator.
+
+  The decoder nevertheless accepts unsupported addressing encodings: `89 04 00` is really
+  `[rax+rax]` but is relabelled `[rsp]`; `89 05 00000000` is RIP-relative but is relabelled
+  `[rbp+0]` and under-consumed; and `42 89 04 24` uses REX.X to address `[rsp+r12]` but is relabelled
+  `[rsp]`.  The mod=1/rm=4 path also accepts arbitrary SIB bytes.  The narrow repair is to bind
+  REX.X, reject unsupported mod=0/rm=5 RIP-relative forms, and require the exact base-only SIB with
+  REX.X clear whenever rm=4, preferably in both W32 and existing W64 `0x89` paths; retain the three
+  hostile byte strings as decoder controls.  This needs no new proof machinery and grants no
+  production-admission or final proof authority.
+
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
   precondition-indexed `SafeUnder` is the right proof-economical goal shape.  But public
