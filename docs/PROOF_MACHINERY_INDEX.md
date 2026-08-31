@@ -71,6 +71,14 @@ evidence, and negative boundary after that comparison; it does not own a second 
   application while preserving the exact selected prefix, final frame, formatted bytes, and event
   facts.  The `7 + 5` coefficient is derived from the extraction and reverse-write pass certificates;
   it is not a runtime capability, allocation budget, or arbitrary proof-search limit.
+- For a fixed suffix after a variable-length producer, state the suffix frame over the producer's
+  arbitrary endpoint.  Canonical `9bcb4f2` gives Spike 2 Linux
+  `RowTailParametric.selectedPrefix` a fixed 19-transition certificate for any formatted state, then
+  `RowDecimalSchedule.twoDigitRowPrefix` appends the fixed opening, bounded decimal schedule, and
+  tail.  Its bound `45 + 12 * decimalDigitCount current` preserves the schedule's quantitative
+  evidence without specializing the tail to two passes.  Syscall interception, row-entry facts,
+  live registers, and the back edge stay spike-owned; this is a proven composition pattern, not a
+  generic row or termination library.
 - For fallible finite processing, `Stdlib.Control.FallibleFold` makes the accepted prefix, first
   refusal, retained remainder, conservation, and committed-state chain explicit.  Canonical
   `89c46f7` supplies the pure algebra, `c107938` connects Zlib compression and decompression by exact
@@ -156,6 +164,9 @@ Two useful precedents are:
 - `94da7dd` removes Spike 2 Linux's target-specific production serializer use in favor of the
   canonical `emitVerifiedProgram` boundary; the remaining public raw serializers are still debt,
   not compatibility APIs to copy into new emitters.
+- `9bcb4f2` demonstrates endpoint-parametric suffix framing and preserves the exact fixed-plus-
+  variable fuel bound while composing real selected production prefixes.  It closes one continuing
+  row shape, not the universal 90-row termination theorem.
 
 Commit identifiers are provenance, not API names.  Follow the declarations above on current main;
 use the commits to inspect the reviewed extraction delta.

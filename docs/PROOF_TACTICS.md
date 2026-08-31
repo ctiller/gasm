@@ -115,6 +115,15 @@ the consumer now applies the owner theorem directly.  This is a mathematical/ope
 bound derived from the phase certificates, not permission to infer runtime resource authority or to
 hide arbitrary proof-search fuel.
 
+When a fixed suffix follows a variable-length producer, state its frame against the producer's
+abstract endpoint rather than one concrete pass count.  Canonical `9bcb4f2` makes the Spike 2 Linux
+19-transition line/write/recurrence tail parametric in the formatted state, then composes a fixed
+26-transition opening, the bounded decimal schedule, and that tail.  The resulting continuing-row
+prefix has required fuel at most `45 + 12 * decimalDigitCount current`.  Exact syscall lookup,
+interception, live-register frames, and the back edge remain in the Spike 2 owner.  This demonstrates
+endpoint-parametric certificate composition; it does not establish the whole 90-row termination
+theorem or justify a new target-independent variable-fuel framework.
+
 The measured invalidation boundary is part of the evidence.  On `25a375f`, a representative warm
 edit frontier fell from 12.64 seconds and seven rebuilt modules to 5.54 seconds and three modules on
 Polonius; the pass module fell from 1.5 seconds to 0.761 seconds, with no semantic or proof-authority
