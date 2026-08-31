@@ -88,6 +88,7 @@ import Gasm.Targets.X86_64.Roundtrip
 import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.X86_64.MacroAssembler
 import Gasm.Targets.X86_64.MacroAssembler.PlatformBridge
+import Gasm.Targets.X86_64.MacroAssembler.Condition
 import Gasm.Targets.X86_64.MacroAssembler.SelectedPrefixBridge
 import Gasm.Targets.X86_64.MacroAssembler.ControlPoints
 import Gasm.Targets.X86_64.CFGBridge

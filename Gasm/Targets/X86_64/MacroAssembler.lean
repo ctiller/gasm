@@ -84,6 +84,7 @@ inductive ControlFlowFree : X86_64Instr → Prop where
   | add (dst src : Reg64) : ControlFlowFree (add_r64 dst src)
   | sub (dst src : Reg64) : ControlFlowFree (sub_r64 dst src)
   | bitAnd (dst src : Reg64) : ControlFlowFree (and_r64 dst src)
+  | compare (left right : Reg64) : ControlFlowFree (cmp_r64 left right)
 
 /- REF: docs/MACRO_ASSEMBLER.md#execution-and-contracts -/
 /-- Constructor-closed target classification of instruction families that never encode control

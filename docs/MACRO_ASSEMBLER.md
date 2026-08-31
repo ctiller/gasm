@@ -37,6 +37,20 @@ The initial x86-64 library contains proved register-to-register `mov`, 64-bit co
 and register `add`, `sub`, and `and`. These are deliberately small primitives. Larger macros should
 be assembled from them and expose domain-specific postconditions.
 
+## x86-64 comparison condition macros
+
+`Gasm.Targets.X86_64.MacroAssembler.Condition` adds the exact `CMP r64,r64` building block needed
+by structured conditions. Its segment declares no GPR clobbers, proves every GPR and memory are
+preserved, and gives law-bearing postconditions for both equality through ZF and unsigned
+less-than through CF. The target-owned `ControlFlowFree` classification admits this exact ordinary
+constructor; a JCC remains a separate selected control-transfer form.
+
+The comparison segment establishes flags only. It does not choose a destination, construct a typed
+edge, assign block addresses, or authorize native execution. Compiler condition lowering must
+connect its operand values to the portable Bool expression; CFG assignment must retain both exact
+target definitions; and the linker/platform layers must still prove the selected JCC encoding,
+polarity, placement, runtime transition, and ghost-world transfer.
+
 ## Macro programs
 
 `MacroAssembler.Program` is a list of proved fragments. It is an authoring form, not a mandatory
