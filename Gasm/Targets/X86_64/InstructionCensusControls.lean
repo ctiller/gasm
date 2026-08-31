@@ -104,6 +104,13 @@ private abbrev AnyInstructionWrapperAlias :=
   Gasm.Targets.X86_64.Instructions.AnyX86_64Instruction
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- A registered alias-target wrapper instance is the dangerous case: ordinary synthesis can
+    select it, so the census must reject it before wrapper exclusion. -/
+private instance (priority := 2000) aliasAnyInstructionWrapperInstance :
+    Gasm.Targets.X86_64.Instructions.X86_64Instruction AnyInstructionWrapperAlias :=
+  Gasm.Targets.X86_64.Instructions.instX86_64InstructionAnyX86_64Instruction
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Frame-shaped fixture whose proposition depends on the selected instruction instance. -/
 private def FixtureFrame {α : Type} [FixtureInstruction α] (_ : α) : Prop :=
   FixtureInstruction.token (α := α) = 6
@@ -160,5 +167,26 @@ run_cmd do
     unless candidates.length == 9 do
       throwError "instruction census control: expected nine compiled fixture instances, found \
         {candidates.length}"
+
+run_cmd do
+  let env ← Lean.getEnv
+  Lean.Elab.Command.liftTermElabM do
+    let candidates ← classCandidates env
+      ``Gasm.Targets.X86_64.Instructions.X86_64Instruction
+    let wrappers := candidates.filter fun candidate =>
+      isAnyInstructionWrapperTarget candidate.target
+    unless wrappers.length == 2 do
+      throwError "instruction census control: expected canonical and hostile alias wrapper \
+        instances, found {wrappers.length}"
+    try
+      validateCanonicalWrapper env candidates
+      throwError "instruction census control: hostile alias wrapper instance was accepted"
+    catch error =>
+      let message ← error.toMessageData.toString
+      unless message.contains "exactly one canonical" &&
+          message.contains "instX86_64InstructionAnyX86_64Instruction" &&
+          message.contains "aliasAnyInstructionWrapperInstance" do
+        throwError "instruction census control: wrapper rejection did not identify both compiled \
+          declarations: {message}"
 
 end Gasm.Targets.X86_64.InstructionCensusControls

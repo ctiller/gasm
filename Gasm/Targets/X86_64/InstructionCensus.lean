@@ -107,6 +107,36 @@ private def instructionsNamespace : Name := `Gasm.Targets.X86_64.Instructions
 def isAnyInstructionWrapperTarget (target : Expr) : Bool :=
   target.constName? == some ``AnyX86_64Instruction
 
+private def canonicalWrapperInstance : Name :=
+  ``Gasm.Targets.X86_64.Instructions.instX86_64InstructionAnyX86_64Instruction
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- The open existential wrapper is infrastructure, but its instance still controls ordinary
+    synthesis.  Require exactly the canonical declaration before excluding it from concrete-form
+    obligations; otherwise a higher-priority alias-target instance could alter semantics while
+    disappearing from every population audit. -/
+def validateCanonicalWrapper (env : Environment) (candidates : List ClassCandidate) : MetaM Unit := do
+  let wrappers := candidates.filter fun candidate =>
+    isAnyInstructionWrapperTarget candidate.target
+  match wrappers with
+  | [candidate] =>
+      unless candidate.parameters.isEmpty do
+        throwError "x86 instruction census found a parameterized existential-wrapper instance: \
+          `{candidate.instanceExpr}`"
+      unless candidate.instanceExpr.constName? == some canonicalWrapperInstance do
+        throwError "x86 instruction census expected canonical existential-wrapper instance \
+          `{canonicalWrapperInstance}`, but found `{candidate.instanceExpr}`"
+      let some instanceModuleIdx := env.getModuleIdxFor? canonicalWrapperInstance | throwError
+        "x86 instruction census cannot determine the canonical wrapper instance module"
+      let instanceModule := env.header.moduleNames[instanceModuleIdx.toNat]!
+      unless instanceModule == `Gasm.Targets.X86_64.Instructions.Base do
+        throwError "x86 instruction census canonical wrapper instance `{canonicalWrapperInstance}` \
+          moved to unexpected module `{instanceModule}`"
+  | _ =>
+      let declarations := wrappers.filterMap fun candidate => candidate.instanceExpr.constName?
+      throwError "x86 instruction census requires exactly one canonical \
+        X86_64Instruction AnyX86_64Instruction instance, found {wrappers.length}: {declarations}"
+
 private def declarationModule (env : Environment) (declaration : Name) : String :=
   match env.getModuleIdxFor? declaration with
   | some moduleIdx => env.header.moduleNames[moduleIdx.toNat]!.toString
@@ -124,6 +154,7 @@ private def duplicateDiagnostic (env : Environment) (candidates : List ClassCand
     this result rather than maintaining another environment walk or name manifest. -/
 def concreteForms (env : Environment) : MetaM (List ConcreteForm) := do
   let candidates ← classCandidates env ``X86_64Instruction
+  validateCanonicalWrapper env candidates
   let candidates := candidates.filter fun candidate =>
     !isAnyInstructionWrapperTarget candidate.target
   let duplicateCandidates := duplicateConcreteTargetCandidates candidates
