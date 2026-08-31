@@ -56,6 +56,12 @@ def insertByteLine (line : List UInt8) : List (List UInt8) → List (List UInt8)
 def sortByteLines : List (List UInt8) → List (List UInt8) :=
   Stdlib.Sort.insertionSort byteLineLe
 
+/-- Exact implementation bridge for proofs that intentionally need the generic sorter. -/
+theorem sortByteLines_eq (lines : List (List UInt8)) :
+    sortByteLines lines = Stdlib.Sort.insertionSort byteLineLe lines := rfl
+
+attribute [irreducible] sortByteLines
+
 /- REF: docs/SPIKES/SPIKE3_SORT_LINES.md#5-mathematical-sortedness-permutation-theorems -/
 /-- The executable byte comparator is precisely the ordinary lexicographic order on byte lists.
     Keeping this conversion local lets the sorting proof use Lean's standard order laws without
