@@ -14,32 +14,42 @@
 # limitations under the License.
 
 """
-tests/e2e/harness.py - End-to-End Test Harness & Framework for AArch64 QEMU Support in gasm.
+tests/e2e/harness.py - End-to-End Test Harness & Framework for x86-64 GPR Support in gasm.
 
-Provides core execution context, prerequisite detection, ELF verification, process execution,
-and standardized reporting with fail-honest exit code semantics:
+Provides core execution context, prerequisite detection, NASM golden oracle assembly,
+Lean file inspection, process execution, and standardized reporting with fail-honest
+exit code semantics:
   - Exit 0: All tests PASSED.
-  - Exit 1: One or more tests FAILED.
-  - Exit 2: Tests SKIPPED due to missing host runner (e.g. QEMU) and all other tests PASSED.
+  - Exit 1: One or more tests FAILED or ERROR.
+  - Exit 2: Tests SKIPPED due to missing host runner/oracle and all other tests PASSED.
 """
 
 import enum
 import os
 import re
 import shutil
-import struct
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from lean_process_lease import inherited_lease_environment, lean_process_lease
+try:
+    from lean_process_lease import inherited_lease_environment, lean_process_lease
+except ImportError:
+    # Fallback if scripts/lean_process_lease.py cannot be imported
+    def lean_process_lease():
+        import contextlib
+        return contextlib.nullcontext()
+
+    def inherited_lease_environment():
+        return {}
 
 
 class TestStatus(enum.Enum):
@@ -84,73 +94,101 @@ class ExecutionContext:
         else:
             self.repo_root = Path(repo_root).resolve()
 
-        self.python_exe = sys_exe = shutil.which("python3") or shutil.which("python") or "python"
+        self.python_exe = shutil.which("python3") or shutil.which("python") or "python"
         self.lake_exe = shutil.which("lake")
         self.lean_exe = shutil.which("lean")
+        self.nasm_exe = self._detect_nasm()
+        self._cached_files: Dict[str, str] = {}
 
-        # QEMU System Runner for AArch64 Bare Metal
-        self.qemu_system = self._detect_qemu_system()
-
-        # QEMU User Runner for AArch64 Linux
-        self.qemu_user = self._detect_qemu_user()
-
-        # LLVM-MC for Differential Encoding
-        self.llvm_mc = self._detect_llvm_mc()
-
-    def _detect_qemu_system(self) -> Optional[str]:
-        env_override = os.environ.get("GASM_QEMU_AARCH64")
+    def _detect_nasm(self) -> Optional[str]:
+        env_override = os.environ.get("GASM_NASM")
         if env_override and shutil.which(env_override):
             return env_override
         candidates = [
-            shutil.which("qemu-system-aarch64"),
-            shutil.which("qemu-system-aarch64.exe"),
-            "/usr/bin/qemu-system-aarch64",
-            "/usr/local/bin/qemu-system-aarch64",
-        ]
-        pf = os.environ.get("ProgramFiles")
-        if pf:
-            candidates.append(os.path.join(pf, "qemu", "qemu-system-aarch64.exe"))
-        pfx86 = os.environ.get("ProgramFiles(x86)")
-        if pfx86:
-            candidates.append(os.path.join(pfx86, "qemu", "qemu-system-aarch64.exe"))
-        for c in candidates:
-            if c and os.path.exists(c):
-                return c
-        return None
-
-    def _detect_qemu_user(self) -> Optional[str]:
-        env_override = os.environ.get("GASM_QEMU_USER_AARCH64")
-        if env_override and shutil.which(env_override):
-            return env_override
-        candidates = [
-            shutil.which("qemu-aarch64"),
-            shutil.which("qemu-aarch64-static"),
-            shutil.which("qemu-aarch64.exe"),
-            "/usr/bin/qemu-aarch64",
-            "/usr/bin/qemu-aarch64-static",
-            "/usr/local/bin/qemu-aarch64",
+            shutil.which("nasm"),
+            shutil.which("nasm.exe"),
+            "/usr/bin/nasm",
+            "/usr/local/bin/nasm",
         ]
         for c in candidates:
             if c and os.path.exists(c):
                 return c
         return None
 
-    def _detect_llvm_mc(self) -> Optional[str]:
-        env_override = os.environ.get("GASM_LLVM_MC")
-        if env_override and shutil.which(env_override):
-            return env_override
-        candidates = [
-            shutil.which("llvm-mc-19"),
-            shutil.which("llvm-mc"),
-            shutil.which("llvm-mc.exe"),
-            "/usr/bin/llvm-mc-19",
-            "/usr/bin/llvm-mc",
-            "/usr/local/bin/llvm-mc",
-        ]
-        for c in candidates:
-            if c and os.path.exists(c):
-                return c
-        return None
+    def read_repo_file(self, rel_path: Union[str, Path]) -> Optional[str]:
+        """Reads a file relative to repo_root with caching."""
+        key = str(rel_path)
+        if key in self._cached_files:
+            return self._cached_files[key]
+        full_path = self.repo_root / rel_path
+        if not full_path.is_file():
+            return None
+        try:
+            content = full_path.read_text(encoding="utf-8", errors="replace")
+            self._cached_files[key] = content
+            return content
+        except Exception:
+            return None
+
+    def file_exists(self, rel_path: Union[str, Path]) -> bool:
+        return (self.repo_root / rel_path).is_file()
+
+    def check_file_contains(
+        self, rel_path: Union[str, Path], required_tokens: List[str]
+    ) -> Tuple[bool, List[str]]:
+        """Checks if all required tokens exist in the specified relative file."""
+        content = self.read_repo_file(rel_path)
+        if content is None:
+            return False, [f"File not found: {rel_path}"]
+        missing = [t for t in required_tokens if t not in content]
+        return len(missing) == 0, missing
+
+    def check_file_regex(
+        self, rel_path: Union[str, Path], pattern: str, flags: int = 0
+    ) -> Tuple[bool, Optional[str]]:
+        """Checks if regex pattern matches in the specified relative file."""
+        content = self.read_repo_file(rel_path)
+        if content is None:
+            return False, f"File not found: {rel_path}"
+        m = re.search(pattern, content, flags)
+        if m:
+            return True, m.group(0)
+        return False, f"Pattern not found: {pattern}"
+
+    def assemble_nasm(self, asm_code: str) -> Tuple[bool, bytes, str]:
+        """
+        Assembles x86-64 assembly string into raw binary bytes using NASM golden oracle.
+        Automatically prepends 'BITS 64\\nDEFAULT REL\\n' if not present.
+        """
+        if not self.nasm_exe:
+            return False, b"", "NASM executable not found on PATH or GASM_NASM"
+
+        header = "BITS 64\nDEFAULT REL\n"
+        full_asm = header + asm_code if "BITS" not in asm_code.upper() else asm_code
+
+        with tempfile.NamedTemporaryFile(suffix=".asm", delete=False, mode="w", encoding="utf-8") as f_asm:
+            f_asm.write(full_asm)
+            asm_path = Path(f_asm.name)
+
+        bin_path = asm_path.with_suffix(".bin")
+        try:
+            cmd = [self.nasm_exe, "-f", "bin", str(asm_path), "-o", str(bin_path)]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10.0)
+            if proc.returncode != 0:
+                return False, b"", f"NASM assembly failed: {proc.stderr.strip()}"
+            if not bin_path.exists():
+                return False, b"", "NASM exited 0 but binary output file was not created"
+            raw_bytes = bin_path.read_bytes()
+            return True, raw_bytes, ""
+        except subprocess.TimeoutExpired:
+            return False, b"", "NASM assembly timed out after 10s"
+        except Exception as e:
+            return False, b"", f"NASM invocation error: {e}"
+        finally:
+            if asm_path.exists():
+                asm_path.unlink()
+            if bin_path.exists():
+                bin_path.unlink()
 
     def run_cmd(
         self,
@@ -171,13 +209,23 @@ class ExecutionContext:
                 with lean_process_lease():
                     run_env.update(inherited_lease_environment())
                     proc = subprocess.run(
-                        cmd, cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                        text=True, timeout=timeout, env=run_env,
+                        cmd,
+                        cwd=work_dir,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        timeout=timeout,
+                        env=run_env,
                     )
             else:
                 proc = subprocess.run(
-                    cmd, cwd=work_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, timeout=timeout, env=run_env,
+                    cmd,
+                    cwd=work_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=timeout,
+                    env=run_env,
                 )
             return proc.returncode, proc.stdout, proc.stderr
         except FileNotFoundError as e:
@@ -193,55 +241,6 @@ class ExecutionContext:
             return None, "", "Lake not found on PATH"
         return self.run_cmd([self.lake_exe, "exe", target], timeout=timeout)
 
-    def validate_elf64_aarch64(self, file_path: Path) -> Tuple[bool, str]:
-        """
-        Validates an AArch64 ELF64 binary header according to ELF and ARM specifications:
-          - EI_MAG: 0x7F 'E' 'L' 'F'
-          - EI_CLASS: 2 (64-bit)
-          - EI_DATA: 1 (2's complement, little endian)
-          - EI_VERSION: 1 (EV_CURRENT)
-          - EI_OSABI: 0 (System V) or 3 (Linux)
-          - e_type: 2 (ET_EXEC)
-          - e_machine: 183 (EM_AARCH64 = 0x00B7)
-          - e_version: 1
-          - e_entry: > 0
-        """
-        if not file_path.exists():
-            return False, f"File does not exist: {file_path}"
-        try:
-            with open(file_path, "rb") as f:
-                header = f.read(64)
-            if len(header) < 64:
-                return False, f"File too small for ELF64 header: {len(header)} bytes"
-
-            # Check magic
-            if header[0:4] != b"\x7fELF":
-                return False, f"Invalid ELF magic: {header[0:4]!r}"
-            ei_class = header[4]
-            if ei_class != 2:
-                return False, f"Invalid ELF class (expected 2 for 64-bit, got {ei_class})"
-            ei_data = header[5]
-            if ei_data != 1:
-                return False, f"Invalid ELF data encoding (expected 1 for little-endian, got {ei_data})"
-            ei_version = header[6]
-            if ei_version != 1:
-                return False, f"Invalid ELF version (expected 1, got {ei_version})"
-
-            # Unpack e_type (2 bytes), e_machine (2 bytes), e_version (4 bytes), e_entry (8 bytes)
-            e_type, e_machine, e_version, e_entry = struct.unpack("<HHIQ", header[16:32])
-            if e_type != 2:
-                return False, f"Invalid e_type (expected 2 for ET_EXEC, got {e_type})"
-            if e_machine != 183:  # EM_AARCH64 = 0x00B7 = 183
-                return False, f"Invalid e_machine (expected 183 for EM_AARCH64, got {e_machine})"
-            if e_version != 1:
-                return False, f"Invalid e_version (expected 1, got {e_version})"
-            if e_entry == 0:
-                return False, "Invalid e_entry (entry point address is 0)"
-
-            return True, f"Valid AArch64 ELF64 executable: e_entry=0x{e_entry:016x}, e_machine=EM_AARCH64(183)"
-        except Exception as e:
-            return False, f"Error parsing ELF header: {e}"
-
 
 class TestCase:
     """Base class for all opaque-box E2E test cases."""
@@ -253,7 +252,7 @@ class TestCase:
         tier: int,
         milestone: str,
         feature_id: int,
-        description: str,
+        description: str = "",
     ):
         self.test_id = test_id
         self.name = name
@@ -263,4 +262,4 @@ class TestCase:
         self.description = description
 
     def run(self, ctx: ExecutionContext) -> TestResult:
-        raise NotImplementedError
+        raise NotImplementedError("Subclasses must implement run()")

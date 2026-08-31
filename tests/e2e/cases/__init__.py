@@ -12,5 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# tests/e2e/cases/__init__.py
-"""Test case definitions for gasm AArch64 QEMU E2E test suite."""
+"""Test case definitions for gasm x86-64 GPR E2E test suite."""
+
+from tests.e2e.cases.tier1_feature_coverage import get_tier1_tests
+from tests.e2e.cases.tier2_boundary_corner import get_tier2_tests
+from tests.e2e.cases.tier3_cross_feature import get_tier3_tests
+from tests.e2e.cases.tier4_real_world import get_tier4_tests
+
+__all__ = [
+    "get_tier1_tests",
+    "get_tier2_tests",
+    "get_tier3_tests",
+    "get_tier4_tests",
+]

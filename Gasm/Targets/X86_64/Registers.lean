@@ -51,6 +51,38 @@ def reg32To64 (r : Reg32) : Reg64 :=
   | .r8d => .r8  | .r9d => .r9  | .r10d => .r10 | .r11d => .r11
   | .r12d => .r12 | .r13d => .r13 | .r14d => .r14 | .r15d => .r15
 
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+/-- 16-bit sub-registers. -/
+inductive Reg16 where
+  | ax  | cx  | dx  | bx  | sp  | bp  | si  | di
+  | r8w | r9w | r10w | r11w | r12w | r13w | r14w | r15w
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+/-- Maps a 16-bit sub-register to its enclosing 64-bit general-purpose register. -/
+def reg16To64 (r : Reg16) : Reg64 :=
+  match r with
+  | .ax  => .rax | .cx  => .rcx | .dx  => .rdx | .bx  => .rbx
+  | .sp  => .rsp | .bp  => .rbp | .si  => .rsi | .di  => .rdi
+  | .r8w => .r8  | .r9w => .r9  | .r10w => .r10 | .r11w => .r11
+  | .r12w => .r12 | .r13w => .r13 | .r14w => .r14 | .r15w => .r15
+
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+/-- 8-bit low sub-registers in 64-bit mode. -/
+inductive Reg8 where
+  | al  | cl  | dl  | bl  | spl | bpl | sil | dil
+  | r8b | r9b | r10b | r11b | r12b | r13b | r14b | r15b
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+/-- Maps an 8-bit sub-register to its enclosing 64-bit general-purpose register. -/
+def reg8To64 (r : Reg8) : Reg64 :=
+  match r with
+  | .al  => .rax | .cl  => .rcx | .dl  => .rdx | .bl  => .rbx
+  | .spl => .rsp | .bpl => .rbp | .sil => .rsi | .dil => .rdi
+  | .r8b => .r8  | .r9b => .r9  | .r10b => .r10 | .r11b => .r11
+  | .r12b => .r12 | .r13b => .r13 | .r14b => .r14 | .r15b => .r15
+
 /- REF: docs/MEMORY_HOOK.md#6-faults-and-observability -/
 /-- Distinguishable x86-64 stop reasons carried by `X86_64MachineState.fault`. `divideError` is
     DIV/IDIV's #DE; `memFault` is the data-carrying memory fault the design names (unreachable
@@ -125,6 +157,75 @@ def X86_64MachineState.setGpr64 (s : X86_64MachineState) (r : Reg64) (val : UInt
 def X86_64MachineState.setGpr32 (s : X86_64MachineState) (r : Reg32) (val : UInt32) : X86_64MachineState :=
   { s with gprs := fun reg => if reg == reg32To64 r then val.toUInt64 else s.gprs reg }
 
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+/-- Updates 16-bit sub-register preserving upper 48 bits [63:16] of enclosing 64-bit general-purpose register. -/
+def X86_64MachineState.setGpr16 (s : X86_64MachineState) (r : Reg16) (val : UInt16) : X86_64MachineState :=
+  s.setGpr64 (reg16To64 r) ((s.gprs (reg16To64 r) &&& 0xFFFFFFFFFFFF0000) ||| val.toUInt64)
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+/-- Updates 8-bit sub-register preserving upper 56 bits [63:8] of enclosing 64-bit general-purpose register. -/
+def X86_64MachineState.setGpr8 (s : X86_64MachineState) (r : Reg8) (val : UInt8) : X86_64MachineState :=
+  s.setGpr64 (reg8To64 r) ((s.gprs (reg8To64 r) &&& 0xFFFFFFFFFFFFFF00) ||| val.toUInt64)
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+/-- Reads 16-bit sub-register value from machine state. -/
+def X86_64MachineState.readGpr16 (s : X86_64MachineState) (r : Reg16) : UInt16 :=
+  (s.gprs (reg16To64 r)).toUInt16
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+/-- Reads 8-bit sub-register value from machine state. -/
+def X86_64MachineState.readGpr8 (s : X86_64MachineState) (r : Reg8) : UInt8 :=
+  (s.gprs (reg8To64 r)).toUInt8
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+/-- Reads 32-bit sub-register value from machine state. -/
+def X86_64MachineState.readGpr32 (s : X86_64MachineState) (r : Reg32) : UInt32 :=
+  (s.gprs (reg32To64 r)).toUInt32
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+@[simp] theorem X86_64MachineState.setGpr16_memory (s : X86_64MachineState) (r : Reg16) (val : UInt16) :
+    (s.setGpr16 r val).memory = s.memory := rfl
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+@[simp] theorem X86_64MachineState.setGpr8_memory (s : X86_64MachineState) (r : Reg8) (val : UInt8) :
+    (s.setGpr8 r val).memory = s.memory := rfl
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+@[simp] theorem X86_64MachineState.setGpr16_rip (s : X86_64MachineState) (r : Reg16) (val : UInt16) :
+    (s.setGpr16 r val).rip = s.rip := rfl
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+@[simp] theorem X86_64MachineState.setGpr8_rip (s : X86_64MachineState) (r : Reg8) (val : UInt8) :
+    (s.setGpr8 r val).rip = s.rip := rfl
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+@[simp] theorem X86_64MachineState.setGpr16_flags (s : X86_64MachineState) (r : Reg16) (val : UInt16) :
+    (s.setGpr16 r val).flags = s.flags := rfl
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+@[simp] theorem X86_64MachineState.setGpr8_flags (s : X86_64MachineState) (r : Reg8) (val : UInt8) :
+    (s.setGpr8 r val).flags = s.flags := rfl
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+@[simp] theorem X86_64MachineState.setGpr16_fault (s : X86_64MachineState) (r : Reg16) (val : UInt16) :
+    (s.setGpr16 r val).fault = s.fault := rfl
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+@[simp] theorem X86_64MachineState.setGpr8_fault (s : X86_64MachineState) (r : Reg8) (val : UInt8) :
+    (s.setGpr8 r val).fault = s.fault := rfl
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+theorem X86_64MachineState.setGpr16_gpr_other (s : X86_64MachineState) (r : Reg16) (val : UInt16)
+    (reg : Reg64) (h : reg ≠ reg16To64 r) :
+    (s.setGpr16 r val).gprs reg = s.gprs reg := by
+  simp [X86_64MachineState.setGpr16, X86_64MachineState.setGpr64, h]
+
+/- REF: intel-sdm#vol=1;sec=3.4.1.1;part=general-purpose-registers-in-64-bit-mode -/
+theorem X86_64MachineState.setGpr8_gpr_other (s : X86_64MachineState) (r : Reg8) (val : UInt8)
+    (reg : Reg64) (h : reg ≠ reg8To64 r) :
+    (s.setGpr8 r val).gprs reg = s.gprs reg := by
+  simp [X86_64MachineState.setGpr8, X86_64MachineState.setGpr64, h]
+
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Reads zero flag (ZF). -/
 def X86_64MachineState.zf (s : X86_64MachineState) : Bool :=
@@ -144,6 +245,41 @@ def X86_64MachineState.cf (s : X86_64MachineState) : Bool :=
 /-- Reads overflow flag (OF). -/
 def X86_64MachineState.of_ (s : X86_64MachineState) : Bool :=
   (s.flags &&& ((1 : UInt64) <<< 11)) != 0
+
+/- REF: intel-sdm#vol=1;sec=3.4.3;part=status-flags-in-eflags-register -/
+/-- Reads parity flag (PF). -/
+def X86_64MachineState.pf (s : X86_64MachineState) : Bool :=
+  (s.flags &&& ((1 : UInt64) <<< 2)) != 0
+
+/- REF: intel-sdm#vol=1;sec=3.4.3;part=status-flags-in-eflags-register -/
+/-- Reads auxiliary carry flag (AF). -/
+def X86_64MachineState.af (s : X86_64MachineState) : Bool :=
+  (s.flags &&& ((1 : UInt64) <<< 4)) != 0
+
+/- REF: intel-sdm#vol=1;sec=3.4.3;part=status-flags-in-eflags-register -/
+/-- Reads direction flag (DF). -/
+def X86_64MachineState.df (s : X86_64MachineState) : Bool :=
+  (s.flags &&& ((1 : UInt64) <<< 10)) != 0
+
+/- REF: intel-sdm#vol=1;sec=3.4.3;part=status-flags-in-eflags-register -/
+/-- Sets or clears the Carry Flag (CF: bit 0) while preserving all other flags. -/
+def X86_64MachineState.setCf (s : X86_64MachineState) (b : Bool) : X86_64MachineState :=
+  let mask : UInt64 := (1 : UInt64) <<< 0
+  let newFlags := if b then s.flags ||| mask else s.flags &&& (~~~mask)
+  { s with flags := newFlags }
+
+/- REF: intel-sdm#vol=2;instr=CMC;part=operation -/
+/-- Complements (toggles) the Carry Flag (CF: bit 0) while preserving all other flags. -/
+def X86_64MachineState.setCmc (s : X86_64MachineState) : X86_64MachineState :=
+  let mask : UInt64 := (1 : UInt64) <<< 0
+  { s with flags := s.flags ^^^ mask }
+
+/- REF: intel-sdm#vol=1;sec=3.4.3;part=status-flags-in-eflags-register -/
+/-- Sets or clears the Direction Flag (DF: bit 10) while preserving all other flags. -/
+def X86_64MachineState.setDf (s : X86_64MachineState) (b : Bool) : X86_64MachineState :=
+  let mask : UInt64 := (1 : UInt64) <<< 10
+  let newFlags := if b then s.flags ||| mask else s.flags &&& (~~~mask)
+  { s with flags := newFlags }
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Bitmask for all 6 standard arithmetic status flags (CF: bit 0, PF: bit 2, AF: bit 4, ZF: bit 6, SF: bit 7, OF: bit 11). -/
@@ -370,10 +506,103 @@ theorem X86_64MachineState.setFlagsAdd64_cf (s : X86_64MachineState) (a b : UInt
   · rw [if_neg hcarry, hof, hpf, haf]
     simp [hcarry]
 
+/- REF: intel-sdm#vol=2;instr=ADD;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes following a 32-bit addition (a + b) while preserving system flags. -/
+def X86_64MachineState.setFlagsAdd32 (s : X86_64MachineState) (a b : UInt32) : X86_64MachineState :=
+  let sum := a + b
+  let zf : UInt64 := if sum == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (sum >>> 31) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if sum < a then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if ((~~~(a ^^^ b)) &&& (a ^^^ sum) &&& 0x80000000) != 0 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 sum.toUInt64
+  let af := computeAuxCarry a.toUInt64 b.toUInt64 sum.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
+
+/- REF: intel-sdm#vol=2;instr=ADD;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes following a 16-bit addition (a + b) while preserving system flags. -/
+def X86_64MachineState.setFlagsAdd16 (s : X86_64MachineState) (a b : UInt16) : X86_64MachineState :=
+  let sum := a + b
+  let zf : UInt64 := if sum == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (sum >>> 15) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if sum < a then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if ((~~~(a ^^^ b)) &&& (a ^^^ sum) &&& 0x8000) != 0 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 sum.toUInt64
+  let af := computeAuxCarry a.toUInt64 b.toUInt64 sum.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
+
+/- REF: intel-sdm#vol=2;instr=ADD;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes following an 8-bit addition (a + b) while preserving system flags. -/
+def X86_64MachineState.setFlagsAdd8 (s : X86_64MachineState) (a b : UInt8) : X86_64MachineState :=
+  let sum := a + b
+  let zf : UInt64 := if sum == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (sum >>> 7) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if sum < a then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if ((~~~(a ^^^ b)) &&& (a ^^^ sum) &&& 0x80) != 0 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 sum.toUInt64
+  let af := computeAuxCarry a.toUInt64 b.toUInt64 sum.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
+
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Updates RFLAGS arithmetic condition codes following a 64-bit subtraction (a - b). -/
 def X86_64MachineState.setFlagsSub64 (s : X86_64MachineState) (a b : UInt64) : X86_64MachineState :=
   s.setFlagsCmp64 a b
+
+/- REF: intel-sdm#vol=2;instr=CMP;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes following a 32-bit comparison (a - b) while preserving system flags. -/
+def X86_64MachineState.setFlagsCmp32 (s : X86_64MachineState) (a b : UInt32) : X86_64MachineState :=
+  let diff := a - b
+  let zf : UInt64 := if diff == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (diff >>> 31) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if a < b then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if ((a ^^^ b) &&& (a ^^^ diff) &&& 0x80000000) != 0 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 diff.toUInt64
+  let af := computeAuxCarry a.toUInt64 b.toUInt64 diff.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
+
+/- REF: intel-sdm#vol=2;instr=SUB;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes following a 32-bit subtraction (a - b). -/
+def X86_64MachineState.setFlagsSub32 (s : X86_64MachineState) (a b : UInt32) : X86_64MachineState :=
+  s.setFlagsCmp32 a b
+
+/- REF: intel-sdm#vol=2;instr=CMP;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes following a 16-bit comparison (a - b) while preserving system flags. -/
+def X86_64MachineState.setFlagsCmp16 (s : X86_64MachineState) (a b : UInt16) : X86_64MachineState :=
+  let diff := a - b
+  let zf : UInt64 := if diff == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (diff >>> 15) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if a < b then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if ((a ^^^ b) &&& (a ^^^ diff) &&& 0x8000) != 0 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 diff.toUInt64
+  let af := computeAuxCarry a.toUInt64 b.toUInt64 diff.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
+
+/- REF: intel-sdm#vol=2;instr=SUB;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes following a 16-bit subtraction (a - b). -/
+def X86_64MachineState.setFlagsSub16 (s : X86_64MachineState) (a b : UInt16) : X86_64MachineState :=
+  s.setFlagsCmp16 a b
+
+/- REF: intel-sdm#vol=2;instr=CMP;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes following an 8-bit comparison (a - b) while preserving system flags. -/
+def X86_64MachineState.setFlagsCmp8 (s : X86_64MachineState) (a b : UInt8) : X86_64MachineState :=
+  let diff := a - b
+  let zf : UInt64 := if diff == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (diff >>> 7) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if a < b then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if ((a ^^^ b) &&& (a ^^^ diff) &&& 0x80) != 0 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 diff.toUInt64
+  let af := computeAuxCarry a.toUInt64 b.toUInt64 diff.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
+
+/- REF: intel-sdm#vol=2;instr=SUB;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes following an 8-bit subtraction (a - b). -/
+def X86_64MachineState.setFlagsSub8 (s : X86_64MachineState) (a b : UInt8) : X86_64MachineState :=
+  s.setFlagsCmp8 a b
 
 /- REF: docs/TARGETS/X86_64.md#11-general-purpose-registers-gprs-32-bit-zero-extension -/
 /-- Updates RFLAGS condition codes for bitwise logical operations (AND, OR, XOR, TEST) at a
@@ -404,6 +633,21 @@ def X86_64MachineState.setFlagsLogic (s : X86_64MachineState) (width : UInt64) (
 def X86_64MachineState.setFlagsLogic64 (s : X86_64MachineState) (res : UInt64) : X86_64MachineState :=
   s.setFlagsLogic 64 res
 
+/- REF: docs/TARGETS/X86_64.md#11-general-purpose-registers-gprs-32-bit-zero-extension -/
+/-- Updates RFLAGS condition codes for 32-bit logical operations (AND, OR, XOR, TEST). -/
+def X86_64MachineState.setFlagsLogic32 (s : X86_64MachineState) (res : UInt32) : X86_64MachineState :=
+  s.setFlagsLogic 32 res.toUInt64
+
+/- REF: docs/TARGETS/X86_64.md#11-general-purpose-registers-gprs-32-bit-zero-extension -/
+/-- Updates RFLAGS condition codes for 16-bit logical operations (AND, OR, XOR, TEST). -/
+def X86_64MachineState.setFlagsLogic16 (s : X86_64MachineState) (res : UInt16) : X86_64MachineState :=
+  s.setFlagsLogic 16 res.toUInt64
+
+/- REF: docs/TARGETS/X86_64.md#11-general-purpose-registers-gprs-32-bit-zero-extension -/
+/-- Updates RFLAGS condition codes for 8-bit logical operations (AND, OR, XOR, TEST). -/
+def X86_64MachineState.setFlagsLogic8 (s : X86_64MachineState) (res : UInt8) : X86_64MachineState :=
+  s.setFlagsLogic 8 res.toUInt64
+
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Updates RFLAGS condition codes for two's complement negation (NEG r64): 0 - val. -/
 def X86_64MachineState.setFlagsNeg64 (s : X86_64MachineState) (val : UInt64) : X86_64MachineState :=
@@ -414,6 +658,45 @@ def X86_64MachineState.setFlagsNeg64 (s : X86_64MachineState) (val : UInt64) : X
   let of_val : UInt64 := if val == 0x8000000000000000 then ((1 : UInt64) <<< 11) else 0
   let pf := computeParity8 res
   let af := computeAuxCarry 0 val res
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
+
+/- REF: intel-sdm#vol=2;instr=NEG;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes for 32-bit two's complement negation (0 - val). -/
+def X86_64MachineState.setFlagsNeg32 (s : X86_64MachineState) (val : UInt32) : X86_64MachineState :=
+  let res := 0 - val
+  let zf : UInt64 := if res == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (res >>> 31) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if val != 0 then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if val == 0x80000000 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 res.toUInt64
+  let af := computeAuxCarry 0 val.toUInt64 res.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
+
+/- REF: intel-sdm#vol=2;instr=NEG;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes for 16-bit two's complement negation (0 - val). -/
+def X86_64MachineState.setFlagsNeg16 (s : X86_64MachineState) (val : UInt16) : X86_64MachineState :=
+  let res := 0 - val
+  let zf : UInt64 := if res == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (res >>> 15) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if val != 0 then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if val == 0x8000 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 res.toUInt64
+  let af := computeAuxCarry 0 val.toUInt64 res.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
+
+/- REF: intel-sdm#vol=2;instr=NEG;part=operation -/
+/-- Updates RFLAGS arithmetic condition codes for 8-bit two's complement negation (0 - val). -/
+def X86_64MachineState.setFlagsNeg8 (s : X86_64MachineState) (val : UInt8) : X86_64MachineState :=
+  let res := 0 - val
+  let zf : UInt64 := if res == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (res >>> 7) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if val != 0 then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if val == 0x80 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 res.toUInt64
+  let af := computeAuxCarry 0 val.toUInt64 res.toUInt64
   let preserved := s.flags &&& (~~~arithmeticStatusMask)
   { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf ||| af }
 
@@ -519,6 +802,26 @@ def reg32Code (r : Reg32) : UInt8 × Bool :=
   | .r8d => (0, true)  | .r9d => (1, true)  | .r10d => (2, true) | .r11d => (3, true)
   | .r12d => (4, true) | .r13d => (5, true) | .r14d => (6, true) | .r15d => (7, true)
 
+/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
+/-- Returns the 3-bit register index and REX extension bit for 16-bit registers. -/
+def reg16Code (r : Reg16) : UInt8 × Bool :=
+  match r with
+  | .ax   => (0, false) | .cx   => (1, false) | .dx   => (2, false) | .bx   => (3, false)
+  | .sp   => (4, false) | .bp   => (5, false) | .si   => (6, false) | .di   => (7, false)
+  | .r8w  => (0, true)  | .r9w  => (1, true)  | .r10w => (2, true)  | .r11w => (3, true)
+  | .r12w => (4, true)  | .r13w => (5, true)  | .r14w => (6, true)  | .r15w => (7, true)
+
+/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
+/-- Returns the 3-bit register index, REX extension bit (for r8b-r15b), and a boolean indicating
+    whether a REX prefix is mandatory in 64-bit mode (mandatory for spl, bpl, sil, dil to prevent
+    aliasing legacy ah, ch, dh, bh, as well as for r8b-r15b). -/
+def reg8Code (r : Reg8) : UInt8 × Bool × Bool :=
+  match r with
+  | .al   => (0, false, false) | .cl   => (1, false, false) | .dl   => (2, false, false) | .bl   => (3, false, false)
+  | .spl  => (4, false, true)  | .bpl  => (5, false, true)  | .sil  => (6, false, true)  | .dil  => (7, false, true)
+  | .r8b  => (0, true,  true)  | .r9b  => (1, true,  true)  | .r10b => (2, true,  true)  | .r11b => (3, true,  true)
+  | .r12b => (4, true,  true)  | .r13b => (5, true,  true)  | .r14b => (6, true,  true)  | .r15b => (7, true,  true)
+
 /- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
 /-- Formats a 64-bit general-purpose register into lowercase NASM text. -/
 def Reg64.toString : Reg64 → String
@@ -543,6 +846,30 @@ def Reg32.toString : Reg32 → String
 instance : ToString Reg32 where
   toString := Reg32.toString
 
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+/-- Formats a 16-bit general-purpose register into lowercase NASM text. -/
+def Reg16.toString : Reg16 → String
+  | .ax   => "ax"   | .cx   => "cx"   | .dx   => "dx"   | .bx   => "bx"
+  | .sp   => "sp"   | .bp   => "bp"   | .si   => "si"   | .di   => "di"
+  | .r8w  => "r8w"  | .r9w  => "r9w"  | .r10w => "r10w" | .r11w => "r11w"
+  | .r12w => "r12w" | .r13w => "r13w" | .r14w => "r14w" | .r15w => "r15w"
+
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+instance : ToString Reg16 where
+  toString := Reg16.toString
+
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+/-- Formats an 8-bit general-purpose register into lowercase NASM text. -/
+def Reg8.toString : Reg8 → String
+  | .al   => "al"   | .cl   => "cl"   | .dl   => "dl"   | .bl   => "bl"
+  | .spl  => "spl"  | .bpl  => "bpl"  | .sil  => "sil"  | .dil  => "dil"
+  | .r8b  => "r8b"  | .r9b  => "r9b"  | .r10b => "r10b" | .r11b => "r11b"
+  | .r12b => "r12b" | .r13b => "r13b" | .r14b => "r14b" | .r15b => "r15b"
+
+/- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
+instance : ToString Reg8 where
+  toString := Reg8.toString
+
 /- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
 /-- Decodes a 3-bit register index and REX extension bit into a 64-bit general-purpose register. -/
 def codeToReg64 (code : UInt8) (ext : Bool) : Reg64 :=
@@ -562,6 +889,27 @@ def codeToReg32 (code : UInt8) (ext : Bool) : Reg32 :=
   | 0, true  => .r8d  | 1, true  => .r9d  | 2, true  => .r10d | 3, true  => .r11d
   | 4, true  => .r12d | 5, true  => .r13d | 6, true  => .r14d | 7, true  => .r15d
   | _, _ => .eax
+
+/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
+/-- Decodes a 3-bit register index and REX extension bit into a 16-bit sub-register. -/
+def codeToReg16 (code : UInt8) (ext : Bool) : Reg16 :=
+  match (code &&& 7), ext with
+  | 0, false => .ax   | 1, false => .cx   | 2, false => .dx   | 3, false => .bx
+  | 4, false => .sp   | 5, false => .bp   | 6, false => .si   | 7, false => .di
+  | 0, true  => .r8w  | 1, true  => .r9w  | 2, true  => .r10w | 3, true  => .r11w
+  | 4, true  => .r12w | 5, true  => .r13w | 6, true  => .r14w | 7, true  => .r15w
+  | _, _ => .ax
+
+/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
+/-- Decodes a 3-bit register index and REX extension bit into an 8-bit sub-register.
+    Note: in 64-bit mode, codes 4..7 map to spl, bpl, sil, dil when a REX prefix is present. -/
+def codeToReg8 (code : UInt8) (ext : Bool) : Reg8 :=
+  match (code &&& 7), ext with
+  | 0, false => .al   | 1, false => .cl   | 2, false => .dl   | 3, false => .bl
+  | 4, false => .spl  | 5, false => .bpl  | 6, false => .sil  | 7, false => .dil
+  | 0, true  => .r8b  | 1, true  => .r9b  | 2, true  => .r10b | 3, true  => .r11b
+  | 4, true  => .r12b | 5, true  => .r13b | 6, true  => .r14b | 7, true  => .r15b
+  | _, _ => .al
 
 /- REF: intel-sdm#vol=1;sec=3.4;part=34-basic-program-execution-registers -/
 /-- Returns the standard 8-bit low byte register name in 64-bit mode. -/

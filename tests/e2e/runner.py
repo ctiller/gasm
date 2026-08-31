@@ -14,13 +14,13 @@
 # limitations under the License.
 
 """
-tests/e2e/runner.py - Main Test Runner for AArch64 QEMU Support in gasm.
+tests/e2e/runner.py - Main Test Runner for x86-64 GPR Instructions in gasm.
 
 Executes opaque-box, requirement-driven tests across Tiers 1–4.
 Exit Code Conventions:
   - Exit 0: All executed tests PASSED.
   - Exit 1: One or more tests FAILED or ERROR.
-  - Exit 2: One or more tests SKIPPED (missing external host runner / oracle) and no failures.
+  - Exit 2: One or more tests SKIPPED (e.g. missing host runner/oracle) and no failures.
 
 Usage:
   python tests/e2e/runner.py                     # Run all Tiers 1-4 tests
@@ -38,9 +38,8 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional, Set, Union
+from typing import Dict, List, Optional, Set, Union
 
-# Ensure repository root is on sys.path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -62,7 +61,7 @@ def load_all_tests() -> List[TestCase]:
 
 
 def parse_feature_ids(val: Union[int, str, List[int], Set[int]]) -> List[int]:
-    """Parse a single int, comma-separated string, or collection into a sorted list of feature IDs (1 to 28)."""
+    """Parse a single int, comma-separated string, or collection into a sorted list of feature IDs (1 to 25)."""
     if isinstance(val, int):
         ids = [val]
     elif isinstance(val, str):
@@ -79,8 +78,8 @@ def parse_feature_ids(val: Union[int, str, List[int], Set[int]]) -> List[int]:
         raise argparse.ArgumentTypeError(f"unsupported feature ID type: {type(val).__name__}")
 
     for fid in ids:
-        if fid < 1 or fid > 28:
-            raise argparse.ArgumentTypeError(f"feature ID {fid} out of valid range (1 to 28)")
+        if fid < 1 or fid > 25:
+            raise argparse.ArgumentTypeError(f"feature ID {fid} out of valid range (1 to 25)")
     return sorted(list(set(ids)))
 
 
@@ -99,139 +98,151 @@ def filter_tests(
         filtered = [t for t in filtered if t.milestone.upper() == milestone.upper()]
     target_feature = features if features is not None else feature_id
     if target_feature is not None:
-        allowed_ids = set(parse_feature_ids(target_feature))
-        filtered = [t for t in filtered if t.feature_id in allowed_ids]
+        allowed_features = set(parse_feature_ids(target_feature))
+        filtered = [t for t in filtered if t.feature_id in allowed_features]
     if test_id is not None:
-        filtered = [t for t in filtered if t.test_id.lower() == test_id.lower()]
+        filtered = [t for t in filtered if t.test_id == test_id or t.name == test_id]
     return filtered
 
 
-def print_test_list(tests: List[TestCase]):
-    print(f"{'Test ID':<12} {'Tier':<6} {'MStone':<8} {'Feat':<6} {'Name':<32} {'Description'}")
-    print("-" * 110)
-    for t in tests:
-        print(f"{t.test_id:<12} T{t.tier:<5} {t.milestone:<8} #{t.feature_id:<5} {t.name:<32} {t.description[:45]}")
-    print("-" * 110)
-    print(f"Total test cases listed: {len(tests)}")
+def run_tests(
+    tests: List[TestCase], ctx: ExecutionContext, verbose: bool = False
+) -> List[TestResult]:
+    results: List[TestResult] = []
+    for test in tests:
+        if verbose:
+            print(f"Running [{test.test_id}] {test.name}...", end="", flush=True)
+        res = test.run(ctx)
+        results.append(res)
+        if verbose:
+            status_str = res.status.value
+            duration = f"({res.duration_s:.3f}s)"
+            msg = f": {res.message}" if res.message else ""
+            print(f" [{status_str}] {duration}{msg}")
+    return results
+
+
+def print_summary_table(results: List[TestResult], elapsed: float) -> None:
+    total = len(results)
+    passed = sum(1 for r in results if r.status == TestStatus.PASS)
+    failed = sum(1 for r in results if r.status == TestStatus.FAIL)
+    skipped = sum(1 for r in results if r.status == TestStatus.SKIP)
+    errored = sum(1 for r in results if r.status == TestStatus.ERROR)
+
+    print("\n" + "=" * 80)
+    print(" x86-64 GPR E2E Test Suite Execution Summary")
+    print("=" * 80)
+    print(f" Total Executed: {total}")
+    print(f"   [+] Passed:  {passed:4d} ({(passed/total*100) if total else 0:.1f}%)")
+    print(f"   [-] Failed:  {failed:4d} ({(failed/total*100) if total else 0:.1f}%)")
+    print(f"   [*] Skipped: {skipped:4d} ({(skipped/total*100) if total else 0:.1f}%)")
+    print(f"   [!] Errors:  {errored:4d} ({(errored/total*100) if total else 0:.1f}%)")
+    print(f" Elapsed Time: {elapsed:.3f}s")
+    print("-" * 80)
+
+    # Tier Breakdown
+    print(" Tier Breakdown:")
+    for tier in sorted(list(set(r.tier for r in results))):
+        tier_res = [r for r in results if r.tier == tier]
+        t_pass = sum(1 for r in tier_res if r.status == TestStatus.PASS)
+        t_fail = sum(1 for r in tier_res if r.status == TestStatus.FAIL)
+        t_skip = sum(1 for r in tier_res if r.status == TestStatus.SKIP)
+        t_err = sum(1 for r in tier_res if r.status == TestStatus.ERROR)
+        tier_names = {
+            1: "Tier 1 (Feature Coverage)",
+            2: "Tier 2 (Boundary & Corner)",
+            3: "Tier 3 (Cross-Feature)",
+            4: "Tier 4 (Real-World Scenarios)",
+        }
+        name = tier_names.get(tier, f"Tier {tier}")
+        print(f"   Tier {tier} [{name}]: {len(tier_res)} total | {t_pass} pass | {t_fail} fail | {t_skip} skip | {t_err} err")
+
+    print("-" * 80)
+
+    # Milestone Breakdown
+    print(" Milestone Breakdown:")
+    m_order = ["M1", "M2", "M3", "M4", "M5", "M6"]
+    present_ms = sorted(list(set(r.milestone for r in results)), key=lambda m: m_order.index(m) if m in m_order else 99)
+    for m in present_ms:
+        m_res = [r for r in results if r.milestone == m]
+        m_pass = sum(1 for r in m_res if r.status == TestStatus.PASS)
+        m_fail = sum(1 for r in m_res if r.status == TestStatus.FAIL)
+        m_skip = sum(1 for r in m_res if r.status == TestStatus.SKIP)
+        m_err = sum(1 for r in m_res if r.status == TestStatus.ERROR)
+        print(f"   Milestone {m:2s}: {len(m_res):3d} total | {m_pass:3d} pass | {m_fail:3d} fail | {m_skip:3d} skip | {m_err:3d} err")
+
+    print("=" * 80)
+
+    if failed > 0 or errored > 0:
+        print("\nFailures / Errors Detail (first 15):")
+        shown = 0
+        for r in results:
+            if r.status in (TestStatus.FAIL, TestStatus.ERROR):
+                shown += 1
+                print(f"  - [{r.test_id}] {r.name} (Tier {r.tier}, {r.milestone}, Feat {r.feature_id}): {r.message}")
+                if shown >= 15:
+                    remaining = (failed + errored) - shown
+                    if remaining > 0:
+                        print(f"    ... and {remaining} more failing tests")
+                    break
+        print()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="gasm AArch64 QEMU E2E Test Runner")
-    parser.add_argument("--tier", type=int, choices=[1, 2, 3, 4], help="Filter by tier (1, 2, 3, or 4)")
-    parser.add_argument("--milestone", type=str, help="Filter by milestone (e.g. M1, M2, ..., M7)")
-    parser.add_argument(
-        "--feature",
-        type=parse_feature_ids,
-        help="Filter by feature ID or comma-delimited list of IDs (e.g. 1 or 1,2; range 1 to 28)",
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--tier", type=int, choices=[1, 2, 3, 4], help="Run tests for a specific tier (1-4)")
+    parser.add_argument("--milestone", type=str, help="Run tests for a specific milestone (e.g. M1, M2, M3)")
+    parser.add_argument("--feature", type=str, help="Run tests for a feature ID or comma-separated IDs (1-25)")
+    parser.add_argument("--features", type=str, help="Alias for --feature")
     parser.add_argument("--test", type=str, help="Run a specific test ID (e.g. T1.01.01)")
-    parser.add_argument("--list", action="store_true", help="List available test cases and exit")
-    parser.add_argument("--json", action="store_true", help="Output machine-parseable JSON summary")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose per-test output")
-    parser.add_argument("--fail-fast", action="store_true", help="Stop execution immediately on first failure")
-
+    parser.add_argument("--list", action="store_true", help="List all matching tests without running them")
+    parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Print each test as it runs")
     args = parser.parse_args()
 
     all_tests = load_all_tests()
+    selected_tests = filter_tests(
+        all_tests,
+        tier=args.tier,
+        milestone=args.milestone,
+        feature_id=args.feature,
+        test_id=args.test,
+        features=args.features,
+    )
 
     if args.list:
-        selected = filter_tests(all_tests, args.tier, args.milestone, args.feature, args.test)
-        print_test_list(selected)
+        print(f"Listing {len(selected_tests)} test(s):")
+        for t in selected_tests:
+            print(f"  {t.test_id:10s} Tier {t.tier} | {t.milestone:3s} | Feat {t.feature_id:02d} | {t.name}: {t.description}")
         return 0
 
-    selected_tests = filter_tests(all_tests, args.tier, args.milestone, args.feature, args.test)
-    if not selected_tests:
-        print("[-] No test cases matched the specified filter criteria.", file=sys.stderr)
-        return 1
-
-    ctx = ExecutionContext(repo_root=REPO_ROOT)
-
-    if not args.json:
-        print("=" * 80)
-        print("  gasm AArch64 QEMU End-to-End Test Suite Runner")
-        print("=" * 80)
-        print(f"  Repo Root:   {ctx.repo_root}")
-        print(f"  QEMU System: {ctx.qemu_system or 'NONE (Hardware validation will skip honestly)'}")
-        print(f"  QEMU User:   {ctx.qemu_user or 'NONE (User emulation will skip honestly)'}")
-        print(f"  LLVM-MC:     {ctx.llvm_mc or 'NONE'}")
-        print(f"  Running:     {len(selected_tests)} test cases")
-        print("-" * 80)
-
-    results: List[TestResult] = []
-    start_all = time.monotonic()
-
-    passed_count = 0
-    failed_count = 0
-    skipped_count = 0
-    error_count = 0
-
-    for idx, test in enumerate(selected_tests, 1):
-        if not args.json and args.verbose:
-            print(f"[{idx}/{len(selected_tests)}] Running {test.test_id} ({test.name})...", end=" ", flush=True)
-
-        res = test.run(ctx)
-        results.append(res)
-
-        if res.status == TestStatus.PASS:
-            passed_count += 1
-            if not args.json and args.verbose:
-                print(f"PASS ({res.duration_s:.3f}s)")
-        elif res.status == TestStatus.FAIL:
-            failed_count += 1
-            if not args.json:
-                print(f"[FAIL] {test.test_id} ({test.name}): {res.message}")
-            if args.fail_fast:
-                break
-        elif res.status == TestStatus.SKIP:
-            skipped_count += 1
-            if not args.json and args.verbose:
-                print(f"SKIP ({res.message})")
-        elif res.status == TestStatus.ERROR:
-            error_count += 1
-            if not args.json:
-                print(f"[ERROR] {test.test_id} ({test.name}): {res.message}")
-            if args.fail_fast:
-                break
-
-    total_duration = time.monotonic() - start_all
-
-    # Exit code determination:
-    # 0 = All passed
-    # 1 = One or more failed/error
-    # 2 = One or more skipped (missing host runner) and no failures
-    if failed_count > 0 or error_count > 0:
-        overall_exit_code = 1
-    elif skipped_count > 0:
-        overall_exit_code = 2
-    else:
-        overall_exit_code = 0
+    ctx = ExecutionContext()
+    start_time = time.monotonic()
+    results = run_tests(selected_tests, ctx, verbose=args.verbose)
+    elapsed = time.monotonic() - start_time
 
     if args.json:
-        summary = {
-            "total_selected": len(selected_tests),
-            "passed": passed_count,
-            "failed": failed_count,
-            "skipped": skipped_count,
-            "errors": error_count,
-            "duration_s": round(total_duration, 4),
-            "exit_code": overall_exit_code,
+        out_dict = {
+            "total": len(results),
+            "passed": sum(1 for r in results if r.status == TestStatus.PASS),
+            "failed": sum(1 for r in results if r.status == TestStatus.FAIL),
+            "skipped": sum(1 for r in results if r.status == TestStatus.SKIP),
+            "errors": sum(1 for r in results if r.status == TestStatus.ERROR),
+            "elapsed_seconds": round(elapsed, 4),
             "results": [r.to_dict() for r in results],
         }
-        print(json.dumps(summary, indent=2))
-        return overall_exit_code
+        print(json.dumps(out_dict, indent=2))
+    else:
+        print_summary_table(results, elapsed)
 
-    print("-" * 80)
-    print("Test Suite Summary:")
-    print(f"  Total Run:    {len(results)}")
-    print(f"  Passed:       {passed_count}")
-    print(f"  Failed:       {failed_count}")
-    print(f"  Skipped:      {skipped_count} (missing host runner/oracle)")
-    print(f"  Errors:       {error_count}")
-    print(f"  Wall Time:    {total_duration:.2f}s")
-    print(f"  Final Exit:   {overall_exit_code} ({'PASS' if overall_exit_code == 0 else ('FAIL' if overall_exit_code == 1 else 'SKIP_PARTIAL')})")
-    print("=" * 80)
+    has_failures = any(r.status in (TestStatus.FAIL, TestStatus.ERROR) for r in results)
+    has_skips = any(r.status == TestStatus.SKIP for r in results)
 
-    return overall_exit_code
+    if has_failures:
+        return 1
+    elif has_skips and not has_failures:
+        return 2
+    return 0
 
 
 if __name__ == "__main__":

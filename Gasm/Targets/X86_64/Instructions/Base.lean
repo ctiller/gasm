@@ -179,12 +179,63 @@ def parseRexAndOpcode (bytes : ByteArray) (offset : Nat) :
   let opcode ← readUInt8 bytes curOffset
   pure (hasRex, rexW, rexR, rexX, rexB, opcode, curOffset + 1)
 
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Parses optional operand-size override prefix (0x66) and optional REX prefix (0x40-0x4F)
+    at `offset`, then reads the opcode byte that follows.
+    Returns `(has0x66, hasRex, rexW, rexR, rexX, rexB, opcode, nextOffset)` where `nextOffset`
+    points just past the opcode byte.
+    In x86-64 long mode, legacy prefix 0x66 precedes any REX prefix. -/
+def parsePrefixesAndOpcode (bytes : ByteArray) (offset : Nat) :
+    Except String (Bool × Bool × Bool × Bool × Bool × Bool × UInt8 × Nat) := do
+  let b0 ← readUInt8 bytes offset
+  let (has0x66, after0x66Offset) :=
+    if b0 == 0x66 then
+      (true, offset + 1)
+    else
+      (false, offset)
+  let bRex ← readUInt8 bytes after0x66Offset
+  let (hasRex, rexW, rexR, rexX, rexB, opOffset) :=
+    if isRex bRex then
+      let (w, r, x, b) := parseRex bRex
+      (true, w, r, x, b, after0x66Offset + 1)
+    else
+      (false, false, false, false, false, after0x66Offset)
+  let opcode ← readUInt8 bytes opOffset
+  pure (has0x66, hasRex, rexW, rexR, rexX, rexB, opcode, opOffset + 1)
+
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Reads a 16-bit little-endian integer from the ByteArray at the given offset. -/
 def readUInt16LE (bytes : ByteArray) (offset : Nat) : Except String UInt16 := do
   let b0 ← readUInt8 bytes offset
   let b1 ← readUInt8 bytes (offset + 1)
   Except.ok (b0.toUInt16 ||| (b1.toUInt16 <<< 8))
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- Serializes a UInt16 into 2 bytes in little-endian order. -/
+def uint16ToLittleEndian (v : UInt16) : ByteArray :=
+  ByteArray.mk #[
+    v.toUInt8,
+    (v >>> 8).toUInt8
+  ]
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- Sign-extends a 16-bit unsigned immediate to 64-bit unsigned integer based on bit 15. -/
+def signExtendUInt16To64 (v : UInt16) : UInt64 :=
+  if (v &&& 0x8000) != 0 then
+    0xFFFFFFFFFFFF0000 ||| v.toUInt64
+  else
+    v.toUInt64
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- Formats a UInt16 as a hexadecimal string literal for Lean source code. -/
+def formatHex16 (v : UInt16) : String :=
+  let s := String.ofList (Nat.toDigits 16 v.toNat)
+  s!"0x{s}"
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- Curated UInt16/imm16 boundary values for `roundtripCases`: zero, one, the int16 signed
+    boundary (0x7FFF max positive, 0x8000 min negative), and 0xFFFF (-1). -/
+def curatedUInt16Cases : List UInt16 := [0x0000, 0x0001, 0x7FFF, 0x8000, 0xFFFF]
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Reads a 32-bit little-endian integer from the ByteArray at the given offset. -/
@@ -361,6 +412,34 @@ def allReg32List : List Reg32 := [
 ]
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- All 16 general-purpose 16-bit sub-registers, in encoding order. -/
+def allReg16List : List Reg16 := [
+  .ax, .cx, .dx, .bx, .sp, .bp, .si, .di,
+  .r8w, .r9w, .r10w, .r11w, .r12w, .r13w, .r14w, .r15w
+]
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- All 16 general-purpose 8-bit low sub-registers in 64-bit mode, in encoding order. -/
+def allReg8List : List Reg8 := [
+  .al, .cl, .dl, .bl, .spl, .bpl, .sil, .dil,
+  .r8b, .r9b, .r10b, .r11b, .r12b, .r13b, .r14b, .r15b
+]
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- All 16 registers except SP. -/
+def allReg16ListNoSp : List Reg16 := [
+  .ax, .cx, .dx, .bx, .bp, .si, .di,
+  .r8w, .r9w, .r10w, .r11w, .r12w, .r13w, .r14w, .r15w
+]
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- All 16 registers except SPL. -/
+def allReg8ListNoSpl : List Reg8 := [
+  .al, .cl, .dl, .bl, .bpl, .sil, .dil,
+  .r8b, .r9b, .r10b, .r11b, .r12b, .r13b, .r14b, .r15b
+]
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Both-extended (dst, src) register pairs for two-register `roundtripCases`. The "vary one slot
     against a `.rax` anchor" convention above never sets REX.R and REX.B simultaneously (the
     anchor slot is always the non-extended `.rax`), so it cannot catch a REX bit swapped or
@@ -375,6 +454,14 @@ def extendedReg64Pairs : List (Reg64 × Reg64) := [(.r8, .r15), (.r12, .r13), (.
 /-- 32-bit-register counterpart of `extendedReg64Pairs`, for two-`Reg32`-argument families
     (currently only XOR). -/
 def extendedReg32Pairs : List (Reg32 × Reg32) := [(.r8d, .r15d), (.r12d, .r13d), (.r15d, .r8d)]
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- Both-extended (dst, src) 16-bit register pairs for two-register `roundtripCases`. -/
+def extendedReg16Pairs : List (Reg16 × Reg16) := [(.r8w, .r15w), (.r12w, .r13w), (.r15w, .r8w)]
+
+/- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
+/-- Both-extended (dst, src) 8-bit register pairs for two-register `roundtripCases`. -/
+def extendedReg8Pairs : List (Reg8 × Reg8) := [(.r8b, .r15b), (.r12b, .r13b), (.r15b, .r8b)]
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Curated UInt8 boundary values for `roundtripCases`: zero, one, the rel8/imm8 signed
@@ -439,6 +526,14 @@ def hwSafeReg64 (r : Reg64) : Bool := r != .rsp
 /-- 32-bit-register counterpart of `hwSafeReg64` (ESP is RSP's low 32 bits and is subject to the
     exact same write-crash / read-mismatch hazards described there — e.g. `XorR32R32`). -/
 def hwSafeReg32 (r : Reg32) : Bool := r != .esp
+
+/- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
+/-- 16-bit-register counterpart of `hwSafeReg64` (SP is RSP's low 16 bits). -/
+def hwSafeReg16 (r : Reg16) : Bool := r != .sp
+
+/- REF: docs/TARGETS/WINDOWS.md#1-microsoft-x64-calling-convention -/
+/-- 8-bit-register counterpart of `hwSafeReg64` (SPL is RSP's low 8 bits). -/
+def hwSafeReg8 (r : Reg8) : Bool := r != .spl
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Curated UInt64/imm64 boundary values for `roundtripCases` (deliberately smaller than

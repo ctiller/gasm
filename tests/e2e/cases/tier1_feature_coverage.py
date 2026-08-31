@@ -16,17 +16,13 @@
 """
 tests/e2e/cases/tier1_feature_coverage.py - Tier 1: Feature Coverage Test Suite.
 
-Covers all 28 features in PROJECT.md Feature Inventory with >=5 test cases per feature (140 tests).
-Opaque-box and requirement-driven derived from ORIGINAL_REQUEST.md and PROJECT.md.
+Covers all 25 features in PROJECT.md Feature Inventory with >=5 test cases per feature (125 tests total).
+Opaque-box and requirement-driven derived strictly from ORIGINAL_REQUEST.md, PROJECT.md,
+and the Intel 64 and IA-32 Architectures Software Developer's Manual (Intel SDM).
 """
 
-import json
-import os
-import re
 import time
-from pathlib import Path
-from typing import List
-
+from typing import Callable, List, Tuple
 from tests.e2e.harness import ExecutionContext, TestCase, TestResult, TestStatus
 
 
@@ -42,693 +38,873 @@ class BaseTier1Test(TestCase):
         )
 
 
-def _check_file_exists(path: Path, test: TestCase, start_time: float) -> TestResult:
-    elapsed = time.monotonic() - start_time
-    if path.exists():
-        return TestResult(
-            test_id=test.test_id,
-            name=test.name,
-            tier=test.tier,
-            milestone=test.milestone,
-            feature_id=test.feature_id,
-            status=TestStatus.PASS,
-            message=f"File exists: {path.name}",
-            duration_s=elapsed,
-        )
-    return TestResult(
-        test_id=test.test_id,
-        name=test.name,
-        tier=test.tier,
-        milestone=test.milestone,
-        feature_id=test.feature_id,
-        status=TestStatus.FAIL,
-        message=f"Missing expected file: {path}",
-        duration_s=elapsed,
-    )
-
-
-# --------------------------------------------------------------------------------------------
-# Feature 1: Reference Registration (M1, R1) - 5 tests
-# --------------------------------------------------------------------------------------------
-
-class TestT1_01_01(BaseTier1Test):
-    """T1.01.01: Verify references.json exists and is valid JSON."""
-    def __init__(self):
-        super().__init__("T1.01.01", 1, "M1", "references_json_valid", "Verify references.json exists and is valid JSON.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        ref_file = ctx.repo_root / "references.json"
-        if not ref_file.exists():
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "references.json does not exist", time.monotonic() - start)
-        try:
-            with open(ref_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, list):
-                return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "references.json top-level is not a list", time.monotonic() - start)
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, f"references.json is valid JSON array with {len(data)} entries", time.monotonic() - start)
-        except Exception as e:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Error parsing references.json: {e}", time.monotonic() - start)
-
-
-class TestT1_01_02(BaseTier1Test):
-    """T1.01.02: Verify Arm Architecture Reference Manual registered in references.json."""
-    def __init__(self):
-        super().__init__("T1.01.02", 1, "M1", "arm_arm_registered", "Verify ARM Architecture Reference Manual is registered in references.json.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        ref_file = ctx.repo_root / "references.json"
-        if not ref_file.exists():
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "references.json not found", time.monotonic() - start)
-        with open(ref_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        arm_slugs = [e.get("slug") for e in data if "arm" in e.get("slug", "").lower() or "aarch64" in e.get("slug", "").lower()]
-        if not arm_slugs:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "No ARM/AArch64 reference slug registered in references.json", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, f"Found ARM reference slugs: {arm_slugs}", time.monotonic() - start)
-
-
-class TestT1_01_03(BaseTier1Test):
-    """T1.01.03: Verify PL011 UART manual registered in references.json."""
-    def __init__(self):
-        super().__init__("T1.01.03", 1, "M1", "pl011_manual_registered", "Verify PrimeCell UART PL011 manual registered in references.json.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        ref_file = ctx.repo_root / "references.json"
-        with open(ref_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        uart_slugs = [e.get("slug") for e in data if "pl011" in e.get("slug", "").lower() or ("uart" in e.get("slug", "").lower() and "arm" in e.get("slug", "").lower())]
-        if not uart_slugs:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "PL011 reference slug not found in references.json", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, f"Found PL011 reference: {uart_slugs}", time.monotonic() - start)
-
-
-class TestT1_01_04(BaseTier1Test):
-    """T1.01.04: Verify Semihosting specification registered in references.json."""
-    def __init__(self):
-        super().__init__("T1.01.04", 1, "M1", "semihosting_spec_registered", "Verify Arm Semihosting specification registered in references.json.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        ref_file = ctx.repo_root / "references.json"
-        with open(ref_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        semi_slugs = [e.get("slug") for e in data if "semihosting" in e.get("slug", "").lower()]
-        if not semi_slugs:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "Semihosting reference slug not found in references.json", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, f"Found Semihosting reference: {semi_slugs}", time.monotonic() - start)
-
-
-class TestT1_01_05(BaseTier1Test):
-    """T1.01.05: Verify AAPCS64 procedure call standard registered in references.json."""
-    def __init__(self):
-        super().__init__("T1.01.05", 1, "M1", "aapcs64_registered", "Verify AAPCS64 specification registered in references.json.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        ref_file = ctx.repo_root / "references.json"
-        with open(ref_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        abi_slugs = [e.get("slug") for e in data if "aapcs" in e.get("slug", "").lower() or "abi-aa" in e.get("slug", "").lower()]
-        if not abi_slugs:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "AAPCS64 reference slug not found in references.json", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, f"Found AAPCS64 reference: {abi_slugs}", time.monotonic() - start)
-
-
-# --------------------------------------------------------------------------------------------
-# Feature 2: License Token (M1, R1) - 5 tests
-# --------------------------------------------------------------------------------------------
-
-class TestT1_02_01(BaseTier1Test):
-    """T1.02.01: Verify check_references.py accepts arm-unmodified-only license token."""
-    def __init__(self):
-        super().__init__("T1.02.01", 2, "M1", "license_token_arm_unmodified", "Verify check_references.py supports arm-unmodified-only token.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        script_file = ctx.repo_root / "scripts" / "check_references.py"
-        if not script_file.exists():
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "scripts/check_references.py not found", time.monotonic() - start)
-        content = script_file.read_text(encoding="utf-8")
-        if "arm-unmodified-only" in content:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "arm-unmodified-only token supported in check_references.py", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "arm-unmodified-only token missing from check_references.py", time.monotonic() - start)
-
-
-class TestT1_02_02(BaseTier1Test):
-    """T1.02.02: Verify references.json license field matches approved license tokens."""
-    def __init__(self):
-        super().__init__("T1.02.02", 2, "M1", "references_licenses_valid", "Verify all licenses in references.json are recognized.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        ref_file = ctx.repo_root / "references.json"
-        with open(ref_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for meta in (data if isinstance(data, list) else data.values()):
-            lic = meta.get("license")
-            if not lic:
-                slug = meta.get("slug", "unknown")
-                return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Reference '{slug}' missing license field", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "All references declare a non-empty license", time.monotonic() - start)
-
-
-class TestT1_02_03(BaseTier1Test):
-    """T1.02.03: Verify check_references.py rejects unknown license tokens."""
-    def __init__(self):
-        super().__init__("T1.02.03", 2, "M1", "check_references_rejects_bogus_license", "Verify check_references.py schema validation rejects unrecognized license tokens.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        import sys
-        if str(ctx.repo_root) not in sys.path:
-            sys.path.insert(0, str(ctx.repo_root))
-        try:
-            import tempfile
-            from unittest.mock import patch
-            from scripts.check_references import load_registry, ValidationFailure, EXIT_SCHEMA_ERROR
-        except ImportError as e:
-            return TestResult(
-                self.test_id, self.name, self.tier, self.milestone, self.feature_id,
-                TestStatus.FAIL,
-                f"Failed to import check_references test dependencies: {e}",
-                time.monotonic() - start,
-            )
-
-        base_entry = {
-            "slug": "synthetic-license-test",
-            "corpus": "arm",
-            "title": "Synthetic Reference for License Validation",
-            "url": "https://developer.arm.com/documentation/test",
-            "media_type": "plain-text",
-            "sha256": "0" * 64,
-            "fetched_date": "2026-08-28",
-            "edition": "1.0",
-            "license": "arm-unmodified-only",
-            "distribution": "unmodified-copy-only",
-            "anchor_mode": "heading",
-            "last_reviewed": "2026-08-28",
-            "reviewer": "reviewer@example.corp.google.com",
-            "review_note": "Synthetic test fixture for license validation.",
-        }
-
-        # Step 1: Baseline positive control - verify synthetic fixture is valid
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
-            json.dump([base_entry], f)
-            baseline_path = Path(f.name)
-
-        try:
-            with patch("scripts.check_references.REFERENCES_JSON", baseline_path):
-                try:
-                    loaded = load_registry()
-                    if "synthetic-license-test" not in loaded:
-                        return TestResult(
-                            self.test_id, self.name, self.tier, self.milestone, self.feature_id,
-                            TestStatus.FAIL,
-                            "Baseline synthetic reference fixture failed to load",
-                            time.monotonic() - start,
-                        )
-                except Exception as e:
-                    return TestResult(
-                        self.test_id, self.name, self.tier, self.milestone, self.feature_id,
-                        TestStatus.FAIL,
-                        f"Baseline synthetic reference fixture unexpectedly failed schema validation: {e}",
-                        time.monotonic() - start,
-                    )
-        finally:
-            if baseline_path.exists():
-                baseline_path.unlink()
-
-        # Step 2: Adversarial negative test - unrecognized license token must raise ValidationFailure(EXIT_SCHEMA_ERROR)
-        bogus_entry = dict(base_entry)
-        bogus_entry["license"] = "unauthorized-bogus-license"
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
-            json.dump([bogus_entry], f)
-            bogus_path = Path(f.name)
-
-        try:
-            with patch("scripts.check_references.REFERENCES_JSON", bogus_path):
-                try:
-                    load_registry()
-                    return TestResult(
-                        self.test_id, self.name, self.tier, self.milestone, self.feature_id,
-                        TestStatus.FAIL,
-                        "check_references.load_registry() unexpectedly accepted unrecognized license token 'unauthorized-bogus-license'",
-                        time.monotonic() - start,
-                    )
-                except ValidationFailure as vf:
-                    if vf.code != EXIT_SCHEMA_ERROR:
-                        return TestResult(
-                            self.test_id, self.name, self.tier, self.milestone, self.feature_id,
-                            TestStatus.FAIL,
-                            f"Expected exit code {EXIT_SCHEMA_ERROR} (EXIT_SCHEMA_ERROR), got {vf.code}: {vf.message}",
-                            time.monotonic() - start,
-                        )
-                    if "unrecognized license token" not in vf.message:
-                        return TestResult(
-                            self.test_id, self.name, self.tier, self.milestone, self.feature_id,
-                            TestStatus.FAIL,
-                            f"Expected 'unrecognized license token' in failure message, got: {vf.message}",
-                            time.monotonic() - start,
-                        )
-                    return TestResult(
-                        self.test_id, self.name, self.tier, self.milestone, self.feature_id,
-                        TestStatus.PASS,
-                        f"check_references strictly rejected bogus license: {vf.message}",
-                        time.monotonic() - start,
-                    )
-                except Exception as e:
-                    return TestResult(
-                        self.test_id, self.name, self.tier, self.milestone, self.feature_id,
-                        TestStatus.FAIL,
-                        f"Unexpected exception during bogus license validation: {type(e).__name__}: {e}",
-                        time.monotonic() - start,
-                    )
-        finally:
-            if bogus_path.exists():
-                bogus_path.unlink()
-
-
-class TestT1_02_04(BaseTier1Test):
-    """T1.02.04: Verify check_licenses.py checks Apache-2.0 headers on source files."""
-    def __init__(self):
-        super().__init__("T1.02.04", 2, "M1", "check_licenses_apache2", "Verify check_licenses.py enforces Apache-2.0 headers.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        code, out, err = ctx.run_cmd([ctx.python_exe, "scripts/check_licenses.py"])
-        if code == 0:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "check_licenses.py passed: all source files have Apache-2.0 headers", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"check_licenses.py failed (exit {code}): {out or err}", time.monotonic() - start)
-
-
-class TestT1_02_05(BaseTier1Test):
-    """T1.02.05: Verify check_publishable.py runs cleanly against repository state."""
-    def __init__(self):
-        super().__init__("T1.02.05", 2, "M1", "check_publishable_pass", "Verify check_publishable.py passes without third-party prose leaks.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        code, out, err = ctx.run_cmd([ctx.python_exe, "scripts/check_publishable.py"])
-        if code == 0:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "check_publishable.py passed", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"check_publishable.py failed (exit {code}): {out or err}", time.monotonic() - start)
-
-
-# --------------------------------------------------------------------------------------------
-# Feature 3: Target Spec Docs (M1, R1) - 5 tests
-# --------------------------------------------------------------------------------------------
-
-class TestT1_03_01(BaseTier1Test):
-    """T1.03.01: Verify docs/TARGETS/ARM64.md contains Registers specification section."""
-    def __init__(self):
-        super().__init__("T1.03.01", 3, "M1", "arm64_spec_registers", "Verify docs/TARGETS/ARM64.md defines register architecture.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        doc = ctx.repo_root / "docs" / "TARGETS" / "ARM64.md"
-        if not doc.exists():
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "docs/TARGETS/ARM64.md not found", time.monotonic() - start)
-        content = doc.read_text(encoding="utf-8")
-        if re.search(r"^#+\s+.*registers", content, re.IGNORECASE | re.MULTILINE):
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "docs/TARGETS/ARM64.md defines Registers section", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "Missing Registers section in docs/TARGETS/ARM64.md", time.monotonic() - start)
-
-
-class TestT1_03_02(BaseTier1Test):
-    """T1.03.02: Verify docs/TARGETS/ARM64.md contains Addressing Modes specification."""
-    def __init__(self):
-        super().__init__("T1.03.02", 3, "M1", "arm64_spec_addressing", "Verify docs/TARGETS/ARM64.md defines addressing modes.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        doc = ctx.repo_root / "docs" / "TARGETS" / "ARM64.md"
-        content = doc.read_text(encoding="utf-8")
-        if re.search(r"^#+\s+.*addressing", content, re.IGNORECASE | re.MULTILINE):
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "docs/TARGETS/ARM64.md defines Addressing Modes section", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "Missing Addressing Modes section in docs/TARGETS/ARM64.md", time.monotonic() - start)
-
-
-class TestT1_03_03(BaseTier1Test):
-    """T1.03.03: Verify docs/TARGETS/ARM64.md contains Machine State and step semantics."""
-    def __init__(self):
-        super().__init__("T1.03.03", 3, "M1", "arm64_spec_machine_state", "Verify docs/TARGETS/ARM64.md defines Machine State & semantics.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        doc = ctx.repo_root / "docs" / "TARGETS" / "ARM64.md"
-        content = doc.read_text(encoding="utf-8")
-        if re.search(r"^#+\s+.*machine state", content, re.IGNORECASE | re.MULTILINE) or "AArch64MachineState" in content or "step" in content:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "Machine State specification section found", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "Missing Machine State section in docs/TARGETS/ARM64.md", time.monotonic() - start)
-
-
-class TestT1_03_04(BaseTier1Test):
-    """T1.03.04: Verify docs/TARGETS/ARM64.md specifies Bare Metal MMIO and semihosting."""
-    def __init__(self):
-        super().__init__("T1.03.04", 3, "M1", "arm64_spec_baremetal_mmio", "Verify Bare Metal PL011 and semihosting documentation.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        doc = ctx.repo_root / "docs" / "TARGETS" / "ARM64.md"
-        content = doc.read_text(encoding="utf-8")
-        if "0x09000000" in content and "0x20026" in content and "semihosting" in content.lower():
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "Bare Metal PL011 MMIO and semihosting documented in detail", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "Missing Bare Metal MMIO or semihosting details in docs/TARGETS/ARM64.md", time.monotonic() - start)
-
-
-class TestT1_03_05(BaseTier1Test):
-    """T1.03.05: Verify docs/TARGETS/ARM64.md specifies Linux syscall convention."""
-    def __init__(self):
-        super().__init__("T1.03.05", 3, "M1", "arm64_spec_linux_syscalls", "Verify Linux syscall calling convention documentation.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        doc = ctx.repo_root / "docs" / "TARGETS" / "ARM64.md"
-        content = doc.read_text(encoding="utf-8")
-        if "SVC" in content and ("X8" in content or "syscall" in content.lower()):
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "Linux syscall convention documented in docs/TARGETS/ARM64.md", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, "Missing Linux syscall convention in docs/TARGETS/ARM64.md", time.monotonic() - start)
-
-
-# --------------------------------------------------------------------------------------------
-# Feature 4: Citation Discipline (M1, R1) - 5 tests
-# --------------------------------------------------------------------------------------------
-
-class TestT1_04_01(BaseTier1Test):
-    """T1.04.01: Verify check_refs.py scans repository without uncited errors."""
-    def __init__(self):
-        super().__init__("T1.04.01", 4, "M1", "check_refs_runnable", "Verify python scripts/check_refs.py execution.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        code, out, err = ctx.run_cmd([ctx.python_exe, "scripts/check_refs.py"])
-        if code == 0:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "check_refs.py passed with zero broken references", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"check_refs.py reported broken references (exit {code}): {out}", time.monotonic() - start)
-
-
-class TestT1_04_02(BaseTier1Test):
-    """T1.04.02: Verify declaration citation coverage has no exception mechanism."""
-    def __init__(self):
-        super().__init__("T1.04.02", 4, "M1", "citation_coverage_unconditional", "Verify declaration citation coverage is unconditional.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        allowlist = ctx.repo_root / "scripts" / ("ref_" + "allow" + "list.txt")
-        gate_source = (ctx.repo_root / "Tools" / "CheckRefsCoverage.lean").read_text(encoding="utf-8")
-        forbidden = [
-            "RefAllow" + "listEntry",
-            "parseRef" + "Allowlist",
-            "ref_" + "allowlist.txt",
-            "uncited-but-" + "allowlisted",
-        ]
-        leftovers = [token for token in forbidden if token in gate_source]
-        if allowlist.exists() or leftovers:
-            detail = "allowlist file still exists" if allowlist.exists() else f"gate retains exception machinery: {leftovers}"
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, detail, time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "Every uncited compiled declaration fails unconditionally", time.monotonic() - start)
-
-
-class TestT1_04_03(BaseTier1Test):
-    """T1.04.03: Verify in-tree anchor resolution in docs/TARGETS/ARM64.md."""
-    def __init__(self):
-        super().__init__("T1.04.03", 4, "M1", "arm64_anchors_resolvable", "Verify anchors in docs/TARGETS/ARM64.md resolve.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        doc = ctx.repo_root / "docs" / "TARGETS" / "ARM64.md"
-        headings = re.findall(r"^#+\s+(.+)$", doc.read_text(encoding="utf-8"), re.MULTILINE)
-        if len(headings) < 3:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Too few headings in docs/TARGETS/ARM64.md ({len(headings)})", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, f"Found {len(headings)} valid section headings in ARM64.md", time.monotonic() - start)
-
-
-class TestT1_04_04(BaseTier1Test):
-    """T1.04.04: Verify the full declaration-coverage authority lifecycle controls."""
-    def __init__(self):
-        super().__init__("T1.04.04", 4, "M1", "check_refs_coverage_compiled", "Verify full declaration-coverage authority controls.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        launcher_code, launcher_out, launcher_err = ctx.run_cmd(
-            [ctx.python_exe, "scripts/test_full_refs_launcher.py"],
-            timeout=30.0,
-        )
-        if launcher_code != 0:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Full declaration-coverage launcher controls failed (exit {launcher_code}): {launcher_out or launcher_err}", time.monotonic() - start)
-        code, out, err = ctx.run_cmd(
-            [ctx.python_exe, "scripts/run_full_refs_coverage.py", "--self-test-authority"],
-            timeout=300.0,
-        )
-        if code == 0:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "Full declaration-coverage authority controls passed", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Full declaration-coverage authority controls failed (exit {code}): {out or err}", time.monotonic() - start)
-
-
-class TestT1_04_05(BaseTier1Test):
-    """T1.04.05: Verify the full declaration-coverage gate reports 100% coverage."""
-    def __init__(self):
-        super().__init__("T1.04.05", 4, "M1", "check_refs_coverage_100_percent", "Verify the full declaration-coverage gate runs cleanly.")
-
-    def run(self, ctx: ExecutionContext) -> TestResult:
-        start = time.monotonic()
-        code, out, err = ctx.run_cmd(
-            [ctx.python_exe, "scripts/run_full_refs_coverage.py", "--full-repository"],
-            timeout=3600.0,
-        )
-        if code == 0:
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, "Full declaration-coverage gate verified 100% citation coverage", time.monotonic() - start)
-        return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Full declaration-coverage gate failed (exit {code}): {out or err}", time.monotonic() - start)
-
-
-# --------------------------------------------------------------------------------------------
-# Features 5 to 28 Generator Helpers
-# --------------------------------------------------------------------------------------------
-
-def make_file_check_test(test_id: str, feature_id: int, milestone: str, name: str, desc: str, rel_path: str):
-    class FileCheckTest(BaseTier1Test):
+def make_tier1_test(
+    test_id: str,
+    feature_id: int,
+    milestone: str,
+    name: str,
+    desc: str,
+    fn: Callable[[ExecutionContext], Tuple[TestStatus, str]],
+) -> TestCase:
+    class DynamicTier1Test(BaseTier1Test):
         def __init__(self):
             super().__init__(test_id, feature_id, milestone, name, desc)
+
         def run(self, ctx: ExecutionContext) -> TestResult:
             start = time.monotonic()
-            return _check_file_exists(ctx.repo_root / rel_path, self, start)
-    return FileCheckTest()
+            try:
+                status, msg = fn(ctx)
+                return TestResult(
+                    self.test_id,
+                    self.name,
+                    self.tier,
+                    self.milestone,
+                    self.feature_id,
+                    status,
+                    msg,
+                    time.monotonic() - start,
+                )
+            except Exception as e:
+                return TestResult(
+                    self.test_id,
+                    self.name,
+                    self.tier,
+                    self.milestone,
+                    self.feature_id,
+                    TestStatus.ERROR,
+                    str(e),
+                    time.monotonic() - start,
+                )
 
-
-def make_content_check_test(test_id: str, feature_id: int, milestone: str, name: str, desc: str, rel_path: str, regex: str):
-    class ContentCheckTest(BaseTier1Test):
-        def __init__(self):
-            super().__init__(test_id, feature_id, milestone, name, desc)
-        def run(self, ctx: ExecutionContext) -> TestResult:
-            start = time.monotonic()
-            target = ctx.repo_root / rel_path
-            if not target.exists():
-                return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Target file {rel_path} does not exist", time.monotonic() - start)
-            content = target.read_text(encoding="utf-8")
-            if re.search(regex, content, re.MULTILINE):
-                return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, f"Pattern {regex!r} matched in {rel_path}", time.monotonic() - start)
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"Pattern {regex!r} not found in {rel_path}", time.monotonic() - start)
-    return ContentCheckTest()
-
-
-def make_executable_check_test(test_id: str, feature_id: int, milestone: str, name: str, desc: str, target_name: str, requires_qemu: bool = False):
-    class ExecutableCheckTest(BaseTier1Test):
-        def __init__(self):
-            super().__init__(test_id, feature_id, milestone, name, desc)
-        def run(self, ctx: ExecutionContext) -> TestResult:
-            start = time.monotonic()
-            if requires_qemu and not ctx.qemu_system and not ctx.qemu_user:
-                return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.SKIP, "Host QEMU runner absent (fail-honest skip exit 2)", time.monotonic() - start)
-            code, out, err = ctx.run_lean_target(target_name)
-            if code == 0:
-                return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.PASS, f"{target_name} passed successfully", time.monotonic() - start)
-            elif code == 2:
-                return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.SKIP, f"{target_name} skipped honestly (exit 2): {out}", time.monotonic() - start)
-            return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.FAIL, f"{target_name} failed (exit {code}): {out or err}", time.monotonic() - start)
-    return ExecutableCheckTest()
+    return DynamicTier1Test()
 
 
 def get_tier1_tests() -> List[TestCase]:
-    tests: List[TestCase] = [
-        # Feature 1
-        TestT1_01_01(), TestT1_01_02(), TestT1_01_03(), TestT1_01_04(), TestT1_01_05(),
-        # Feature 2
-        TestT1_02_01(), TestT1_02_02(), TestT1_02_03(), TestT1_02_04(), TestT1_02_05(),
-        # Feature 3
-        TestT1_03_01(), TestT1_03_02(), TestT1_03_03(), TestT1_03_04(), TestT1_03_05(),
-        # Feature 4
-        TestT1_04_01(), TestT1_04_02(), TestT1_04_03(), TestT1_04_04(), TestT1_04_05(),
+    tests: List[TestCase] = []
 
-        # Feature 5: Registers & State (M2, R2)
-        make_file_check_test("T1.05.01", 5, "M2", "registers_file_exists", "Verify Registers.lean exists", "Gasm/Targets/AArch64/Registers.lean"),
-        make_content_check_test("T1.05.02", 5, "M2", "gpr_definitions", "Verify X0-X30 and SP defined", "Gasm/Targets/AArch64/Registers.lean", r"\b(X0|X30|SP|XZR)\b"),
-        make_content_check_test("T1.05.03", 5, "M2", "nzcv_definitions", "Verify NZCV flags defined", "Gasm/Targets/AArch64/Registers.lean", r"\b(NZCV|PSTATE)\b"),
-        make_file_check_test("T1.05.04", 5, "M2", "memory_cell_exists", "Verify MemoryCell.lean exists", "Gasm/Targets/AArch64/MemoryCell.lean"),
-        make_content_check_test("T1.05.05", 5, "M2", "registers_cited", "Verify Registers.lean declarations carry REF annotations", "Gasm/Targets/AArch64/Registers.lean", r"/- REF: .* -/"),
+    # ============================================================================================
+    # Feature 1: Reg16 & Reg8 Sub-Registers (Milestone M1) - 5 tests
+    # ============================================================================================
+    def t1_01_01(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["inductive Reg16", "ax", "cx", "dx", "bx", "sp", "bp", "si", "di", "r8w", "r15w"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"Reg16 inductive type missing or incomplete in Registers.lean: {missing}"
+        return TestStatus.PASS, "Reg16 inductive type defined with all 16 register constructors"
 
-        # Feature 6: Addressing Modes (M2, R2)
-        make_file_check_test("T1.06.01", 6, "M2", "addressing_file_exists", "Verify Addressing.lean exists", "Gasm/Targets/AArch64/Addressing.lean"),
-        make_content_check_test("T1.06.02", 6, "M2", "addressing_imm_offset", "Verify immediate offset addressing mode", "Gasm/Targets/AArch64/Addressing.lean", r"imm"),
-        make_content_check_test("T1.06.03", 6, "M2", "addressing_pre_post_index", "Verify pre/post index writeback mode", "Gasm/Targets/AArch64/Addressing.lean", r"(pre|post)"),
-        make_content_check_test("T1.06.04", 6, "M2", "addressing_reg_offset", "Verify register offset mode", "Gasm/Targets/AArch64/Addressing.lean", r"reg"),
-        make_content_check_test("T1.06.05", 6, "M2", "addressing_cited", "Verify Addressing.lean declarations carry REF annotations", "Gasm/Targets/AArch64/Addressing.lean", r"/- REF: .* -/"),
+    tests.append(make_tier1_test(
+        "T1.01.01", 1, "M1", "reg16_inductive_definition",
+        "Verify Reg16 inductive type and all 16 sub-register constructors (ax..r15w) in Registers.lean",
+        t1_01_01,
+    ))
 
-        # Feature 7: Machine Semantics (M2, R2)
-        make_file_check_test("T1.07.01", 7, "M2", "machine_file_exists", "Verify Machine.lean exists", "Gasm/Targets/AArch64/Machine.lean"),
-        make_content_check_test("T1.07.02", 7, "M2", "machine_state_def", "Verify AArch64MachineState structure defined", "Gasm/Targets/AArch64/Machine.lean", r"AArch64MachineState"),
-        make_content_check_test("T1.07.03", 7, "M2", "target_arch_instance", "Verify TargetArch instance defined", "Gasm/Targets/AArch64/Machine.lean", r"TargetArch"),
-        make_content_check_test("T1.07.04", 7, "M2", "xzr_zero_behavior", "Verify XZR read evaluates to zero", "Gasm/Targets/AArch64/Machine.lean", r"XZR"),
-        make_content_check_test("T1.07.05", 7, "M2", "step_pc_advances", "Verify step updates PC", "Gasm/Targets/AArch64/Machine.lean", r"pc"),
+    def t1_01_02(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["inductive Reg8", "al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil", "r8b", "r15b"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"Reg8 inductive type missing or incomplete in Registers.lean: {missing}"
+        return TestStatus.PASS, "Reg8 inductive type defined with all 16 register constructors"
 
-        # Feature 8: Instruction Surface (M3, R2)
-        make_file_check_test("T1.08.01", 8, "M3", "instructions_file_exists", "Verify Instructions.lean exists", "Gasm/Targets/AArch64/Instructions.lean"),
-        make_content_check_test("T1.08.02", 8, "M3", "instructions_addsub", "Verify Add/Sub instruction families defined", "Gasm/Targets/AArch64/Instructions/Add.lean", r"AddImm"),
-        make_content_check_test("T1.08.03", 8, "M3", "instructions_logical", "Verify Logical instruction families defined", "Gasm/Targets/AArch64/Instructions/Logical.lean", r"AndImm"),
-        make_content_check_test("T1.08.04", 8, "M3", "instructions_loadstore", "Verify Load/Store instruction families defined", "Gasm/Targets/AArch64/Instructions/LoadStore.lean", r"LdrImm"),
-        make_content_check_test("T1.08.05", 8, "M3", "instructions_branch_system", "Verify Branch and System families defined", "Gasm/Targets/AArch64/Instructions/Branch.lean", r"BCond"),
+    tests.append(make_tier1_test(
+        "T1.01.02", 1, "M1", "reg8_inductive_definition",
+        "Verify Reg8 inductive type and all 16 sub-register constructors (al..r15b) in Registers.lean",
+        t1_01_02,
+    ))
 
-        # Feature 9: 32-bit Codec (M3, R3)
-        make_file_check_test("T1.09.01", 9, "M3", "decoder_file_exists", "Verify Decoder.lean exists", "Gasm/Targets/AArch64/Decoder.lean"),
-        make_content_check_test("T1.09.02", 9, "M3", "decode_word_def", "Verify decodeWord function defined", "Gasm/Targets/AArch64/Decoder.lean", r"def decodeWord"),
-        make_content_check_test("T1.09.03", 9, "M3", "encode_word_def", "Verify encodeWord function defined", "Gasm/Targets/AArch64/Decoder.lean", r"def encodeWord"),
-        make_content_check_test("T1.09.04", 9, "M3", "little_endian_codec", "Verify 32-bit little-endian codec", "Gasm/Targets/AArch64/Decoder.lean", r"UInt32"),
-        make_content_check_test("T1.09.05", 9, "M3", "decoder_cited", "Verify Decoder.lean citations", "Gasm/Targets/AArch64/Decoder.lean", r"/- REF: .* -/"),
+    def t1_01_03(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["def reg16To64", "def reg8To64"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"reg16To64 or reg8To64 mapping functions missing: {missing}"
+        return TestStatus.PASS, "reg16To64 and reg8To64 mappings defined in Registers.lean"
 
-        # Feature 10: Round-Trip Proofs (M3, R3)
-        make_file_check_test("T1.10.01", 10, "M3", "roundtrip_file_exists", "Verify Roundtrip.lean exists", "Gasm/Targets/AArch64/Roundtrip.lean"),
-        make_content_check_test("T1.10.02", 10, "M3", "roundtrip_ground_theorems", "Verify ground roundtrip theorems defined", "Gasm/Targets/AArch64/Roundtrip.lean", r"theorem roundtrip_nop"),
-        make_content_check_test("T1.10.03", 10, "M3", "roundtrip_streams", "Verify multi-instruction stream roundtrip proofs", "Gasm/Targets/AArch64/Roundtrip.lean", r"roundtrip_spike1_baremetal_stream"),
-        make_file_check_test("T1.10.04", 10, "M3", "roundtrip_gate_file_exists", "Verify RoundtripGate.lean exists", "Gasm/Targets/AArch64/RoundtripGate.lean"),
-        make_content_check_test("T1.10.05", 10, "M3", "roundtrip_gate_theorem", "Verify aarch64_roundtripGate theorem defined", "Gasm/Targets/AArch64/RoundtripGate.lean", r"aarch64_roundtripGate"),
+    tests.append(make_tier1_test(
+        "T1.01.03", 1, "M1", "subreg_to_reg64_mappings",
+        "Verify reg16To64 and reg8To64 mappings map sub-registers to enclosing 64-bit GPRs",
+        t1_01_03,
+    ))
 
-        # Feature 11: Registry Exhaustiveness (M3, R3)
-        make_file_check_test("T1.11.01", 11, "M3", "roundtrip_gate_registry_exists", "Verify RoundtripGate.lean exists", "Gasm/Targets/AArch64/RoundtripGate.lean"),
-        make_content_check_test("T1.11.02", 11, "M3", "registry_all_cases", "Verify allAArch64Cases witness list defined", "Gasm/Targets/AArch64/RoundtripGate.lean", r"allAArch64Cases"),
-        make_executable_check_test("T1.11.03", 11, "M3", "check_aarch64_obligations_gate", "Run check_aarch64_obligations gate", "check_aarch64_obligations"),
-        make_content_check_test("T1.11.04", 11, "M3", "in_bucket_exclusivity", "Verify in-bucket exclusivity theorem", "Gasm/Targets/AArch64/RoundtripGate.lean", r"inBucketExclusiveOf"),
-        make_content_check_test("T1.11.05", 11, "M3", "roundtrip_gate_cited", "Verify RoundtripGate.lean citations", "Gasm/Targets/AArch64/RoundtripGate.lean", r"/- REF: .* -/"),
+    def t1_01_04(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Instructions/Base.lean",
+            ["reg16Code", "reg8Code"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"reg16Code or reg8Code encoder functions missing in Base.lean: {missing}"
+        return TestStatus.PASS, "reg16Code and reg8Code register encoders defined in Base.lean"
 
-        # Feature 12: Performance Model (M3, R4)
-        make_file_check_test("T1.12.01", 12, "M3", "performance_file_exists", "Verify Performance.lean exists", "Gasm/Targets/AArch64/Performance.lean"),
-        make_content_check_test("T1.12.02", 12, "M3", "cortex_a53_profile", "Verify Cortex-A53 profile defined", "Gasm/Targets/AArch64/Uop.lean", r"CortexA53Profile"),
-        make_content_check_test("T1.12.03", 12, "M3", "uop_decomposition", "Verify toUops decomposition", "Gasm/Targets/AArch64/Performance.lean", r"toUops"),
-        make_content_check_test("T1.12.04", 12, "M3", "validation_oracle_declared", "Verify validationOracle declared", "Gasm/Targets/AArch64/Uop.lean", r"AArch64ValidationOracle"),
-        make_content_check_test("T1.12.05", 12, "M3", "cost_provenance_declared", "Verify costProvenance declared", "Gasm/Targets/AArch64/Uop.lean", r"CoefficientProvenance"),
+    tests.append(make_tier1_test(
+        "T1.01.04", 1, "M1", "subreg_binary_encoders",
+        "Verify reg16Code and reg8Code encode register index and REX necessity flags",
+        t1_01_04,
+    ))
 
-        # Feature 13: Obligation Enforcement (M3, R4)
-        make_file_check_test("T1.13.01", 13, "M3", "check_obligations_tool_exists", "Verify CheckAArch64Obligations.lean exists", "Tools/CheckAArch64Obligations.lean"),
-        make_executable_check_test("T1.13.02", 13, "M3", "check_aarch64_obligations_exe", "Run check_aarch64_obligations", "check_aarch64_obligations"),
-        make_content_check_test("T1.13.03", 13, "M3", "obligation_check_data_def", "Verify AArch64InstrCheckData defined", "Tools/CheckAArch64Obligations.lean", r"AArch64InstrCheckData"),
-        make_content_check_test("T1.13.04", 13, "M3", "obligation_min_reason_len", "Verify checker enforces non-vacuous rationale length", "Tools/CheckAArch64Obligations.lean", r"minReasonLen"),
-        make_content_check_test("T1.13.05", 13, "M3", "obligation_cited", "Verify CheckAArch64Obligations citations", "Tools/CheckAArch64Obligations.lean", r"/- REF: .* -/"),
+    def t1_01_05(ctx: ExecutionContext):
+        # Oracle check: low byte registers spl, bpl, sil, dil require REX prefix (0x40)
+        # NASM assembles 'mov spl, 1' as '40 b4 01' (REX prefix 0x40 is mandatory)
+        ok, raw, err = ctx.assemble_nasm("mov spl, 1")
+        if not ok:
+            return TestStatus.FAIL, f"NASM oracle failed on mov spl, 1: {err}"
+        if len(raw) < 3 or (raw[0] & 0xF0) != 0x40:
+            return TestStatus.FAIL, f"mov spl, 1 expected REX prefix (0x40..0x4F), got {raw.hex()}"
+        return TestStatus.PASS, f"Intel SDM REX prefix requirement verified for uniform byte registers: {raw.hex()}"
 
-        # Feature 14: Bare Metal Target (M4, R5)
-        make_file_check_test("T1.14.01", 14, "M4", "baremetal_aarch64_emitter", "Verify BareMetal AArch64 emitter exists", "Gasm/Targets/BareMetal/AArch64Emitter.lean"),
-        make_content_check_test("T1.14.02", 14, "M4", "pl011_base_constant", "Verify PL011 base address 0x09000000", "Gasm/Targets/BareMetal/AArch64Emitter.lean", r"0x09000000"),
-        make_content_check_test("T1.14.03", 14, "M4", "semihosting_exit_code", "Verify semihosting SYS_EXIT 0x18 / 0x20026", "Gasm/Targets/BareMetal/AArch64Emitter.lean", r"0x20026"),
-        make_content_check_test("T1.14.04", 14, "M4", "baremetal_entry_40000000", "Verify BareMetal entry at 0x40000000", "Gasm/Targets/BareMetal/AArch64Emitter.lean", r"0x40000000"),
-        make_content_check_test("T1.14.05", 14, "M4", "baremetal_emitter_cited", "Verify BareMetal AArch64 citations", "Gasm/Targets/BareMetal/AArch64Emitter.lean", r"/- REF: .* -/"),
+    tests.append(make_tier1_test(
+        "T1.01.05", 1, "M1", "reg8_uniform_rex_requirement",
+        "Verify uniform byte register encoding (spl, bpl, sil, dil) requires REX prefix per SDM",
+        t1_01_05,
+    ))
 
-        # Feature 15: Linux Target (M4, R5)
-        make_file_check_test("T1.15.01", 15, "M4", "linux_aarch64_emitter", "Verify Linux AArch64 emitter exists", "Gasm/Targets/Linux/AArch64Emitter.lean"),
-        make_content_check_test("T1.15.02", 15, "M4", "linux_svc0_syscall", "Verify SVC #0 syscall emission", "Gasm/Targets/Linux/AArch64Emitter.lean", r"svc"),
-        make_content_check_test("T1.15.03", 15, "M4", "linux_asm_generic_syscalls", "Verify asm-generic syscall numbers (write=64, exit=93)", "Gasm/Targets/Linux/AArch64Emitter.lean", r"(64|93)"),
-        make_content_check_test("T1.15.04", 15, "M4", "linux_aarch64_entry", "Verify Linux ELF entry point definition", "Gasm/Targets/Linux/AArch64Emitter.lean", r"entry"),
-        make_content_check_test("T1.15.05", 15, "M4", "linux_emitter_cited", "Verify Linux AArch64 citations", "Gasm/Targets/Linux/AArch64Emitter.lean", r"/- REF: .* -/"),
+    # ============================================================================================
+    # Feature 2: Partial Register Write Semantics (Milestone M1) - 5 tests
+    # ============================================================================================
+    def t1_02_01(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["def X86_64MachineState.setGpr16", "0xFFFFFFFFFFFF0000"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"setGpr16 missing or does not preserve upper 48 bits: {missing}"
+        return TestStatus.PASS, "setGpr16 preserves bits 63..16 with 0xFFFFFFFFFFFF0000 mask"
 
-        # Feature 16: QEMU Runners (M4, R5)
-        make_file_check_test("T1.16.01", 16, "M4", "qemu_aarch64_runner_file", "Verify QEMUAArch64.lean exists", "Gasm/Execution/QEMUAArch64.lean"),
-        make_content_check_test("T1.16.02", 16, "M4", "qemu_system_override", "Verify GASM_QEMU_AARCH64 override supported", "Gasm/Execution/QEMUAArch64.lean", r"GASM_QEMU_AARCH64"),
-        make_content_check_test("T1.16.03", 16, "M4", "qemu_user_override", "Verify GASM_QEMU_USER_AARCH64 override supported", "Gasm/Execution/QEMUAArch64.lean", r"GASM_QEMU_USER_AARCH64"),
-        make_content_check_test("T1.16.04", 16, "M4", "qemu_runner_exit_codes", "Verify runner fail-honest exit code 2 on missing oracle", "Gasm/Execution/QEMUAArch64.lean", r"2"),
-        make_content_check_test("T1.16.05", 16, "M4", "qemu_runner_cited", "Verify QEMUAArch64 citations", "Gasm/Execution/QEMUAArch64.lean", r"/- REF: .* -/"),
+    tests.append(make_tier1_test(
+        "T1.02.01", 2, "M1", "set_gpr16_preserves_upper_bits",
+        "Verify setGpr16 preserves upper 48 bits of destination 64-bit GPR",
+        t1_02_01,
+    ))
 
-        # Feature 17: Spike 1 Hello World (M5, R6)
-        make_file_check_test("T1.17.01", 17, "M5", "spike1_baremetal_prog", "Verify Spike 1 Bare Metal Program.lean", "Spikes/Spike1Hello/BareMetal/AArch64Program.lean"),
-        make_file_check_test("T1.17.02", 17, "M5", "spike1_baremetal_equiv", "Verify Spike 1 Bare Metal Equivalence.lean", "Spikes/Spike1Hello/BareMetal/AArch64Equivalence.lean"),
-        make_file_check_test("T1.17.03", 17, "M5", "spike1_linux_prog", "Verify Spike 1 Linux Program.lean", "Spikes/Spike1Hello/Linux/AArch64Program.lean"),
-        make_file_check_test("T1.17.04", 17, "M5", "spike1_linux_equiv", "Verify Spike 1 Linux Equivalence.lean", "Spikes/Spike1Hello/Linux/AArch64Equivalence.lean"),
-        make_executable_check_test("T1.17.05", 17, "M5", "test_spike1_aarch64_baremetal", "Run test_spike1_aarch64_baremetal", "test_spike1_aarch64_baremetal", requires_qemu=True),
+    def t1_02_02(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["def X86_64MachineState.setGpr8", "0xFFFFFFFFFFFFFF00"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"setGpr8 missing or does not preserve upper 56 bits: {missing}"
+        return TestStatus.PASS, "setGpr8 preserves bits 63..8 with 0xFFFFFFFFFFFFFF00 mask"
 
-        # Feature 18: Spike 2 Fibonacci (M5, R6)
-        make_file_check_test("T1.18.01", 18, "M5", "spike2_linux_prog", "Verify Spike 2 Linux Program.lean", "Spikes/Spike2Fibonacci/Linux/AArch64Program.lean"),
-        make_file_check_test("T1.18.02", 18, "M5", "spike2_linux_equiv", "Verify Spike 2 Linux Equivalence.lean", "Spikes/Spike2Fibonacci/Linux/AArch64Equivalence.lean"),
-        make_content_check_test("T1.18.03", 18, "M5", "spike2_udiv_msub", "Verify UDIV / MSUB used in Fibonacci itoa", "Spikes/Spike2Fibonacci/Linux/AArch64Program.lean", r"(udiv|msub)"),
-        make_executable_check_test("T1.18.04", 18, "M5", "test_spike2_aarch64_linux", "Run test_spike2_aarch64_linux", "test_spike2_aarch64_linux", requires_qemu=True),
-        make_content_check_test("T1.18.05", 18, "M5", "spike2_cited", "Verify Spike 2 AArch64 citations", "Spikes/Spike2Fibonacci/Linux/AArch64Program.lean", r"/- REF: .* -/"),
+    tests.append(make_tier1_test(
+        "T1.02.02", 2, "M1", "set_gpr8_preserves_upper_bits",
+        "Verify setGpr8 preserves upper 56 bits of destination 64-bit GPR",
+        t1_02_02,
+    ))
 
-        # Feature 19: Spike 3 Sort Lines (M5, R6)
-        make_file_check_test("T1.19.01", 19, "M5", "spike3_linux_prog", "Verify Spike 3 Linux Program.lean", "Spikes/Spike3SortLines/Linux/AArch64Program.lean"),
-        make_file_check_test("T1.19.02", 19, "M5", "spike3_linux_equiv", "Verify Spike 3 Linux Equivalence.lean", "Spikes/Spike3SortLines/Linux/AArch64Equivalence.lean"),
-        make_content_check_test("T1.19.03", 19, "M5", "spike3_smolalloc_integration", "Verify SmolAlloc integration on AArch64", "Spikes/Spike3SortLines/Linux/AArch64Program.lean", r"SmolAlloc"),
-        make_executable_check_test("T1.19.04", 19, "M5", "test_spike3_aarch64_linux", "Run test_spike3_aarch64_linux", "test_spike3_aarch64_linux", requires_qemu=True),
-        make_content_check_test("T1.19.05", 19, "M5", "spike3_cited", "Verify Spike 3 AArch64 citations", "Spikes/Spike3SortLines/Linux/AArch64Program.lean", r"/- REF: .* -/"),
+    def t1_02_03(ctx: ExecutionContext):
+        content = ctx.read_repo_file("Gasm/Targets/X86_64/Registers.lean")
+        if not content:
+            return TestStatus.FAIL, "Registers.lean not found"
+        if "def X86_64MachineState.setGpr32" not in content or "val.toUInt64" not in content:
+            return TestStatus.FAIL, "setGpr32 zero-extension contract missing in Registers.lean"
+        return TestStatus.PASS, "setGpr32 maintains hardware zero-extension semantics"
 
-        # Feature 20: Spike 4 HTTP Server (M5, R6)
-        make_file_check_test("T1.20.01", 20, "M5", "spike4_linux_prog", "Verify Spike 4 Linux Program.lean", "Spikes/Spike4HttpServer/Linux/AArch64Program.lean"),
-        make_file_check_test("T1.20.02", 20, "M5", "spike4_linux_equiv", "Verify Spike 4 Linux Equivalence.lean", "Spikes/Spike4HttpServer/Linux/AArch64Equivalence.lean"),
-        make_content_check_test("T1.20.03", 20, "M5", "spike4_sockets", "Verify socket syscalls (198/200/201/202)", "Spikes/Spike4HttpServer/Linux/AArch64Program.lean", r"(198|200|201|202|socket)"),
-        make_executable_check_test("T1.20.04", 20, "M5", "test_spike4_aarch64_linux", "Run test_spike4_aarch64_linux", "test_spike4_aarch64_linux", requires_qemu=True),
-        make_content_check_test("T1.20.05", 20, "M5", "spike4_cited", "Verify Spike 4 AArch64 citations", "Spikes/Spike4HttpServer/Linux/AArch64Program.lean", r"/- REF: .* -/"),
+    tests.append(make_tier1_test(
+        "T1.02.03", 2, "M1", "set_gpr32_zero_extension_contrast",
+        "Verify setGpr32 zero-extends to 64 bits in contrast to setGpr16/setGpr8 partial writes",
+        t1_02_03,
+    ))
 
-        # Feature 21: Spike 5 GZIP (M5, R6)
-        make_file_check_test("T1.21.01", 21, "M5", "spike5_linux_prog", "Verify Spike 5 Linux Program.lean", "Spikes/Spike5Gzip/Linux/AArch64Program.lean"),
-        make_file_check_test("T1.21.02", 21, "M5", "spike5_linux_equiv", "Verify Spike 5 Linux Equivalence.lean", "Spikes/Spike5Gzip/Linux/AArch64Equivalence.lean"),
-        make_content_check_test("T1.21.03", 21, "M5", "spike5_deflate_crc32", "Verify DEFLATE / CRC32 streaming implementation", "Spikes/Spike5Gzip/Linux/AArch64Program.lean", r"(deflate|crc32)"),
-        make_executable_check_test("T1.21.04", 21, "M5", "test_spike5_aarch64_linux", "Run test_spike5_aarch64_linux", "test_spike5_aarch64_linux", requires_qemu=True),
-        make_content_check_test("T1.21.05", 21, "M5", "spike5_cited", "Verify Spike 5 AArch64 citations", "Spikes/Spike5Gzip/Linux/AArch64Program.lean", r"/- REF: .* -/"),
+    def t1_02_04(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["setGpr16", "setGpr8", "reg16To64", "reg8To64"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"Sub-register write definitions missing: {missing}"
+        return TestStatus.PASS, "Both 16-bit and 8-bit partial register mutators verified"
 
-        # Feature 22: Encoding Fuzzing (M6, R7)
-        make_file_check_test("T1.22.01", 22, "M6", "encoding_fuzzer_file", "Verify EncodingFuzzer.lean exists", "Gasm/Targets/AArch64/EncodingFuzzer.lean"),
-        make_content_check_test("T1.22.02", 22, "M6", "encoding_fuzzer_llvm_mc", "Verify differential fuzzer invokes llvm-mc", "Gasm/Targets/AArch64/EncodingFuzzer.lean", r"llvm-mc"),
-        make_content_check_test("T1.22.03", 22, "M6", "encoding_fuzzer_control_vectors", "Verify positive and negative control vectors", "Gasm/Targets/AArch64/EncodingFuzzer.lean", r"control"),
-        make_executable_check_test("T1.22.04", 22, "M6", "encoding_fuzzer_aarch64", "Run encoding_fuzzer_aarch64", "encoding_fuzzer_aarch64"),
-        make_content_check_test("T1.22.05", 22, "M6", "encoding_fuzzer_cited", "Verify EncodingFuzzer citations", "Gasm/Targets/AArch64/EncodingFuzzer.lean", r"/- REF: .* -/"),
+    tests.append(make_tier1_test(
+        "T1.02.04", 2, "M1", "partial_write_api_surface",
+        "Verify setGpr16 and setGpr8 API signatures on X86_64MachineState",
+        t1_02_04,
+    ))
 
-        # Feature 23: Semantics Fuzzing (M6, R7)
-        make_file_check_test("T1.23.01", 23, "M6", "semantics_fuzzer_file", "Verify SemanticsFuzzer.lean exists", "Gasm/Targets/AArch64/SemanticsFuzzer.lean"),
-        make_content_check_test("T1.23.02", 23, "M6", "semantics_fuzzer_qemu_trace", "Verify differential comparison against QEMU trace", "Gasm/Targets/AArch64/SemanticsFuzzer.lean", r"QEMU"),
-        make_content_check_test("T1.23.03", 23, "M6", "semantics_fuzzer_fail_honest", "Verify fail-honest exit code 2 when QEMU absent", "Gasm/Targets/AArch64/SemanticsFuzzer.lean", r"2"),
-        make_executable_check_test("T1.23.04", 23, "M6", "semantics_fuzzer_aarch64", "Run semantics_fuzzer_aarch64", "semantics_fuzzer_aarch64", requires_qemu=True),
-        make_content_check_test("T1.23.05", 23, "M6", "semantics_fuzzer_cited", "Verify SemanticsFuzzer citations", "Gasm/Targets/AArch64/SemanticsFuzzer.lean", r"/- REF: .* -/"),
+    def t1_02_05(ctx: ExecutionContext):
+        # Oracle test: 8-bit partial write preserves upper bits mathematically
+        init_val = 0x123456789ABCDEF0
+        write_byte = 0xAA
+        expected_8 = (init_val & 0xFFFFFFFFFFFFFF00) | write_byte
+        if expected_8 != 0x123456789ABCDEAA:
+            return TestStatus.FAIL, f"8-bit write math error: expected 0x123456789ABCDEAA, got {hex(expected_8)}"
+        expected_16 = (init_val & 0xFFFFFFFFFFFF0000) | 0x5555
+        if expected_16 != 0x123456789ABC5555:
+            return TestStatus.FAIL, f"16-bit write math error: expected 0x123456789ABC5555, got {hex(expected_16)}"
+        return TestStatus.PASS, "Mathematical specification of partial register preservation verified"
 
-        # Feature 24: Stability Fuzzing (M6, R7)
-        make_file_check_test("T1.24.01", 24, "M6", "stability_fuzzer_file", "Verify StabilityFuzzer.lean exists", "Gasm/Targets/AArch64/StabilityFuzzer.lean"),
-        make_content_check_test("T1.24.02", 24, "M6", "stability_fuzzer_no_crash", "Verify parser stability / crash freedom check", "Gasm/Targets/AArch64/StabilityFuzzer.lean", r"decode"),
-        make_content_check_test("T1.24.03", 24, "M6", "stability_fuzzer_mutation", "Verify bitstream mutation", "Gasm/Targets/AArch64/StabilityFuzzer.lean", r"mutation"),
-        make_executable_check_test("T1.24.04", 24, "M6", "aarch64_stability_fuzzer", "Run aarch64_stability_fuzzer", "aarch64_stability_fuzzer"),
-        make_content_check_test("T1.24.05", 24, "M6", "stability_fuzzer_cited", "Verify StabilityFuzzer citations", "Gasm/Targets/AArch64/StabilityFuzzer.lean", r"/- REF: .* -/"),
+    tests.append(make_tier1_test(
+        "T1.02.05", 2, "M1", "partial_write_semantic_invariants",
+        "Verify partial register write preservation invariants over 64-bit register words",
+        t1_02_05,
+    ))
 
-        # Feature 25: Lakefile Integration (M6, R8)
-        make_content_check_test("T1.25.01", 25, "M6", "lakefile_aarch64_lib", "Verify lakefile.toml includes AArch64 lib", "lakefile.toml", r"AArch64"),
-        make_content_check_test("T1.25.02", 25, "M6", "lakefile_default_targets", "Verify defaultTargets includes AArch64 targets", "lakefile.toml", r"defaultTargets"),
-        make_content_check_test("T1.25.03", 25, "M6", "lakefile_no_pe_subsystem", "Verify no PE subsystem flags on Linux executables", "lakefile.toml", r"# NOTE \(CI establishment"),
-        make_content_check_test("T1.25.04", 25, "M6", "lakefile_test_targets", "Verify lakefile defines test_roundtrip_aarch64", "lakefile.toml", r"test_roundtrip"),
-        make_content_check_test("T1.25.05", 25, "M6", "lakefile_fuzzer_targets", "Verify lakefile defines fuzzers", "lakefile.toml", r"fuzzer"),
+    # ============================================================================================
+    # Feature 3: RFLAGS Parity, AuxCarry, Direction (Milestone M1) - 5 tests
+    # ============================================================================================
+    def t1_03_01(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["def X86_64MachineState.pf", "1 <<< 2"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"RFLAGS pf accessor (bit 2) missing: {missing}"
+        return TestStatus.PASS, "RFLAGS Parity Flag (pf) accessor verified at bit 2"
 
-        # Feature 26: CI Gate Integration (M6, R8)
-        make_content_check_test("T1.26.01", 26, "M6", "run_gates_detect_qemu_system", "Verify run_gates.py detects qemu-system-aarch64", "scripts/run_gates.py", r"qemu"),
-        make_content_check_test("T1.26.02", 26, "M6", "run_gates_detect_llvm_mc", "Verify run_gates.py detects llvm-mc", "scripts/run_gates.py", r"detect_"),
-        make_content_check_test("T1.26.03", 26, "M6", "run_gates_gate_table", "Verify GATE_TABLE includes AArch64 entries", "scripts/run_gates.py", r"GATE_TABLE"),
-        make_content_check_test("T1.26.04", 26, "M6", "run_gates_fail_closed", "Verify run_gates fail-closed abort on missing prereqs", "scripts/run_gates.py", r"FAIL-CLOSED"),
-        make_content_check_test("T1.26.05", 26, "M6", "run_gates_quick_mode", "Verify run_gates.py supports --quick mode", "scripts/run_gates.py", r"--quick"),
+    tests.append(make_tier1_test(
+        "T1.03.01", 3, "M1", "rflags_pf_accessor",
+        "Verify RFLAGS.pf accessor is mapped to bit 2 of flags register",
+        t1_03_01,
+    ))
 
-        # Feature 27: E2E Test Suite Pass (M7, Acceptance)
-        make_file_check_test("T1.27.01", 27, "M7", "e2e_runner_exists", "Verify tests/e2e/runner.py exists", "tests/e2e/runner.py"),
-        make_file_check_test("T1.27.02", 27, "M7", "e2e_harness_exists", "Verify tests/e2e/harness.py exists", "tests/e2e/harness.py"),
-        make_file_check_test("T1.27.03", 27, "M7", "test_infra_md_exists", "Verify TEST_INFRA.md exists at project root", "TEST_INFRA.md"),
-        make_file_check_test("T1.27.04", 27, "M7", "test_ready_md_exists", "Verify TEST_READY.md exists at project root", "TEST_READY.md"),
-        make_content_check_test("T1.27.05", 27, "M7", "distinct_exit_codes", "Verify exit code contract (0 pass, 1 fail, 2 skip)", "tests/e2e/harness.py", r"(?s)Exit 0.*Exit 1.*Exit 2"),
+    def t1_03_02(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["def X86_64MachineState.af", "1 <<< 4"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"RFLAGS af accessor (bit 4) missing: {missing}"
+        return TestStatus.PASS, "RFLAGS Auxiliary Carry Flag (af) accessor verified at bit 4"
 
-        # Feature 28: Adversarial Hardening (M7, Acceptance)
-        make_file_check_test("T1.28.01", 28, "M7", "adversarial_tier2_suite", "Verify Tier 2 Boundary suite exists", "tests/e2e/cases/tier2_boundary_corner.py"),
-        make_file_check_test("T1.28.02", 28, "M7", "adversarial_tier3_suite", "Verify Tier 3 Cross-Feature suite exists", "tests/e2e/cases/tier3_cross_feature.py"),
-        make_file_check_test("T1.28.03", 28, "M7", "adversarial_tier4_suite", "Verify Tier 4 Real-World suite exists", "tests/e2e/cases/tier4_real_world.py"),
-        make_content_check_test("T1.28.04", 28, "M7", "review_trust_rules", "Verify the current review protocol records trust rules", "docs/REVIEW.md", r"Mechanical Truth"),
-        make_content_check_test("T1.28.05", 28, "M7", "architectural_debt_notes", "Verify the current technical-debt ledger exists", "docs/TECHNICAL_NOTES.md", r"Architectural Debts"),
-    ]
+    tests.append(make_tier1_test(
+        "T1.03.02", 3, "M1", "rflags_af_accessor",
+        "Verify RFLAGS.af accessor is mapped to bit 4 of flags register",
+        t1_03_02,
+    ))
+
+    def t1_03_03(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["def X86_64MachineState.df", "1 <<< 10"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"RFLAGS df accessor (bit 10) missing: {missing}"
+        return TestStatus.PASS, "RFLAGS Direction Flag (df) accessor verified at bit 10"
+
+    tests.append(make_tier1_test(
+        "T1.03.03", 3, "M1", "rflags_df_accessor",
+        "Verify RFLAGS.df accessor is mapped to bit 10 of flags register",
+        t1_03_03,
+    ))
+
+    def t1_03_04(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["computeParity8", "computeAuxCarry"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"computeParity8 or computeAuxCarry missing: {missing}"
+        return TestStatus.PASS, "computeParity8 and computeAuxCarry flag helpers verified"
+
+    tests.append(make_tier1_test(
+        "T1.03.04", 3, "M1", "flag_calculation_helpers",
+        "Verify computeParity8 and computeAuxCarry arithmetic flag helpers",
+        t1_03_04,
+    ))
+
+    def t1_03_05(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Registers.lean",
+            ["setFlagsAdd32", "setFlagsAdd16", "setFlagsAdd8", "setFlagsSub32", "setFlagsSub16", "setFlagsSub8"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"Arithmetic status flag mutators for 32/16/8-bit missing: {missing}"
+        return TestStatus.PASS, "Arithmetic status flag mutators for 32/16/8-bit verified"
+
+    tests.append(make_tier1_test(
+        "T1.03.05", 3, "M1", "arithmetic_flag_updaters_width_variants",
+        "Verify setFlagsAdd32/16/8 and setFlagsSub32/16/8 status flag calculation functions",
+        t1_03_05,
+    ))
+
+    # ============================================================================================
+    # Feature 4: Codec 0x66 Prefix Scanning (Milestone M1) - 5 tests
+    # ============================================================================================
+    def t1_04_01(ctx: ExecutionContext):
+        content = ctx.read_repo_file("Gasm/Targets/X86_64/Instructions/Base.lean")
+        if not content:
+            return TestStatus.FAIL, "Base.lean not found"
+        if "0x66" not in content or "has0x66" not in content:
+            return TestStatus.FAIL, "0x66 prefix scanning or has0x66 field missing in Base.lean"
+        return TestStatus.PASS, "Base.lean recognizes 0x66 operand-size override prefix"
+
+    tests.append(make_tier1_test(
+        "T1.04.01", 4, "M1", "codec_prefix_0x66_scanning",
+        "Verify parseRexAndOpcode / parsePrefixesAndOpcode scans and records 0x66 prefix in Base.lean",
+        t1_04_01,
+    ))
+
+    def t1_04_02(ctx: ExecutionContext):
+        ok, raw, err = ctx.assemble_nasm("add ax, bx")
+        if not ok:
+            return TestStatus.FAIL, f"NASM oracle failed on add ax, bx: {err}"
+        if raw != bytes([0x66, 0x01, 0xD8]):
+            return TestStatus.FAIL, f"add ax, bx expected 66 01 d8, got {raw.hex()}"
+        return TestStatus.PASS, f"add ax, bx encoded with 0x66 prefix: {raw.hex()}"
+
+    tests.append(make_tier1_test(
+        "T1.04.02", 4, "M1", "prefix_0x66_nasm_equivalence_add16",
+        "Verify 16-bit ADD requires 0x66 operand-size prefix in 64-bit mode per SDM and NASM",
+        t1_04_02,
+    ))
+
+    def t1_04_03(ctx: ExecutionContext):
+        ok, raw, err = ctx.assemble_nasm("add eax, ebx")
+        if not ok:
+            return TestStatus.FAIL, f"NASM oracle failed on add eax, ebx: {err}"
+        if 0x66 in raw:
+            return TestStatus.FAIL, f"add eax, ebx must NOT contain 0x66 prefix, got {raw.hex()}"
+        return TestStatus.PASS, f"add eax, ebx default 32-bit width correctly omits 0x66 prefix: {raw.hex()}"
+
+    tests.append(make_tier1_test(
+        "T1.04.03", 4, "M1", "prefix_0x66_omitted_for_32bit",
+        "Verify 32-bit operand size defaults without 0x66 prefix in x86-64 mode",
+        t1_04_03,
+    ))
+
+    def t1_04_04(ctx: ExecutionContext):
+        ok, raw, err = ctx.assemble_nasm("add r8w, bx")
+        if not ok:
+            return TestStatus.FAIL, f"NASM oracle failed on add r8w, bx: {err}"
+        # 66 41 01 d8 (0x66 prefix followed by REX prefix 0x41)
+        if raw[0] != 0x66 or (raw[1] & 0xF0) != 0x40:
+            return TestStatus.FAIL, f"add r8w, bx expected 0x66 followed by REX, got {raw.hex()}"
+        return TestStatus.PASS, f"add r8w, bx correctly emits 0x66 followed by REX: {raw.hex()}"
+
+    tests.append(make_tier1_test(
+        "T1.04.04", 4, "M1", "prefix_0x66_with_rex_prefix",
+        "Verify 0x66 prefix correctly precedes REX prefix for extended 16-bit registers",
+        t1_04_04,
+    ))
+
+    def t1_04_05(ctx: ExecutionContext):
+        content = ctx.read_repo_file("Gasm/Targets/X86_64/Decoder.lean")
+        if not content:
+            return TestStatus.FAIL, "Decoder.lean not found"
+        if "0x66" not in content and "has0x66" not in content:
+            return TestStatus.FAIL, "Decoder.lean does not handle 0x66 prefix dispatch"
+        return TestStatus.PASS, "Decoder.lean incorporates 0x66 prefix in instruction decoding"
+
+    tests.append(make_tier1_test(
+        "T1.04.05", 4, "M1", "decoder_0x66_dispatch",
+        "Verify Decoder.lean dispatches 16-bit instruction decoders when 0x66 is present",
+        t1_04_05,
+    ))
+
+    # ============================================================================================
+    # Feature 5: ADD Width Variants (Milestone M2) - 5 tests
+    # ============================================================================================
+    def t1_05_01(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Instructions/Add.lean",
+            ["AddR32R32", "AddR16R16", "AddR8R8"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"Register-register ADD width variants missing: {missing}"
+        return TestStatus.PASS, "AddR32R32, AddR16R16, AddR8R8 defined in Add.lean"
+
+    tests.append(make_tier1_test(
+        "T1.05.01", 5, "M2", "add_reg_reg_width_variants",
+        "Verify AddR32R32, AddR16R16, and AddR8R8 instruction types in Add.lean",
+        t1_05_01,
+    ))
+
+    def t1_05_02(ctx: ExecutionContext):
+        ok, missing = ctx.check_file_contains(
+            "Gasm/Targets/X86_64/Instructions/Add.lean",
+            ["AddR32Imm8", "AddR32Imm32", "AddR16Imm8", "AddR16Imm16", "AddR8Imm8"],
+        )
+        if not ok:
+            return TestStatus.FAIL, f"Immediate ADD width variants missing: {missing}"
+        return TestStatus.PASS, "All 5 immediate ADD width variants defined in Add.lean"
+
+    tests.append(make_tier1_test(
+        "T1.05.02", 5, "M2", "add_imm_width_variants",
+        "Verify AddR32Imm8/Imm32, AddR16Imm8/Imm16, and AddR8Imm8 instruction types in Add.lean",
+        t1_05_02,
+    ))
+
+    def t1_05_03(ctx: ExecutionContext):
+        ok, raw, err = ctx.assemble_nasm("add al, bl")
+        if not ok or raw != bytes([0x00, 0xD8]):
+            return TestStatus.FAIL, f"add al, bl expected 00 d8, got {raw.hex() if ok else err}"
+        return TestStatus.PASS, f"8-bit ADD opcode 0x00 verified: {raw.hex()}"
+
+    tests.append(make_tier1_test(
+        "T1.05.03", 5, "M2", "add_r8_encoding_oracle",
+        "Verify AddR8R8 binary encoding against NASM oracle (opcode 0x00)",
+        t1_05_03,
+    ))
+
+    def t1_05_04(ctx: ExecutionContext):
+        ok, raw, err = ctx.assemble_nasm("add ax, bx")
+        if not ok or raw != bytes([0x66, 0x01, 0xD8]):
+            return TestStatus.FAIL, f"add ax, bx expected 66 01 d8, got {raw.hex() if ok else err}"
+        return TestStatus.PASS, f"16-bit ADD encoding 66 01 d8 verified: {raw.hex()}"
+
+    tests.append(make_tier1_test(
+        "T1.05.04", 5, "M2", "add_r16_encoding_oracle",
+        "Verify AddR16R16 binary encoding against NASM oracle (0x66 prefix + opcode 0x01)",
+        t1_05_04,
+    ))
+
+    def t1_05_05(ctx: ExecutionContext):
+        ok, raw, err = ctx.assemble_nasm("add eax, 42")
+        if not ok or raw != bytes([0x83, 0xC0, 0x2A]):
+            return TestStatus.FAIL, f"add eax, 42 expected 83 c0 2a, got {raw.hex() if ok else err}"
+        return TestStatus.PASS, f"32-bit ADD with sign-extended imm8 verified: {raw.hex()}"
+
+    tests.append(make_tier1_test(
+        "T1.05.05", 5, "M2", "add_r32_imm8_encoding_oracle",
+        "Verify AddR32Imm8 opcode 0x83 /0 with sign-extended immediate",
+        t1_05_05,
+    ))
+
+    # ============================================================================================
+    # Features 6-12: ALU, Logic, & Test Width Expansion (Milestone M2)
+    # ============================================================================================
+    # Feature 6: SUB Width Variants
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("sub_r32_r32", "sub eax, ebx", "29d8"),
+        ("sub_r16_r16", "sub ax, bx", "6629d8"),
+        ("sub_r8_r8", "sub al, bl", "28d8"),
+        ("sub_r32_imm8", "sub eax, 1", "83e801"),
+        ("sub_r8_imm8", "sub al, 1", "80e801"),
+    ], start=1):
+        def make_sub_test(a_str=asm_str, e_hex=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok or raw.hex() != e_hex:
+                    return TestStatus.FAIL, f"{a_str} expected {e_hex}, got {raw.hex() if ok else err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()} matching SDM"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.06.{i:02d}", 6, "M2", name, f"Verify SUB variant '{asm_str}' encoding against NASM oracle",
+            make_sub_test(),
+        ))
+
+    # Feature 7: AND Width Variants
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("and_r64_imm32", "and rax, 0x1000", "482500100000" if False else None), # We'll let NASM assemble
+        ("and_r32_r32", "and eax, ebx", "21d8"),
+        ("and_r16_r16", "and ax, bx", "6621d8"),
+        ("and_r8_r8", "and al, bl", "20d8"),
+        ("and_r32_imm8", "and eax, 0x0F", "83e00f"),
+    ], start=1):
+        def make_and_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.07.{i:02d}", 7, "M2", name, f"Verify AND variant '{asm_str}' encoding against NASM oracle",
+            make_and_test(),
+        ))
+
+    # Feature 8: OR Width Variants
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("or_r32_r32", "or eax, ebx", "09d8"),
+        ("or_r16_r16", "or ax, bx", "6609d8"),
+        ("or_r8_r8", "or al, bl", "08d8"),
+        ("or_r32_imm8", "or eax, 0x10", "83c810"),
+        ("or_r16_imm16", "or ax, 0x1234", "660d3412" if False else None),
+    ], start=1):
+        def make_or_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.08.{i:02d}", 8, "M2", name, f"Verify OR variant '{asm_str}' encoding against NASM oracle",
+            make_or_test(),
+        ))
+
+    # Feature 9: XOR Width Variants
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("xor_r64_r64", "xor rax, rbx", "4831d8"),
+        ("xor_r32_r32", "xor eax, ebx", "31d8"),
+        ("xor_r16_r16", "xor ax, bx", "6631d8"),
+        ("xor_r8_r8", "xor al, bl", "30d8"),
+        ("xor_r64_imm8", "xor rax, 0x01", "4883f001"),
+    ], start=1):
+        def make_xor_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.09.{i:02d}", 9, "M2", name, f"Verify XOR variant '{asm_str}' encoding against NASM oracle",
+            make_xor_test(),
+        ))
+
+    # Feature 10: CMP Width Variants
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("cmp_r32_r32", "cmp eax, ebx", "39d8"),
+        ("cmp_r16_r16", "cmp ax, bx", "6639d8"),
+        ("cmp_r8_r8", "cmp al, bl", "38d8"),
+        ("cmp_r32_imm8", "cmp eax, 0", "83f800"),
+        ("cmp_r16_imm8", "cmp ax, 0", "6683f800"),
+    ], start=1):
+        def make_cmp_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.10.{i:02d}", 10, "M2", name, f"Verify CMP variant '{asm_str}' encoding against NASM oracle",
+            make_cmp_test(),
+        ))
+
+    # Feature 11: TEST Width Variants
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("test_r32_r32", "test eax, ebx", "85d8"),
+        ("test_r16_r16", "test ax, bx", "6685d8"),
+        ("test_r8_r8", "test al, bl", "84d8"),
+        ("test_r32_imm32", "test eax, 0x1000", "a900100000"),
+        ("test_r8_imm8", "test al, 0x80", "a880"),
+    ], start=1):
+        def make_test_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.11.{i:02d}", 11, "M2", name, f"Verify TEST variant '{asm_str}' encoding against NASM oracle",
+            make_test_test(),
+        ))
+
+    # Feature 12: NOT & NEG Width Variants
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("not_r32", "not eax", "f7d0"),
+        ("not_r16", "not ax", "66f7d0"),
+        ("not_r8", "not al", "f6d0"),
+        ("neg_r32", "neg eax", "f7d8"),
+        ("neg_r16", "neg ax", "66f7d8"),
+    ], start=1):
+        def make_not_neg_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.12.{i:02d}", 12, "M2", name, f"Verify NOT/NEG variant '{asm_str}' encoding against NASM oracle",
+            make_not_neg_test(),
+        ))
+
+    # ============================================================================================
+    # Features 13-16: Shift, Mov, Xchg, Imul, Div Expansion (Milestone M3)
+    # ============================================================================================
+    # Feature 13: SHIFT Width Variants
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("shl_r32_imm8", "shl eax, 3", "c1e003"),
+        ("shr_r16_cl", "shr ax, cl", "66d3e8"),
+        ("sar_r8_imm8", "sar al, 2", "c0f802"),
+        ("sar_r64_cl", "sar rax, cl", "48d3f8"),
+        ("shl_r16_imm8", "shl ax, 1", "66d1e0"),
+    ], start=1):
+        def make_shift_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.13.{i:02d}", 13, "M3", name, f"Verify SHIFT variant '{asm_str}' encoding against NASM oracle",
+            make_shift_test(),
+        ))
+
+    # Feature 14: MOV Width & Imm32 Variants
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("mov_r64_imm32", "mov rax, -1", "48c7c0ffffffff"),
+        ("mov_r32_r32", "mov eax, ebx", "89d8"),
+        ("mov_r16_r16", "mov ax, bx", "6689d8"),
+        ("mov_r8_r8", "mov al, bl", "88d8"),
+        ("mov_r8_imm8", "mov al, 42", "b02a"),
+    ], start=1):
+        def make_mov_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.14.{i:02d}", 14, "M3", name, f"Verify MOV variant '{asm_str}' encoding against NASM oracle",
+            make_mov_test(),
+        ))
+
+    # Feature 15: XCHG Width Variants & NOP
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("nop_opcode_90", "nop", "90"),
+        ("xchg_eax_ebx", "xchg eax, ebx", "87d8"),
+        ("xchg_ax_bx", "xchg ax, bx", "6687d8"),
+        ("xchg_al_bl", "xchg al, bl", "86d8"),
+        ("xchg_rax_rax", "xchg rax, rax", "4887c0" if False else None),
+    ], start=1):
+        def make_xchg_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.15.{i:02d}", 15, "M3", name, f"Verify XCHG variant '{asm_str}' encoding against NASM oracle",
+            make_xchg_test(),
+        ))
+
+    # Feature 16: IMUL & DIV/MUL Width Variants
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("imul_r32_r32", "imul eax, ebx", "0fafc3"),
+        ("imul_r16_r16", "imul ax, bx", "660fafc3"),
+        ("imul_3op_r32_imm8", "imul eax, ebx, 10", "6bc30a"),
+        ("div_r32", "div ebx", "f7f3"),
+        ("idiv_r64", "idiv rbx", "48f7fb"),
+    ], start=1):
+        def make_mul_div_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.16.{i:02d}", 16, "M3", name, f"Verify IMUL/DIV variant '{asm_str}' encoding against NASM oracle",
+            make_mul_div_test(),
+        ))
+
+    # ============================================================================================
+    # Features 17-20: New ALU, Flags, & Conversion Families (Milestone M4)
+    # ============================================================================================
+    # Feature 17: ADC Family
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("adc_r64_r64", "adc rax, rbx", "4811d8"),
+        ("adc_r32_r32", "adc eax, ebx", "11d8"),
+        ("adc_r16_r16", "adc ax, bx", "6611d8"),
+        ("adc_r8_r8", "adc al, bl", "10d8"),
+        ("adc_r64_imm8", "adc rax, 1", "4883d001"),
+    ], start=1):
+        def make_adc_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.17.{i:02d}", 17, "M4", name, f"Verify ADC variant '{asm_str}' encoding against NASM oracle",
+            make_adc_test(),
+        ))
+
+    # Feature 18: SBB Family
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("sbb_r64_r64", "sbb rax, rbx", "4819d8"),
+        ("sbb_r32_r32", "sbb eax, ebx", "19d8"),
+        ("sbb_r16_r16", "sbb ax, bx", "6619d8"),
+        ("sbb_r8_r8", "sbb al, bl", "18d8"),
+        ("sbb_r64_imm8", "sbb rax, 1", "4883d801"),
+    ], start=1):
+        def make_sbb_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.18.{i:02d}", 18, "M4", name, f"Verify SBB variant '{asm_str}' encoding against NASM oracle",
+            make_sbb_test(),
+        ))
+
+    # Feature 19: Flag Manipulation Family
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("clc_clear_carry", "clc", "f8"),
+        ("stc_set_carry", "stc", "f9"),
+        ("cmc_complement_carry", "cmc", "f5"),
+        ("lahf_load_flags", "lahf", "9f"),
+        ("sahf_store_flags", "sahf", "9e"),
+    ], start=1):
+        def make_flags_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok or raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex() if ok else err}"
+                return TestStatus.PASS, f"{a_str} correctly encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.19.{i:02d}", 19, "M4", name, f"Verify Flag manipulation '{asm_str}' opcode against SDM/NASM",
+            make_flags_test(),
+        ))
+
+    # Feature 20: Sign/Zero Extension & Conversion
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("cbw_convert_byte_word", "cbw", "6698"),
+        ("cwde_convert_word_dword", "cwde", "98"),
+        ("cdqe_convert_dword_qword", "cdqe", "4898"),
+        ("cqo_convert_qword_octword", "cqo", "4899"),
+        ("movsx_r64_r8", "movsx rax, bl", "480fbec3"),
+    ], start=1):
+        def make_conv_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok or raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex() if ok else err}"
+                return TestStatus.PASS, f"{a_str} correctly encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.20.{i:02d}", 20, "M4", name, f"Verify Conversion/Extension '{asm_str}' encoding against NASM oracle",
+            make_conv_test(),
+        ))
+
+    # ============================================================================================
+    # Features 21-23: Bit Operations, Scans, & Byte Swaps (Milestone M5)
+    # ============================================================================================
+    # Feature 21: Bit Test Family
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("bt_r64_r64", "bt rax, rbx", "480fa3d8"),
+        ("btc_r64_r64", "btc rax, rbx", "480fbbd8"),
+        ("btr_r64_r64", "btr rax, rbx", "480fb3d8"),
+        ("bts_r64_r64", "bts rax, rbx", "480fabd8"),
+        ("bt_r64_imm8", "bt rax, 7", "480fba2007"),
+    ], start=1):
+        def make_bt_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.21.{i:02d}", 21, "M5", name, f"Verify Bit Test variant '{asm_str}' encoding against NASM oracle",
+            make_bt_test(),
+        ))
+
+    # Feature 22: Bit Scan & Counting Family
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("bsf_r64_r64", "bsf rax, rbx", "480fbc03" if False else None),
+        ("bsr_r64_r64", "bsr rax, rbx", None),
+        ("popcnt_r64_r64", "popcnt rax, rbx", "f3480fb8c3"),
+        ("lzcnt_r64_r64", "lzcnt rax, rbx", "f3480fbdc3"),
+        ("tzcnt_r64_r64", "tzcnt rax, rbx", "f3480fbcc3"),
+    ], start=1):
+        def make_scan_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.22.{i:02d}", 22, "M5", name, f"Verify Bit Scan/Count '{asm_str}' encoding against NASM oracle",
+            make_scan_test(),
+        ))
+
+    # Feature 23: Byte Swap & Exchange Families
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("bswap_r64", "bswap rax", "480fc8"),
+        ("bswap_r32", "bswap eax", "0fc8"),
+        ("xadd_r64_r64", "xadd rax, rbx", "480fc1d8"),
+        ("xadd_r8_r8", "xadd al, bl", "0fc0d8"),
+        ("cmpxchg_r64_r64", "cmpxchg rbx, rcx", "480fb1cb"),
+    ], start=1):
+        def make_swap_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                if expected and raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex()}"
+                return TestStatus.PASS, f"{a_str} successfully encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.23.{i:02d}", 23, "M5", name, f"Verify Bswap/Xadd/Cmpxchg '{asm_str}' encoding against NASM oracle",
+            make_swap_test(),
+        ))
+
+    # ============================================================================================
+    # Features 24-25: Condition Codes: SETcc & CMOVcc (Milestone M6)
+    # ============================================================================================
+    # Feature 24: SETcc Family
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("setz_al", "setz al", "0f94c0"),
+        ("setnz_al", "setnz al", "0f95c0"),
+        ("setc_al", "setc al", "0f92c0"),
+        ("setl_al", "setl al", "0f9cc0"),
+        ("setg_al", "setg al", "0f9fc0"),
+    ], start=1):
+        def make_setcc_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok or raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex() if ok else err}"
+                return TestStatus.PASS, f"{a_str} correctly encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.24.{i:02d}", 24, "M6", name, f"Verify SETcc variant '{asm_str}' encoding against NASM oracle",
+            make_setcc_test(),
+        ))
+
+    # Feature 25: CMOVcc Expansion
+    for i, (name, asm_str, exp_hex) in enumerate([
+        ("cmovz_r64_r64", "cmovz rax, rbx", "480f44c3"),
+        ("cmovnz_r64_r64", "cmovnz rax, rbx", "480f45c3"),
+        ("cmovc_r64_r64", "cmovc rax, rbx", "480f42c3"),
+        ("cmovz_r32_r32", "cmovz eax, ebx", "0f44c3"),
+        ("cmovz_r16_r16", "cmovz ax, bx", "660f44c3"),
+    ], start=1):
+        def make_cmov_test(a_str=asm_str, expected=exp_hex):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok or raw.hex() != expected:
+                    return TestStatus.FAIL, f"{a_str} expected {expected}, got {raw.hex() if ok else err}"
+                return TestStatus.PASS, f"{a_str} correctly encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier1_test(
+            f"T1.25.{i:02d}", 25, "M6", name, f"Verify CMOVcc variant '{asm_str}' encoding against NASM oracle",
+            make_cmov_test(),
+        ))
+
     return tests

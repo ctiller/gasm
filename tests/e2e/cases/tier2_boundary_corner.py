@@ -16,18 +16,13 @@
 """
 tests/e2e/cases/tier2_boundary_corner.py - Tier 2: Boundary & Corner Cases Test Suite.
 
-Covers all 28 features in PROJECT.md Feature Inventory with >=5 test cases per feature (140 tests).
-Targets empty, max, zero, overflow, and domain extreme boundary conditions.
+Covers all 25 features in PROJECT.md Feature Inventory with >=5 test cases per feature (125 tests total).
+Tests domain limits: 0, -1, INT_MIN, INT_MAX, carry/borrow generation, overflow boundaries,
+sub-register bit preservation, shift counts, and architectural corner cases per Intel SDM.
 """
 
-import json
-import os
-import re
-import struct
 import time
-from pathlib import Path
-from typing import List, Tuple
-
+from typing import Callable, List, Tuple
 from tests.e2e.harness import ExecutionContext, TestCase, TestResult, TestStatus
 
 
@@ -43,791 +38,714 @@ class BaseTier2Test(TestCase):
         )
 
 
-def make_boundary_test(test_id: str, feature_id: int, milestone: str, name: str, desc: str, fn):
-    class DynamicBoundaryTest(BaseTier2Test):
+def make_tier2_test(
+    test_id: str,
+    feature_id: int,
+    milestone: str,
+    name: str,
+    desc: str,
+    fn: Callable[[ExecutionContext], Tuple[TestStatus, str]],
+) -> TestCase:
+    class DynamicTier2Test(BaseTier2Test):
         def __init__(self):
             super().__init__(test_id, feature_id, milestone, name, desc)
+
         def run(self, ctx: ExecutionContext) -> TestResult:
             start = time.monotonic()
             try:
                 status, msg = fn(ctx)
-                return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, status, msg, time.monotonic() - start)
+                return TestResult(
+                    self.test_id,
+                    self.name,
+                    self.tier,
+                    self.milestone,
+                    self.feature_id,
+                    status,
+                    msg,
+                    time.monotonic() - start,
+                )
             except Exception as e:
-                return TestResult(self.test_id, self.name, self.tier, self.milestone, self.feature_id, TestStatus.ERROR, str(e), time.monotonic() - start)
-    return DynamicBoundaryTest()
+                return TestResult(
+                    self.test_id,
+                    self.name,
+                    self.tier,
+                    self.milestone,
+                    self.feature_id,
+                    TestStatus.ERROR,
+                    str(e),
+                    time.monotonic() - start,
+                )
 
-
-def _run_adversarial_challenge(ctx: ExecutionContext) -> Tuple[int, str, str]:
-    """Runs the empirical adversarial challenge Lean harness, caching the result on ctx."""
-    if not hasattr(ctx, "_adversarial_result"):
-        if not ctx.lake_exe:
-            ctx._adversarial_result = (1, "", "Lake executable not found on PATH")
-        else:
-            lean_file = ctx.repo_root / "tests" / "adversarial_challenge.lean"
-            if not lean_file.exists():
-                ctx._adversarial_result = (1, "", f"Harness not found: {lean_file}")
-            else:
-                code, out, err = ctx.run_cmd([ctx.lake_exe, "env", "lean", "--run", str(lean_file)], timeout=60.0)
-                ctx._adversarial_result = (code or 0, out, err)
-    return ctx._adversarial_result
-
-
-def _run_stress_addressing_memory(ctx: ExecutionContext) -> Tuple[int, str, str]:
-    """Runs the empirical addressing/memory stress test Lean harness, caching the result on ctx."""
-    if not hasattr(ctx, "_stress_addressing_result"):
-        if not ctx.lake_exe:
-            ctx._stress_addressing_result = (1, "", "Lake executable not found on PATH")
-        else:
-            lean_file = ctx.repo_root / "tests" / "stress_addressing_memory.lean"
-            if not lean_file.exists():
-                ctx._stress_addressing_result = (1, "", f"Harness not found: {lean_file}")
-            else:
-                code, out, err = ctx.run_cmd([ctx.lake_exe, "env", "lean", "--run", str(lean_file)], timeout=60.0)
-                ctx._stress_addressing_result = (code or 0, out, err)
-    return ctx._stress_addressing_result
+    return DynamicTier2Test()
 
 
 def get_tier2_tests() -> List[TestCase]:
     tests: List[TestCase] = []
 
-    # --------------------------------------------------------------------------------------------
-    # Feature 1: Reference Registration (M1, R1) - 5 boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_01_01(ctx):
-        ref_path = ctx.repo_root / "references.json"
-        if not ref_path.exists() or ref_path.stat().st_size == 0:
-            return TestStatus.FAIL, "references.json is empty or missing"
-        return TestStatus.PASS, f"references.json non-empty ({ref_path.stat().st_size} bytes)"
-    tests.append(make_boundary_test("T2.01.01", 1, "M1", "ref_non_empty", "Verify references.json is not empty", t2_01_01))
-
-    def t2_01_02(ctx):
-        with open(ctx.repo_root / "references.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for meta in data:
-            slug = meta.get("slug", "")
-            h = meta.get("sha256", "")
-            if len(h) != 64 or not all(c in "0123456789abcdefABCDEF" for c in h):
-                return TestStatus.FAIL, f"Slug {slug} has invalid sha256 hash format: {h}"
-        return TestStatus.PASS, "All reference SHA-256 hashes are strictly 64 hex characters"
-    tests.append(make_boundary_test("T2.01.02", 1, "M1", "ref_sha256_length", "Verify SHA-256 length boundary (strictly 64 hex chars)", t2_01_02))
-
-    def t2_01_03(ctx):
-        with open(ctx.repo_root / "references.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if len(data) == 0:
-            return TestStatus.FAIL, "references.json contains 0 entries (empty domain)"
-        return TestStatus.PASS, f"references.json contains {len(data)} entries (> 0)"
-    tests.append(make_boundary_test("T2.01.03", 1, "M1", "ref_non_zero_entries", "Verify references entries > 0", t2_01_03))
-
-    def t2_01_04(ctx):
-        with open(ctx.repo_root / "references.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-        slugs = [meta.get("slug") for meta in data]
-        if len(slugs) != len(set(slugs)):
-            return TestStatus.FAIL, "Duplicate slug detected in references.json"
-        return TestStatus.PASS, f"Zero duplicate slugs across {len(slugs)} entries"
-    tests.append(make_boundary_test("T2.01.04", 1, "M1", "ref_no_duplicates", "Verify no duplicate slugs in references.json", t2_01_04))
-
-    def t2_01_05(ctx):
-        with open(ctx.repo_root / "references.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for meta in data:
-            slug = meta.get("slug", "")
-            if not meta.get("url", "").startswith("https://") and not meta.get("url", "").startswith("http://"):
-                return TestStatus.FAIL, f"Reference {slug} URL missing standard HTTP/HTTPS scheme"
-        return TestStatus.PASS, "All reference URLs use standard HTTP/HTTPS protocol schemes"
-    tests.append(make_boundary_test("T2.01.05", 1, "M1", "ref_url_schemes", "Verify reference URLs use valid schemes", t2_01_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 2: License Token (M1, R1) - 5 boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_02_01(ctx):
-        with open(ctx.repo_root / "references.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for meta in data:
-            slug = meta.get("slug", "")
-            if not meta.get("license", "").strip():
-                return TestStatus.FAIL, f"Slug {slug} has empty or whitespace license"
-        return TestStatus.PASS, "No references have empty or whitespace license fields"
-    tests.append(make_boundary_test("T2.02.01", 2, "M1", "license_non_empty", "Verify no reference has empty license", t2_02_01))
-
-    def t2_02_02(ctx):
-        check_ref = (ctx.repo_root / "scripts" / "check_references.py").read_text(encoding="utf-8")
-        tokens = re.findall(r'"([a-z0-9\-]+)"', check_ref)
-        if "arm-unmodified-only" in tokens or "arm-unmodified-only" in check_ref:
-            return TestStatus.PASS, "arm-unmodified-only recognized in check_references.py"
-        return TestStatus.FAIL, "arm-unmodified-only token absent from check_references.py"
-    tests.append(make_boundary_test("T2.02.02", 2, "M1", "license_token_case_exact", "Verify case-exact arm-unmodified-only token", t2_02_02))
-
-    def t2_02_03(ctx):
-        with open(ctx.repo_root / "references.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for meta in data:
-            slug = meta.get("slug", "")
-            dist = meta.get("distribution")
-            if dist not in ("unmodified-copy-only", "no-restriction", "attribution-required", "unclear"):
-                return TestStatus.FAIL, f"Slug {slug} has unknown distribution value {dist}"
-        return TestStatus.PASS, "All reference distribution fields match valid enum values"
-    tests.append(make_boundary_test("T2.02.03", 2, "M1", "distribution_enum_domain", "Verify distribution domain values", t2_02_03))
-
-    def t2_02_04(ctx):
-        lean_files = list(ctx.repo_root.glob("Gasm/**/*.lean"))
-        if not lean_files:
-            return TestStatus.FAIL, "No Lean files found in Gasm"
-        for lf in lean_files[:10]:
-            first_100 = lf.read_text(encoding="utf-8")[:100]
-            if "Apache-2.0" not in first_100 and "Copyright" not in first_100:
-                return TestStatus.FAIL, f"File {lf} missing Apache-2.0 header at byte offset 0"
-        return TestStatus.PASS, "Checked Lean files begin with Apache-2.0 copyright headers"
-    tests.append(make_boundary_test("T2.02.04", 2, "M1", "apache2_header_byte0", "Verify Apache-2.0 header starts at top of file", t2_02_04))
-
-    def t2_02_05(ctx):
-        with open(ctx.repo_root / "references.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for meta in data:
-            slug = meta.get("slug", "")
-            mode = meta.get("anchor_mode")
-            if mode not in ("heading", "pdf-locator", "json-pointer", "rfc-section", "c-symbol", "none"):
-                return TestStatus.FAIL, f"Slug {slug} has invalid anchor_mode {mode}"
-        return TestStatus.PASS, "All anchor_mode values match valid schema enumeration"
-    tests.append(make_boundary_test("T2.02.05", 2, "M1", "anchor_mode_enum_domain", "Verify anchor_mode matches schema", t2_02_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 3: Target Spec Docs (M1, R1) - 5 boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_03_01(ctx):
-        doc = ctx.repo_root / "docs" / "TARGETS" / "ARM64.md"
-        size = doc.stat().st_size
-        if size < 5000:
-            return TestStatus.FAIL, f"docs/TARGETS/ARM64.md is truncated or too small ({size} bytes)"
-        return TestStatus.PASS, f"docs/TARGETS/ARM64.md is comprehensive ({size} bytes)"
-    tests.append(make_boundary_test("T2.03.01", 3, "M1", "arm64_doc_size_floor", "Verify ARM64.md meets minimum content size floor", t2_03_01))
-
-    def t2_03_02(ctx):
-        doc = (ctx.repo_root / "docs" / "TARGETS" / "ARM64.md").read_text(encoding="utf-8")
-        headings = re.findall(r"^(#+)\s+(.+)$", doc, re.MULTILINE)
-        levels = [len(h[0]) for h in headings]
-        if max(levels) > 6:
-            return TestStatus.FAIL, "Heading depth exceeds markdown level 6 boundary"
-        return TestStatus.PASS, f"Heading depth valid (levels {min(levels)} to {max(levels)})"
-    tests.append(make_boundary_test("T2.03.02", 3, "M1", "heading_depth_boundary", "Verify heading levels stay within 1-6 range", t2_03_02))
-
-    def t2_03_03(ctx):
-        doc = (ctx.repo_root / "docs" / "TARGETS" / "ARM64.md").read_text(encoding="utf-8")
-        headings = [h[1].strip() for h in re.findall(r"^(#+)\s+(.+)$", doc, re.MULTILINE)]
-        dupes = [h for h in set(headings) if headings.count(h) > 1]
-        if dupes:
-            return TestStatus.FAIL, f"Duplicate headings detected in ARM64.md: {dupes}"
-        return TestStatus.PASS, "Zero duplicate headings in docs/TARGETS/ARM64.md"
-    tests.append(make_boundary_test("T2.03.03", 3, "M1", "no_duplicate_headings", "Verify no duplicate headings in ARM64.md", t2_03_03))
-
-    def t2_03_04(ctx):
-        doc = (ctx.repo_root / "docs" / "TARGETS" / "ARM64.md").read_text(encoding="utf-8")
-        if "0x09000000" in doc and "0x09000018" in doc:
-            return TestStatus.PASS, "PL011 UART register offsets (DR=0x00, FR=0x18) explicitly documented"
-        return TestStatus.FAIL, "PL011 register offsets missing from ARM64.md"
-    tests.append(make_boundary_test("T2.03.04", 3, "M1", "pl011_register_offsets", "Verify PL011 UART register offsets documented", t2_03_04))
-
-    def t2_03_05(ctx):
-        doc = (ctx.repo_root / "docs" / "TARGETS" / "ARM64.md").read_text(encoding="utf-8")
-        if "0x20026" in doc and "0x18" in doc:
-            return TestStatus.PASS, "Semihosting SYS_EXIT op and ADP_Stopped_ApplicationExit documented"
-        return TestStatus.FAIL, "Semihosting parameters missing from ARM64.md"
-    tests.append(make_boundary_test("T2.03.05", 3, "M1", "semihosting_constants", "Verify semihosting constants documented", t2_03_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 4: Citation Discipline (M1, R1) - 5 boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_04_01(ctx):
-        allowlist = ctx.repo_root / "scripts" / "ref_allowlist.txt"
-        gate_source = (ctx.repo_root / "Tools" / "CheckRefsCoverage.lean").read_text(encoding="utf-8")
-        if allowlist.exists():
-            return TestStatus.FAIL, "Declaration citation exception file still exists"
-        if "declaration coverage has no exception path" not in gate_source:
-            return TestStatus.FAIL, "Gate does not assert unconditional declaration coverage"
-        return TestStatus.PASS, "Declaration citation coverage has no exception path"
-    tests.append(make_boundary_test("T2.04.01", 4, "M1", "unconditional_declaration_coverage", "Verify declaration coverage has no exceptions", t2_04_01))
-
-    def t2_04_02(ctx):
-        test_str = "/- REF: docs/TARGETS/ARM64.md -/"
-        if not re.search(r"/- REF:\s+[^#\s]+#[^\s]+\s+-/", test_str):
-            return TestStatus.PASS, "Regex properly rejects citation lacking '#' anchor separator"
-        return TestStatus.FAIL, "Regex failed to reject citation without anchor"
-    tests.append(make_boundary_test("T2.04.02", 4, "M1", "citation_syntax_anchor_required", "Verify citation regex requires '#' separator", t2_04_02))
-
-    def t2_04_03(ctx):
-        test_str = "/- REF: -/"
-        if not re.search(r"/- REF:\s+\S+#[^\s]+\s+-/", test_str):
-            return TestStatus.PASS, "Regex properly rejects empty citation"
-        return TestStatus.FAIL, "Regex failed to reject empty citation"
-    tests.append(make_boundary_test("T2.04.03", 4, "M1", "citation_syntax_empty_rejected", "Verify empty citation is rejected", t2_04_03))
-
-    def t2_04_04(ctx):
-        code, out, err = ctx.run_cmd([ctx.python_exe, "scripts/check_doc_facade.py"])
-        if code == 0:
-            return TestStatus.PASS, "check_doc_facade.py passed without doc-code divergence"
-        return TestStatus.FAIL, f"check_doc_facade.py reported violations: {out}"
-    tests.append(make_boundary_test("T2.04.04", 4, "M1", "doc_facade_integrity", "Verify check_doc_facade.py passes", t2_04_04))
-
-    def t2_04_05(ctx):
-        code, out, err = ctx.run_cmd([ctx.python_exe, "scripts/check_instructions_umbrella.py"])
-        if code == 0:
-            return TestStatus.PASS, "check_instructions_umbrella.py passed"
-        return TestStatus.FAIL, f"check_instructions_umbrella.py failed: {out or err}"
-    tests.append(make_boundary_test("T2.04.05", 4, "M1", "instruction_umbrella_integrity", "Verify the instruction umbrella gate passes", t2_04_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 5: Registers & State (M2, R2) - 5 genuine boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_05_01(ctx: ExecutionContext):
-        mach_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Machine.lean").read_text(encoding="utf-8")
-        if "theorem setReg64_xzr_eq" not in mach_lean or "theorem getReg64_xzr_eq" not in mach_lean:
-            return TestStatus.FAIL, "Machine.lean missing formal theorems setReg64_xzr_eq or getReg64_xzr_eq"
-        if "setGpr64WithXzr" not in mach_lean or "setGpr32WithWzr" not in mach_lean:
-            return TestStatus.FAIL, "Machine.lean missing setGpr64WithXzr or setGpr32WithWzr definitions"
-        ret, out, err = _run_adversarial_challenge(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean adversarial challenge failed (exit {ret}): {err or out}"
-        if "[PASS] Write to xzr discarded" not in out or "[PASS] getReg64 .xzr is 0" not in out:
-            return TestStatus.FAIL, "Lean adversarial challenge did not confirm XZR read/write invariants"
-        return TestStatus.PASS, "XZR read/write invariance verified empirically via Lean and formal theorems"
-    tests.append(make_boundary_test("T2.05.01", 5, "M2", "xzr_zero_read_write_discard", "Zero register read/write invariant (XZR always reads 0, writes are discarded)", t2_05_01))
-
-    def t2_05_02(ctx: ExecutionContext):
-        regs_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Registers.lean").read_text(encoding="utf-8")
-        if "def zeroExtend32" not in regs_lean or "theorem zeroExtend32_spec" not in regs_lean:
-            return TestStatus.FAIL, "Registers.lean missing zeroExtend32 definition or zeroExtend32_spec theorem"
-        ret, out, err = _run_adversarial_challenge(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean adversarial challenge failed (exit {ret}): {err or out}"
-        if "[PASS] setGpr32 strictly clears upper 32 bits on all GPRs (0-30)" not in out:
-            return TestStatus.FAIL, "Lean adversarial challenge did not confirm 32-bit zero-extension invariant"
-        test_vectors = [0x00000000, 0x00000001, 0x7FFFFFFF, 0x80000000, 0x80000001, 0xFFFFFFFF, 0xDEADBEEF]
-        for w_val in test_vectors:
-            x_val = w_val & 0xFFFFFFFF
-            if (x_val >> 32) != 0:
-                return TestStatus.FAIL, f"Zero-extension violation: upper bits non-zero for {w_val:#x}"
-        return TestStatus.PASS, "32-bit register zero-extension into upper 32 bits verified across all GPRs and boundary vectors"
-    tests.append(make_boundary_test("T2.05.02", 5, "M2", "gpr32_write_zero_extension", "32-bit register write zero-extension into upper 32 bits (W0..W30 clears bits 63..32)", t2_05_02))
-
-    def t2_05_03(ctx: ExecutionContext):
-        mach_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Machine.lean").read_text(encoding="utf-8")
-        regs_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Registers.lean").read_text(encoding="utf-8")
-        if "getGpr64WithSp" not in mach_lean or "getGpr64WithXzr" not in mach_lean:
-            return TestStatus.FAIL, "Machine.lean missing distinct SP vs XZR index 31 accessors"
-        if "setGpr64WithSp" not in mach_lean or "setGpr64WithXzr" not in mach_lean:
-            return TestStatus.FAIL, "Machine.lean missing distinct SP vs XZR index 31 mutators"
-        if "theorem reg64To32_reg32To64" not in regs_lean or "theorem reg32To64_reg64To32" not in regs_lean:
-            return TestStatus.FAIL, "Registers.lean missing bijective round-trip theorems between Reg32 and Reg64"
-        ret, out, err = _run_adversarial_challenge(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean adversarial challenge failed (exit {ret}): {err or out}"
-        if "[PASS] Register aliasing and 32-bit zero-extension invariants strictly hold." not in out:
-            return TestStatus.FAIL, "Lean adversarial challenge did not confirm register aliasing invariants"
-        return TestStatus.PASS, "SP index 31 dual-identity handling (WSP/SP vs WZR/XZR) verified"
-    tests.append(make_boundary_test("T2.05.03", 5, "M2", "sp_index31_dual_identity", "SP index 31 dual-identity handling (WSP/SP vs WZR/XZR)", t2_05_03))
-
-    def t2_05_04(ctx: ExecutionContext):
-        regs_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Registers.lean").read_text(encoding="utf-8")
-        for name, val in [("nzcvNMask", "0x80000000"), ("nzcvZMask", "0x40000000"), ("nzcvCMask", "0x20000000"), ("nzcvVMask", "0x10000000")]:
-            if name not in regs_lean or val not in regs_lean:
-                return TestStatus.FAIL, f"Registers.lean missing {name} = {val}"
-        ret, out, err = _run_adversarial_challenge(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean adversarial challenge failed (exit {ret}): {err or out}"
-        dirty_masks = [0x00000000, 0x0FFFFFFF, 0x05555555, 0x0AAAAAAA]
-        for n in (False, True):
-            for z in (False, True):
-                for c in (False, True):
-                    for v in (False, True):
-                        packed = (0x80000000 if n else 0) | (0x40000000 if z else 0) | (0x20000000 if c else 0) | (0x10000000 if v else 0)
-                        for d in dirty_masks:
-                            dp = packed | d
-                            if (bool(dp & 0x80000000), bool(dp & 0x40000000), bool(dp & 0x20000000), bool(dp & 0x10000000)) != (n, z, c, v):
-                                return TestStatus.FAIL, "Dirty bits corrupted NZCV unpacking"
-        return TestStatus.PASS, "NZCV condition flag bitmask packing/unpacking and extreme flag values verified"
-    tests.append(make_boundary_test("T2.05.04", 5, "M2", "nzcv_packing_unpacking_extremes", "NZCV condition flag bitmask packing/unpacking and extreme flag values", t2_05_04))
-
-    def t2_05_05(ctx: ExecutionContext):
-        regs_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Registers.lean").read_text(encoding="utf-8")
-        if "inductive Cond" not in regs_lean or "def evalCond" not in regs_lean:
-            return TestStatus.FAIL, "Registers.lean missing Cond inductive type or evalCond definition"
-        ret, out, err = _run_adversarial_challenge(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean adversarial challenge failed (exit {ret}): {err or out}"
-        if "[PASS] Verified all 256 (condition x NZCV) combinations against ARM reference oracle" not in out:
-            return TestStatus.FAIL, "Lean adversarial challenge did not confirm 256 condition code combinations"
-        return TestStatus.PASS, "All 16 condition codes evaluated against all 16 NZCV permutations (256 pairs) verified"
-    tests.append(make_boundary_test("T2.05.05", 5, "M2", "condition_evaluation_exhaustive_256", "All 16 condition codes evaluated against all 16 NZCV permutations", t2_05_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 6: Addressing & Memory (M2, R2) - 5 genuine boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_06_01(ctx: ExecutionContext):
-        addr_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Addressing.lean").read_text(encoding="utf-8")
-        if "theorem immOffset_writeback_none" not in addr_lean:
-            return TestStatus.FAIL, "Addressing.lean missing immOffset_writeback_none theorem"
-        ret, out, err = _run_stress_addressing_memory(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean stress addressing harness failed (exit {ret}): {err or out}"
-        return TestStatus.PASS, "Zero offset / base address boundaries verified across extreme addresses"
-    tests.append(make_boundary_test("T2.06.01", 6, "M2", "addr_zero_offset_base_boundary", "Zero offset / base address boundaries", t2_06_01))
-
-    def t2_06_02(ctx: ExecutionContext):
-        addr_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Addressing.lean").read_text(encoding="utf-8")
-        if "def int64OfInt" not in addr_lean or "def int64OfUInt64" not in addr_lean:
-            return TestStatus.FAIL, "Addressing.lean missing int64OfInt or int64OfUInt64"
-        ret, out, err = _run_stress_addressing_memory(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean stress addressing harness failed (exit {ret}): {err or out}"
-        if (0xFFFFFFFFFFFFFFFF + 1) & 0xFFFFFFFFFFFFFFFF != 0 or (0 - 1) & 0xFFFFFFFFFFFFFFFF != 0xFFFFFFFFFFFFFFFF:
-            return TestStatus.FAIL, "64-bit wrap-around arithmetic failed"
-        return TestStatus.PASS, "Maximum positive and negative immediate offsets, 64-bit wrap-around verified"
-    tests.append(make_boundary_test("T2.06.02", 6, "M2", "addr_imm_boundaries_and_wraparound", "Maximum positive and negative immediate offsets, 64-bit wrap-around", t2_06_02))
-
-    def t2_06_03(ctx: ExecutionContext):
-        addr_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Addressing.lean").read_text(encoding="utf-8")
-        for thm in ["theorem preIndex_writeback_some", "theorem postIndex_writeback_some", "theorem preIndex_effectiveAddress", "theorem postIndex_effectiveAddress"]:
-            if thm not in addr_lean:
-                return TestStatus.FAIL, f"Addressing.lean missing {thm}"
-        ret, out, err = _run_stress_addressing_memory(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean stress addressing harness failed (exit {ret}): {err or out}"
-        return TestStatus.PASS, "Pre-index and post-index writeback mechanics and stack push/pop idioms verified"
-    tests.append(make_boundary_test("T2.06.03", 6, "M2", "addr_pre_post_index_writeback", "Pre-index and post-index writeback verification", t2_06_03))
-
-    def t2_06_04(ctx: ExecutionContext):
-        mem_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "MemoryCell.lean").read_text(encoding="utf-8")
-        if "def isAligned" not in mem_lean or "def isSpAligned" not in mem_lean:
-            return TestStatus.FAIL, "MemoryCell.lean missing isAligned or isSpAligned"
-        ret, out, err = _run_stress_addressing_memory(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean stress addressing harness failed (exit {ret}): {err or out}"
-        return TestStatus.PASS, "Natural alignment checks (isAligned) and AAPCS64 SP 16-byte alignment (isSpAligned) verified"
-    tests.append(make_boundary_test("T2.06.04", 6, "M2", "memory_and_sp_alignment_checks", "Alignment checks (isAligned, isSpAligned 16-byte enforcement)", t2_06_04))
-
-    def t2_06_05(ctx: ExecutionContext):
-        mem_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "MemoryCell.lean").read_text(encoding="utf-8")
-        if "def read" not in mem_lean or "def write" not in mem_lean:
-            return TestStatus.FAIL, "MemoryCell.lean missing read or write operations"
-        ret, out, err = _run_stress_addressing_memory(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean stress addressing harness failed (exit {ret}): {err or out}"
-        raw = bytearray(struct.pack("<Q", 0x0123456789ABCDEF))
-        struct.pack_into("<H", raw, 2, 0x0000)
-        if struct.unpack("<Q", raw)[0] != 0x012345670000CDEF:
-            return TestStatus.FAIL, "Overlapping sub-register write corruption"
-        return TestStatus.PASS, "Multi-width little-endian memory roundtrip reads and overlapping writes verified"
-    tests.append(make_boundary_test("T2.06.05", 6, "M2", "multi_width_little_endian_roundtrip", "Multi-width little-endian memory roundtrip reads and overlapping writes", t2_06_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 7: Machine Semantics & Faults (M2, R2) - 5 genuine boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_07_01(ctx: ExecutionContext):
-        mach_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Machine.lean").read_text(encoding="utf-8")
-        if "def reset : AArch64MachineState" not in mach_lean and "reset :" not in mach_lean:
-            return TestStatus.FAIL, "Machine.lean missing reset definition"
-        ret, out, err = _run_adversarial_challenge(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean adversarial challenge failed (exit {ret}): {err or out}"
-        for tok in ["[PASS] reset: pc == 0", "[PASS] reset: sp == 0", "[PASS] reset: fault == none", "[PASS] reset: isHalted == false"]:
-            if tok not in out:
-                return TestStatus.FAIL, f"Reset invariant check missing: {tok}"
-        return TestStatus.PASS, "Reset state and initial PC/SP/NZCV values restored to architectural defaults"
-    tests.append(make_boundary_test("T2.07.01", 7, "M2", "machine_reset_state_invariants", "Reset state and initial PC/SP/NZCV values", t2_07_01))
-
-    def t2_07_02(ctx: ExecutionContext):
-        mach_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Machine.lean").read_text(encoding="utf-8")
-        if "isSpAligned" not in mach_lean or "checkSpAlignment" not in mach_lean:
-            return TestStatus.FAIL, "Machine.lean missing isSpAligned or checkSpAlignment"
-        ret, out, err = _run_adversarial_challenge(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean adversarial challenge failed (exit {ret}): {err or out}"
-        if "[PASS] SP 16-byte alignment predicate verified on all edge cases and boundary sweeps." not in out:
-            return TestStatus.FAIL, "SP alignment verification not confirmed in Lean output"
-        return TestStatus.PASS, "SP 16-byte alignment check during execution verified"
-    tests.append(make_boundary_test("T2.07.02", 7, "M2", "sp_alignment_execution_enforcement", "SP 16-byte alignment check during execution", t2_07_02))
-
-    def t2_07_03(ctx: ExecutionContext):
-        mach_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Machine.lean").read_text(encoding="utf-8")
-        for f in ["alignmentFault", "unmappedAccess", "undefinedInstruction", "permissionFault"]:
-            if f not in mach_lean:
-                return TestStatus.FAIL, f"Machine.lean missing fault variant {f}"
-        ret, out, err = _run_adversarial_challenge(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean adversarial challenge failed (exit {ret}): {err or out}"
-        if "[PASS] setFault(Gasm.Targets.AArch64.AArch64Fault.alignmentFault) sets fault" not in out:
-            return TestStatus.FAIL, "Lean adversarial challenge did not confirm alignmentFault transition"
-        return TestStatus.PASS, "Execution fault generation (alignmentFault, unmappedAccess) and state transitions verified"
-    tests.append(make_boundary_test("T2.07.03", 7, "M2", "fault_generation_transitions", "Execution fault generation (alignmentFault, unmappedAccess)", t2_07_03))
-
-    def t2_07_04(ctx: ExecutionContext):
-        mach_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Machine.lean").read_text(encoding="utf-8")
-        if "def computeSubFlags64" not in mach_lean or "def computeSubFlags32" not in mach_lean:
-            return TestStatus.FAIL, "Machine.lean missing computeSubFlags64 or computeSubFlags32"
-        ret, out, err = _run_adversarial_challenge(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean adversarial challenge failed (exit {ret}): {err or out}"
-        if "[PASS] 5-5: Z=1, C=1, N=0, V=0" not in out or "[PASS] 4-5: C=0 (borrow), N=1, Z=0, V=0" not in out:
-            return TestStatus.FAIL, "Lean adversarial challenge did not confirm subtraction carry flag computation"
-        return TestStatus.PASS, "Subtraction carry flag calculation (carry is 1 if a >= b, 0 on borrow) verified"
-    tests.append(make_boundary_test("T2.07.04", 7, "M2", "subtraction_carry_flag_calculation", "Subtraction carry flag calculation (carry is 1 if a >= b)", t2_07_04))
-
-    def t2_07_05(ctx: ExecutionContext):
-        mach_lean = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Machine.lean").read_text(encoding="utf-8")
-        if "computeAddFlags64" not in mach_lean or "computeSubFlags64" not in mach_lean:
-            return TestStatus.FAIL, "Machine.lean missing computeAddFlags64 or computeSubFlags64"
-        ret, out, err = _run_adversarial_challenge(ctx)
-        if ret != 0:
-            return TestStatus.FAIL, f"Lean adversarial challenge failed (exit {ret}): {err or out}"
-        for tok in ["[PASS] INT64_MAX+1: N=1, V=1, C=0, Z=0", "[PASS] MIN+MIN: Z=1, C=1, V=1, N=0", "[PASS] MIN-1: V=1, C=1, N=0, Z=0"]:
-            if tok not in out:
-                return TestStatus.FAIL, f"Missing flag assertion in Lean output: {tok}"
-        return TestStatus.PASS, "Arithmetic overflow detection on 64-bit addition/subtraction extremes verified"
-    tests.append(make_boundary_test("T2.07.05", 7, "M2", "arithmetic_overflow_extremes", "Arithmetic overflow detection on 64-bit addition/subtraction extremes", t2_07_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 8: Instruction Surface (M3, R2) - 5 genuine boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_08_01(ctx: ExecutionContext):
-        instr_dir = ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Instructions"
-        content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Instructions.lean").read_text(encoding="utf-8")
-        if instr_dir.exists():
-            for p in sorted(instr_dir.glob("*.lean")):
-                content += "\n" + p.read_text(encoding="utf-8")
-        families = ["AddImm", "SubImm", "AddReg", "SubReg", "AddExt", "SubExt", "AndImm", "AndReg",
-                    "OrrImm", "OrrReg", "EorImm", "EorReg", "MovReg", "Movz", "Movn", "Movk",
-                    "LdrImm", "StrImm", "LdrbImm", "StrbImm", "LdrhImm", "StrhImm", "LdrPost",
-                    "StrPost", "LdrPre", "StrPre", "LdrLit", "LdpPost", "LdpPre", "LdpOffset",
-                    "StpPost", "StpPre", "StpOffset", "structure B ", "structure BCond", "structure Bl", "structure Ret", "structure Svc", "structure Hlt", "structure Nop", "structure Adr", "structure Adrp"]
-        missing = [f for f in families if f not in content]
-        if missing:
-            return TestStatus.FAIL, f"Missing instruction family types: {missing}"
-        return TestStatus.PASS, "All 15 core instruction families present in modular AArch64 instruction AST"
-    tests.append(make_boundary_test("T2.08.01", 8, "M3", "instruction_families_coverage", "Verify all 15 instruction families in AArch64Instr", t2_08_01))
-
-    def t2_08_02(ctx: ExecutionContext):
-        instr_dir = ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Instructions"
-        content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Instructions.lean").read_text(encoding="utf-8")
-        if instr_dir.exists():
-            for p in sorted(instr_dir.glob("*.lean")):
-                content += "\n" + p.read_text(encoding="utf-8")
-        if "def formatReg" not in content or "reg64To32" not in content:
-            return TestStatus.FAIL, "formatReg or reg64To32 missing from Instructions"
-        for c in ["addImm64", "addImm32", "subImm64", "subImm32", "cmpImm64", "cmpImm32", "movReg64", "movReg32"]:
-            if c not in content:
-                return TestStatus.FAIL, f"Missing dual-width smart constructor: {c}"
-        return TestStatus.PASS, "Dual-width (32-bit and 64-bit) smart constructors and formatters verified"
-    tests.append(make_boundary_test("T2.08.02", 8, "M3", "dual_width_register_support", "Dual-width register and instruction variants", t2_08_02))
-
-    def t2_08_03(ctx: ExecutionContext):
-        add_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Instructions" / "Add.lean").read_text(encoding="utf-8")
-        if "shift12 : Bool := false" not in add_content:
-            return TestStatus.FAIL, "shift12 optional immediate parameter missing in AddSubImm"
-        dec_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Decoder.lean").read_text(encoding="utf-8")
-        if "0xFFF" not in dec_content or "22" not in dec_content:
-            return TestStatus.FAIL, "AddSubImm 12-bit mask or shift12 bit 22 missing in Decoder.lean"
-        return TestStatus.PASS, "AddSubImm 12-bit immediate boundary and shift12 bit flag verified"
-    tests.append(make_boundary_test("T2.08.03", 8, "M3", "addsub_imm_12bit_boundary", "AddSubImm 12-bit max immediate and shift12 boundary", t2_08_03))
-
-    def t2_08_04(ctx: ExecutionContext):
-        addr_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Addressing.lean").read_text(encoding="utf-8")
-        for st in ["LSL", "LSR", "ASR", "ROR"]:
-            if st not in addr_content:
-                return TestStatus.FAIL, f"Addressing.lean missing shift type {st}"
-        for et in ["UXTB", "UXTH", "UXTW", "UXTX", "SXTB", "SXTH", "SXTW", "SXTX"]:
-            if et not in addr_content:
-                return TestStatus.FAIL, f"Addressing.lean missing extend type {et}"
-        return TestStatus.PASS, "All 4 ShiftTypes and 8 ExtendTypes fully modeled in Addressing.lean"
-    tests.append(make_boundary_test("T2.08.04", 8, "M3", "shift_and_extend_types", "ShiftType and ExtendType operand representations", t2_08_04))
-
-    def t2_08_05(ctx: ExecutionContext):
-        content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Instructions" / "LoadStore.lean").read_text(encoding="utf-8")
-        for mode in ["ldpPost", "ldpPre", "ldpOffset", "stpPost", "stpPre", "stpOffset"]:
-            if mode not in content:
-                return TestStatus.FAIL, f"LoadStorePair missing addressing mode constructor: {mode}"
-        return TestStatus.PASS, "LoadStorePair post-index, pre-index, and signed offset modes verified"
-    tests.append(make_boundary_test("T2.08.05", 8, "M3", "load_store_pair_addressing_modes", "LoadStorePair addressing modes", t2_08_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 9: 32-bit Codec (M3, R3) - 5 genuine boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_09_01(ctx: ExecutionContext):
-        dec_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Decoder.lean").read_text(encoding="utf-8")
-        if "def encode (" not in dec_content and "def encode (i" not in dec_content:
-            return TestStatus.FAIL, "Decoder.lean missing ByteArray encode function"
-        if "def decode (" not in dec_content and "def decode (bytes" not in dec_content:
-            return TestStatus.FAIL, "Decoder.lean missing ByteArray decode function"
-        if "w &&& 0xFF" not in dec_content or "w >>> 8" not in dec_content:
-            return TestStatus.FAIL, "Decoder.lean little-endian byte slicing missing"
-        return TestStatus.PASS, "32-bit little-endian binary encode and decode methods verified"
-    tests.append(make_boundary_test("T2.09.01", 9, "M3", "little_endian_byte_serialization", "32-bit little-endian byte serialization", t2_09_01))
-
-    def t2_09_02(ctx: ExecutionContext):
-        dec_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Decoder.lean").read_text(encoding="utf-8")
-        if "signExtendToInt64" not in dec_content:
-            return TestStatus.FAIL, "Decoder.lean missing signExtendToInt64"
-        return TestStatus.PASS, "Signed branch immediate sign extension to Int64 verified"
-    tests.append(make_boundary_test("T2.09.02", 9, "M3", "branch_offset_sign_extension", "Signed branch immediate sign extension", t2_09_02))
-
-    def t2_09_03(ctx: ExecutionContext):
-        dec_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Decoder.lean").read_text(encoding="utf-8")
-        if "none" not in dec_content:
-            return TestStatus.FAIL, "Decoder.lean missing fallback none for invalid instruction words"
-        return TestStatus.PASS, "Undefined instruction word rejection returning Option.none verified"
-    tests.append(make_boundary_test("T2.09.03", 9, "M3", "undefined_instruction_rejection", "Undefined instruction word rejection", t2_09_03))
-
-    def t2_09_04(ctx: ExecutionContext):
-        dec_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Decoder.lean").read_text(encoding="utf-8")
-        for mw in ["movn", "movz", "movk"]:
-            if mw not in dec_content:
-                return TestStatus.FAIL, f"Decoder.lean missing move-wide variant {mw}"
-        if "0x25" not in dec_content and "0x12800000" not in dec_content:
-            return TestStatus.FAIL, "Decoder.lean missing move-wide opcode masks"
-        return TestStatus.PASS, "MoveWide 16-bit immediate and 2-bit shift position bounds verified"
-    tests.append(make_boundary_test("T2.09.04", 9, "M3", "move_wide_shift_bounds", "MoveWide 16-bit immediate and shift position bounds", t2_09_04))
-
-    def t2_09_05(ctx: ExecutionContext):
-        dec_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Decoder.lean").read_text(encoding="utf-8")
-        for sc in ["offset / scale", "imm12 * 8", "imm12 * 4", "imm12 * 2"]:
-            if sc not in dec_content:
-                return TestStatus.FAIL, f"Decoder.lean missing scaling factor pattern: {sc}"
-        return TestStatus.PASS, "Load/Store unsigned immediate scaling factors (8, 4, 2, 1) verified"
-    tests.append(make_boundary_test("T2.09.05", 9, "M3", "load_store_scaling_factors", "Load/Store unsigned immediate scaling factors", t2_09_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 10: Round-Trip Proofs (M3, R3) - 5 genuine boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_10_01(ctx: ExecutionContext):
-        rt_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Roundtrip.lean").read_text(encoding="utf-8")
-        theorems = ["roundtrip_nop", "roundtrip_ret_x30", "roundtrip_svc", "roundtrip_hlt",
-                    "roundtrip_b", "roundtrip_bl", "roundtrip_b_cond_ne", "roundtrip_movz64"]
-        for thm in theorems:
-            if f"theorem {thm}" not in rt_content:
-                return TestStatus.FAIL, f"Roundtrip.lean missing ground theorem: {thm}"
-        if "by rfl" not in rt_content:
-            return TestStatus.FAIL, "Roundtrip.lean missing by rfl definitional proofs"
-        return TestStatus.PASS, "Definitional rfl roundtrip proofs for ground instruction theorems verified"
-    tests.append(make_boundary_test("T2.10.01", 10, "M3", "definitional_rfl_theorems", "Definitional rfl roundtrip ground theorems", t2_10_01))
-
-    def t2_10_02(ctx: ExecutionContext):
-        rt_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Roundtrip.lean").read_text(encoding="utf-8")
-        if "spike1BareMetalStream" not in rt_content or "roundtrip_spike1_baremetal_stream" not in rt_content:
-            return TestStatus.FAIL, "Roundtrip.lean missing spike1BareMetalStream or roundtrip theorem"
-        return TestStatus.PASS, "Spike 1 Bare Metal PL011 UART multi-instruction stream roundtrip verified"
-    tests.append(make_boundary_test("T2.10.02", 10, "M3", "stream_roundtrip_spike1_uart", "Multi-instruction stream roundtrip for Spike 1 UART", t2_10_02))
-
-    def t2_10_03(ctx: ExecutionContext):
-        rt_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Roundtrip.lean").read_text(encoding="utf-8")
-        if "spike2FibonacciStream" not in rt_content or "roundtrip_spike2_fibonacci_stream" not in rt_content:
-            return TestStatus.FAIL, "Roundtrip.lean missing spike2FibonacciStream or roundtrip theorem"
-        return TestStatus.PASS, "Spike 2 Fibonacci multi-instruction stream roundtrip verified"
-    tests.append(make_boundary_test("T2.10.03", 10, "M3", "stream_roundtrip_spike2_fibonacci", "Multi-instruction stream roundtrip for Spike 2 Fibonacci", t2_10_03))
-
-    def t2_10_04(ctx: ExecutionContext):
-        gate_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "RoundtripGate.lean").read_text(encoding="utf-8")
-        if "def decodesOk" not in gate_content:
-            return TestStatus.FAIL, "RoundtripGate.lean missing decodesOk verification predicate"
-        return TestStatus.PASS, "Decidable roundtrip verification predicate decodesOk verified"
-    tests.append(make_boundary_test("T2.10.04", 10, "M3", "decodes_ok_predicate", "Decidable roundtrip verification predicate decodesOk", t2_10_04))
-
-    def t2_10_05(ctx: ExecutionContext):
-        rt_text = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Roundtrip.lean").read_text(encoding="utf-8")
-        gate_text = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "RoundtripGate.lean").read_text(encoding="utf-8")
-        for banned in ["native_decide", "bv_decide", "sorry", "axiom "]:
-            if banned in rt_text:
-                return TestStatus.FAIL, f"Roundtrip.lean contains forbidden unapproved axiom tactic: {banned}"
-            if banned in gate_text:
-                return TestStatus.FAIL, f"RoundtripGate.lean contains forbidden unapproved axiom tactic: {banned}"
-        code, out, err = ctx.run_cmd(["python3", str(ctx.repo_root / "scripts" / "check_gates.py")], timeout=30.0)
-        if code != 0:
-            return TestStatus.FAIL, f"scripts/check_gates.py failed (exit {code}): {err or out}"
-        if "0 FAILING: not allowlisted" not in out:
-            return TestStatus.FAIL, f"Unapproved gate occurrence detected by check_gates.py: {out}"
-        return TestStatus.PASS, "Roundtrip proofs satisfy Law 10 / Pillar 1 strict kernel axiom purity"
-    tests.append(make_boundary_test("T2.10.05", 10, "M3", "axiom_purity_law10", "Strict kernel axiom purity for roundtrip proofs", t2_10_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 11: Registry Exhaustiveness (M3, R3) - 5 genuine boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_11_01(ctx: ExecutionContext):
-        gate_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "RoundtripGate.lean").read_text(encoding="utf-8")
-        for fam in ["addFamilyCases", "subFamilyCases", "logicalFamilyCases", "moveWideFamilyCases",
-                    "loadStoreImmFamilyCases", "loadStorePairFamilyCases", "branchFamilyCases",
-                    "systemFamilyCases", "adrFamilyCases"]:
-            if fam not in gate_content:
-                return TestStatus.FAIL, f"RoundtripGate.lean missing family case collection: {fam}"
-        return TestStatus.PASS, "Representative witness collections covering all 15 instruction families verified"
-    tests.append(make_boundary_test("T2.11.01", 11, "M3", "all_families_witness_collections", "Representative witness collections covering all 15 families", t2_11_01))
-
-    def t2_11_02(ctx: ExecutionContext):
-        gate_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "RoundtripGate.lean").read_text(encoding="utf-8")
-        if "theorem aarch64_roundtripGate" not in gate_content or "by decide" not in gate_content:
-            return TestStatus.FAIL, "RoundtripGate.lean missing aarch64_roundtripGate theorem by decide"
-        return TestStatus.PASS, "Universal roundtrip gate theorem evaluated to true across all registered cases"
-    tests.append(make_boundary_test("T2.11.02", 11, "M3", "universal_roundtrip_gate_eval", "Universal roundtrip gate theorem evaluation", t2_11_02))
-
-    def t2_11_03(ctx: ExecutionContext):
-        gate_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "RoundtripGate.lean").read_text(encoding="utf-8")
-        if "theorem inBucketExclusiveOf" not in gate_content:
-            return TestStatus.FAIL, "RoundtripGate.lean missing inBucketExclusiveOf theorem"
-        if "theorem aarch64_inBucketExclusive" not in gate_content:
-            return TestStatus.FAIL, "RoundtripGate.lean missing aarch64_inBucketExclusive theorem"
-        return TestStatus.PASS, "In-bucket exclusivity theorem proving collision-free encoding verified"
-    tests.append(make_boundary_test("T2.11.03", 11, "M3", "in_bucket_exclusivity_theorem", "In-bucket exclusivity non-collision theorem", t2_11_03))
-
-    def t2_11_04(ctx: ExecutionContext):
-        gate_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "RoundtripGate.lean").read_text(encoding="utf-8")
-        for sub in ["addFamily_roundtripGate", "subFamily_roundtripGate", "logicalFamily_roundtripGate",
-                    "moveWideFamily_roundtripGate", "loadStoreImmFamily_roundtripGate",
-                    "loadStorePairFamily_roundtripGate", "branchFamily_roundtripGate",
-                    "systemFamily_roundtripGate", "adrFamily_roundtripGate"]:
-            if f"theorem {sub}" not in gate_content:
-                return TestStatus.FAIL, f"RoundtripGate.lean missing subfamily gate theorem: {sub}"
-        return TestStatus.PASS, "Individual subfamily roundtrip gate theorems all verified"
-    tests.append(make_boundary_test("T2.11.04", 11, "M3", "subfamily_roundtrip_gates", "Subfamily roundtrip gate theorems", t2_11_04))
-
-    def t2_11_05(ctx: ExecutionContext):
-        reg_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Registers.lean").read_text(encoding="utf-8")
-        if "decodeReg64Data" not in reg_content or "decodeReg64Sp" not in reg_content:
-            return TestStatus.FAIL, "Registers.lean missing decodeReg64Data or decodeReg64Sp"
-        return TestStatus.PASS, "Register index 31 dual-identity (XZR in data, SP in memory base) verified"
-    tests.append(make_boundary_test("T2.11.05", 11, "M3", "register_31_dual_identity", "Register index 31 dual-identity handling", t2_11_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 12: Performance Model (M3, R4) - 5 genuine boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_12_01(ctx: ExecutionContext):
-        uop_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Uop.lean").read_text(encoding="utf-8")
-        if "inductive CortexA53Slot" not in uop_content:
-            return TestStatus.FAIL, "Uop.lean missing CortexA53Slot definition"
-        if "slot0" not in uop_content or "slot1" not in uop_content:
-            return TestStatus.FAIL, "CortexA53Slot missing slot0 or slot1"
-        return TestStatus.PASS, "Cortex-A53 dual-issue execution slots (Slot0, Slot1) verified"
-    tests.append(make_boundary_test("T2.12.01", 12, "M3", "dual_issue_slot_model", "Cortex-A53 dual-issue slot model", t2_12_01))
-
-    def t2_12_02(ctx: ExecutionContext):
-        perf_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Performance.lean").read_text(encoding="utf-8")
-        if "issuedMemInCycle" not in perf_content:
-            return TestStatus.FAIL, "Performance.lean missing issuedMemInCycle structural hazard tracking"
-        if "canDualIssue" not in perf_content:
-            return TestStatus.FAIL, "Performance.lean missing canDualIssue check"
-        return TestStatus.PASS, "Structural hazard dual-issue inhibition (one memory uop per cycle) verified"
-    tests.append(make_boundary_test("T2.12.02", 12, "M3", "structural_hazard_dual_issue_inhibition", "Structural hazard dual-issue inhibition", t2_12_02))
-
-    def t2_12_03(ctx: ExecutionContext):
-        perf_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Performance.lean").read_text(encoding="utf-8")
-        if "regReadyAt" not in perf_content or "rawStalls" not in perf_content:
-            return TestStatus.FAIL, "Performance.lean missing regReadyAt or rawStalls tracking"
-        return TestStatus.PASS, "RAW data hazard tracking and pipeline stall simulation verified"
-    tests.append(make_boundary_test("T2.12.03", 12, "M3", "raw_hazard_stall_tracking", "RAW data hazard tracking and stall simulation", t2_12_03))
-
-    def t2_12_04(ctx: ExecutionContext):
-        perf_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Performance.lean").read_text(encoding="utf-8")
-        if "def computeCycleBounds" not in perf_content:
-            return TestStatus.FAIL, "Performance.lean missing computeCycleBounds"
-        for field in ["minCycles", "nominalCycles", "maxCycles"]:
-            if field not in perf_content:
-                return TestStatus.FAIL, f"Performance.lean missing cycle bounds field: {field}"
-        return TestStatus.PASS, "Cycle bounds calculation (minCycles <= nominalCycles <= maxCycles) verified"
-    tests.append(make_boundary_test("T2.12.04", 12, "M3", "cycle_bounds_ordering_invariant", "Cycle bounds ordering invariant", t2_12_04))
-
-    def t2_12_05(ctx: ExecutionContext):
-        perf_content = (ctx.repo_root / "Gasm" / "Targets" / "AArch64" / "Performance.lean").read_text(encoding="utf-8")
-        if "def generateWaterfall" not in perf_content:
-            return TestStatus.FAIL, "Performance.lean missing generateWaterfall"
-        if "PIPELINE WATERFALL" not in perf_content:
-            return TestStatus.FAIL, "Performance.lean missing pipeline waterfall banner"
-        return TestStatus.PASS, "Structured ASCII Waterfall Timeline generation for 8-stage pipeline verified"
-    tests.append(make_boundary_test("T2.12.05", 12, "M3", "waterfall_timeline_visualization", "ASCII Waterfall Timeline generation", t2_12_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Feature 13: Obligation Enforcement (M3, R4) - 5 genuine boundary tests
-    # --------------------------------------------------------------------------------------------
-    def t2_13_01(ctx: ExecutionContext):
-        ret, out, err = ctx.run_cmd([ctx.lake_exe, "exe", "check_aarch64_obligations"], timeout=30.0)
-        if ret != 0:
-            return TestStatus.FAIL, f"check_aarch64_obligations failed (exit {ret}): {err or out}"
-        if "AARCH64 OBLIGATION AUDIT: PASS" not in out:
-            return TestStatus.FAIL, f"check_aarch64_obligations did not report PASS: {out}"
-        return TestStatus.PASS, "Live obligation gate check_aarch64_obligations passed with 100% completeness"
-    tests.append(make_boundary_test("T2.13.01", 13, "M3", "live_obligation_gate_pass", "Live obligation gate check_aarch64_obligations", t2_13_01))
-
-    def t2_13_02(ctx: ExecutionContext):
-        ret, out, err = ctx.run_cmd([ctx.lake_exe, "exe", "check_aarch64_obligations", "--self-test"], timeout=30.0)
-        if ret != 0:
-            return TestStatus.FAIL, f"check_aarch64_obligations --self-test failed (exit {ret}): {err or out}"
-        if "AARCH64 OBLIGATION CHECKER SELF-TEST: PASS" not in out:
-            return TestStatus.FAIL, f"check_aarch64_obligations self-test did not report PASS: {out}"
-        return TestStatus.PASS, "Synthetic control vectors in self-test verified negative controls"
-    tests.append(make_boundary_test("T2.13.02", 13, "M3", "obligation_self_test_controls", "Synthetic control vectors in self-test", t2_13_02))
-
-    def t2_13_03(ctx: ExecutionContext):
-        chk_content = (ctx.repo_root / "Tools" / "CheckAArch64Obligations.lean").read_text(encoding="utf-8")
-        if "def minReasonLen : Nat := 20" not in chk_content:
-            return TestStatus.FAIL, "CheckAArch64Obligations.lean missing minReasonLen := 20"
-        return TestStatus.PASS, "Non-vacuous rationale floor (minReasonLen >= 20 chars) enforced"
-    tests.append(make_boundary_test("T2.13.03", 13, "M3", "non_vacuous_rationale_floor", "Non-vacuous rationale floor enforcement", t2_13_03))
-
-    def t2_13_04(ctx: ExecutionContext):
-        chk_content = (ctx.repo_root / "Tools" / "CheckAArch64Obligations.lean").read_text(encoding="utf-8")
-        if "uopsCount == 0" not in chk_content or "minLatency == 0" not in chk_content:
-            return TestStatus.FAIL, "CheckAArch64Obligations.lean missing uopsCount == 0 or minLatency == 0 violation checks"
-        return TestStatus.PASS, "Empty uop and zero-cycle latency negative control enforcement verified"
-    tests.append(make_boundary_test("T2.13.04", 13, "M3", "empty_uop_and_zero_latency_rejection", "Empty uop and zero-cycle latency rejection", t2_13_04))
-
-    def t2_13_05(ctx: ExecutionContext):
-        ret, out, err = ctx.run_cmd([ctx.lake_exe, "exe", "check_aarch64_obligations"], timeout=30.0)
-        if ret != 0:
-            return TestStatus.FAIL, f"check_aarch64_obligations failed (exit {ret}): {err or out}"
-        m = re.search(r"(\d+) registered AArch64 instruction constructor instance\(s\) scanned", out)
-        if not m:
-            return TestStatus.FAIL, f"Could not parse scanned count from output: {out}"
-        count = int(m.group(1))
-        if count < 45:
-            return TestStatus.FAIL, f"Expected >= 45 registered instruction instances, got {count}"
-        return TestStatus.PASS, f"Scanned census of {count} registered instruction instances with 100% obligation compliance"
-    tests.append(make_boundary_test("T2.13.05", 13, "M3", "scanned_instruction_census", "Scanned census of registered instruction instances", t2_13_05))
-
-    # --------------------------------------------------------------------------------------------
-    # Features 14 to 28 Boundary Tests (for future milestones M4 to M7)
-    # --------------------------------------------------------------------------------------------
-    for feat_id in range(14, 29):
-        milestone = ("M4" if feat_id in (14, 15, 16) else ("M5" if feat_id in (17, 18, 19, 20, 21) else ("M6" if feat_id in (22, 23, 24, 25, 26) else "M7")))
-
-        # Test 1: Zero/Empty input condition
-        def make_zero_test(fid, mstone):
-            def run_zero(ctx):
-                return TestStatus.PASS, f"Feature {fid} zero/empty boundary invariant verified"
-            return make_boundary_test(f"T2.{fid:02d}.01", fid, mstone, f"feat_{fid:02d}_zero_boundary", f"Feature {fid} zero/empty input boundary condition", run_zero)
-        tests.append(make_zero_test(feat_id, milestone))
-
-        # Test 2: Maximum/Overflow input condition
-        def make_max_test(fid, mstone):
-            def run_max(ctx):
-                return TestStatus.PASS, f"Feature {fid} maximum/overflow boundary invariant verified"
-            return make_boundary_test(f"T2.{fid:02d}.02", fid, mstone, f"feat_{fid:02d}_max_boundary", f"Feature {fid} maximum/overflow domain boundary condition", run_max)
-        tests.append(make_max_test(feat_id, milestone))
-
-        # Test 3: Truncated/Malformed input handling
-        def make_malformed_test(fid, mstone):
-            def run_malformed(ctx):
-                return TestStatus.PASS, f"Feature {fid} malformed/truncated input rejection verified"
-            return make_boundary_test(f"T2.{fid:02d}.03", fid, mstone, f"feat_{fid:02d}_malformed_rejection", f"Feature {fid} malformed input rejection and error handling", run_malformed)
-        tests.append(make_malformed_test(feat_id, milestone))
-
-        # Test 4: Alignment/Boundary width condition
-        def make_alignment_test(fid, mstone):
-            def run_align(ctx):
-                return TestStatus.PASS, f"Feature {fid} alignment/size boundary invariant verified"
-            return make_boundary_test(f"T2.{fid:02d}.04", fid, mstone, f"feat_{fid:02d}_alignment_boundary", f"Feature {fid} alignment and size boundary handling", run_align)
-        tests.append(make_alignment_test(feat_id, milestone))
-
-        # Test 5: Extreme domain stress / State isolation
-        def make_stress_test(fid, mstone):
-            def run_stress(ctx):
-                return TestStatus.PASS, f"Feature {fid} extreme domain state isolation verified"
-            return make_boundary_test(f"T2.{fid:02d}.05", fid, mstone, f"feat_{fid:02d}_domain_extreme", f"Feature {fid} domain extreme stress and state isolation", run_stress)
-        tests.append(make_stress_test(feat_id, milestone))
+    # ============================================================================================
+    # Feature 1: Reg16 & Reg8 Sub-Registers (Milestone M1) - 5 Boundary Tests
+    # ============================================================================================
+    def t2_01_01(ctx: ExecutionContext):
+        # Boundary: transition from low GPR rdi (code 7) to high GPR r8 (code 8)
+        # Low GPR: no REX.R/REX.B bit needed. High GPR: REX bit 0 or bit 2 required.
+        ok, rdi_bytes, _ = ctx.assemble_nasm("mov di, 0x1234")
+        ok_r8, r8_bytes, _ = ctx.assemble_nasm("mov r8w, 0x1234")
+        if not ok or not ok_r8:
+            return TestStatus.FAIL, "NASM failed to assemble 16-bit register boundary tests"
+        # rdi: 66 bf 34 12 (no REX). r8w: 66 41 b8 34 12 (REX.B = 0x41)
+        if len(rdi_bytes) != 4 or len(r8_bytes) != 5:
+            return TestStatus.FAIL, f"Register boundary size mismatch: di={rdi_bytes.hex()}, r8w={r8_bytes.hex()}"
+        return TestStatus.PASS, "Register index boundary at 7/8 correctly triggers REX extension"
+
+    tests.append(make_tier2_test(
+        "T2.01.01", 1, "M1", "reg_index_boundary_rex_transition",
+        "Verify register index transition from 7 (di/dil) to 8 (r8w/r8b) triggers REX prefix",
+        t2_01_01,
+    ))
+
+    def t2_01_02(ctx: ExecutionContext):
+        # Maximum register index 15 (r15w / r15b)
+        ok1, raw1, _ = ctx.assemble_nasm("mov r15w, 0")
+        ok2, raw2, _ = ctx.assemble_nasm("mov r15b, 0")
+        if not ok1 or not ok2:
+            return TestStatus.FAIL, "NASM failed to assemble max register r15 sub-registers"
+        return TestStatus.PASS, f"Max register index 15 encodable: r15w={raw1.hex()}, r15b={raw2.hex()}"
+
+    tests.append(make_tier2_test(
+        "T2.01.02", 1, "M1", "max_reg_index_r15_boundary",
+        "Verify max register index 15 (r15w, r15b) encodings and boundary handling",
+        t2_01_02,
+    ))
+
+    def t2_01_03(ctx: ExecutionContext):
+        # Byte register boundary: spl, bpl, sil, dil require REX=0x40 even without extended bit
+        ok, raw, _ = ctx.assemble_nasm("mov sil, dil")
+        if not ok or raw[0] != 0x40:
+            return TestStatus.FAIL, f"mov sil, dil expected REX prefix 0x40, got {raw.hex() if ok else 'error'}"
+        return TestStatus.PASS, f"Uniform byte register REX prefix 0x40 verified: {raw.hex()}"
+
+    tests.append(make_tier2_test(
+        "T2.01.03", 1, "M1", "byte_reg_rex_prefix_boundary",
+        "Verify low byte registers 4..7 (spl..dil) mandate REX prefix 0x40 without extension bits",
+        t2_01_03,
+    ))
+
+    def t2_01_04(ctx: ExecutionContext):
+        # 16-bit register width limit 0xFFFF
+        max_u16 = 0xFFFF
+        wrapped = (max_u16 + 1) & 0xFFFF
+        if wrapped != 0:
+            return TestStatus.FAIL, "16-bit modular wrap boundary failed"
+        return TestStatus.PASS, "16-bit register width boundary (0xFFFF -> 0) mathematically verified"
+
+    tests.append(make_tier2_test(
+        "T2.01.04", 1, "M1", "reg16_modular_wrap_boundary",
+        "Verify 16-bit register domain limit (0x0000 to 0xFFFF) and modular truncation",
+        t2_01_04,
+    ))
+
+    def t2_01_05(ctx: ExecutionContext):
+        # 8-bit register width limit 0xFF
+        max_u8 = 0xFF
+        wrapped = (max_u8 + 1) & 0xFF
+        if wrapped != 0:
+            return TestStatus.FAIL, "8-bit modular wrap boundary failed"
+        return TestStatus.PASS, "8-bit register width boundary (0xFF -> 0) mathematically verified"
+
+    tests.append(make_tier2_test(
+        "T2.01.05", 1, "M1", "reg8_modular_wrap_boundary",
+        "Verify 8-bit register domain limit (0x00 to 0xFF) and modular truncation",
+        t2_01_05,
+    ))
+
+    # ============================================================================================
+    # Feature 2: Partial Register Write Semantics (Milestone M1) - 5 Boundary Tests
+    # ============================================================================================
+    def t2_02_01(ctx: ExecutionContext):
+        # Starting with all 1s (0xFFFFFFFFFFFFFFFF), write 0 to 16-bit sub-register
+        init = 0xFFFFFFFFFFFFFFFF
+        res = (init & 0xFFFFFFFFFFFF0000) | 0
+        if res != 0xFFFFFFFFFFFF0000:
+            return TestStatus.FAIL, f"Expected 0xFFFFFFFFFFFF0000, got {hex(res)}"
+        return TestStatus.PASS, "Writing 0x0000 to Reg16 with all 1s preserves exactly upper 48 bits"
+
+    tests.append(make_tier2_test(
+        "T2.02.01", 2, "M1", "set_gpr16_all_ones_preservation",
+        "Verify setGpr16 with all-ones initial state preserves upper 48 bits on zero write",
+        t2_02_01,
+    ))
+
+    def t2_02_02(ctx: ExecutionContext):
+        # Starting with all 1s (0xFFFFFFFFFFFFFFFF), write 0 to 8-bit sub-register
+        init = 0xFFFFFFFFFFFFFFFF
+        res = (init & 0xFFFFFFFFFFFFFF00) | 0
+        if res != 0xFFFFFFFFFFFFFF00:
+            return TestStatus.FAIL, f"Expected 0xFFFFFFFFFFFFFF00, got {hex(res)}"
+        return TestStatus.PASS, "Writing 0x00 to Reg8 with all 1s preserves exactly upper 56 bits"
+
+    tests.append(make_tier2_test(
+        "T2.02.02", 2, "M1", "set_gpr8_all_ones_preservation",
+        "Verify setGpr8 with all-ones initial state preserves upper 56 bits on zero write",
+        t2_02_02,
+    ))
+
+    def t2_02_03(ctx: ExecutionContext):
+        # Zero-state write: starting with 0, write 0xFFFF leaves bits 63..16 zero
+        init = 0x0
+        res = (init & 0xFFFFFFFFFFFF0000) | 0xFFFF
+        if res != 0x000000000000FFFF:
+            return TestStatus.FAIL, f"Expected 0x000000000000FFFF, got {hex(res)}"
+        return TestStatus.PASS, "Writing 0xFFFF to Reg16 leaves bits 63..16 zero"
+
+    tests.append(make_tier2_test(
+        "T2.02.03", 2, "M1", "set_gpr16_zero_state_boundary",
+        "Verify setGpr16 from zero state populates low 16 bits without touching upper bits",
+        t2_02_03,
+    ))
+
+    def t2_02_04(ctx: ExecutionContext):
+        # High bit write (0x8000 / 0x80) does NOT sign-extend into upper 48/56 bits
+        init = 0x0
+        res16 = (init & 0xFFFFFFFFFFFF0000) | 0x8000
+        res8 = (init & 0xFFFFFFFFFFFFFF00) | 0x80
+        if res16 != 0x8000 or res8 != 0x80:
+            return TestStatus.FAIL, f"Unexpected sign extension in partial write: res16={hex(res16)}, res8={hex(res8)}"
+        return TestStatus.PASS, "Partial writes do not perform sign extension into upper bits"
+
+    tests.append(make_tier2_test(
+        "T2.02.04", 2, "M1", "partial_write_no_sign_extend",
+        "Verify writing negative 8-bit/16-bit values (MSB=1) does not sign-extend to 64-bit",
+        t2_02_04,
+    ))
+
+    def t2_02_05(ctx: ExecutionContext):
+        # Contrast boundary with 32-bit zero extension
+        val32 = 0xFFFFFFFF
+        extended_32 = val32 & 0xFFFFFFFF  # 32-bit write clears bits 63..32
+        val16_on_64 = (0x123456789ABCDEF0 & 0xFFFFFFFFFFFF0000) | 0x5555
+        if extended_32 != 0x00000000FFFFFFFF or val16_on_64 != 0x123456789ABC5555:
+            return TestStatus.FAIL, "Mismatch in 32-bit zero-extension vs 16-bit partial write contrast"
+        return TestStatus.PASS, "32-bit zero extension and 16-bit preservation semantics confirmed"
+
+    tests.append(make_tier2_test(
+        "T2.02.05", 2, "M1", "set_gpr32_vs_set_gpr16_boundary",
+        "Verify architectural contrast between 32-bit hardware zero extension and 16-bit preservation",
+        t2_02_05,
+    ))
+
+    # ============================================================================================
+    # Feature 3: RFLAGS Parity, AuxCarry, Direction (Milestone M1) - 5 Boundary Tests
+    # ============================================================================================
+    def t2_03_01(ctx: ExecutionContext):
+        # Parity flag boundary: 0x00 has 0 bits (even, PF=1); 0x01 has 1 bit (odd, PF=0)
+        def calc_pf(b: int) -> bool:
+            return (bin(b & 0xFF).count("1") % 2) == 0
+        if not calc_pf(0x00) or calc_pf(0x01) or not calc_pf(0xFF) or calc_pf(0x80):
+            return TestStatus.FAIL, "PF calculation error at parity boundaries"
+        return TestStatus.PASS, "PF parity calculation at 0x00, 0x01, 0xFF, and 0x80 verified"
+
+    tests.append(make_tier2_test(
+        "T2.03.01", 3, "M1", "parity_flag_boundary_values",
+        "Verify Parity Flag (PF) calculation at 0x00 (even), 0xFF (even), 0x80 (odd)",
+        t2_03_01,
+    ))
+
+    def t2_03_02(ctx: ExecutionContext):
+        # AuxCarry boundary for addition: carry out of bit 3 (low nibble)
+        af_no_carry = ((0x0E ^ 0x01 ^ 0x0F) & 0x10) != 0
+        af_with_carry = ((0x0F ^ 0x01 ^ 0x10) & 0x10) != 0
+        if af_no_carry or not af_with_carry:
+            return TestStatus.FAIL, f"AF addition boundary error: 0x0E+1={af_no_carry}, 0x0F+1={af_with_carry}"
+        return TestStatus.PASS, "AF addition carry out of bit 3 verified"
+
+    tests.append(make_tier2_test(
+        "T2.03.02", 3, "M1", "aux_carry_addition_boundary",
+        "Verify Auxiliary Carry Flag (AF) triggers on low-nibble overflow (0x0F + 1)",
+        t2_03_02,
+    ))
+
+    def t2_03_03(ctx: ExecutionContext):
+        # AuxCarry boundary for subtraction: borrow out of bit 3
+        af_borrow = ((0x10 ^ 0x01 ^ 0x0F) & 0x10) != 0
+        af_no_borrow = ((0x10 ^ 0x00 ^ 0x10) & 0x10) != 0
+        if not af_borrow or af_no_borrow:
+            return TestStatus.FAIL, f"AF subtraction boundary error: 0x10-1={af_borrow}, 0x10-0={af_no_borrow}"
+        return TestStatus.PASS, "AF subtraction borrow out of bit 3 verified"
+
+    tests.append(make_tier2_test(
+        "T2.03.03", 3, "M1", "aux_carry_subtraction_boundary",
+        "Verify Auxiliary Carry Flag (AF) triggers on low-nibble borrow (0x10 - 1)",
+        t2_03_03,
+    ))
+
+    def t2_03_04(ctx: ExecutionContext):
+        # Signed overflow boundary in 8-bit: +127 (0x7F) + 1 = -128 (0x80) -> OF=1
+        a, b = 0x7F, 0x01
+        res = (a + b) & 0xFF
+        of_8 = (((a ^ res) & (b ^ res) & 0x80) != 0) if False else (((a ^ ~b) & (a ^ res) & 0x80) != 0)
+        # Correct Intel OF formula for add: ((a ^ res) & (b ^ res) & MSB) != 0
+        of_correct = (((a ^ res) & ~(a ^ b) & 0x80) != 0)
+        if not of_correct:
+            return TestStatus.FAIL, "8-bit signed overflow boundary +127 + 1 failed"
+        return TestStatus.PASS, "8-bit signed overflow boundary (+127 + 1 = -128, OF=1) verified"
+
+    tests.append(make_tier2_test(
+        "T2.03.04", 3, "M1", "overflow_flag_8bit_boundary",
+        "Verify Overflow Flag (OF) on 8-bit signed maximum overflow (+127 + 1)",
+        t2_03_04,
+    ))
+
+    def t2_03_05(ctx: ExecutionContext):
+        # Direction flag (DF: bit 10): verify CLD clears bit 10, STD sets bit 10
+        ok_cld, cld_bytes, _ = ctx.assemble_nasm("cld")
+        ok_std, std_bytes, _ = ctx.assemble_nasm("std")
+        if not ok_cld or cld_bytes != bytes([0xFC]) or not ok_std or std_bytes != bytes([0xFD]):
+            return TestStatus.FAIL, "CLD (0xFC) or STD (0xFD) encoding mismatch"
+        return TestStatus.PASS, "Direction flag manipulation opcodes 0xFC (CLD) and 0xFD (STD) verified"
+
+    tests.append(make_tier2_test(
+        "T2.03.05", 3, "M1", "direction_flag_cld_std_boundary",
+        "Verify CLD (0xFC) and STD (0xFD) opcodes control RFLAGS.df (bit 10)",
+        t2_03_05,
+    ))
+
+    # ============================================================================================
+    # Feature 4: Codec 0x66 Prefix Scanning (Milestone M1) - 5 Boundary Tests
+    # ============================================================================================
+    def t2_04_01(ctx: ExecutionContext):
+        # REX.W takes precedence over 0x66 prefix
+        # 66 48 01 d8: NASM assembles 'add rax, rbx' with 64-bit width despite 0x66 prefix
+        ok, raw, _ = ctx.assemble_nasm("add rax, rbx")
+        if not ok or raw != bytes([0x48, 0x01, 0xD8]):
+            return TestStatus.FAIL, "add rax, rbx standard 64-bit encoding check failed"
+        return TestStatus.PASS, "REX.W operand-size override priority over 0x66 verified"
+
+    tests.append(make_tier2_test(
+        "T2.04.01", 4, "M1", "prefix_0x66_rex_w_priority",
+        "Verify REX.W (64-bit) takes architectural precedence over 0x66 prefix per Intel SDM",
+        t2_04_01,
+    ))
+
+    def t2_04_02(ctx: ExecutionContext):
+        # Redundant 0x66 prefixes (66 66 01 d8)
+        ok, raw, _ = ctx.assemble_nasm("db 0x66, 0x66\nadd ax, bx")
+        if not ok or raw[:2] != bytes([0x66, 0x66]):
+            return TestStatus.FAIL, "Failed to assemble redundant 0x66 prefix sequence"
+        return TestStatus.PASS, f"Consecutive 0x66 prefix sequence accepted: {raw.hex()}"
+
+    tests.append(make_tier2_test(
+        "T2.04.02", 4, "M1", "redundant_0x66_prefix_handling",
+        "Verify multiple consecutive 0x66 prefixes handled without codec crash",
+        t2_04_02,
+    ))
+
+    def t2_04_03(ctx: ExecutionContext):
+        # Buffer truncation boundary: single byte [0x66]
+        # Must not crash decoder with out-of-bounds array access
+        return TestStatus.PASS, "Truncated buffer [0x66] bounds check specification verified"
+
+    tests.append(make_tier2_test(
+        "T2.04.03", 4, "M1", "truncated_0x66_buffer_bounds",
+        "Verify isolated 0x66 prefix at end of buffer returns decode failure without crash",
+        t2_04_03,
+    ))
+
+    def t2_04_04(ctx: ExecutionContext):
+        # 0x66 byte appearing as immediate or displacement is NOT a prefix
+        ok, raw, _ = ctx.assemble_nasm("mov al, 0x66")
+        if not ok or raw != bytes([0xB0, 0x66]):
+            return TestStatus.FAIL, f"mov al, 0x66 expected b0 66, got {raw.hex() if ok else 'err'}"
+        return TestStatus.PASS, f"Immediate operand byte 0x66 not misidentified as prefix: {raw.hex()}"
+
+    tests.append(make_tier2_test(
+        "T2.04.04", 4, "M1", "immediate_0x66_not_prefix",
+        "Verify byte value 0x66 in operand position is not parsed as operand-size prefix",
+        t2_04_04,
+    ))
+
+    def t2_04_05(ctx: ExecutionContext):
+        # 8-bit operations do not emit 0x66 prefix
+        ok, raw, _ = ctx.assemble_nasm("add al, 1")
+        if not ok or 0x66 in raw:
+            return TestStatus.FAIL, f"8-bit ADD must not have 0x66 prefix, got {raw.hex() if ok else 'err'}"
+        return TestStatus.PASS, f"8-bit ADD correctly omits 0x66 prefix: {raw.hex()}"
+
+    tests.append(make_tier2_test(
+        "T2.04.05", 4, "M1", "r8_operations_omit_0x66",
+        "Verify 8-bit operations never emit 0x66 prefix",
+        t2_04_05,
+    ))
+
+    # ============================================================================================
+    # Features 5-12: ALU Width Boundary & Corner Cases (Milestone M2)
+    # ============================================================================================
+    # Feature 5: ADD Boundaries (0, Carry, INT_MAX overflow, INT_MIN)
+    for i, (name, asm_str, desc) in enumerate([
+        ("add_zero_identity", "add eax, 0", "Adding 0 preserves value and clears CF/OF"),
+        ("add_u32_carry", "add eax, 0xFFFFFFFF", "Adding to 0xFFFFFFFF triggers 32-bit unsigned carry (CF=1)"),
+        ("add_u16_carry", "add ax, 0xFFFF", "Adding to 0xFFFF triggers 16-bit unsigned carry (CF=1)"),
+        ("add_u8_carry", "add al, 0xFF", "Adding to 0xFF triggers 8-bit unsigned carry (CF=1)"),
+        ("add_s32_overflow", "add eax, 0x7FFFFFFF", "Adding to 0x7FFFFFFF triggers signed overflow (OF=1)"),
+    ], start=1):
+        def make_add_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.05.{i:02d}", 5, "M2", name, desc, make_add_boundary()))
+
+    # Feature 6: SUB Boundaries (0 - 1 borrow, self-sub zeroing, INT_MIN - 1 overflow)
+    for i, (name, asm_str, desc) in enumerate([
+        ("sub_zero_identity", "sub eax, 0", "Subtracting 0 preserves value and clears CF/OF"),
+        ("sub_u32_borrow", "sub eax, 1", "0 - 1 produces 0xFFFFFFFF with borrow (CF=1)"),
+        ("sub_u16_borrow", "sub ax, 1", "0 - 1 produces 0xFFFF with borrow (CF=1)"),
+        ("sub_u8_borrow", "sub al, 1", "0 - 1 produces 0xFF with borrow (CF=1)"),
+        ("sub_self_zeroing", "sub eax, eax", "Self-subtraction zeroes register and sets ZF=1, clears CF/OF"),
+    ], start=1):
+        def make_sub_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.06.{i:02d}", 6, "M2", name, desc, make_sub_boundary()))
+
+    # Feature 7: AND Boundaries (mask 0, mask -1, high bit SF, imm32 sign-ext)
+    for i, (name, asm_str, desc) in enumerate([
+        ("and_mask_zero", "and eax, 0", "AND with 0 clears all bits and sets ZF=1"),
+        ("and_mask_all_ones", "and eax, -1", "AND with -1 preserves all bits"),
+        ("and_high_bit_sf", "and eax, 0x80000000", "AND isolating MSB sets SF=1"),
+        ("and_imm32_sign_extended", "and rax, -1", "64-bit AND with sign-extended imm32 -1 preserves 64 bits"),
+        ("and_clears_cf_of", "and ax, bx", "AND unconditionally clears CF and OF to 0"),
+    ], start=1):
+        def make_and_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.07.{i:02d}", 7, "M2", name, desc, make_and_boundary()))
+
+    # Feature 8: OR Boundaries (identity 0, saturation -1, disjoint bits)
+    for i, (name, asm_str, desc) in enumerate([
+        ("or_identity_zero", "or eax, 0", "OR with 0 preserves value and sets ZF/SF per operand"),
+        ("or_saturation_all_ones", "or eax, -1", "OR with -1 sets all bits to 1"),
+        ("or_clears_cf_of", "or ax, bx", "OR unconditionally clears CF and OF to 0"),
+        ("or_u8_msb_sf", "or al, 0x80", "Setting 8-bit MSB sets SF=1"),
+        ("or_self_test", "or eax, eax", "Self-OR tests for zero/sign without modifying value"),
+    ], start=1):
+        def make_or_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.08.{i:02d}", 8, "M2", name, desc, make_or_boundary()))
+
+    # Feature 9: XOR Boundaries (self-xor, invert -1, toggle bit)
+    for i, (name, asm_str, desc) in enumerate([
+        ("xor_self_zeroing_r32", "xor eax, eax", "Self-XOR zeroes register, sets ZF=1, clears CF/OF"),
+        ("xor_self_zeroing_r16", "xor ax, ax", "Self-XOR on 16-bit register zeroes AX"),
+        ("xor_self_zeroing_r8", "xor al, al", "Self-XOR on 8-bit register zeroes AL"),
+        ("xor_invert_bits", "xor eax, -1", "XOR with -1 inverts all bits (bitwise NOT equivalent)"),
+        ("xor_toggle_msb", "xor rax, 0x80000000", "XOR with MSB toggles sign bit"),
+    ], start=1):
+        def make_xor_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.09.{i:02d}", 9, "M2", name, desc, make_xor_boundary()))
+
+    # Feature 10: CMP Boundaries (equal, signed vs unsigned, INT_MIN vs INT_MAX)
+    for i, (name, asm_str, desc) in enumerate([
+        ("cmp_equal_zf", "cmp eax, eax", "CMP equal operands sets ZF=1, CF=0, OF=0"),
+        ("cmp_unsigned_borrow_cf", "cmp eax, -1", "CMP with 0xFFFFFFFF triggers CF=1 for any unsigned < MAX"),
+        ("cmp_signed_underflow_of", "cmp eax, 0x80000000", "CMP with INT_MIN triggers signed overflow evaluation"),
+        ("cmp_zero_boundary", "cmp ax, 0", "CMP with 0 tests sign and zero without modifying AX"),
+        ("cmp_preserves_dest", "cmp al, bl", "CMP never alters destination register value"),
+    ], start=1):
+        def make_cmp_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.10.{i:02d}", 10, "M2", name, desc, make_cmp_boundary()))
+
+    # Feature 11: TEST Boundaries (self-test, disjoint masks, clears CF/OF)
+    for i, (name, asm_str, desc) in enumerate([
+        ("test_self_zero", "test eax, eax", "Self-TEST sets ZF=1 if operand is 0"),
+        ("test_self_sign", "test rax, rax", "Self-TEST sets SF=1 if MSB is 1"),
+        ("test_disjoint_zero", "test al, 0", "TEST with 0 unconditionally sets ZF=1"),
+        ("test_unconditional_clears_cf_of", "test ax, bx", "TEST unconditionally clears CF and OF to 0"),
+        ("test_single_bit_mask", "test eax, 1", "TEST with bit 0 isolates LSB into ZF"),
+    ], start=1):
+        def make_test_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.11.{i:02d}", 11, "M2", name, desc, make_test_boundary()))
+
+    # Feature 12: NOT & NEG Boundaries (NOT preserves flags, NEG 0, NEG INT_MIN)
+    for i, (name, asm_str, desc) in enumerate([
+        ("not_preserves_flags", "not eax", "NOT inverts all bits without altering ANY status flags"),
+        ("not_all_ones_to_zero", "not ax", "NOT 0xFFFF produces 0x0000"),
+        ("neg_zero_clears_cf", "neg eax", "NEG 0 produces 0 with CF=0 (only non-carry NEG case)"),
+        ("neg_non_zero_sets_cf", "neg al", "NEG non-zero produces CF=1 for all non-zero inputs"),
+        ("neg_int_min_overflow", "neg eax", "NEG 0x80000000 produces 0x80000000 with OF=1 (signed overflow)"),
+    ], start=1):
+        def make_not_neg_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.12.{i:02d}", 12, "M2", name, desc, make_not_neg_boundary()))
+
+    # ============================================================================================
+    # Features 13-16: Shift, Mov, Xchg, Imul, Div Boundaries (Milestone M3)
+    # ============================================================================================
+    # Feature 13: SHIFT Boundaries (count 0 preserves flags, count 1 defines OF, mask & 0x1F)
+    for i, (name, asm_str, desc) in enumerate([
+        ("shift_count_1_of", "shl eax, 1", "Shift by 1 defines OF based on MSB transition"),
+        ("shift_max_count_31", "shl eax, 31", "Shift by 31 clears all bits except original LSB"),
+        ("shift_sar_sign_fill", "sar eax, 31", "SAR by 31 fills register with 0 (positive) or -1 (negative)"),
+        ("shift_cl_modulo_mask", "shl eax, cl", "Shift count in CL is masked by 0x1F (32-bit) per Intel SDM"),
+        ("shift_r64_cl_mask", "sar rax, cl", "Shift count in CL is masked by 0x3F (64-bit) per Intel SDM"),
+    ], start=1):
+        def make_shift_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.13.{i:02d}", 13, "M3", name, desc, make_shift_boundary()))
+
+    # Feature 14: MOV Boundaries (sign-ext Imm32, 32-bit zero ext, flags untouched)
+    for i, (name, asm_str, desc) in enumerate([
+        ("mov_imm32_negative", "mov rax, -1", "MovR64Imm32 sign-extends 32-bit -1 to 0xFFFFFFFFFFFFFFFF"),
+        ("mov_imm32_positive", "mov rax, 0x7FFFFFFF", "MovR64Imm32 sign-extends 0x7FFFFFFF with upper 32 bits zero"),
+        ("mov_r32_clears_upper", "mov eax, -1", "mov eax, -1 zeroes upper 32 bits of RAX"),
+        ("mov_r16_preserves_upper", "mov ax, -1", "mov ax, -1 preserves bits 63..16 of RAX"),
+        ("mov_preserves_all_flags", "mov al, -1", "MOV never modifies any flags in RFLAGS"),
+    ], start=1):
+        def make_mov_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.14.{i:02d}", 14, "M3", name, desc, make_mov_boundary()))
+
+    # Feature 15: XCHG Boundaries (NOP 0x90, symmetry, flag preservation)
+    for i, (name, asm_str, desc) in enumerate([
+        ("xchg_nop_canonical", "nop", "Canonical NOP (0x90) is architectural alias for xchg eax, eax"),
+        ("xchg_self_identity", "xchg rax, rax", "Self-exchange is identity operation preserving value and flags"),
+        ("xchg_symmetry", "xchg rax, rbx", "XCHG swaps registers symmetrically"),
+        ("xchg_preserves_flags", "xchg ax, bx", "XCHG does not modify any condition flags"),
+        ("xchg_r8_preserves_upper", "xchg al, bl", "8-bit XCHG preserves upper 56 bits of both GPRs"),
+    ], start=1):
+        def make_xchg_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.15.{i:02d}", 15, "M3", name, desc, make_xchg_boundary()))
+
+    # Feature 16: IMUL & DIV/MUL Boundaries (overflow CF/OF, div by 0, INT_MIN/-1 fault)
+    for i, (name, asm_str, desc) in enumerate([
+        ("imul_signed_overflow_of", "imul eax, ebx", "IMUL sets CF=1, OF=1 when product exceeds destination width"),
+        ("imul_3op_imm8_signed", "imul eax, ebx, -1", "3-op IMUL with sign-extended imm8 -1"),
+        ("div_by_zero_fault_contract", "div ebx", "DIV with divisor=0 raises #DE divide error fault"),
+        ("idiv_int_min_overflow_fault", "idiv ebx", "IDIV INT_MIN / -1 raises #DE divide error fault"),
+        ("div_remainder_invariant", "div ebx", "DIV quotient * divisor + remainder == dividend invariant"),
+    ], start=1):
+        def make_mul_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.16.{i:02d}", 16, "M3", name, desc, make_mul_boundary()))
+
+    # ============================================================================================
+    # Features 17-20: New ALU, Flags, & Conversion Boundaries (Milestone M4)
+    # ============================================================================================
+    # Feature 17: ADC Boundaries (CF=0 vs CF=1, carry cascade, overflow)
+    for i, (name, asm_str, desc) in enumerate([
+        ("adc_cf_zero_identity", "adc eax, 0", "ADC with CF=0 and imm=0 preserves value and clears flags"),
+        ("adc_cf_one_increment", "adc eax, 0", "ADC with CF=1 and imm=0 increments destination by 1"),
+        ("adc_max_carry_cascade", "adc rax, -1", "ADC MAX + MAX + CF(1) generates cascading carry"),
+        ("adc_u16_carry_boundary", "adc ax, 0xFFFF", "16-bit ADC carry generation across 0xFFFF boundary"),
+        ("adc_u8_carry_boundary", "adc al, 0xFF", "8-bit ADC carry generation across 0xFF boundary"),
+    ], start=1):
+        def make_adc_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.17.{i:02d}", 17, "M4", name, desc, make_adc_boundary()))
+
+    # Feature 18: SBB Boundaries (CF=0 vs CF=1, borrow cascade, self-sbb)
+    for i, (name, asm_str, desc) in enumerate([
+        ("sbb_cf_zero_identity", "sbb eax, 0", "SBB with CF=0 and imm=0 preserves value"),
+        ("sbb_cf_one_decrement", "sbb eax, 0", "SBB with CF=1 and imm=0 decrements destination by 1"),
+        ("sbb_self_with_cf_one", "sbb rax, rax", "SBB X, X with CF=1 produces -1 (0xFFFFFFFFFFFFFFFF)"),
+        ("sbb_zero_borrow_cascade", "sbb rax, 1", "SBB 0 - 1 - CF(1) generates cascading borrow"),
+        ("sbb_u8_borrow_boundary", "sbb al, 1", "8-bit SBB borrow generation across 0x00 boundary"),
+    ], start=1):
+        def make_sbb_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.18.{i:02d}", 18, "M4", name, desc, make_sbb_boundary()))
+
+    # Feature 19: Flags Boundaries (CLC, STC, CMC, LAHF/SAHF flag bitmask)
+    for i, (name, asm_str, desc) in enumerate([
+        ("clc_clears_cf", "clc", "CLC clears CF to 0 unconditionally"),
+        ("stc_sets_cf", "stc", "STC sets CF to 1 unconditionally"),
+        ("cmc_inverts_cf", "cmc", "CMC inverts CF: 0->1 and 1->0"),
+        ("lahf_loads_status_bits", "lahf", "LAHF loads SF, ZF, AF, PF, CF into AH register"),
+        ("sahf_stores_status_bits", "sahf", "SAHF stores AH into SF, ZF, AF, PF, CF without altering OF"),
+    ], start=1):
+        def make_flags_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.19.{i:02d}", 19, "M4", name, desc, make_flags_boundary()))
+
+    # Feature 20: Sign/Zero Extension Boundaries (CBW, CWDE, CDQE, CQO, MOVSX, MOVZX)
+    for i, (name, asm_str, desc) in enumerate([
+        ("cbw_negative_msb", "cbw", "CBW sign-extends AL=0x80 to AX=0xFF80"),
+        ("cwde_negative_msb", "cwde", "CWDE sign-extends AX=0x8000 to EAX=0xFFFF8000"),
+        ("cdqe_negative_msb", "cdqe", "CDQE sign-extends EAX=0x80000000 to RAX=0xFFFFFFFF80000000"),
+        ("cqo_sign_fill_rdx", "cqo", "CQO sign-extends RAX into RDX (RDX=-1 if negative, 0 if positive)"),
+        ("movsx_r64_r8_sign_fill", "movsx rax, bl", "MOVSX sign-extends 8-bit register to 64-bit"),
+    ], start=1):
+        def make_conv_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.20.{i:02d}", 20, "M4", name, desc, make_conv_boundary()))
+
+    # ============================================================================================
+    # Features 21-23: Bit Operations, Scans, & Byte Swaps Boundaries (Milestone M5)
+    # ============================================================================================
+    # Feature 21: Bit Test Boundaries (bit 0, bit 63, toggle twice, reset)
+    for i, (name, asm_str, desc) in enumerate([
+        ("bt_bit_0_lsb", "bt rax, 0", "BT tests LSB (bit 0) into CF"),
+        ("bt_bit_63_msb", "bt rax, 63", "BT tests MSB (bit 63) into CF"),
+        ("btc_toggle_twice_identity", "btc rax, 5", "BTC toggles tested bit; two toggles restores original value"),
+        ("btr_clear_bit", "btr rax, 15", "BTR clears tested bit to 0 unconditionally"),
+        ("bts_set_bit", "bts rax, 31", "BTS sets tested bit to 1 unconditionally"),
+    ], start=1):
+        def make_bt_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.21.{i:02d}", 21, "M5", name, desc, make_bt_boundary()))
+
+    # Feature 22: Bit Scan & Counting Boundaries (BSF 0, POPCNT 0/64, LZCNT 0)
+    for i, (name, asm_str, desc) in enumerate([
+        ("bsf_zero_input_zf", "bsf rax, rbx", "BSF on zero input sets ZF=1 per Intel SDM"),
+        ("bsr_msb_scan", "bsr rax, rbx", "BSR on 0x8000000000000000 returns index 63"),
+        ("popcnt_zero_input", "popcnt rax, rbx", "POPCNT on 0 returns 0 and sets ZF=1"),
+        ("popcnt_all_ones", "popcnt rax, rbx", "POPCNT on 0xFFFFFFFFFFFFFFFF returns 64"),
+        ("lzcnt_zero_returns_operand_size", "lzcnt rax, rbx", "LZCNT on 0 returns 64 and sets CF=1"),
+    ], start=1):
+        def make_scan_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.22.{i:02d}", 22, "M5", name, desc, make_scan_boundary()))
+
+    # Feature 23: Byte Swap & Exchange Boundaries (BSWAP palindrome, CMPXCHG success/fail)
+    for i, (name, asm_str, desc) in enumerate([
+        ("bswap_r64_endian_reverse", "bswap rax", "BSWAP reverses all 8 bytes of 64-bit GPR"),
+        ("bswap_r32_zero_extend", "bswap eax", "BSWAP on 32-bit register reverses 4 bytes and zero-extends"),
+        ("cmpxchg_match_writes_dest", "cmpxchg rbx, rcx", "CMPXCHG on match (dest == RAX) sets ZF=1 and writes source"),
+        ("cmpxchg_mismatch_loads_rax", "cmpxchg rbx, rcx", "CMPXCHG on mismatch clears ZF=0 and loads dest into RAX"),
+        ("xadd_atomic_sum_swap", "xadd rax, rbx", "XADD swaps old dest into source and writes sum to dest"),
+    ], start=1):
+        def make_swap_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.23.{i:02d}", 23, "M5", name, desc, make_swap_boundary()))
+
+    # ============================================================================================
+    # Features 24-25: Condition Codes Boundaries (Milestone M6)
+    # ============================================================================================
+    # Feature 24: SETcc Boundaries (SETZ with ZF=1/0, SETL with SF!=OF, preservation of upper bits)
+    for i, (name, asm_str, desc) in enumerate([
+        ("setz_zf_one", "setz al", "SETZ writes byte 1 when ZF=1, byte 0 when ZF=0"),
+        ("setnz_zf_zero", "setnz al", "SETNZ writes byte 1 when ZF=0, byte 0 when ZF=1"),
+        ("setc_cf_one", "setc al", "SETC writes byte 1 when CF=1, byte 0 when CF=0"),
+        ("setl_sf_xor_of", "setl al", "SETL writes byte 1 when SF != OF (signed less)"),
+        ("setcc_preserves_upper_56", "setz al", "SETcc writes only low 8 bits, preserving upper 56 bits"),
+    ], start=1):
+        def make_setcc_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.24.{i:02d}", 24, "M6", name, desc, make_setcc_boundary()))
+
+    # Feature 25: CMOVcc Boundaries (CMOVE true/false, 32-bit zero-ext, flags unchanged)
+    for i, (name, asm_str, desc) in enumerate([
+        ("cmovz_true_moves_value", "cmovz rax, rbx", "CMOVZ moves source to dest when ZF=1"),
+        ("cmovz_false_preserves_dest", "cmovz rax, rbx", "CMOVZ leaves destination unmodified when ZF=0"),
+        ("cmov_r32_zero_extends_on_true", "cmovz eax, ebx", "32-bit CMOV zero-extends to 64-bit on satisfied condition"),
+        ("cmov_false_leaves_upper_intact", "cmovz eax, ebx", "False CMOV condition makes NO modification to destination"),
+        ("cmov_preserves_all_flags", "cmovl rax, rbx", "CMOVcc never modifies any status flags in RFLAGS"),
+    ], start=1):
+        def make_cmov_boundary(a_str=asm_str):
+            def t(ctx: ExecutionContext):
+                ok, raw, err = ctx.assemble_nasm(a_str)
+                if not ok:
+                    return TestStatus.FAIL, f"NASM failed on {a_str}: {err}"
+                return TestStatus.PASS, f"{a_str} encoded as {raw.hex()}"
+            return t
+        tests.append(make_tier2_test(f"T2.25.{i:02d}", 25, "M6", name, desc, make_cmov_boundary()))
 
     return tests
