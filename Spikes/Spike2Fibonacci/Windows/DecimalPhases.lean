@@ -751,7 +751,7 @@ private theorem write_text_frame {value : UInt64} {initial state final : X86_64M
     omega
   exact spike2_write_preserves_text_word effect address noWrap below
 
-private theorem BufHolds_getElem (memory : X86_64Memory) (start : UInt64)
+theorem BufHolds_getElem (memory : X86_64Memory) (start : UInt64)
     (bytes : List UInt8) (holds : BufHolds memory start bytes) (index : Nat)
     (within : index < bytes.length) :
     X86_64Mem.readByte memory (start + UInt64.ofNat index) = bytes[index] := by

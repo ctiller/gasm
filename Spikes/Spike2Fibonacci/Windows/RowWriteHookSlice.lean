@@ -22,6 +22,46 @@ open Gasm.Targets.X86_64
 set_option maxRecDepth 2000000
 set_option maxHeartbeats 5000000
 
+/-- The exact byte-to-string interpretation shared by the formatter proof and Win32 consumer.
+It deliberately mirrors `X86_64MachineState.readString` without mentioning call setup. -/
+def decodeWriteFileBytes (bytes : List UInt8) : String :=
+  let byteArr := ByteArray.mk bytes.toArray
+  match String.fromUTF8? byteArr with
+  | some str => str
+  | none => String.ofList (bytes.map (fun byte => Char.ofNat byte.toNat))
+
+theorem readString_eq_decodeWriteFileBytes (state : X86_64MachineState)
+    (buffer : Address) (bytes : List UInt8)
+    (holds : BufHolds state.memory buffer bytes) :
+    state.readString buffer bytes.length = decodeWriteFileBytes bytes := by
+  have observed :
+      (List.range bytes.length).map
+          (fun index => (X86_64Mem.read .w8 (buffer + index.toUInt64) state.memory).toUInt8) =
+        bytes := by
+    apply List.ext_getElem
+    · simp
+    · intro index left right
+      have byte := BufHolds_getElem state.memory buffer bytes holds index right
+      simpa [left, X86_64Mem.read] using byte
+  unfold X86_64MachineState.readString decodeWriteFileBytes
+  rw [observed]
+  rfl
+
+/-- A separately compiled logical call boundary: the formatter establishes this shape, while
+the generic Win32 theorem below consumes it.  Unrelated call paths acquire no obligation. -/
+class WriteFileEmissionShape (state : X86_64MachineState) (buffer : Address)
+    (bytes : List UInt8) : Prop where
+  bufferArgument : state.gprs .rdx = buffer
+  lengthArgument : (state.gprs .r8).toNat = bytes.length
+  content : BufHolds state.memory buffer bytes
+
+theorem writeFileHook_emits_shape (state : X86_64MachineState) (buffer : Address)
+    (bytes : List UInt8) [shape : WriteFileEmissionShape state buffer bytes] :
+    emittedBy (writeFileHook (Event := AnyEvent) state).2 =
+      [Inject.inject (ConsoleEvent.out (decodeWriteFileBytes bytes))] := by
+  have text := readString_eq_decodeWriteFileBytes state buffer bytes shape.content
+  simp [writeFileHook, shape.bufferArgument, shape.lengthArgument, emittedBy, text]
+
 theorem spike2_writeFile_call_lowMemory (state : X86_64MachineState)
     (low : Spike2RowLowMemory state) (rsp : state.rsp = spike2AfterPrologue.rsp) :
     Spike2RowLowMemory (spike2AfterWriteFileCall state) := by
