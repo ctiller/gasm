@@ -781,6 +781,30 @@ The following code shapes have enough evidence to investigate but are not canoni
   allowed; and the current `MemRef` shape is not frozen.  Hardware memory-form claims require a
   rebased scratch preimage plus observed postimage and footprint.  These are constraints on the
   future clean-slate template, not permission to continue the existing chain.
+
+- Reviewer-accepted isolated candidate
+  `archive/accepted/x86-hardware-memory-controls-04a62bdc`
+  (`04a62bdce1b15bdb2db7843945340f0b807ac858`) demonstrates the current hardware-memory
+  validation discipline.  Its Windows harness uses an owned, call-aligned `0x58`-byte frame rather
+  than the nonexistent Microsoft x64 red zone, with captures confined to offsets `0x20..0x4f`.
+  Crossing-footprint and trailing-canary mutations are load-bearing rejection controls.  Positive
+  native observations count only after a deliberately corrupted observation is rejected, and the
+  supplemental four-class inventory remains dependent and family-indexed.  This is accepted
+  candidate evidence, not a current-main library or integration decision; it grants no profile,
+  capability, mapping, TSO, atomicity, platform-admission, registry-oracle, or `VerifiedProgram`
+  authority.
+
+- Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
+  checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
+  precondition-indexed `SafeUnder` is the right proof-economical goal shape.  But public
+  `Checked := State → Outcome` plus public state/outcome constructors lets a caller run a denied
+  computation, discard the appended violation, and fabricate an allowed result from the original
+  clean state; current `Safe`/`SafeUnder` cannot distinguish that laundering.  A replacement needs
+  constructor-controlled computation or a certified representation whose derivation/access
+  coverage and prefix preservation exclude laundering, with an explicit negative control.  A later
+  target bridge must separately prove real-access coverage and reachable-entry preconditions.  Do
+  not use this archive as an implementation base.
+
 ### Proof delivery, termination, and CFG composition
 
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
