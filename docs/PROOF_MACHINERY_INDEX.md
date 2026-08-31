@@ -162,15 +162,21 @@ The following code shapes have enough evidence to investigate but are not canoni
   removed rather than export cast obligations to every consumer.  Append/split should remain on the
   roadmap until an implementation can internalize those transports.  With only one demonstrated
   consumer, this remains extraction evidence rather than canonical generic machinery.
-- MP-authored design candidate `355a6f7` (parent main `36771e2`) resolves the external-provider
-  drift identified in this ledger; it was not yet integrated when indexed.  After integration,
+- MP-authored provider candidate `360f86ccba1c700b0bae4c03ca1fa71246c2a2a4` (parent main
+  `36771e2`) supersedes blocked `355a6f7` and remains under re-review.  After integration,
   `docs/ARCHITECTURE.md` §2.1 and `docs/GRAPHICS_ARCHITECTURE.md` §2.3 are the canonical mechanism
   and rationale.  The proof-facing extraction gate is concise: one emitted Win32 `GetMessage`
   `VerifiedProgram` earns checkpoint acceptance, while the neutral raw envelope may land only after
   a materially different synchronous Vulkan scalar/out-buffer consumer validates it and both are
   independently falsified.  A mismatch revises the still-unlanded shape without compatibility debt;
   target-local identity, decoding, loans, frames, callbacks, and async consequences do not promote
-  merely with the envelope.
+  merely with the envelope.  The blocked predecessor supplies four durable controls.  A provider
+  state wrapper is dead unless actual load, run, and admissibility relations initialize, consume,
+  and advance it.  Queue exactness accounts for head, tail, counter, and consumption history rather
+  than only the current payload.  Pre-enqueue readiness and post-enqueue durable retirement evidence
+  are distinct; a one-shot witness cannot discharge later generation retirement.  Finally, deferring
+  `DispatchMessage` does not remove callback/reentrancy behavior that `GetMessage` itself permits at
+  retrieval time.
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
