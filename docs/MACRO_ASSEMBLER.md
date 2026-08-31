@@ -682,6 +682,23 @@ control-flow freedom. It remains frontend evidence only: lookup, runtime interce
 ExitProcess realization, artifact identity, admission, and `VerifiedProgram` composition belong to
 the separate spike and target layers.
 
+## Differential Microsoft x64 body replacement
+
+`Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry.Differential` exposes the
+hand-optimization seam for Microsoft x64 process-entry bodies. A `FunctionalDelta` relates one
+exact replacement macro `Segment` to an accepted compiler `LocalCertificate`. Larger handwritten
+fragments compose first with `Segment.then`. The first relation transports only equality of the
+RAX result and explicitly requires the replacement segment's law-bearing memory-preservation
+claim.
+
+`FunctionalDelta.realize` retains the compiler theorem tying that result to the named Lean
+declaration, then regenerates the exact replacement instructions and bytes, memory and fault
+preservation, RIP advance, actual clobber list, preservation outside that list, and constructor-
+classified control-flow freedom. It deliberately does not inherit the baseline's input-register
+preservation: a replacement that clobbers an input is valid when the selected consumer does not
+observe that register. Callable ABI preservation, timing, layout, interception, outcomes,
+artifacts, and `VerifiedProgram` remain separate properties and authorities.
+
 ## Structured AArch64 bounded backend
 
 `Gasm.Compiler.Word.StructuredStraightLineAArch64` is the first target realization of those
