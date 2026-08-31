@@ -1,5 +1,18 @@
-/- Copyright 2026 Craig Tiller -/
-import Spikes.Spike2Fibonacci.Windows.RowIndexTwoSecond
+/-
+Copyright 2026 Craig Tiller
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-/import Spikes.Spike2Fibonacci.Windows.RowIndexTwoSecond
 
 namespace Spikes.Spike2Fibonacci.Windows
 
@@ -11,6 +24,7 @@ structure Spike2TwoDigitHeadResult (initial : X86_64MachineState)
   certificate : ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 12
     initial eventsRev final eventsRev []
   registers : Spike2RowRegisterFrame initial final
+  fibRegisters : Spike2FibRegisterFrame initial final
   rip : final.rip = 5368713384
   rsp : final.rsp = spike2AfterPrologue.rsp
   fault : final.fault = none
@@ -37,6 +51,8 @@ opaque spike2_two_digit_head_slice (completed : Nat) (state : X86_64MachineState
         tens.certificate).append second.certificate
     registers := ((branch.registers.trans division.registers).trans
       tens.registers).trans second.registers
+    fibRegisters := ((branch.fibRegisters.trans division.fibRegisters).trans
+      tens.fibRegisters).trans second.fibRegisters
     rip := second.rip
     rsp := second.rsp
     fault := second.fault

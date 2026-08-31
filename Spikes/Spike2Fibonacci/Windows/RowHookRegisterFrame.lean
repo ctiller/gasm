@@ -1,5 +1,18 @@
-/- Copyright 2026 Craig Tiller -/
-import Spikes.Spike2Fibonacci.Windows.RowFixedFacts
+/-
+Copyright 2026 Craig Tiller
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-/import Spikes.Spike2Fibonacci.Windows.RowFixedFacts
 
 namespace Spikes.Spike2Fibonacci.Windows
 
@@ -30,6 +43,11 @@ theorem spike2_writeFile_hook_registerFrame (state : X86_64MachineState) :
       final.gprs .r13 = state.gprs .r13 ∧ final.fault = state.fault := by
   have returned := spike2_writeFile_call_pop_registerFrame state
   simpa [writeFileHook, X86_64MachineState.setGpr64, X86_64MachineState.rsp] using returned
+
+theorem spike2_writeFile_hook_fibRegisterFrame (state : X86_64MachineState) :
+    let final := (writeFileHook (Event := AnyEvent) (spike2AfterWriteFileCall state)).1
+    Spike2FibRegisterFrame state final := by
+  constructor <;> rfl
 
 /-- The indirect CALL reads the linked WriteFile slot retained by low memory. -/
 theorem spike2_writeFile_call_target (state : X86_64MachineState)

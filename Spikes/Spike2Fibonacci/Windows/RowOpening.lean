@@ -1,5 +1,18 @@
-/- Copyright 2026 Craig Tiller -/
-import Spikes.Spike2Fibonacci.Windows.RowInvariant
+/-
+Copyright 2026 Craig Tiller
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-/import Spikes.Spike2Fibonacci.Windows.RowInvariant
 
 namespace Spikes.Spike2Fibonacci.Windows
 
@@ -14,6 +27,7 @@ structure Spike2OpeningResult (initial : X86_64MachineState) (eventsRev : List A
   certificate : ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 6
     initial eventsRev final eventsRev []
   registers : Spike2RowRegisterFrame initial final
+  fibRegisters : Spike2FibRegisterFrame initial final
   rip : final.rip = 5368713297
   rsp : final.rsp = spike2AfterPrologue.rsp
   fault : final.fault = none
@@ -63,6 +77,7 @@ opaque spike2_row_opening (completed : Nat) (state : X86_64MachineState)
     final := literal
     certificate := mainPrefix.append literalPrefix
     registers := mainFrame.trans literalFrame
+    fibRegisters := by constructor <;> rfl
     rip := by
       change main.rip + 5 + 5 + 5 + 5 = 5368713297
       rw [mainRip]

@@ -25,6 +25,7 @@ import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.Windows.Win32API
 import Spikes.Spike2Fibonacci.Spec
 import Spikes.Spike2Fibonacci.Windows.Program
+import Spikes.Spike2Fibonacci.Windows.CanonicalTrace
 import Spikes.Spike2Fibonacci.Windows.LoopInvariant
 import Spikes.Spike2Fibonacci.Windows.RowTermination
 
@@ -73,13 +74,6 @@ theorem fib_iter_asm_soundness (n : Nat) (hn : n ≤ 124) :
     rw [show (1000 : Nat) = 998 + 2 from rfl, heq]
     exact loop_correct 0 n 998 s2 hinv (by omega) (by omega)
   rw [h, show 0 + n = n from by omega, ← fibIter_eq_fibNat]
-
-/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
-/-- Whole-program canonical effect trace equivalence for Spike 2. -/
-theorem spike2_canonical_effect_trace_equivalence :
-    (runAsmTrace (Event := AnyEvent) spike2Instructions spike2Executable.load ==
-     runModelTrace (fibonacciSpec : TraceM AnyEvent Unit)) = true := by
-  decide +kernel
 
 /-- Closed reference certificate: all reached host boundaries are input-independent and the
     complete 90-row driver returns before the platform budget is exhausted. -/

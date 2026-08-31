@@ -1,5 +1,18 @@
-/- Copyright 2026 Craig Tiller -/
-import Spikes.Spike2Fibonacci.Windows.RowRecurrenceIncrementSlice
+/-
+Copyright 2026 Craig Tiller
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-/import Spikes.Spike2Fibonacci.Windows.RowRecurrenceIncrementSlice
 
 namespace Spikes.Spike2Fibonacci.Windows
 
@@ -15,6 +28,7 @@ theorem spike2_recurrence_backedge_slice (state : X86_64MachineState)
       ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed 1
         state eventsRev final eventsRev [] ∧
       Spike2RowRegisterFrame state final ∧
+      Spike2FibRegisterFrame state final ∧
       Spike2RowLowMemory final ∧
       final.rip = spike2WindowsMainLoopRip ∧ final.fault = none := by
   have boundary := spike2_recurrence_backedge_boundary state hrip safe
@@ -23,6 +37,7 @@ theorem spike2_recurrence_backedge_slice (state : X86_64MachineState)
     { rsp := boundary.2.2.1
       r13 := boundary.2.2.2.1
       fault := boundary.2.1.trans safe.symm },
+    (by constructor <;> rfl),
     low.of_memory_eq boundary.2.2.2.2,
     boundary.1, boundary.2.1⟩
 

@@ -1,5 +1,18 @@
-/- Copyright 2026 Craig Tiller -/
-import Spikes.Spike2Fibonacci.Windows.RowIndexPath
+/-
+Copyright 2026 Craig Tiller
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-/import Spikes.Spike2Fibonacci.Windows.RowIndexPath
 
 namespace Spikes.Spike2Fibonacci.Windows
 
@@ -21,6 +34,7 @@ theorem spike2_decimal_slice (state : X86_64MachineState) (eventsRev : List AnyE
       ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed fuel
         state eventsRev final finalEventsRev emitted ∧
       Spike2RowRegisterFrame state final ∧
+      Spike2FibRegisterFrame state final ∧
       Spike2RowLowMemory final ∧
       final.rip = 5368713457 ∧
       spike2RowLowMemoryTop ≤ (final.gprs .rdi).toNat ∧
@@ -79,7 +93,7 @@ theorem spike2_decimal_slice (state : X86_64MachineState) (eventsRev : List AnyE
       exact spike2_after_prologue_exitProcessIat }
   rcases spike2_uint64_decimal_selected_prefix_bounded value decimalInitial eventsRev frame with
     ⟨decimalFuel, final, finalEventsRev, emitted, decimalBound, decimalPrefix,
-      finalRsp, finalRdi, _finalRcx, _formatBytes, _r12, finalR13, _r14, _r15, caller⟩
+      finalRsp, finalRdi, _finalRcx, _formatBytes, _r12, finalR13, finalR14, finalR15, caller⟩
   have decimalRegisters : Spike2RowRegisterFrame decimalInitial final := {
     rsp := finalRsp
     r13 := finalR13
@@ -97,7 +111,10 @@ theorem spike2_decimal_slice (state : X86_64MachineState) (eventsRev : List AnyE
     rw [caller.lowMemory address below]
     exact setupLow address below
   refine ⟨3 + decimalFuel, final, finalEventsRev, emitted, ?_, setupPrefix.append decimalPrefix,
-    setupFrame.trans decimalRegisters, finalLow, caller.rip, ?_, ?_⟩
+    setupFrame.trans decimalRegisters,
+    { r14 := finalR14
+      r15 := finalR15 },
+    finalLow, caller.rip, ?_, ?_⟩
   · omega
   · rw [finalRdiNat, initialRdi]
     omega
