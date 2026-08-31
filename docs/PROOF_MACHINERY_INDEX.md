@@ -154,6 +154,18 @@ The following code shapes have enough evidence to investigate but are not canoni
   19.2 GiB before cancellation.  The separated final equivalence target built in approximately
   4.4 seconds warm.  Host-runtime instances remain module-local or platform-indexed so an x86
   interceptor cannot enter Linux or generic instance search.
+- A provisional linked-text boundary reported after accepted main `4863346` separates reusable
+  local execution facts from platform admission.  A finite, reviewed linked-text authority should
+  expose only the property needed at named reachable successors--for the current x86 use case,
+  `read64 rip != rip`.  A generic `ordinaryAt` bridge can then combine successor membership and
+  bounds with that projection to rule out both the Linux syscall pseudo-address and a Win32 IAT
+  slot.  This replaces repeated OS-selector facts without claiming execution, placement, or final
+  verification authority.  The proposed `IsPlatformAgnosticX86` split keeps local semantic/block
+  certificates dispatcher-free; each concrete target must still provide exact placement/lookup
+  and prove that every reached successor lies outside its interception surface.  ISA identity alone
+  is not sufficient because placement may alias an OS boundary.  This remains a reported technique,
+  not accepted machinery: the `ordinaryAt` theorem was still compiling locally and the proposed
+  shared Spike 2 formatter/recurrence consumer had not yet demonstrated the boundary.
 - Open nominal type-family admission in SPIR-V is represented by provisional candidate `fa98935`
   (the clean-lineage integration of `78b9397`), which supersedes the rejected public-`String`
   design in `71e6991`.  A finite `TypeFamilyDescriptor` proves its role list has no duplicates;
@@ -171,31 +183,24 @@ The following code shapes have enough evidence to investigate but are not canoni
   negative control closes the prior admission hole without burdening unused base families.  Keep
   the family boundary provisional until ancestry and attribution review closes; it is not a
   universal plugin registry.
-- The provisional SPIR-V value-family seam in `19d36fd` is an accepted staged migration shape, not
-  yet reusable machinery.  Its next consumer must replace the core value reference in place with
-  one descriptor-indexed nominal `ValueRef`, recover existing core instruction typing through
-  `CoreValueTyping`, and preserve a single value/physical identifier namespace.  Do not add a
-  parallel SSA namespace.  The migration must reject cross-family ordinal collisions, retain
-  selected-family evidence for every operand and result, and preserve current core behavior.  The
-  selected raw codec in `0a31cb8` is evidence for the target-owned encoding boundary; it does not
-  make family admission or final emission authority generic.  Its measured predecessor `9c7d80d`
-  compared the same private, nonsemantic theorem probe at an identical warm frontier for
-  `lake build Gasm.Targets.Spirv SpirvTests`: editing central `Types.lean` took 14.858 seconds and
-  72 actual jobs (15,228.0 MiB aggregate peak memory), while editing leaf `RasterValue.lean` took
-  2.831 seconds and five jobs (3,036.2 MiB aggregate peak).  Individual processes still peaked at
-  roughly 1.4--1.6 GiB.  The demonstrated optimization is preventing dependency fan-out by keeping
-  a valuable closed semantic core while moving shared nominal identity and physical assignment to
-  collision-checked finite family descriptors; it is not a claim that per-module memory vanished.
-  The reviewed hybrid boundary keeps exact `ValueDescriptor` identity: value-key equality compares
-  family, role, exact nominal `AnyTypeRef`, and ordinal, while `sameOrdinal` deliberately compares
-  only the ordinal so builders reject cross-family and cross-type reuse in the single logical
-  Result-ID namespace.  `CoreValueTyping` must be derived from the sealed `BodyTypeSelection`, not
-  supplied independently.  Promotion controls must distinguish two same-role raster vectors with
-  different nominal vector types, reject selected-family/absent-type and incompatible-instruction
-  cases, and show two distinct raster shapes physicalize through the one in-place
-  `PhysicalRoleKey.valueRef` assignment.  Exact type-table, instruction-compatibility, selected
-  family, resolution, and injectivity evidence belongs in the sealing certificate rather than in
-  ambient coercions or a second physical map.
+- Exact-descriptor SPIR-V value-family candidate `ed5f3bf16871285a272f131ee57ba0e816dcad38`
+  (parent `19d36fd0defeab920b230bc02ce9b3b3718bd06b`) supersedes the coarse
+  predecessor `9c7d80d`; it is evidence for the boundary, not yet canonical reusable machinery.
+  Nominal value identity is `(ValueKind, exact AnyTypeRef, ordinal)`.  Allocation collision
+  intentionally projects only the ordinal, rejecting reuse across families and types in the one
+  physical Result-ID namespace; descriptor equality must not be weakened merely to implement that
+  collision policy.  Core embedding is explicit and `CoreValueTyping` is derived only from exact
+  `BodyTypeSelection`, with no ambient coercion or second physical map.  Raster sealing retains the
+  selected family, exact mixed-type-table membership, position compatibility, and resolution.
+  Controls distinguish same-role/same-ordinal values of different vector types, reject core/raster
+  ordinal collisions, absent and incompatible types, prove core injectivity, and preserve distinct
+  two-wide and four-wide vector types through the shared namespace.  At an identical warm frontier,
+  the central `Types` probe took 14.939 seconds, invalidated 74 jobs, and reported 15,723.9 MiB
+  aggregate peak memory; the leaf `RasterValue` probe took 2.282 seconds, four jobs, and 3,010.8 MiB.
+  Full SPIR-V plus tests was green and both measurement worktrees were clean.  The demonstrated
+  optimization is dependency-fanout avoidance through exact nominal descriptors and a leaf-owned
+  extension, not lower per-process memory or generic final-emission authority.  The selected raw
+  codec in `0a31cb8` remains evidence only for the target-owned encoding boundary.
 - Bounded byte reads appear in ELF, x86-64, AArch64, PNG, Zlib, and Gzip.  A first cursor slice
   should validate against two consumers with the same offset/progress needs while keeping format
   errors and validation consumer-owned.
