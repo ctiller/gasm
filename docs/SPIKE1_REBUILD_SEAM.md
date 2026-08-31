@@ -156,8 +156,11 @@ The universal whole-program proof must establish all of the following:
 7. **Prefix safety and exclusive classification:** every finite prefix is continuing, terminal, or
    stuck/faulted, with exact state and committed effects. Unadmitted stuck/fault states must be proved
    absent or receive a root-declared disposition; they do not refine a terminal-only root.
-8. **Maximal-execution soundness:** every terminal or maximal target execution refines an exact root
-   observation accepted by the stored root contract, preserving committed effects and result identity.
+8. **Terminal-execution soundness:** every terminal target execution refines an exact terminal root
+   observation, preserving committed effects and result identity. An infinite/maximal execution
+   refines a source trace only when that root actually owns an infinite observation. Spike 1 has no
+   such observation: termination/no-infinite-run is a separate theorem under the named provider
+   progress premise, never hidden inside safety or obtained by defining “maximal” as terminal.
 9. **Required-behavior realization:** under the root's named implementability premises and the
    selected provider/profile, every root-required behavior class has the stated target witness. This
    is separate from backward soundness and does not claim completeness over arbitrary source
@@ -195,7 +198,7 @@ The final gate composes certificates; it does not ask each program to replay the
 | Branch/path coverage | Proof-producing lowering of success, retry and fatal continuations | Supply the two continuations |
 | Output split | Source `writeAll` invariant/combinator | Exact message/root mapping |
 | Prefix safety | Structural lowering induction over actual states/results | Preserve the source invariant |
-| Maximal-execution soundness | Structural terminal/maximal theorem | Connect accepted results to sealed root |
+| Terminal-execution soundness | Structural terminal theorem | Connect accepted results to sealed root |
 | Required behavior | Selected implementation plus provider implementability theorem | Choose claimed behavior class |
 | Progress | Separate provider/fairness theorem | Choose whether termination is claimed |
 

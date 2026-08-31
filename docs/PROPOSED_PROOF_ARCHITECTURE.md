@@ -165,8 +165,8 @@ the exact cleanup-failure disposition remain owner choices before this spike is 
 
 ### Source package and monadic operations
 
-Source proofs own byte-stream ingestion, delimiter/final-record interpretation, stable permutation,
-sortedness, exact serialized output and committed-prefix/refusal meaning. Monadic operations cover
+Source proofs own byte-stream ingestion, delimiter/final-record interpretation, the selected
+ordering/permutation semantics once pinned, exact serialized output and committed-prefix/refusal meaning. Monadic operations cover
 read chunks/results, allocate/grow, parse/finalize, sort, write prefix/results and cleanup.
 
 ### Selected tree and lowering stages
@@ -174,7 +174,7 @@ read chunks/results, allocate/grow, parse/finalize, sort, write prefix/results a
 1. Read binder and chunk/result interpretation.
 2. Selected storage/allocator and descriptor/line-view representation.
 3. Parse/final-record preparation.
-4. Stable sorting implementation and representation proof.
+4. Selected sorting implementation and representation proof.
 5. Fallible serialized output loop.
 6. Cleanup and terminal result.
 7. Target/provider/ABI/artifact closure per Linux/Windows/Wasm profile.
@@ -185,23 +185,24 @@ Derived attributes cover chunk binding, allocation occurrences, view/slot preser
 sort-call tree, output segments, result paths, cleanup paths and artifact/import identity. Bottom-up
 obligations include live generations, bounds/provenance, allocator/provider results, view/loan
 destruction, ABI, target admission and terminal disposition. Domain relations transport raw buffer,
-prepared records, views, sorted permutation, output prefix and live cleanup duties without a global
+prepared records, views, selected permutation/order, output prefix and live cleanup duties without a global
 ghost world.
 
 ### Constraints, economy, evidence and falsifiers
 
 Universal constraints distinguish heap allocation, stack growth, arena reserve and provider lazy
 allocation. A deceptive allocator call in error logging, final-record handling or cleanup must fail
-`NoAlloc`. Stable and unstable implementations are not interchangeable. A novel in-place sorter is
-eligible only with the same stable root or a source-level theorem selecting a different root.
+`NoAlloc`. Stable and unstable implementations are not interchangeable once the root choice is
+pinned. A novel in-place sorter is eligible only with the selected ordering/permutation semantics or
+a source-level theorem selecting a different root.
 
 Expected residual: ingestion/record representation relation, selected sort representation theorem
 and root result mapping. Current evidence is distributed across `Spikes/Spike3SortLines/` and
 `docs/SPIKES/SPIKE3_SORT_LINES.md`; exact §§4.2, 5, 5.1 and 6 resource/refusal/terminal connections
 remain design inputs, not universal closure.
 
-Falsifiers: dropping the unterminated record, treating preparation failure as empty success,
-unstable sort under stable root, byte-prefix refusal upgraded to record-only prefix, retry duplicating
+Falsifiers: dropping the final close-terminated record, treating preparation failure as empty success,
+violating the selected ordering/permutation semantics, byte-prefix refusal upgraded to record-only prefix, retry duplicating
 bytes, cleanup erased by terminal failure, stored address bytes minting views, or target success
 standing in for allocation authority. Cut over all phases together.
 
