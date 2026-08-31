@@ -186,6 +186,16 @@ The following code shapes have enough evidence to investigate but are not canoni
   roughly 1.4--1.6 GiB.  The demonstrated optimization is preventing dependency fan-out by keeping
   a valuable closed semantic core while moving shared nominal identity and physical assignment to
   collision-checked finite family descriptors; it is not a claim that per-module memory vanished.
+  The reviewed hybrid boundary keeps exact `ValueDescriptor` identity: value-key equality compares
+  family, role, exact nominal `AnyTypeRef`, and ordinal, while `sameOrdinal` deliberately compares
+  only the ordinal so builders reject cross-family and cross-type reuse in the single logical
+  Result-ID namespace.  `CoreValueTyping` must be derived from the sealed `BodyTypeSelection`, not
+  supplied independently.  Promotion controls must distinguish two same-role raster vectors with
+  different nominal vector types, reject selected-family/absent-type and incompatible-instruction
+  cases, and show two distinct raster shapes physicalize through the one in-place
+  `PhysicalRoleKey.valueRef` assignment.  Exact type-table, instruction-compatibility, selected
+  family, resolution, and injectivity evidence belongs in the sealing certificate rather than in
+  ambient coercions or a second physical map.
 - Bounded byte reads appear in ELF, x86-64, AArch64, PNG, Zlib, and Gzip.  A first cursor slice
   should validate against two consumers with the same offset/progress needs while keeping format
   errors and validation consumer-owned.
