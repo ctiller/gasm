@@ -5,7 +5,7 @@ or integration authority.  Primary design and independent Reviewer assessed an u
 `PROPOSED_PROOF_ARCHITECTURE.md` draft against canonical `5fa32fc2`.  The draft itself has no
 archived commit, so this note records the review outcome, not a reproducible candidate.  The exact
 reviewed file was
-`C:\Users\craig\.codex\worktrees\6326\gasm\docs\PROPOSED_PROOF_ARCHITECTURE.md`: 657 lines,
+`<workspace>\docs\PROPOSED_PROOF_ARCHITECTURE.md`: 657 lines,
 SHA-256 `615D25C28C9D0A8967294FF66CB636CB364F246A4EF1627093FC5EC14C19C93C`.
 Findings remain **Reported** until that draft is committed or archived.  The accepted Trust rebuild
 plan and the `MEMORY_MODEL.md` semantic baseline remain authoritative.
