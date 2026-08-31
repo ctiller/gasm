@@ -1290,92 +1290,109 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
               | .ok disp8 =>
                 .ok (mov_reg8_mem8_disp dstReg basePtr disp8, (modPos + 1) - offset)
     else if opcode == 0x89 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (mod, reg, rm, modPos) =>
-        if mod == 3 then
-          if rexW then
-            let dst := codeToReg64 rm rexB
-            let src := codeToReg64 reg rexR
-            .ok (mov_r64 dst src, modPos - offset)
-          else
-            .error "movTryDecode: unsupported 32-bit register-register form for 0x89 MOV"
-        else if mod == 0 then
-          if rexW then
-            let srcReg := codeToReg64 reg rexR
-            if rm == 4 then
-              match readUInt8 bytes modPos with
-              | .error e => .error e
-              | .ok sib =>
-                if !rexX && sib == makeSIB 0 4 4 then
-                  let basePtr := codeToReg64 4 rexB
-                  .ok (mov_mem64_disp basePtr 0 srcReg, (modPos + 1) - offset)
-                else
-                  .error "movTryDecode: unsupported indexed/noncanonical SIB for 64-bit 0x89 MOV"
-            else if rm == 5 then
-              .error "movTryDecode: unsupported RIP-relative 64-bit 0x89 MOV"
+      if rexX then
+        .error "movTryDecode: unsupported REX.X form for 0x89 MOV"
+      else if !rexW && hasRex != (rexR || rexB) then
+        .error "movTryDecode: redundant REX prefix for 32-bit 0x89 MOV"
+      else
+        match readModRM bytes opOffset with
+        | .error e => .error e
+        | .ok (mod, reg, rm, modPos) =>
+          if mod == 3 then
+            if rexW then
+              let dst := codeToReg64 rm rexB
+              let src := codeToReg64 reg rexR
+              .ok (mov_r64 dst src, modPos - offset)
             else
-              let basePtr := codeToReg64 rm rexB
-              .ok (mov_mem64_disp basePtr 0 srcReg, modPos - offset)
-          else
-            let srcReg := codeToReg32 reg rexR
-            if rm == 4 then
-              match readUInt8 bytes modPos with
-              | .error e => .error e
-              | .ok sib =>
-                if !rexX && sib == makeSIB 0 4 4 then
-                  let basePtr := codeToReg64 4 rexB
-                  .ok (mov_mem32_disp basePtr 0 srcReg, (modPos + 1) - offset)
-                else
-                  .error "movTryDecode: unsupported indexed/noncanonical SIB for 32-bit 0x89 MOV"
-            else if rm == 5 then
-              .error "movTryDecode: unsupported RIP-relative 32-bit 0x89 MOV"
-            else
-              let basePtr := codeToReg64 rm rexB
-              .ok (mov_mem32_disp basePtr 0 srcReg, modPos - offset)
-        else if mod == 1 then
-          if rexW then
-            let srcReg := codeToReg64 reg rexR
-            if rm == 4 then
-              match readUInt8 bytes modPos with
-              | .error e => .error e
-              | .ok sib =>
-                if !rexX && sib == makeSIB 0 4 4 then
-                  match readUInt8 bytes (modPos + 1) with
-                  | .error e => .error e
-                  | .ok disp8 =>
+              .error "movTryDecode: unsupported 32-bit register-register form for 0x89 MOV"
+          else if mod == 0 then
+            if rexW then
+              let srcReg := codeToReg64 reg rexR
+              if rm == 4 then
+                match readUInt8 bytes modPos with
+                | .error e => .error e
+                | .ok sib =>
+                  if sib == makeSIB 0 4 4 then
                     let basePtr := codeToReg64 4 rexB
-                    .ok (mov_mem64_disp basePtr disp8 srcReg, (modPos + 2) - offset)
-                else
-                  .error "movTryDecode: unsupported indexed/noncanonical SIB for 64-bit 0x89 MOV"
-            else
-              match readUInt8 bytes modPos with
-              | .error e => .error e
-              | .ok disp8 =>
+                    .ok (mov_mem64_disp basePtr 0 srcReg, (modPos + 1) - offset)
+                  else
+                    .error "movTryDecode: unsupported indexed/noncanonical SIB for 64-bit 0x89 MOV"
+              else if rm == 5 then
+                .error "movTryDecode: unsupported RIP-relative 64-bit 0x89 MOV"
+              else
                 let basePtr := codeToReg64 rm rexB
-                .ok (mov_mem64_disp basePtr disp8 srcReg, (modPos + 1) - offset)
+                .ok (mov_mem64_disp basePtr 0 srcReg, modPos - offset)
+            else
+              let srcReg := codeToReg32 reg rexR
+              if rm == 4 then
+                match readUInt8 bytes modPos with
+                | .error e => .error e
+                | .ok sib =>
+                  if sib == makeSIB 0 4 4 then
+                    let basePtr := codeToReg64 4 rexB
+                    .ok (mov_mem32_disp basePtr 0 srcReg, (modPos + 1) - offset)
+                  else
+                    .error "movTryDecode: unsupported indexed/noncanonical SIB for 32-bit 0x89 MOV"
+              else if rm == 5 then
+                .error "movTryDecode: unsupported RIP-relative 32-bit 0x89 MOV"
+              else
+                let basePtr := codeToReg64 rm rexB
+                .ok (mov_mem32_disp basePtr 0 srcReg, modPos - offset)
+          else if mod == 1 then
+          if rexW then
+            let srcReg := codeToReg64 reg rexR
+            if rm == 4 then
+              match readUInt8 bytes modPos with
+              | .error e => .error e
+              | .ok sib =>
+                if sib == makeSIB 0 4 4 then
+                  match readUInt8 bytes (modPos + 1) with
+                  | .error e => .error e
+                  | .ok disp8 =>
+                    if disp8 == 0 then
+                      .error "movTryDecode: noncanonical zero displacement for 64-bit 0x89 MOV"
+                    else
+                      let basePtr := codeToReg64 4 rexB
+                      .ok (mov_mem64_disp basePtr disp8 srcReg, (modPos + 2) - offset)
+                else
+                  .error "movTryDecode: unsupported indexed/noncanonical SIB for 64-bit 0x89 MOV"
+            else
+              match readUInt8 bytes modPos with
+              | .error e => .error e
+              | .ok disp8 =>
+                if disp8 == 0 && rm != 5 then
+                  .error "movTryDecode: noncanonical zero displacement for 64-bit 0x89 MOV"
+                else
+                  let basePtr := codeToReg64 rm rexB
+                  .ok (mov_mem64_disp basePtr disp8 srcReg, (modPos + 1) - offset)
           else
             let srcReg := codeToReg32 reg rexR
             if rm == 4 then
               match readUInt8 bytes modPos with
               | .error e => .error e
               | .ok sib =>
-                if !rexX && sib == makeSIB 0 4 4 then
+                if sib == makeSIB 0 4 4 then
                   match readUInt8 bytes (modPos + 1) with
                   | .error e => .error e
                   | .ok disp8 =>
-                    let basePtr := codeToReg64 4 rexB
-                    .ok (mov_mem32_disp basePtr disp8 srcReg, (modPos + 2) - offset)
+                    if disp8 == 0 then
+                      .error "movTryDecode: noncanonical zero displacement for 32-bit 0x89 MOV"
+                    else
+                      let basePtr := codeToReg64 4 rexB
+                      .ok (mov_mem32_disp basePtr disp8 srcReg, (modPos + 2) - offset)
                 else
                   .error "movTryDecode: unsupported indexed/noncanonical SIB for 32-bit 0x89 MOV"
             else
               match readUInt8 bytes modPos with
               | .error e => .error e
               | .ok disp8 =>
+                if disp8 == 0 && rm != 5 then
+                  .error "movTryDecode: noncanonical zero displacement for 32-bit 0x89 MOV"
+                else
                 let basePtr := codeToReg64 rm rexB
                 .ok (mov_mem32_disp basePtr disp8 srcReg, (modPos + 1) - offset)
-        else
-          .error "movTryDecode: unsupported mod field for 0x89 MOV"
+          else
+            .error "movTryDecode: unsupported mod field for 0x89 MOV"
     else if opcode == 0x8B then
       if rexX then
         .error "movTryDecode: unsupported indexed REX.X form for 0x8B MOV"
