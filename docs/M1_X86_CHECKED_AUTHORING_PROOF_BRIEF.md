@@ -25,6 +25,12 @@ single-use artifact avoids falsely identifying one static loop instruction with 
 while still exercising the production assembler, loader, operational semantics, emitter, platform
 admissibility, and `VerifiedProgram.compose`. This is not a mock platform or detached example.
 
+Its concrete instruction shape allocates a Windows x64 stack frame with `sub rsp, frameSize`, then
+performs one checked byte store at `[rsp + offset]` inside that frame. Ordinary target-owned setup
+and the later call to `ExitProcess` provide the typed process terminal outcome. The CALL's indirect
+load and return-address stack store are explicitly outside this first selected checked family; the
+prototype makes no claim that those effects have already migrated to M1 checked authoring.
+
 ## Current semantic gap
 
 `memAccesses` and the frame theorems describe where an instruction reads and writes, but the current
@@ -82,6 +88,31 @@ All checked MOV, typed-view, lifecycle, and x86 realization declarations in this
 explicitly provisional and profile-local. They test the load-bearing shape but do not freeze the
 public M1 interface.
 
+## Windows process-entry grant prerequisite
+
+The current `X86_64MachineState` uses total memory and carries no virtual mapping or page-protection
+state. Total `X86_64Mem.read`/`write` operations prove neither mappedness nor writability. The
+prototype therefore depends on a distinct
+`M2-B[Windows-x64-process-entry]` loader-established stack grant; `X86StoreRealization` consumes
+that profile evidence rather than deriving physical access from the generic machine state.
+
+The grant is tied to a pinned official Windows loader/ABI source and proves:
+
+- the exact emitted artifact and `Platform.load` state to which the grant applies;
+- the exact initial `rsp` relation at process entry;
+- a committed and writable stack byte range covering the explicitly allocated frame;
+- non-wrapping range arithmetic and the selected byte's required alignment;
+- containment of `[rsp + offset, rsp + offset + 1)` in that range after `sub rsp, frameSize`;
+- lifetime of the grant through the exact dynamic store occurrence;
+- that this exact occurrence—and no unrelated access merely sharing its address—is the selected
+  access authorized by the profile evidence.
+
+The grant is not logical ownership, does not appear in generic x86 state, and does not mint an
+`ObligationWorld` entry. If the accepted canonical World/M2-B rewrite supplies an entry-grant seam,
+the spike instantiates that seam. Otherwise it may define a provisional spike-local relation with
+the same obligations. It must not rely on a Windows red zone—Windows x64 has none—or on the total
+memory implementation as evidence of physical accessibility.
+
 ## Principal invariant
 
 Every admitted dynamic store has one connected chain:
@@ -116,7 +147,7 @@ exactly. View invalidation and exclusive return discharge only their exact entri
 |---|---|---|---|
 | Generic envelope and binding history | Existing carrier and `WellFormed` certificates for the exact execution/history | Memory-model projection | No x86 access or platform-admission claim |
 | Exclusive byte-store authoring | Exact exclusive-access and view-invalidation entries in the canonical world; exact use/capture/binding resolution | Checked instruction author | Required only for the selected checked store occurrence |
-| Windows x86 physical realization | Loader/entry relation, effective address, mapped+writable byte, nonwrap, alignment one, view containment/backing translation, exact dynamic event origin, descriptor footprint, emitted/decode connection | Windows x86 profile and straight-line demonstration artifact proof | No burden on Linux, AArch64, Wasm, graphics, or non-CPU events |
+| Windows x86 physical realization | M2-B process-entry stack grant, effective address after explicit frame allocation, mapped+writable byte, nonwrap, alignment one, view containment/backing translation, exact dynamic event origin, descriptor footprint, emitted/decode connection | Windows x86 profile and straight-line demonstration artifact proof | No burden on Linux, AArch64, Wasm, graphics, or non-CPU events |
 | Existing MOV operational semantics | Existing `step`, `writesWithin`, and `readsWithin` theorems | x86 instruction family | Reused without a new per-caller proof |
 | View invalidation and exclusive return | Exact canonical-world transitions or explicit terminal delivery through a lifecycle-derived capability | Demonstration lifecycle/terminal proof | No arbitrary cleanup or token deletion |
 | Shared-read authority | Not selected | Future M1/M4 profile | No typeclass, world-entry, or proof obligation in this slice |
@@ -140,6 +171,8 @@ force unrelated instruction families to construct empty evidence.
 - use occurrence whose event is not the actual fetched and stepped MOV;
 - instruction-descriptor mismatch;
 - missing target mapping or writability;
+- reliance on total memory or a nonexistent Windows red zone as physical-access evidence;
+- entry grant that does not cover the post-`sub rsp` selected byte or survive through its use;
 - omitted view-invalidation obligation;
 - freely fabricated or wrong-lifecycle discharge capability;
 - platform admissibility that ignores either the logical or physical witness.
@@ -154,6 +187,10 @@ constructs that artifact's sole production-platform `VerifiedProgram.compose` in
 checked constructor, mock platform, or plan to add `VerifiedProgram` later does not complete the
 slice.
 
+The whole-program claim explicitly scopes the checked-family result to the one selected byte store.
+It records the terminal CALL's memory effects as ordinary and unselected rather than silently
+presenting them as capability-checked.
+
 ## Rejected alternatives
 
 - a detached `AuthorizedAccess` proposition or permission ledger;
@@ -163,6 +200,8 @@ slice.
 - whole-view equality with the containing allocation footprint;
 - ad hoc numeric obligation protocol discriminators;
 - freely constructible lifecycle discharge authority;
+- total-memory execution presented as proof of a mapped writable Windows page;
+- implicit use of a Windows red zone;
 - authority fields in decoded instruction structures;
 - ghost ownership implying mapping or fault freedom;
 - atomic/shared proof burdens in an unselected profile;
