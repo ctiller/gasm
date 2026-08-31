@@ -27,6 +27,13 @@ ABI/link realization, or `VerifiedProgram` authority. Every section below remain
 target design rather than a description of accepted target mechanism. No `/- REF: ... -/`
 annotation cites this document, so nothing here is yet a Law-2 implementation obligation.
 
+**Layering correction:** SPIR-V is a first-class target ISA, parallel to x86-64 and AArch64.
+Vulkan and Win32 are separate platform/library capability models.  The selected Windows x86-64 +
+Vulkan + SPIR-V product profile composes these layers; it does not define SPIR-V's validity or make
+SPIR-V depend on Vulkan.  SPIR-V owns its identities, grammar-derived codecs, module structure, and
+execution semantics.  Vulkan may consume SPIR-V artifacts, with dependency direction only from
+Vulkan to SPIR-V.
+
 ```mermaid
 graph TD
     Spec["High-Level Monadic Graphics Specification (MonadGraphics)"] --> Low["Lowering & Obligation Verifier"]
@@ -63,6 +70,12 @@ revisions, required capabilities/features and errata disposition, plus matching 
 memory-model artifacts. A build-time Lean SPIR-V validator with a grammar-driven encode/decode
 roundtrip theorem remains future graphics work tracked by `docs/ROADMAP.md` §1; it is not
 implemented by this document.
+
+Subsequent research resolved suitable immutable SPIR-V source candidates: SPIRV-Headers commit
+`496543121ce6419f23d6fa5d7194ba66c36212d2` for the core grammar and the stable SPIR-V 1.6
+Revision 7 PDF.  Their fetched hashes were recorded in the research trail, but main's registry
+entries above remain rolling until a separately reviewed reference update lands.  This closes the
+source-discovery question, not the registry, profile-selection, or implementation gates.
 
 ### 2.2 Possible Futures (No Obligations, No REF Targets)
 

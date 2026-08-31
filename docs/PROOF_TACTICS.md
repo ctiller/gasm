@@ -6,6 +6,22 @@ made real Gasm proofs smaller or more honest.  Add abstractions only after repea
 For a need-oriented map from these tactics to checked declarations, consumers, and deliberate
 negative boundaries, see the [proof machinery index](PROOF_MACHINERY_INDEX.md).
 
+## Bind proof authority to committed source bytes
+
+A green proof build is evidence only when Lean read the exact source under review.  Before any
+cached build, require the filesystem Lean-source census to equal unreplaced `HEAD` and the sole
+ordinary stage-0 Git index, with CRLF-to-LF conversion as the only permitted byte normalization.
+Reject ignored, untracked, staged, flagged, mode- or case-divergent sources; substituted Git
+repositories, indexes, or object stores; symlink, junction, nested-repository, and hidden-namespace
+source boundaries; and project `.olean` files with no corresponding authoritative source.
+
+`scripts/check_no_ignored_lean_sources.py` owns this repository boundary and exercises its failure
+classes with planted negative controls.  The motivating failure combined a broadly ignored Lean
+source with a stale `.olean`: local imports succeeded although a clean checkout lacked the proof
+text.  Running another compiler pass would not remove that delta; establishing source/build
+identity before compilation does.  An intentional scratch source may therefore make the local
+gate correctly red.  Report it; do not modify or delete someone else's work to obtain green.
+
 ## Start from the logical boundary
 
 State the caller-visible success, failure, resource, and cancellation outcomes before symbolically
@@ -86,6 +102,27 @@ its next proof obligation.  This pattern establishes forward fact transfer acros
 boundary; it does not yet supply generic forward/backward CFG contract derivation, loop-invariant
 discovery, termination, or final artifact authority.
 
+## Classify exact outcomes before platform admission
+
+Keep a constructive prefix-chain theorem focused on one exact typed execution outcome.  At the
+platform boundary, classify that abstract `NativeRunOutcome` with a cheap proposition, then apply a
+named theorem such as `...Admissible_of_execution` that consumes both the exact-outcome equality
+and its classification.  Spike 2 Windows commits `75d01c8` and `f90bfc9` use this shape to avoid
+eliminating a large dependent prefix witness directly into the platform's admissibility predicate.
+
+The failed alternatives are useful controls.  Projecting `run.isAdmissible` directly from the
+dependent execution witness, or invoking a general fuel-recursive admissibility theorem at a
+concrete 50,000-step budget, forced weak-head normalization of the runner; attempts timed out and
+one Lean process reached approximately 19.2 GiB before cancellation.  With exact execution hidden
+behind an opaque theorem and classification kept independent, the focused final equivalence target
+built in approximately 4.4 seconds warm.  The classification theorem preserves the exact execution
+claim while moving only the small platform-admission delta to the layer that owns it.
+
+Host-runtime typeclass instances used by this boundary must be module-local or indexed by the
+platform.  A high-priority global x86 interceptor silently contaminated Linux and generic proofs.
+Instance search may deliver a stable proof dictionary, but it must not select an unrequested host
+semantic model.
+
 ## Prove layers, then compose
 
 Separate logical transformation, physical representation, algorithmic progress, host interaction,
@@ -144,6 +181,21 @@ carries only the canonical selected-production-prefix cutpoint, strengthens entr
 exits with the usual contract variance, and composes adjacent runs through the exact middle machine,
 event, and ghost state.  Its result is a caller-logical phase classification; native termination,
 CFG identity, placement, and final artifact authority remain separate obligations.
+
+The Spike 3 SortLines proof spine (`533d22f` through `5ae2b6b`) applies the same discipline to a
+larger relational proof: prove each selected local block or cutpoint with an exact pre/post
+ghost-world handoff, then make the program theorem a fold over those typed boundaries.  Do not
+reconstruct ghost ownership from bytes between blocks, and do not let an intermediate phase result
+stand in for a runnable `VerifiedProgram` connection.
+
+## Frame external inputs once
+
+When a runner is parametric in stdin, incoming requests, or other unrelated environment state,
+prove the `withExternalInputs` commutation and observation laws at the machine/platform layer once.
+Then transport an exact closed execution through those laws.  Spike 1 and Spike 2 equivalence
+proofs reuse target-owned `withExternalInputs` laws for events, observables, and admissibility
+instead of replaying the implementation for each environment.  This is a frame theorem: it does
+not permit dropping an input that the selected host transition actually observes.
 
 ## Preserve exact dependent CFG definitions
 
