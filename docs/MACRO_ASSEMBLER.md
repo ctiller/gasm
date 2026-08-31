@@ -754,6 +754,32 @@ when available. Thus both “this function is verified because this compiler was
 hand optimization retains the selected compiler theorem” are demonstrated end-to-end for this
 bounded fragment, not generalized to unsupported Lean or unselected properties.
 
+## Verified Microsoft x64 compiler-bulk spike
+
+`Spikes.CompilerBulk.WindowsX64` demonstrates the corresponding bounded structured-Lean path on a
+Windows x86-64 process artifact. The named four-argument `bulkExit` declaration contains structural
+`let`, noncommutative subtraction, and addition. `#structured_word_reify` produces the existing
+structured source expression and a kernel-checked theorem tied to that declaration. The Microsoft
+x64 entry backend then generates nine ordinary instructions, exact bytes, its local result theorem,
+declared clobbers, and frame facts. It does not claim a callable ABI or whole-program authority.
+
+The spike places that generated body at the final PE entry and appends three handwritten instructions:
+one reserves Microsoft x64's required call frame, one moves the proved result from RAX to
+ExitProcess's RCX argument, and one is the linker-resolved IAT call. Its proof uses the contextual
+production-runner prefix theorem to consume exactly the generated instructions, then separately
+proves exact lookup and runtime silence for the frame reservation and move, plus
+exact dispatch to the linked `ExitProcess` provider. The provider hook produces the typed terminal
+`.processExit 42` outcome and matching event, so falling off the list, returning, fuel exhaustion,
+and a merely named but unrelated call cannot satisfy the proof.
+
+The exact PE bytes and instruction stream feed the existing artifact, provider, entry,
+admissibility, and behavior certificates. `verifiedProgram` is composed only through the platform's
+sole `VerifiedProgram.compose` authority. `Emit` emits only through `emitVerifiedProgram`; `Test`
+checks the production semantic outcome, emits the verified PE, and executes it on a Windows host.
+This is the required spike gate for the bounded Microsoft-x64 backend. It proves the selected entry
+program, not general Lean compilation, callable-function ABI closure, or unsupported structured
+branches.
+
 ## Differential certificate transport
 
 Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,

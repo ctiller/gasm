@@ -137,6 +137,14 @@ name = "test_spike1_aarch64_linux"
 root = "Spikes.Spike1Hello.AArch64Linux.Test"
 
 [[lean_exe]]
+name = "spike_compiler_bulk_windows_x64"
+root = "Spikes.CompilerBulk.WindowsX64.Emit"
+
+[[lean_exe]]
+name = "test_compiler_bulk_windows_x64"
+root = "Spikes.CompilerBulk.WindowsX64.Test"
+
+[[lean_exe]]
 name = "spike2_fibonacci_windows"
 root = "Spikes.Spike2Fibonacci.Windows.Emit"
 
@@ -294,4 +302,3 @@ root = "Tools.ValidateSpikeWasm"
 [[lean_exe]]
 name = "test_graphics_foundation"
 root = "Spikes.GraphicsFoundation.Test"
-
