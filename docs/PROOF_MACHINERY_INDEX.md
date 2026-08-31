@@ -39,6 +39,20 @@ deliberately promoted into the owner-level semantic contract require preservatio
 that top-level meaning requires an explicit owner requirement decision and cannot be inferred from
 the emitted artifact.
 
+Canonical `e276448b` lands the accepted Trust rebuild plan and VISION; its document blobs exactly
+match archived review tip `archive/design/trust-rebuild-plan-3186fd9e`
+(`3186fd9e2d112db36b9980176829aedbcf6f47b1`).  It preserves
+owner-level semantic specifications while treating rederivable intermediates as disposable; lowers
+in explicit spec-directed stages; proves facts at the highest instruction-independent layer; and
+leaves only irreducible ISA, ABI, artifact, and physical-authority deltas below.  It keeps canonical
+`Environment`, conservative applicability, dynamic use plus descriptor ordinal identity, sealed
+minimal admission, `MemRef` and hardware no-freeze boundaries, advisory-only burden language, and
+owner escalation only for new shared or public proof machinery.  Plan acceptance is not acceptance
+of a concrete reusable template.  The freeze remains until a pathfinder and a materially different
+Spike 1 consumer validate the construction.
+The landing deliberately excludes two unrelated ByteArray commits, preserved on
+`codex/stdlib-bytearray-laws`, and does not modify `ScratchSpike3.lean`.
+
 An entry is not permission to force a proof through the nearest abstraction.  Start with the exact
 caller-visible theorem, compare it with the reusable result, and keep the semantic delta in the
 layer that owns it.  If adapting the library costs as much as proving the local fact, record the
