@@ -527,6 +527,13 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
                  "rendering, and the protected authority self-test path",
          "cmd": [py, "scripts/test_full_refs_launcher.py"], "slow": False,
          "tools": ["python"], "depends_on": []},
+        {"key": "check_incremental_lean_launcher",
+         "desc": "python scripts/test_incremental_lean.py",
+         "group": "linters",
+         "long": "mutation controls for edit-local Lean snapshots: a cached command stream must "
+                 "still reject a changed invalid proof and accept a corrected proof",
+         "cmd": [py, "scripts/test_incremental_lean.py"], "slow": False,
+         "tools": ["python", "lean"], "depends_on": []},
         {"key": "check_full_refs_authority",
          "desc": "python scripts/run_full_refs_coverage.py --self-test-authority",
          "group": "proofs",

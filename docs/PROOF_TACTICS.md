@@ -542,3 +542,26 @@ Callers prove facts that vary at the call site.  Libraries prove their transitio
 targets prove instruction and calling-convention facts; linkers prove layout and joint
 admissibility.  A feature absent from a path imposes no obligation on that path.  Proof economy may
 move and reuse a necessary fact, but never omit it.
+
+## Reuse the import environment during edit-local elaboration
+
+For repeated work on one Lean source whose dependencies are already built, use
+`python scripts/run_incremental_lean.py path/to/Module.lean -- -M 4096`.  The first run saves
+Lean's incremental command snapshot under `.lake/build`; later runs reload it and reconcile the
+current source body against the saved command stream.  The launcher fingerprints the pinned
+toolchain, exact import header, Lean arguments, and contents of every direct compiled dependency
+before reuse.  It runs dependency discovery with the same accepted arguments and rechecks that
+fingerprint under a per-source process lock before either loading or publishing a snapshot. A small
+manifest authenticates both of Lean's snapshot files, so a partial, corrupt, or mixed-generation
+pair fails closed; use `--refresh` to replace it deliberately.
+
+Forwarded arguments are intentionally limited to Lean's resource controls (`-M`/`--memory`,
+`-T`/`--timeout`, `-j`/`--threads`, `-s`/`--tstack`) and diagnostic controls (`-q`/`--quiet`,
+`--json`, `--profile`, `--stats`, `-E`/`--error`).  File-backed inputs such as `--setup`,
+`--plugin`, and `--load-dynlib`, arbitrary `-D` options, output paths, package roots, server modes,
+and incremental-control arguments are rejected rather than cached under a mutable path or allowed
+to bypass the launcher's cache authority.
+
+This is an edit-local frontend, not a dependency builder or validation gate.  Run the focused Lake
+target when an imported module changes, and run the repository's required gates before review.  The
+cache changes no proof authority: an invalid edited theorem is still sent to Lean and rejected.
