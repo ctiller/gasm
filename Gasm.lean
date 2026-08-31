@@ -144,6 +144,8 @@ import Gasm.Compiler.Word.StructuredStraightLine
 import Gasm.Compiler.Word.StructuredStraightLineAArch64
 import Gasm.Compiler.Word.StructuredStraightLineAArch64.Differential
 import Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry
+import Gasm.Compiler.Word.StructuredConditionMicrosoftX64Entry
+import Gasm.Compiler.Word.StructuredConditionMicrosoftX64EntryControls
 import Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry.Differential
 import Gasm.Compiler.Word.Examples
 import Gasm.Compiler.TypedCFG

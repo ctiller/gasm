@@ -672,6 +672,28 @@ plan chooses no ISA, register allocation, spills, flags, ABI, CFG block, layout,
 handwritten optimized leaves may instead prove the same source/result and selected frame contracts.
 Target realization and differential replacement remain separate proof-producing layers.
 
+## Structured Microsoft x64 conditions
+
+`Gasm.Compiler.Word.StructuredConditionMicrosoftX64Entry` is the first target realization of a
+portable structured condition. It recognizes exactly `eq` and unsigned `ult` between two of the
+four source input variables, optionally negated once. Literals, arithmetic operands, lets, nested
+negation, and every other Boolean shape reject rather than being normalized into a larger hidden
+compiler surface.
+
+The target-owned `MacroAssembler.Condition.compare` emits one exact register `CMP`. Its closed
+constructor classification proves that it is ordinary straight-line code; its local laws prove no
+GPR or memory clobber and relate the resulting equality and unsigned-below flags to the two input
+register values. The compiler `LoweredCondition` retains the selected source term, input-register
+mapping, exact instruction and serialized bytes, condition-code polarity, portable-Bool agreement,
+and the applicable input/memory/fault/RIP frames.
+
+This is condition preparation only. It selects no successor and establishes no typed edge, ghost
+transfer, branch displacement, block layout, production lookup, artifact, or `VerifiedProgram`
+property. A later branch lowering must combine it with the existing symbolic decision plan, exact
+JCC definition and polarity, both closed child definitions, target-owned layout/relocation, and
+selected-edge world transfer. Handwritten condition blocks remain first class by supplying the
+same logical agreement and selected frame contracts instead of using this macro.
+
 ## Structured Microsoft x64 process-entry backend
 
 `Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry` realizes the same bounded portable
