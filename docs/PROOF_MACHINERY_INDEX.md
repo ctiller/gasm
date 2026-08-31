@@ -305,6 +305,14 @@ evidence, and negative boundary after that comparison; it does not own a second 
   unsupported addressing aliases, noncanonical displacement spellings, modes, and truncation.
   Constructor, semantics, frames, and consumers are unchanged.  The 62-job MOV frontier and
   reference, license, publishability, and diff gates passed; no new authority is claimed.
+- Canonical `48e1d32812aa16c993412c973a884f5dccabf610` applies exact canonical-prefix identity to
+  opcode-register PUSH and POP.  Low-bank registers have no REX prefix; r8-r15 have literal REX.B
+  only.  Redundant low-bank REX, REX.W/R/X, and doubled prefixes reject instead of aliasing an
+  existing constructor.  Positive controls preserve all sixteen register identities with complete
+  consumption, while hostile controls partition the forbidden prefix bits and truncation.  The
+  constructors, steps, and access descriptors are unchanged.  Focused family validation built 21
+  jobs and hygiene passed; this closes decoder admission without adding execution or final proof
+  authority.
 - For an expensive exact execution proof, keep the complete certificate in its producer and export
   a separate typed boundary containing only the observations required by the successor.  The
   accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
