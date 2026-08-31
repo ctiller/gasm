@@ -692,21 +692,43 @@ continuation fuel and event accumulator. The theorem does not claim the continua
 is admissible. Relayout invalidates placement and runtime-silence evidence, while the source and
 local compiler proofs remain reusable.
 
+## Differential AArch64 body replacement
+
+`Gasm.Compiler.Word.StructuredStraightLineAArch64.Differential` makes the hand-optimization seam
+executable. A `FunctionalDelta` names one exact replacement instruction list and proves only that
+its X0 result agrees with an existing compiler `LocalCertificate`. `FunctionalDelta.realize`
+transports the compiler's named-Lean-function result theorem, while regenerating the replacement's
+instruction wrappers, exact serialized bytes, clobbers, PC advance, frame properties, and nominal
+control-flow-free classification from the selected AArch64 macro instruction list.
+
+This is deliberately property-relative. The first delta transports functional output because that
+is the property consumed by the spike; it does not claim timing equivalence, identical scratch
+registers, identical instruction count, layout reuse, or observational equivalence for a future
+effectful body. Adding such a consumer requires adding and proving the corresponding selected
+delta dimension. The result remains local frontend evidence and cannot emit or authorize a
+program. Placement, runtime silence, outcomes, artifact identity, admission, and the sole
+`VerifiedProgram` composition are regenerated for the exact replacement.
+
 ## Verified compiler-bulk spike
 
 `Spikes.CompilerBulk.AArch64Linux` is the completion gate for this slice. It starts with the named
 Lean function `bulkExit`, structurally reifies its nested lets, compiles the selected word fragment
-to nineteen AArch64 instructions, and proves that the generated body returns 42 in X0. A handwritten
-two-instruction tail selects Linux `exit` in X8 and executes `svc #0`.
+to a deliberately simple nineteen-instruction baseline, and proves that baseline implements the
+Lean declaration. The spike then replaces it with seven hand-selected AArch64 instructions: small
+constants use one `MOVZ`, X16 holds the live value, and X17 is scratch. A `FunctionalDelta` proves
+the replacement's X0 result equals the compiler baseline, and the target regenerates all local
+frame, instruction, and byte facts. A handwritten two-instruction tail selects Linux `exit` in X8
+and executes `svc #0`.
 
-The spike proves exact placement and runtime silence for the generated prefix, uses the contextual
-prefix theorem at the platform's 50,000-step proof budget, classifies the real exit event, connects
-the exact serialized instructions to an ELF artifact, and builds the existing artifact, provider,
-entry, admissibility, and behavior certificates. `verifiedProgram` is composed through the sole
-platform `VerifiedProgram.compose` authority. `Emit` emits only through `emitVerifiedProgram`, and
-`Test` checks production semantics then runs the emitted ELF with QEMU when available. Thus the
-claim “this function is verified because this compiler was used” is demonstrated end-to-end for
-this selected bounded fragment, not generalized to unsupported Lean.
+The spike proves exact placement and runtime silence for the selected replacement prefix, uses the
+contextual prefix theorem at the platform's 50,000-step proof budget, classifies the real exit
+event, connects the replacement's exact serialized instructions to an ELF artifact, and builds the
+existing artifact, provider, entry, admissibility, and behavior certificates. `verifiedProgram` is
+composed through the sole platform `VerifiedProgram.compose` authority. `Emit` emits only through
+`emitVerifiedProgram`, and `Test` checks production semantics then runs the emitted ELF with QEMU
+when available. Thus both “this function is verified because this compiler was used” and “this
+hand optimization retains the selected compiler theorem” are demonstrated end-to-end for this
+bounded fragment, not generalized to unsupported Lean or unselected properties.
 
 ## Differential certificate transport
 

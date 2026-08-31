@@ -15,7 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Compiler.Word.StructuredLeanReify
-import Gasm.Compiler.Word.StructuredStraightLineAArch64
+import Gasm.Compiler.Word.StructuredStraightLineAArch64.Differential
 import Gasm.Targets.AArch64.Linux.Linker
 import Gasm.Targets.AArch64.Linux.Syscall
 
@@ -28,6 +28,7 @@ open Gasm.Compiler.Word.StructuredStraightLineAArch64
 open Gasm.Targets.AArch64
 open Gasm.Targets.AArch64.Instructions
 open Gasm.Targets.AArch64.Linux
+open Gasm.Targets.AArch64.MacroAssembler
 
 /- REF: docs/MACRO_ASSEMBLER.md#verified-compiler-bulk-spike -/
 /-- Representative Lean source: structural lets are retained by reification, while the selected
@@ -51,13 +52,58 @@ theorem bulkExitFits : Fits (compile bulkExitSelected) := by
 def compiled : LocalCertificate bulkExitWord bulkExitSelected bulkExitFits :=
   lowerFunction bulkExitWord bulkExitSelected bulkExitFits
 
+private def lane0 : MovWideLane := ⟨0, by decide⟩
+
+/- REF: docs/MACRO_ASSEMBLER.md#differential-aarch64-body-replacement -/
+/-- A hand-selected replacement for the generated nineteen-instruction body. Constants known to
+    fit in sixteen bits use one `MOVZ`; X16 carries the live value and X17 is scratch. -/
+def optimizedSegment : MacroAssembler.Segment :=
+  (mov lhsScratch x0).then
+    ((movz rhsScratch 17 lane0).then
+      ((add lhsScratch lhsScratch rhsScratch).then
+        ((movz rhsScratch 255 lane0).then
+          ((MacroAssembler.and lhsScratch lhsScratch rhsScratch).then
+            ((movz rhsScratch 25 lane0).then
+              (add x0 lhsScratch rhsScratch))))))
+
+theorem optimizedSegment_result (state : AArch64MachineState) :
+    (runLocalSteps optimizedSegment.code state).gprs x0 =
+      bulkExitWord.fn (argsOfState state) := by
+  simp only [optimizedSegment, Segment.then, runLocalSteps_append]
+  rw [add_result]
+  rw [(movz rhsScratch 25 lane0).preservesGpr _ lhsScratch (by
+    change lhsScratch ∉ [rhsScratch]
+    decide)]
+  rw [movz_result]
+  rw [and_result]
+  rw [(movz rhsScratch 255 lane0).preservesGpr _ lhsScratch (by
+    change lhsScratch ∉ [rhsScratch]
+    decide)]
+  rw [movz_result]
+  rw [add_result]
+  rw [(movz rhsScratch 17 lane0).preservesGpr _ lhsScratch (by
+    change lhsScratch ∉ [rhsScratch]
+    decide)]
+  rw [movz_result]
+  rw [mov_result]
+  rfl
+
+def optimizedDelta : FunctionalDelta compiled where
+  code := optimizedSegment.code
+  resultEq := by
+    intro state
+    rw [optimizedSegment_result]
+    exact (compiled.localResult state).symm
+
+def optimized : BodyRealization bulkExitWord := optimizedDelta.realize
+
 /-- Handwritten platform tail: choose Linux `exit`, then cross the selected SVC boundary. -/
 def exitWrapper : List Instructions.AnyAArch64Instruction :=
   [Instructions.AnyAArch64Instruction.mk (movz64 .x8 93),
    Instructions.AnyAArch64Instruction.mk (svcInstr 0)]
 
 def instructions : List Instructions.AnyAArch64Instruction :=
-  compiled.instructions ++ exitWrapper
+  optimized.instructions ++ exitWrapper
 
 def executable : AArch64LinuxExecutable where
   imageBase := 0x400000

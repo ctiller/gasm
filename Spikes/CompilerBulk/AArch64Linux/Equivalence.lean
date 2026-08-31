@@ -41,59 +41,55 @@ abbrev Event := AnyEvent
 def indexed : List (UInt64 × Instructions.AnyAArch64Instruction) :=
   indexInstructions executable.load.pc instructions
 
-private theorem index_lt_19_cases (index : Nat) (bound : index < 19) :
+private theorem index_lt_7_cases (index : Nat) (bound : index < 7) :
     index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨
-    index = 5 ∨ index = 6 ∨ index = 7 ∨ index = 8 ∨ index = 9 ∨
-    index = 10 ∨ index = 11 ∨ index = 12 ∨ index = 13 ∨ index = 14 ∨
-    index = 15 ∨ index = 16 ∨ index = 17 ∨ index = 18 := by
+    index = 5 ∨ index = 6 := by
   omega
 
 /- REF: docs/MACRO_ASSEMBLER.md#verified-compiler-bulk-spike -/
 def bodyPlacement :
-    ContextualStraightLinePlacement indexed compiled.code executable.load where
+    ContextualStraightLinePlacement indexed optimized.code executable.load where
   lookup := by
     intro index inBounds
-    change index < 19 at inBounds
-    have bound : index < 19 := inBounds
-    rcases index_lt_19_cases index bound with
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+    change index < 7 at inBounds
+    have bound : index < 7 := inBounds
+    rcases index_lt_7_cases index bound with
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
 
 /- REF: docs/MACRO_ASSEMBLER.md#verified-compiler-bulk-spike -/
-def bodyRuntimeSilent : RuntimeSilentOn (Event := Event) compiled.code executable.load := by
+def bodyRuntimeSilent : RuntimeSilentOn (Event := Event) optimized.code executable.load := by
   intro index inBounds
-  change index < 19 at inBounds
-  have bound : index < 19 := inBounds
-  rcases index_lt_19_cases index bound with
-    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+  change index < 7 at inBounds
+  have bound : index < 7 := inBounds
+  rcases index_lt_7_cases index bound with
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
 
-def bodyState : AArch64MachineState := runLocalSteps compiled.code executable.load
+def bodyState : AArch64MachineState := runLocalSteps optimized.code executable.load
 
 theorem bodyState_result : bodyState.gprs x0 = 42 := by
   rw [show bodyState.gprs x0 = bulkExitWord.fn (argsOfState executable.load) from
-    compiled.localResult executable.load]
+    optimized.localResult executable.load]
   rfl
 
-theorem bodyState_pc : bodyState.pc = executable.load.pc + 76 := by
-  rw [show bodyState.pc = executable.load.pc + localCodeSize compiled.code from
-    compiled.pcAdvance executable.load]
+theorem bodyState_pc : bodyState.pc = executable.load.pc + 28 := by
+  rw [show bodyState.pc = executable.load.pc + localCodeSize optimized.code from
+    optimized.pcAdvance executable.load]
   rfl
 
 /- REF: docs/MACRO_ASSEMBLER.md#verified-compiler-bulk-spike -/
-/-- The compiler proof rewrites the 19-instruction production prefix; only the two handwritten
-    Linux tail steps are then discharged in the selected platform runtime. -/
+/-- The compiler source theorem is transported through the seven-instruction hand replacement;
+    only the two handwritten Linux tail steps are then discharged in the selected runtime. -/
 theorem canonicalEvents :
     (runAArch64OutcomeLoop (Event := Event) indexed 50000 executable.load []).events =
       [Inject.inject (ProcessEvent.exit 42)] := by
-  rw [show 50000 = compiled.code.length + 49981 by rfl]
-  rw [runAArch64OutcomeLoop_prefix (Event := Event) compiled.code indexed executable.load
-    bodyPlacement bodyRuntimeSilent rfl rfl 49981 []]
-  change (runAArch64OutcomeLoop (Event := Event) indexed 49981 bodyState []).events = _
+  rw [show 50000 = optimized.code.length + 49993 by rfl]
+  rw [runAArch64OutcomeLoop_prefix (Event := Event) optimized.code indexed executable.load
+    bodyPlacement bodyRuntimeSilent rfl rfl 49993 []]
+  change (runAArch64OutcomeLoop (Event := Event) indexed 49993 bodyState []).events = _
   have bodyFault : bodyState.fault = none := by
-    exact (compiled.preservesFault executable.load).trans rfl
+    exact (optimized.preservesFault executable.load).trans rfl
   have bodyRunning : bodyState.terminated = false := by
-    exact (compiled.preservesTerminated executable.load).trans rfl
+    exact (optimized.preservesTerminated executable.load).trans rfl
   have bodyFaultSome : bodyState.fault.isSome = false := by rw [bodyFault]; rfl
   let movExit : Instructions.AnyAArch64Instruction :=
     Instructions.AnyAArch64Instruction.mk (movz64 .x8 93)
@@ -132,7 +128,7 @@ theorem canonicalEvents :
       (inferInstance : ExternalCallInterceptor AArch64 Event).interceptCall
         afterMov.pc afterMov = none := by
     change linuxSyscallIntercept afterMov.pc afterMov = none
-    have addressNe : executable.load.pc + 76 + 4 ≠ linuxSyscallEntry := by decide
+    have addressNe : executable.load.pc + 28 + 4 ≠ linuxSyscallEntry := by decide
     simp [afterMovPc, bodyState_pc, linuxSyscallIntercept, addressNe]
   let service : Instructions.AnyAArch64Instruction :=
     Instructions.AnyAArch64Instruction.mk (svcInstr 0)
