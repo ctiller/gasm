@@ -187,8 +187,9 @@ The following code shapes have enough evidence to investigate but are not canoni
   is terminal, and a `GetMessage` result exists only after every retrieval-time callback returns
   normally.  MP-authored canonical-doc correction candidate
   `563c9acfbe0db35ded3c826f5adf63b01deadb32` (parent main `1dc7686`) records this terminality and
-  registered-wait-compatible readiness; its checks pass and Reviewer verdict is pending.  These are
-  active design constraints, not landed provider machinery.
+  registered-wait-compatible readiness.  Reviewer accepted the exact candidate; Trust integration
+  is pending, so it is not yet current-main guidance.  These are active design constraints, not
+  landed provider machinery.
 
   Provider identity has a separate generativity control.  Namespace-only checkpoint `d9685b5` does
   not obtain freshness merely from a sealed existential or rank-2 interface.  Production requires a
