@@ -6,8 +6,8 @@ refer to that snapshot and are not an active task board. Current authority/borro
 `docs/MEMORY_MODEL.md` M1/M4; current target and decoder status by `docs/TARGETS/X86_64.md`;
 calibration by `docs/CALIBRATION_GOVERNANCE.md`; and live merge gates by `docs/CI.md`. Where an
 explicit “Current status” paragraph below conflicts with the historical diagnosis, that paragraph
-wins. The 2026-08-30 qualification in §1 is MP+Reviewer-accepted design guidance; Trust acceptance
-and a landed implementation contract remain pending. Nothing in this document is itself
+wins. The 2026-08-30 qualification in §1 is MP+Reviewer-accepted and Trust-integrated design
+guidance; a concrete implementation contract remains pending. Nothing in this document is itself
 implementation.
 
 **The question**: the owner is considering a massive expansion of the x86-64 instruction set —
