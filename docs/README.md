@@ -130,8 +130,11 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**Continuous Integration**](CI.md): the GitHub Actions gate inventory, Windows/Linux platform matrix, caching soundness argument, and cost split.
 - [**Research Index**](RESEARCH_INDEX.md): durable candidate findings, evidence, ownership
   boundaries, and the conditions for promotion into proof libraries or normative specifications.
+- [**Practical Proof Tactics**](PROOF_TACTICS.md): the evidence-based authoring method: start from
+  the exact obligation, eliminate proof-delivery overhead without weakening it, and preserve layer
+  ownership and applicability.
 - [**Proof Machinery Index**](PROOF_MACHINERY_INDEX.md): accepted reusable proof paths and visibly
-  separated extraction candidates, indexed by proof need.
+  separated extraction candidates, indexed by proof need, consumer, owner, and deliberate boundary.
 - [**Win32 Windowing Source Intake**](WIN32_WINDOWING_INTAKE.md): nonnormative official-source and
   first-model research for the future Win32 windowing target contract.
 - [**Software Modeling & Architecture SDLC**](SOFTWARE_MODELING_SDLC.md): Typeclasses, theorem weaving, seams, and lowering.
@@ -147,8 +150,4 @@ To guarantee mathematical integrity and eliminate ad-hoc inventions, the reposit
 - [**Proof-Carrying Assembly DSL**](PROOF_CARRYING_ASSEMBLY.md): Current typed assembly pieces and
   design-only capability/memory-discipline boundaries.
 - [**Equivalence Proofs**](EQUIVALENCE_PROOFS.md): Split Theorem Principle (`Functional Equivalence`, `Callability & ABI`, `Memory Safety`) and layered function proof composition.
-- [**Practical Proof Tactics**](PROOF_TACTICS.md): concise, evidence-based advice on ghost state,
-  bounds, layering, local control-flow proofs, alternative proof decompositions, and proof economy.
-- [**Proof Machinery Index**](PROOF_MACHINERY_INDEX.md): need-oriented routes to accepted reusable
-  lemmas, their demonstrated consumers, ownership boundaries, and indexed extraction candidates.
 - [**Target Specifications**](TARGETS/TARGET_MODEL.md): Target models, calling conventions, and platform specifics.

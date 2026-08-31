@@ -10,13 +10,9 @@ caller-visible theorem, compare it with the reusable result, and keep the semant
 layer that owns it.  If adapting the library costs as much as proving the local fact, record the
 candidate rather than widening the library speculatively.
 
-Treat the exact caller-visible obligation as the proof's speed of light.  Measure the current path
-against it: extra premises, repeated semantic replay, adapters, imported modules, invalidated jobs,
-and wall time are the burden delta.  Redesign ownership and interfaces until that delta shrinks;
-do not shrink the theorem.  `LocalExecution` removed duplicated list induction for two targets, and
-the decimal-pass boundaries reduced both rebuilt jobs and warm edit time.  A relocation with the
-same dependency direction did neither and is the useful negative control.  Keep this comparison
-diagnostic until repeated accepted cases justify new machinery.
+Use the guidebook's [burden-delta procedure](PROOF_TACTICS.md#eliminate-the-burden-delta) to compare
+the shortest required proof with its current delivery path.  This index records the reusable result,
+evidence, and negative boundary after that comparison; it does not own a second optimization method.
 
 ## Find machinery by proof need
 

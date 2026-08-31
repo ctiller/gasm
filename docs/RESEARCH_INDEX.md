@@ -7,10 +7,9 @@ authority described in `docs/REVIEW.md` can establish repository claims.
 
 ## How to use this index
 
-Start from the caller-visible obligation: that is the shortest possible proof path.  Compare the
-current path against it in premises, semantic replay, adapters, imports, invalidated jobs, wall
-time, and memory.  The difference is the burden delta.  Redesign ownership and interfaces until
-the delta disappears; never make the theorem weaker to make the measurement smaller.
+Start with the guidebook's [burden-delta procedure](PROOF_TACTICS.md#eliminate-the-burden-delta).
+This index stores candidate evidence and promotion conditions produced by that method; it does not
+restate the proof-authoring procedure or turn measurements into accepted semantics.
 
 Every candidate should record:
 

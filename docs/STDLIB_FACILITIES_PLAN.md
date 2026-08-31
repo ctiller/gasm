@@ -95,7 +95,13 @@ real consumers.
 - **Next:** complete append lookup laws, stable key-based sorting over a lawful total
   preorder, and preservation of relative order within comparator-equivalent values.
   For the current non-strict relation, keys are equivalent when precedence holds in
-  both directions; stability preserves original tagged order inside that class.
+  both directions; stability preserves original tagged order inside that class.  The candidate
+  representation-independent statement is `StableOn key beforeKey input output`: equality of each
+  mutual-preorder key-class projection, with `insertionSort_stableOn` requiring
+  `LawfulTotalRelation`.  Identity-key Spike 3 bytes are a vacuous control because mutual ordering
+  forces value equality; a real completion witness needs distinct tagged or nominal records sharing
+  one byte key and must preserve their observable origin order after movement across an intervening
+  key.
 - **Next:** a dependent finite-table contract with semantic model
   `(i : Fin n) -> F i`, extensionality, tabulation, dependent mapping, reindexing by
   finite equivalences, and append/split roundtrips.

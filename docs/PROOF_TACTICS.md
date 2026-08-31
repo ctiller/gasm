@@ -29,6 +29,26 @@ executing instructions.  Factor a reusable library contract when the hard loop i
 the program using it.  Spike 2 became simpler once decimal formatting stopped being part of the
 Fibonacci driver proof.
 
+## Eliminate the burden delta
+
+Treat the exact caller-visible obligation as the proof's speed of light: the irreducible theorem and
+owner-local facts that must exist even with perfect proof delivery.  Inventory what the current path
+actually asks for--extra premises, repeated semantic replay, adapters, imports, invalidated jobs,
+wall time, and memory.  Their difference from the irreducible path is the burden delta.
+
+Redesign ownership, dependency direction, and typed interfaces until that delta disappears or every
+remaining cost is attached to a selected semantic obligation.  Do not weaken the theorem, narrow its
+domain, substitute a second evaluator, or move work behind a new name and call that optimization.
+Compare the same consumer before and after, and keep an unchanged-direction or deliberately malformed
+control when it distinguishes the mechanism from mere relocation.
+
+Accepted `Gasm.Proof.LocalExecution` removed duplicated list induction while leaving both targets'
+semantics local.  The decimal-pass split reduced the consumer's invalidation frontier; moving the same
+facts without reversing dependency direction produced essentially no improvement.  These are evidence
+for redesigning the proof-delivery path, not permission to trade away proof coverage.  Record build
+measurements with their exact base, command, cache state, invalidated jobs, wall time, and peak memory;
+they are comparative evidence, not universal performance facts.
+
 ## Design relational ghost state
 
 Separate immutable logical facts from evolving progress, resources, phases, and obligations.  Relate
