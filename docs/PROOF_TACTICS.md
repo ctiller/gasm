@@ -10,6 +10,14 @@ made real Gasm proofs smaller or more honest.  Add abstractions only after repea
 > further machinery onto the old proofs.  Import-light algebra and non-`VerifiedProgram` guidance
 > below remain usable when they do not extend the paused pattern.
 
+Preserve meaning, not intermediate shape.  At every rebuild scope, the precious artifact is the
+owner's top-level semantic specification or contract.  Intermediate APIs, proof architecture,
+representations, lowerings, certificates, module boundaries, generated code, and unpromoted
+guarantees are disposable when they can be rederived quickly.  Replacing them may rebuild dependent
+proofs without a supersession framework.  Preserve an intermediate guarantee only after the owner
+deliberately promotes it into the relevant top-level contract.  Changing top-level meaning requires
+an explicit owner requirement decision; emitted assembly cannot make that decision.
+
 For a need-oriented map from these tactics to checked declarations, consumers, and deliberate
 negative boundaries, see the [proof machinery index](PROOF_MACHINERY_INDEX.md).
 

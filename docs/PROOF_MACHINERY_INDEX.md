@@ -32,6 +32,12 @@ semantic proof-budget indices, or acceptance rules around it.  Soundness, applic
 universality, authority, lifecycle, and cleanup cannot be weakened to improve the ratio.  Cutover
 deletion remains unpushed until review and the substantive gates pass.
 This is a blocked design checkpoint, not permission to implement or integrate the old proof chain.
+Archived follow-up plan `archive/design/trust-rebuild-plan-f97b3bd5` (`f97b3bd5`) remains blocked
+until it removes its blanket `Sᵢ₊₁ → Sᵢ` and supersession-record requirement.  Intermediate layers
+may be replaced and their dependents rebuilt without preserving their shape; only guarantees
+deliberately promoted into the owner-level semantic contract require preservation.  Any change to
+that top-level meaning requires an explicit owner requirement decision and cannot be inferred from
+the emitted artifact.
 
 An entry is not permission to force a proof through the nearest abstraction.  Start with the exact
 caller-visible theorem, compare it with the reusable result, and keep the semantic delta in the
