@@ -443,6 +443,7 @@ inductive UInt64DecimalScheduleRealization {Event : Type}
       (outputAddressNoWrap : (initial.gprs .rdi).toNat + decimalDigitCount value ≤ 2 ^ 64)
       (completed : ∀ final finalEventsRev,
         writeInvariant (decimalDigitCount value) final finalEventsRev →
+          finalEventsRev = initialEventsRev ∧
           final.rsp = initial.rsp ∧
           final.gprs .rdi = initial.gprs .rdi + UInt64.ofNat (decimalDigitCount value) ∧
           final.gprs .rcx = 0 ∧
@@ -492,6 +493,7 @@ theorem selectedPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86
     ∃ requiredFuel final finalEventsRev emitted,
       ProductionPrefix.SelectedPrefix selected indexed requiredFuel initial initialEventsRev
         final finalEventsRev emitted ∧
+      finalEventsRev = initialEventsRev ∧
       final.rsp = initial.rsp ∧
       final.gprs .rdi = initial.gprs .rdi + UInt64.ofNat (decimalDigitCount value) ∧
       final.gprs .rcx = 0 ∧
@@ -509,11 +511,11 @@ theorem selectedPrefix {Event : Type} [interceptor : ExternalCallInterceptor X86
   rcases writeStep.iterate middle middleEventsRev (startWrite middle middleEventsRev middleInvariant) with
     ⟨final, finalEventsRev, writeEvents, writeFuel, writePrefix, finalInvariant⟩
   rcases completed final finalEventsRev finalInvariant with
-    ⟨restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
+    ⟨eventsPreserved, restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
       preservesR14, preservesR15, callerFramePreserved⟩
   exact ⟨extractionFuel + writeFuel, final, finalEventsRev,
     extractionEvents ++ writeEvents, extractionPrefix.append writePrefix,
-    restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
+    eventsPreserved, restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
     preservesR14, preservesR15, callerFramePreserved⟩
 
 /- REF: docs/STDLIB_FMT.md#55-bounded-uint64-decimal-contract -/
@@ -538,7 +540,7 @@ theorem toProductionPrefix {Event : Type} [interceptor : ExternalCallInterceptor
       final.gprs .r15 = initial.gprs .r15 ∧
       callerFrame initial final := by
   rcases realization.selectedPrefix with
-    ⟨requiredFuel, final, finalEventsRev, emitted, selectedPrefix, restoredRsp, advancedCursor,
+    ⟨requiredFuel, final, finalEventsRev, emitted, selectedPrefix, _eventsPreserved, restoredRsp, advancedCursor,
       clearedCount, formatBytes, preservesR12, preservesR13, preservesR14, preservesR15,
       callerFramePreserved⟩
   exact ⟨requiredFuel, final, finalEventsRev, emitted, selectedPrefix.toProductionPrefix,

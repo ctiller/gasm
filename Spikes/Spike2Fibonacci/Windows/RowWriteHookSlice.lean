@@ -12,7 +12,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
--/import Spikes.Spike2Fibonacci.Windows.RowRecurrenceRegister5
+-/import Spikes.Spike2Fibonacci.NativeLoop
+import Spikes.Spike2Fibonacci.Windows.RowRecurrenceRegister5
 
 namespace Spikes.Spike2Fibonacci.Windows
 
@@ -22,18 +23,10 @@ open Gasm.Targets.X86_64
 set_option maxRecDepth 2000000
 set_option maxHeartbeats 5000000
 
-/-- The exact byte-to-string interpretation shared by the formatter proof and Win32 consumer.
-It deliberately mirrors `X86_64MachineState.readString` without mentioning call setup. -/
-def decodeWriteFileBytes (bytes : List UInt8) : String :=
-  let byteArr := ByteArray.mk bytes.toArray
-  match String.fromUTF8? byteArr with
-  | some str => str
-  | none => String.ofList (bytes.map (fun byte => Char.ofNat byte.toNat))
-
-theorem readString_eq_decodeWriteFileBytes (state : X86_64MachineState)
+theorem readString_eq_decodeNativeBytes (state : X86_64MachineState)
     (buffer : Address) (bytes : List UInt8)
     (holds : BufHolds state.memory buffer bytes) :
-    state.readString buffer bytes.length = decodeWriteFileBytes bytes := by
+    state.readString buffer bytes.length = decodeNativeBytes bytes := by
   have observed :
       (List.range bytes.length).map
           (fun index => (X86_64Mem.read .w8 (buffer + index.toUInt64) state.memory).toUInt8) =
@@ -43,7 +36,7 @@ theorem readString_eq_decodeWriteFileBytes (state : X86_64MachineState)
     · intro index left right
       have byte := BufHolds_getElem state.memory buffer bytes holds index right
       simpa [left, X86_64Mem.read] using byte
-  unfold X86_64MachineState.readString decodeWriteFileBytes
+  unfold X86_64MachineState.readString decodeNativeBytes
   rw [observed]
   rfl
 
@@ -58,8 +51,8 @@ class WriteFileEmissionShape (state : X86_64MachineState) (buffer : Address)
 theorem writeFileHook_emits_shape (state : X86_64MachineState) (buffer : Address)
     (bytes : List UInt8) [shape : WriteFileEmissionShape state buffer bytes] :
     emittedBy (writeFileHook (Event := AnyEvent) state).2 =
-      [Inject.inject (ConsoleEvent.out (decodeWriteFileBytes bytes))] := by
-  have text := readString_eq_decodeWriteFileBytes state buffer bytes shape.content
+      [Inject.inject (ConsoleEvent.out (decodeNativeBytes bytes))] := by
+  have text := readString_eq_decodeNativeBytes state buffer bytes shape.content
   simp [writeFileHook, shape.bufferArgument, shape.lengthArgument, emittedBy, text]
 
 theorem spike2_writeFile_call_lowMemory (state : X86_64MachineState)
@@ -83,7 +76,9 @@ structure Spike2WriteHookResult (initial : X86_64MachineState)
   rip : final.rip = 5368713523
   rsp : final.rsp = spike2AfterPrologue.rsp
   fault : final.fault = none
-  emittedExact : emitted = [Inject.inject (ConsoleEvent.out (decodeWriteFileBytes bytes))]
+  emittedExact : emitted = [Inject.inject (ConsoleEvent.out (decodeNativeBytes bytes))]
+  eventsExact : finalEventsRev =
+    Inject.inject (ConsoleEvent.out (decodeNativeBytes bytes)) :: eventsRev
 
 opaque spike2_write_hook_slice (state : X86_64MachineState) (eventsRev : List AnyEvent)
     (bytes : List UInt8)
@@ -128,6 +123,14 @@ opaque spike2_write_hook_slice (state : X86_64MachineState) (eventsRev : List An
     content := calledBuffer }
   letI : WriteFileEmissionShape called (state.rsp + 64) bytes := shape
   have emittedExact := writeFileHook_emits_shape called (state.rsp + 64) bytes
+  have hookSome : (writeFileHook (Event := AnyEvent) called).2 =
+      some (Inject.inject (ConsoleEvent.out (decodeNativeBytes bytes))) := by
+    cases hook : (writeFileHook (Event := AnyEvent) called).2 with
+    | none => simp [hook, emittedBy] at emittedExact
+    | some event =>
+      have eventEq : event = Inject.inject (ConsoleEvent.out (decodeNativeBytes bytes)) := by
+        simpa [hook, emittedBy] using emittedExact
+      exact congrArg some eventEq
   exact {
     final := final
     finalEventsRev := accumulateEvent eventsRev (writeFileHook (Event := AnyEvent) called).2
@@ -139,6 +142,7 @@ opaque spike2_write_hook_slice (state : X86_64MachineState) (eventsRev : List An
     rip := by rw [observations.1, hrip]; rfl
     rsp := observations.2.1.trans rsp
     fault := observations.2.2.2.trans safe
-    emittedExact := emittedExact }
+    emittedExact := emittedExact
+    eventsExact := by simp [hookSome, accumulateEvent] }
 
 end Spikes.Spike2Fibonacci.Windows

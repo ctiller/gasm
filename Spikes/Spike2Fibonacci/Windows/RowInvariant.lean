@@ -12,15 +12,22 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
--/import Spikes.Spike2Fibonacci.Windows.RowHookRegisterFrame
+-/import Spikes.Spike2Fibonacci.NativeLoop
+import Spikes.Spike2Fibonacci.Windows.RowHookRegisterFrame
 
 namespace Spikes.Spike2Fibonacci.Windows
 
 open Gasm.Effects Gasm.Targets.X86_64
 
+def spike2ExpectedEventsRev : Nat → List AnyEvent
+  | 0 => []
+  | completed + 1 =>
+      Inject.inject (ConsoleEvent.out (decodeNativeBytes (fibonacciLineBytes (completed + 1)))) ::
+        spike2ExpectedEventsRev completed
+
 /-- Fixed-point contract at the typed main-loop header. -/
 structure Spike2RowInvariant (completed : Nat) (state : X86_64MachineState)
-    (_eventsRev : List AnyEvent) : Prop where
+    (eventsRev : List AnyEvent) : Prop where
   rip : state.rip = spike2WindowsMainLoopRip
   rsp : state.rsp = spike2AfterPrologue.rsp
   counter : state.gprs .r13 = UInt64.ofNat (completed + 1)
@@ -28,6 +35,7 @@ structure Spike2RowInvariant (completed : Nat) (state : X86_64MachineState)
   fibB : state.gprs .r15 = (fibNat (completed + 2)).toUInt64
   fault : state.fault = none
   lowMemory : Spike2RowLowMemory state
+  events : eventsRev = spike2ExpectedEventsRev completed
 
 theorem spike2_initial_row_invariant :
     Spike2RowInvariant 0 spike2AfterPrologue ([] : List AnyEvent) where
@@ -38,5 +46,6 @@ theorem spike2_initial_row_invariant :
   fibB := by change spike2AfterPrologue.gprs .r15 = 1; exact spike2_after_prologue_r15
   fault := spike2_after_prologue_fault
   lowMemory := spike2_after_prologue_lowMemory
+  events := rfl
 
 end Spikes.Spike2Fibonacci.Windows

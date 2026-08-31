@@ -68,6 +68,38 @@ def fibonacciLineBytes (index : Nat) : List UInt8 :=
   fibPrefixBytes ++ formatDecimal index ++ fibMiddleBytes ++
     formatDecimal (fibIter index) ++ nativeLineEnding
 
+/-- Total byte decoder used at native console boundaries.  The Fibonacci alphabet is UTF-8,
+but retaining the fallback makes the consumer total for any future byte-producing library. -/
+def decodeNativeBytes (bytes : List UInt8) : String :=
+  let byteArr := ByteArray.mk bytes.toArray
+  match String.fromUTF8? byteArr with
+  | some str => str
+  | none => String.ofList (bytes.map (fun byte => Char.ofNat byte.toNat))
+
+theorem fibNat_le_succ (n : Nat) : fibNat n ≤ fibNat (n + 1) := by
+  cases n with
+  | zero => decide
+  | succ n =>
+    change fibNat (n + 1) ≤ fibNat (n + 1) + fibNat n
+    omega
+
+theorem fibNat_mono {a b : Nat} (h : a ≤ b) : fibNat a ≤ fibNat b := by
+  obtain ⟨distance, hd⟩ := Nat.exists_eq_add_of_le h
+  subst b
+  clear h
+  induction distance with
+  | zero => exact Nat.le_refl _
+  | succ distance ih =>
+    have step := fibNat_le_succ (a + distance)
+    have indexEq : a + (distance + 1) = a + distance + 1 := by omega
+    rw [indexEq]
+    exact Nat.le_trans ih step
+
+theorem fibNat_lt_uint64_of_le_90 (n : Nat) (h : n ≤ 90) : fibNat n < 2 ^ 64 := by
+  have upper := fibNat_mono h
+  have concrete : fibNat 90 < 2 ^ 64 := by decide
+  omega
+
 /- REF: docs/STDLIB_FMT.md#6-spike-2-migration-status -/
 /-- Exact concatenated native bytes after `completed` rows, numbered from one. -/
 def fibonacciOutputBytes (completed : Nat) : List UInt8 :=

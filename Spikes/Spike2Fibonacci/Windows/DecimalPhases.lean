@@ -1289,7 +1289,7 @@ theorem spike2_uint64_decimal_realization (value : UInt64) (initial : X86_64Mach
               rw [write.writtenLength]
         _ = write.written := decimalBytesAt_eq_of_BufHolds _ _ _ write.buffer
         _ = formatDecimal value.toNat := writtenFull
-    exact ⟨restoredRsp, write.rdi, clearedCount, formatBytes,
+    exact ⟨write.events, restoredRsp, write.rdi, clearedCount, formatBytes,
       write.preservesR12, write.preservesR13, write.preservesR14, write.preservesR15,
       {
         rip := write.completedRip rfl
@@ -1311,6 +1311,7 @@ theorem spike2_uint64_decimal_selected_prefix_bounded (value : UInt64)
       requiredFuel ≤ 12 * decimalDigitCount value ∧
       ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed requiredFuel
         initial initialEventsRev final finalEventsRev emitted ∧
+      finalEventsRev = initialEventsRev ∧
       final.rsp = initial.rsp ∧
       final.gprs .rdi = initial.gprs .rdi + UInt64.ofNat (decimalDigitCount value) ∧
       final.gprs .rcx = 0 ∧
@@ -1348,11 +1349,11 @@ theorem spike2_uint64_decimal_selected_prefix_bounded (value : UInt64)
       (startWrite middle middleEventsRev middleInvariant) with
     ⟨final, finalEventsRev, writeEvents, writeFuel, writePrefix, writeBound, finalInvariant⟩
   rcases completed final finalEventsRev finalInvariant with
-    ⟨restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
+    ⟨finalEventsEq, restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
       preservesR14, preservesR15, callerFrame⟩
   refine ⟨extractionFuel + writeFuel, final, finalEventsRev,
     extractionEvents ++ writeEvents, ?_, extractionPrefix.append writePrefix,
-    restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
+    finalEventsEq, restoredRsp, advancedCursor, clearedCount, formatBytes, preservesR12, preservesR13,
     preservesR14, preservesR15, callerFrame⟩
   change extractionFuel ≤ decimalDigitCount value * 7 at extractionBound
   change writeFuel ≤ decimalDigitCount value * 5 at writeBound

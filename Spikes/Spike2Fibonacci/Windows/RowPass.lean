@@ -46,14 +46,29 @@ theorem spike2_row_pass (completed : Nat) (state : X86_64MachineState)
       index.cursorAboveStack index.cursorAbove index.cursorRoom indexCursor indexCursorNat
       indexBuffer with
     ⟨decimalFuel, decimalFinal, decimalEventsRev, decimalEmitted, decimalBound,
-      decimalPrefix, decimalRegisters, decimalFibRegisters, decimalLow, decimalBuffer,
+      decimalPrefix, decimalEventsEq, decimalRegisters, decimalFibRegisters, decimalLow, decimalBuffer,
       decimalCursor, decimalCursorNat, decimalRip, decimalCursorAbove, decimalCursorRoom⟩
   let rowBytes := spike2IndexPrefixBytes completed ++
     Stdlib.Fmt.formatDecimal ((spike2AfterDecimalSetup index.final).gprs .rax).toNat
+  have decimalCursorOutput : decimalFinal.gprs .rdi =
+      decimalFinal.rsp + 64 + UInt64.ofNat rowBytes.length := by
+    dsimp [rowBytes]
+    rw [decimalRegisters.rsp]
+    exact decimalCursor
+  have decimalCursorNatOutput : (decimalFinal.gprs .rdi).toNat =
+      (decimalFinal.rsp + 64).toNat + rowBytes.length := by
+    dsimp [rowBytes]
+    rw [decimalRegisters.rsp]
+    exact decimalCursorNat
+  have decimalBufferOutput : BufHolds decimalFinal.memory (decimalFinal.rsp + 64) rowBytes := by
+    dsimp [rowBytes]
+    rw [decimalRegisters.rsp]
+    exact decimalBuffer
   let output := spike2_output_setup_slice decimalFinal decimalEventsRev rowBytes decimalRip
     (decimalRegisters.rsp.trans (index.registers.rsp.trans holds.rsp))
     (decimalRegisters.fault.trans (index.registers.fault.trans holds.fault)) decimalLow
-    decimalCursorAbove decimalCursorRoom decimalCursor decimalCursorNat decimalBuffer
+    decimalCursorAbove decimalCursorRoom decimalCursorOutput decimalCursorNatOutput
+    decimalBufferOutput
   let hook := spike2_write_hook_slice output.final decimalEventsRev (rowBytes ++ [13, 10])
     output.rip output.rsp output.writtenPointer output.fault output.lowMemory output.writeFileIat
     output.bufferArgument output.lengthArgument output.buffer output.bufferNoWrap
@@ -80,7 +95,8 @@ theorem spike2_row_pass (completed : Nat) (state : X86_64MachineState)
       fibA := ?_
       fibB := ?_
       fault := finalFault
-      lowMemory := finalLow }
+      lowMemory := finalLow
+      events := ?_ }
     calc
       final.gprs .r13 = hook.final.gprs .r13 + 1 := finalCounter
       _ = output.final.gprs .r13 + 1 := congrArg (fun counter => counter + 1)
@@ -122,6 +138,28 @@ theorem spike2_row_pass (completed : Nat) (state : X86_64MachineState)
                 fibNat ((completed + 1) + 1) + fibNat (completed + 1) from rfl,
                 Nat.add_comm]]
           exact (UInt64.ofNat_add _ _).symm
+    · have decimalValue :
+          ((spike2AfterDecimalSetup index.final).gprs .rax).toNat =
+            fibIter (completed + 1) := by
+        change (index.final.gprs .r14).toNat = fibIter (completed + 1)
+        rw [index.fibRegisters.r14, holds.fibA, fibIter_eq_fibNat]
+        have bound := fibNat_lt_uint64_of_le_90 (completed + 1) (by omega)
+        simp [Nat.toUInt64, Nat.mod_eq_of_lt bound]
+      have rowBytesEq : rowBytes ++ [13, 10] = fibonacciLineBytes (completed + 1) := by
+        dsimp [rowBytes]
+        rw [decimalValue]
+        simp [spike2IndexPrefixBytes, fibonacciLineBytes, fibPrefixBytes,
+          fibMiddleBytes, nativeLineEnding, List.append_assoc]
+      calc
+        hook.finalEventsRev =
+            Inject.inject (ConsoleEvent.out (decodeNativeBytes (rowBytes ++ [13, 10]))) ::
+              decimalEventsRev := hook.eventsExact
+        _ = Inject.inject (ConsoleEvent.out
+              (decodeNativeBytes (fibonacciLineBytes (completed + 1)))) :: eventsRev := by
+            rw [rowBytesEq, decimalEventsEq]
+        _ = spike2ExpectedEventsRev (completed + 1) := by
+          rw [holds.events]
+          simp [spike2ExpectedEventsRev]
 
 /-- Uniform bounded-fuel structural row step for the 90-row Windows loop. -/
 def spike2_row_step : SelectedFuelBoundedInvariantLoopStep selectedNonInputPlatformCall

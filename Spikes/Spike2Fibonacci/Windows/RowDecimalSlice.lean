@@ -40,6 +40,7 @@ theorem spike2_decimal_slice (completed : Nat) (state : X86_64MachineState)
       fuel ≤ 243 ∧
       ProductionPrefix.SelectedPrefix selectedNonInputPlatformCall spike2Indexed fuel
         state eventsRev final finalEventsRev emitted ∧
+      finalEventsRev = eventsRev ∧
       Spike2RowRegisterFrame state final ∧
       Spike2FibRegisterFrame state final ∧
       Spike2RowLowMemory final ∧
@@ -109,7 +110,8 @@ theorem spike2_decimal_slice (completed : Nat) (state : X86_64MachineState)
       exact spike2_after_prologue_exitProcessIat }
   rcases spike2_uint64_decimal_selected_prefix_bounded value decimalInitial eventsRev frame with
     ⟨decimalFuel, final, finalEventsRev, emitted, decimalBound, decimalPrefix,
-      finalRsp, finalRdi, _finalRcx, _formatBytes, _r12, finalR13, finalR14, finalR15, caller⟩
+      finalEventsEq, finalRsp, finalRdi, _finalRcx, _formatBytes, _r12, finalR13, finalR14,
+      finalR15, caller⟩
   have decimalRegisters : Spike2RowRegisterFrame decimalInitial final := {
     rsp := finalRsp
     r13 := finalR13
@@ -188,7 +190,7 @@ theorem spike2_decimal_slice (completed : Nat) (state : X86_64MachineState)
     simp [UInt64.toNat_add] at bound ⊢
     simp [Nat.toUInt64, Nat.mod_eq_of_lt bound]
   refine ⟨3 + decimalFuel, final, finalEventsRev, emitted, ?_, setupPrefix.append decimalPrefix,
-    setupFrame.trans decimalRegisters,
+    finalEventsEq, setupFrame.trans decimalRegisters,
     { r14 := finalR14
       r15 := finalR15 },
     finalLow, completeBuffer, completeCursor, completeCursorNat, caller.rip, ?_, ?_⟩
