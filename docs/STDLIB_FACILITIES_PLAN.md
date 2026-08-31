@@ -188,11 +188,12 @@ The highest-priority **Next** primitive requested by Trust is the pure fold. Bef
 implementation its step algebra must fix these semantics:
 
 - acceptance commits exactly one input unit and returns the next fold state;
-- refusal is atomic with respect to fold state and ownership accounting;
+- refusal is atomic with respect to the fold state;
 - the refused unit is retained as the head of the returned remainder and may be
   retried by the caller;
-- the result returns the committed state, accepted prefix, exact remainder, stop
-  reason, and resource-accounting witness.
+- the result returns the committed state, accepted prefix, exact remainder, and stop
+  reason. A consumer may include accounting in its state and separately prove the
+  domain-owned accounting and ownership invariant.
 
 Its conservation law partitions the original input into:
 
@@ -201,11 +202,13 @@ accepted prefix ++ refused input ++ unconsumed tail
 ```
 
 If the stop reason is refusal, the remainder is `refused :: unconsumedTail`; no state
-or ownership delta from that refused step is committed. Resource counts use one
-named unit per algebra. Required invariants are: live equals acquired minus reclaimed
-without underflow; peak is the maximum live count over all committed prefixes;
-refusal fabricates no ownership; reclamation is unique; and a terminal result names
-any unreclaimed resources rather than silently treating them as cleaned up.
+delta from that refused step is committed.
+
+Generic resource-count accounting remains **Candidate** until it has connection
+theorems to two accepted domain states. A count projection may prove conservation,
+live and historical peak bounds, and atomic refusal, but it is not an ownership
+witness: unique reclamation, resource identity, nested-scope close, cleanup, and
+terminal unreclaimed-resource meaning remain domain-owned.
 
 Effectful source/sink I/O remains **Candidate** and lives on the Gasm Effects lane,
 not in pure Stdlib. Its separate outcome algebra must define partial commit, EOF,
@@ -263,8 +266,8 @@ The plan borrows useful boundaries rather than copying APIs:
 Subject to higher-priority Trust/build repairs, the current sequence is:
 
 1. Complete Vec laws and lawful stable key sorting.
-2. Add the generic fallible streaming fold and resource-accounting lemmas requested
-   by Trust.
+2. Add the generic fallible streaming fold requested by Trust; promote count
+   accounting separately only after domain connection theorems exist.
 3. Land dependent finite tables; separately promote `FinSet`/`FinMap` only when a
    named compiler migration is accepted.
 4. Promote persistent FIFO and finite worklist facilities independently when their
@@ -279,6 +282,12 @@ Subject to higher-priority Trust/build repairs, the current sequence is:
 9. Specify async lifecycles only after cancellation and effect prerequisites settle.
 
 ## 10. Admission and review gate
+
+An isolated library may be reviewed and landed as candidate infrastructure, but the
+work is not complete until an end-to-end demonstration spike uses the facility and
+proves its existing observable contract through the shared API. A synthetic unit
+example is not a substitute. The demonstration must exercise the failure boundary
+when the facility is fallible and must not gain new program or artifact authority.
 
 A representation-bearing facility is ready to land when its slice has:
 
@@ -314,7 +323,8 @@ promotion requires filling any missing consumer, bound, and cost evidence.
 | Generic ByteArray lemmas | `Stdlib/Zlib/ByteArrayBridge.lean` | Zlib and PNG | exact list/array observation bridges; no Zlib dependency | Next |
 | `Nat.alignUp` | Linux ELF and Windows PE emitters | two linker/emitter paths | preserve zero policy; positive-alignment divisibility and minimality | Next |
 | UInt64 decimal bridge | present Fmt UInt64 writer/bounds and HTTP decimal handling | Fmt, HTTP, Spike 2 | connection theorem and behavior-preserving HTTP migration; add only a demonstrated missing partition lemma | Next bridge; re-check ownership |
-| Fallible finite fold | Trust streaming/accounting request | first integrations to be selected with Trust | atomic refusal, retained remainder, prefix conservation, live/peak/reclaim laws | Next by Trust request |
+| Fallible finite fold | Trust streaming request | Zlib streaming demonstration planned | atomic refusal, retained remainder, prefix conservation, committed-state chain | Next pending runnable demonstration |
+| Resource count projection | SmolAlloc and WASI retain distinct executable states | connection consumers not yet landed | count conservation and historical peak bounds without claiming ownership identity | Candidate; connections required |
 | Byte cursor | ELF parser and x86 decoding | two parsing paths | no overread, monotone cursor, exact consumed slice | Candidate |
 | Endian primitives | ELF, x86 encoding, PNG big-endian emission | multiple byte formats | read/write roundtrip under exact width bounds | Candidate |
 | Byte chunks | Effects splitting and PNG/Zlib streaming | effect and codec paths | split/join reconstruction and cap; no environment requeue policy | Candidate |

@@ -60,10 +60,11 @@ import Stdlib.Fmt.UInt64DecimalSchedule
 import Stdlib.Fmt.Parser
 import Stdlib.Fmt.Roundtrip
 
+import Stdlib.Control.FallibleFold
+
 import Stdlib.Zlib
 import Stdlib.Gzip
 import Stdlib.Png
 import Stdlib.Png.RoundtripSoundness
-
 
 
