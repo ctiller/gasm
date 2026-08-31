@@ -236,10 +236,10 @@ The following code shapes have enough evidence to investigate but are not canoni
   adds the initial world and proof, production world threading, one named dependent load-result index
   shared by entry/admissibility/behavior, a generative certificate tied to that exact
   discipline/result, witness-consuming handles, and derived two-load root distinctness.  Reviewer
-  accepted the exact candidate with no remaining blocker; Trust rebase/integration is pending and no
-  canonical landed hash exists yet.  `d9685b5` remains namespace-only and runner work remains
-  gated on signature migration.  This is an accepted design candidate, not current-main established
-  machinery.
+  accepted the exact candidate with no remaining blocker.  The design is now canonical as
+  `a83a5441054be8385eade44ce24e78cfb0cd3a49` within GitHub main
+  `a62ca537f33e12be117f50c507fd462f92c3a5b9`.  `d9685b5` remains namespace-only; target consumers
+  still require their own exact transitions and authority proofs.
 - The graphics proof-economy worklist seeks theorem boundaries that preserve universal provider,
   memory, and authority claims while keeping final verification tractable.  Candidate shapes are: a
   total byte decoder paired with a sparse exact-write footprint and complement frame theorem; a
@@ -253,6 +253,17 @@ The following code shapes have enough evidence to investigate but are not canoni
   `native_decide` controls, projecting `.cpu` through the old runner, `spec := run`, and central
   value-type edits that invalidate the target closure.  Keep this as a worklist until checked
   consumers and dependency/build evidence identify reusable declarations.
+- Compiler-roadmap candidate `ee11b405b36c48fca1ebbcd6f4bf9f17c3fa2d0a` contains supported
+  evidence but is MP-blocked as a design document.  Its replacement must classify SPIR-V as a
+  first-class target ISA while separating shader frontends from platform APIs; scope exception,
+  cancellation, allocation, cleanup, termination, ranking, and resource proofs to selected claims
+  while reusing canonical ownership; add fault continuation/fallthrough and selected
+  teardown/callback honesty to the Microsoft x64 entry gate; and state governance as MP design,
+  Reviewer falsification, and Trust integration.  Await a current-base superseding hash and Reviewer
+  verdict.
+- Graphics candidates `733501b`, `6044dad`, and `5c405ca` remain integration-blocked on old base
+  `da60357`: rebasing them would resurrect noncanonical `WINDOWS_VULKAN_PROFILE.md`.  Any retained
+  mechanism must be re-authored on canonical `a62ca53` and independently reviewed again.
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
