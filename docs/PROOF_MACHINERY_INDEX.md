@@ -225,19 +225,24 @@ The following code shapes have enough evidence to investigate but are not canoni
 
   Accuracy follow-up `67bf9db02bb335b373d558feb142fe10d1a15c47` supersedes `4a27b2e` on
   canonical main `2a0ff225ae8521ceeed31c60f92ccbeffa79dc4c`.  It preserves the MP- and
-  independently Reviewer-accepted semantics of `ecd5f9ec5da481c4eca0ee85765c9571f709ad24`.
-  Reviewer nevertheless held the exact first public shape because the current ternary relation
-  `Prop` has no stable relation-occurrence identity; exact redesign and re-review are required before
-  Trust integration.  The minimal proposal under review adds a stable `RelationOccurrenceId` and
-  relation-occurrence record carrier, plus a reserved `ConsequenceOccurrenceId`; it is not yet an
-  accepted interface.  The checkpoint implements only the thin
+  independently Reviewer-accepted semantics of `ecd5f9ec5da481c4eca0ee85765c9571f709ad24`,
+  but is superseded for integration readiness because its ternary relation `Prop` has no stable
+  occurrence identity.  Reviewer accepts the minimum replacement shape: stable
+  `RelationOccurrenceId`; `RelationRecord` carrying source, label, and target; a finite duplicate-free
+  occurrence-ID carrier; exact `Option`-map coverage and endpoint laws; and a ternary relation derived
+  solely as an existential over that table, never as independent authority.  `EventId` already names
+  event occurrences.  `ConsequenceOccurrenceId` remains reserved opaque vocabulary with no
+  consequence carrier, coverage, admission, or premise until a selected extension requires it.
+  Multi is preparing the replacement; Trust integration and binding history remain gated.
+
+  The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
   event-agent and relation-endpoint laws, nonsemantic carrier-list order, proportionate eliminators,
   and private positive plus malformed-carrier controls.  Public `Domains` carries opaque
   `Consequence` vocabulary for the heterogeneous envelope, but proves no consequence carrier
   membership, identity, occurrence/path binding, semantics, fidelity, admission, or authority.  It
-  likewise proves no target fidelity, execution admission, binding, or aliasing law.  Binding-history
-  work remains gated; this checkpoint does not complete M0 or the native-thread demonstration.
+  likewise proves no target fidelity, execution admission, binding, or aliasing law.  It does not
+  complete M0 or the native-thread demonstration.
 
   Signature review accepted the layer split but held implementation for four failures.  An
   unrestricted `PathConsequence.value` could invent completion, visibility, or resource return
