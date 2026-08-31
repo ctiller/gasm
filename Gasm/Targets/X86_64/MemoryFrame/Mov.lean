@@ -35,6 +35,15 @@ This is descriptor/step fidelity only; it grants no logical authority or physica
     MemAccessSpec.addresses, MemRef.effectiveAddress, MemWidth.bytes]
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#principal-invariant -/
+/-- The complete post-step memory image for the byte-register store is exactly one canonical hook
+write at the descriptor address. Register/RIP behavior and access authority are separate facts. -/
+@[simp] theorem MovMem8Reg8.step_memory_eq (i : MovMem8Reg8)
+    (s : X86_64MachineState) :
+    (X86_64Instruction.step i s).memory =
+      X86_64Mem.write .w8 (s.gprs i.dstPtr) (s.gprs i.srcReg).toUInt8.toUInt64 s.memory := by
+  rfl
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#principal-invariant -/
 /-- The byte-register store writes the pre-step source register's low byte at its exact declared
 address. This theorem is operational realization, not evidence that the address is mapped or that
 the author owns it. -/
@@ -59,6 +68,15 @@ nor a Windows stack grant. -/
   simp [X86_64Instruction.memAccesses, storeFootprint, footprintFor,
     MemAccessSpec.addresses, MemRef.effectiveAddress, MemWidth.bytes,
     X86_64MachineState.rsp]
+
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#principal-invariant -/
+/-- The complete post-step memory image for the RSP-relative byte store is exactly one canonical
+hook write at the descriptor address. This does not establish a Windows stack grant. -/
+@[simp] theorem MovRspDispByte.step_memory_eq (i : MovRspDispByte)
+    (s : X86_64MachineState) :
+    (X86_64Instruction.step i s).memory =
+      X86_64Mem.write .w8 (s.rsp + signExtend8To64 i.disp) i.val.toUInt64 s.memory := by
+  rfl
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#principal-invariant -/
 /-- The RSP-relative byte store writes its immediate at the exact declared address. Mapping,
