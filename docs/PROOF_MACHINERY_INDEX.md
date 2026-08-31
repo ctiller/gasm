@@ -363,6 +363,24 @@ The following code shapes have enough evidence to investigate but are not canoni
   roundtrip separately before M0 exit.  These are structural obligations only--target consistency
   and admission remain above M0.  Multi must return the revised signatures before implementation;
   MP will author canonical `MEMORY_MODEL` interface text only after the shape stabilizes.
+- Checked-x86-authoring proof brief `97595be15389e296addcb91f44e5680ef673c99b` is accepted
+  design-only; implementation remains blocked until a canonical sound typed-`ObligationWorld`/M2-B
+  seam lands.  Its decisive prototype is one real
+  straight-line Windows artifact with exactly one dynamic byte-store use and a real terminal
+  transition.  The checked path reuses canonical BindingHistory identities and world tokens,
+  separately proves latest-live capture-to-use evidence and x86 physical realization, erases to the
+  ordinary encodable instruction, retains/discharges obligations through indexed transitions, and
+  ends in the artifact's sole `VerifiedProgram.compose` value.  It deliberately rejects a parallel
+  permission ledger, static-instruction/dynamic-use conflation, whole-allocation equality in place of
+  byte-subview containment and backing translation, decoder-created authority, freely constructible
+  discharge, and ghost ownership as proof of mapping or fault freedom.  A subsequent ownership
+  clarification assigns mapped+writable access to an M2-B Windows-x64-process-entry profile grant,
+  tied to the exact artifact, load state, initial stack pointer, committed writable range, lifetime,
+  and selected dynamic occurrence.  The artifact explicitly allocates its Windows stack frame; it
+  assumes no red zone, and leaves the terminal `ExitProcess` CALL's memory effects outside the first
+  checked family.  Neither total x86 memory nor the logical world derives the grant.  Prototype
+  declarations remain provisional and profile-local; commit `934d39a` is only a temporary
+  integration repair, not the stable M1 implementation base.
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
   Spike 3 still needs a theorem over every finite stdin with explicit reservation, allocation,
   read, output, exhaustion, and cleanup outcomes before its downstream production certificates can
