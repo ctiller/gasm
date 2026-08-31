@@ -201,7 +201,7 @@ private theorem loadImm_result (destination : Gpr) (value : UInt64)
   exact materialize_eq value
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-aapcs64-backend -/
-private theorem lowerAtom_correct (destination : Gpr) (atom : Atom)
+theorem lowerAtom_correct (destination : Gpr) (atom : Atom)
     (state : AArch64MachineState) :
     (runLocalSteps (lowerAtom destination atom).code state).gprs destination =
       atom.eval (argsOfState state) := by
@@ -220,7 +220,7 @@ private theorem lowerAtom_correct (destination : Gpr) (atom : Atom)
     simpa [lowerAtom, Atom.eval] using loadImm_result destination value state
 
 /- REF: docs/MACRO_ASSEMBLER.md#aarch64-aapcs64-backend -/
-private theorem lowerAtom_preservesGpr (destination register : Gpr)
+theorem lowerAtom_preservesGpr (destination register : Gpr)
     (different : register ≠ destination) (atom : Atom) (state : AArch64MachineState) :
     (runLocalSteps (lowerAtom destination atom).code state).gprs register =
       state.gprs register := by
