@@ -93,12 +93,16 @@ at instruction level.
 Each selected provider exposes an owner-defined sealed result family. For the first Windows profile:
 
 - stdout acquisition returns `acquired(handle, generation, rights)` or `absent(error)`;
-- write returns `accepted(n)` with `n <= requested`, or `failed(error)`;
+- write returns a sealed `accepted(n, proof n <= requested)` occurrence, or `failed(error)`;
 - accepted bytes are exactly the requested prefix of length `n`;
 - the returned count, success flag and target state agree with the ABI-visible result;
 - handle generation, buffer authority and count-output memory remain target/provider obligations;
   and
 - the provider states its conditional progress class separately from safety.
+
+The accepted-prefix constructor is not exported without its bound/exact-split evidence. Saturating
+`take`/`drop` is not admission: a negative control must show that an oversized returned count cannot
+construct the provider-to-operation transition or reach apparent completion.
 
 The common lowering core sees only the operation, its sealed result, exact occurrence and the
 directional realization theorem. It does not define a universal provider-result enum.
@@ -138,22 +142,22 @@ The universal whole-program proof must establish all of the following:
 3. **Execution nonvacuity:** for every admitted finite profile situation, at least one target
    execution exists. Reactive/divergent profiles instead provide the exact coinductive existence
    statement. False/empty `Executes` cannot prove a program.
-4. **Provider completeness:** the selected provider realization proves that its target transition
-   relation includes every result permitted by the pinned provider contract, including failure,
-   short acceptance and zero acceptance. A deterministic-success subset is not an admitted provider
-   realization.
+4. **Provider soundness and eligible coverage:** every concrete provider transition is classified by
+   exactly one owner result. The provider owner defines result eligibility from the exact operation,
+   state and environment premises; its Windows realization proves coverage only for root-required or
+   selected eligible result classes under those premises. Failure, short and zero acceptance cannot
+   be erased when eligible, while impossible results create no existence obligation.
 5. **Origin and coverage:** every execution step originates in the exact artifact, selected provider,
    platform or admitted environment transition; every result branch, internal helper, cleanup path
    and terminal/fault path has a disposition.
 6. **Architectural and policy safety:** every execution satisfies instruction definedness, memory
    safety/authority, selected memory consistency, ABI, provider admission, lifecycle and artifact
    requirements. Root unobservability discharges none of these.
-7. **Total outcome classification:** every finite execution is continuing, ordinarily terminal,
-   fatally terminal or explicitly stuck/faulted according to an owner-defined result. Fuel
-   exhaustion, unclassified faults and missing branches are rejected rather than erased by an
-   observable projection.
-8. **Backward soundness:** every target execution refines some exact root observation accepted by
-   the stored root contract, preserving committed effects and result identity.
+7. **Prefix safety and exclusive classification:** every finite prefix is continuing, terminal, or
+   stuck/faulted, with exact state and committed effects. Unadmitted stuck/fault states must be proved
+   absent or receive a root-declared disposition; they do not refine a terminal-only root.
+8. **Maximal-execution soundness:** every terminal or maximal target execution refines an exact root
+   observation accepted by the stored root contract, preserving committed effects and result identity.
 9. **Required-behavior realization:** under the root's named implementability premises and the
    selected provider/profile, every root-required behavior class has the stated target witness. This
    is separate from backward soundness and does not claim completeness over arbitrary source
@@ -167,9 +171,15 @@ admission or carry authority. `Executes` owns provider and scheduler nondetermin
 derive a deterministic runner and prove it sound and complete for one closed transcript/profile,
 but that runner is a witness below the universal relation, never the behavior authority.
 
-For a deterministic target, the old equality theorem is recovered as a special case from singleton
-execution plus soundness and completeness. The rebuilt gate therefore loses no currently valid
-fact and additionally prevents deterministic-success narrowing from hiding real provider branches.
+Fuel exhaustion belongs only to a finite runner/search procedure. It is not an `Executes` outcome or
+source result. Runner soundness must reject exhaustion before the runner can witness a semantic
+execution.
+
+For a deterministic specialization, exact equality is recovered only when the environment/provider
+transcript is closed, the target execution is singleton, observation/refinement is functional, and
+there is a forward witness for the exact root-required observation. Singleton execution plus
+backward soundness alone proves only permission, not equality. The rebuilt gate additionally
+prevents deterministic-success narrowing from hiding real provider branches.
 
 ### 5.1 Obligation discharge
 
@@ -184,15 +194,17 @@ The final gate composes certificates; it does not ask each program to replay the
 | Instruction/access safety | ISA, memory and ABI libraries over the derived selected tree | Local representation relation only if unavoidable |
 | Branch/path coverage | Proof-producing lowering of success, retry and fatal continuations | Supply the two continuations |
 | Output split | Source `writeAll` invariant/combinator | Exact message/root mapping |
-| Backward soundness | Structural lowering induction over actual states/results | Connect accepted results to sealed root |
+| Prefix safety | Structural lowering induction over actual states/results | Preserve the source invariant |
+| Maximal-execution soundness | Structural terminal/maximal theorem | Connect accepted results to sealed root |
 | Required behavior | Selected implementation plus provider implementability theorem | Choose claimed behavior class |
 | Progress | Separate provider/fairness theorem | Choose whether termination is claimed |
 
 Provider realization has two distinct directions. Mandatory soundness classifies every concrete
-target call transition as exactly one typed provider result and proves its source transition.
-Conditional coverage says that each result enabled by the pinned provider/environment profile has a
-corresponding target transition. It does not require Windows to realize impossible results, and it
-does prevent a proof author from narrowing the profile to deterministic success.
+target call transition as exactly one typed provider result and proves its source transition. The
+provider owner defines eligibility. Conditional coverage says that each root-required or selected
+eligible result class under the exact provider/environment premises has a corresponding target
+transition. It does not require Windows to realize impossible results, and it does prevent a proof
+author from narrowing an eligible profile to deterministic success.
 
 ## 6. Windows realization
 
@@ -229,6 +241,11 @@ argument. Development may occur in an isolated experimental namespace, but canon
 atomic: one `VerifiedProgram` authority remains, all retained consumers are rebuilt, and the old
 authority path becomes unreachable.
 
+“Unreachable” means no public production emitter, imported facade, alias, typeclass instance, build
+root or transitive declaration used by a canonical consumer can construct or consume the old
+authority. An old deterministic runner may remain only behind a derived nonauthority diagnostic API
+whose result cannot reach production emission.
+
 ## 8. Proof-producing lowering target
 
 Program-specific proof should be limited to:
@@ -240,8 +257,9 @@ Program-specific proof should be limited to:
 
 Libraries should derive the loop's instruction execution, branch coverage, pointer/count arithmetic,
 frame/clobber facts, ABI result decoding, access descriptors, provider routing and artifact closure.
-If the rebuilt Spike 1 is not plausibly near the fallback 10:1 target, perform the single required
-ownership/spec/lowering review before proposing further shared machinery.
+If the rebuilt Spike 1 is not plausibly near the fallback 10:1 target, an optional one-round human
+smell test may prompt design discussion before further shared machinery. It is not an acceptance
+gate and creates no ratio infrastructure, counters, waivers or automation.
 
 ## 9. Acceptance sequence
 

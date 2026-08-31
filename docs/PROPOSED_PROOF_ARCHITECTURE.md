@@ -55,10 +55,12 @@ details and must be non-successful.
 
 ### Source package and monadic operations
 
-The source package proves literal bytes/logical output-event correspondence. Its operations are
-result-indexed `write bytes` and `terminate result`; selected profiles may expose accepted prefix,
-short write, refusal/error and terminal/failure branches. Cleanup is explicit when the provider or
-runtime acquires a resource.
+The source package proves literal bytes/logical output-event correspondence. Its precious operation
+is `writeAll text onFatal`: short/zero writes are absorbed below the source boundary; successful
+continuation occurs only after the full text; and the typed fatal continuation receives error plus
+exact committed-prefix evidence and carries a semantic terminal certificate. Stdout acquisition,
+handles, retry state, accepted counts, Windows `WriteFile`, numeric exit codes and cleanup mechanics
+belong to selected lowering/provider rungs.
 
 ### Selected tree and lowering stages
 
@@ -309,7 +311,8 @@ codec/provider/artifact path.
 ### Root and choices
 
 The first root is this machine running Windows/Vulkan/SPIR-V. It presents frames until the window is
-closed, recreates the required graphics state after device loss, and remains memory-safe throughout.
+closed, recreates the required graphics state after device loss when the selected device/profile is
+again available, and otherwise produces an explicit terminal-loss outcome; it remains memory-safe throughout.
 Acceptance, queue completion, fence/semaphore signal, image availability, presentation acceptance
 and display visibility are distinct. “Memory strategy” is not yet a product choice: implementation
 may select appropriate host/device allocation and binding, then must expose the exact resource graph
@@ -358,9 +361,10 @@ graphics artifact/runtime path atomically.
 
 ### Root and choices
 
-The first root selects Windows on x86, a fair mutex, and blocking waits that yield execution to the
-scheduler rather than spin indefinitely. It states the concurrent computation and exact observable
-result with explicit thread lifecycle, lock/wait results, failure disposition and claimed progress.
+The first root selects Windows on x86, demands the selected mutex progress/fairness class, and
+forbids indefinite busy-waiting by requiring a blocking wait to yield execution to the scheduler.
+It states the concurrent computation and exact observable result with explicit thread lifecycle,
+lock/wait results, failure disposition and claimed progress.
 It does not assume one global schedule, wake visibility or forced-termination cleanup. The mutex
 algorithm, exact Windows wait adapter, fairness premises and optional async surface remain selected
 realization details rather than source operations.
@@ -448,11 +452,11 @@ design boundary is wrong; higher burden for a genuinely novel implementation is 
 | Universal constraints | Interface-wide certified closure plus exact selected implementation | Proposed; deceptive controls mandatory |
 | Spike 1 root | Full text before normal exit; retry every short write; fatal write failure or missing stdout | Selected by Craig 2026-08-31; target fatal codes/actions remain realization details |
 | Spike 2 root | Same output rule as Spike 1 for the complete row stream | Selected by Craig 2026-08-31 |
-| Spike 3 root | File close terminates the final record; memory exhaustion produces no output; after preparation, use the Spike 1 output rule with no additional record-prefix requirement | Selected by Craig 2026-08-31 |
+| Spike 3 root | File close terminates the final record; memory exhaustion produces no output; after preparation, use the Spike 1 output rule with no additional record-prefix requirement | Partially selected by Craig 2026-08-31; stability and cleanup-failure disposition remain open |
 | Spike 4 first profile | HTTP/0.9-like, one request at a time, no keep-alive or pipelining, close connection on termination | Selected by Craig 2026-08-31 |
-| Spike 5 first profile | Streaming I/O, proved peak allocation, input/output policy inherited from Spike 3 | Selected by Craig 2026-08-31 |
-| Graphics first profile | This machine, Windows/Vulkan/SPIR-V, loop until window close, recreate after device loss, memory-safe | Selected by Craig 2026-08-31; exact allocation/binding and peak-memory contract remains to be chosen from implementation evidence |
-| Multi first profile | Windows/x86, scheduler-yielding waits, fair mutex | Selected by Craig 2026-08-31; exact fairness premises and Windows wait primitive remain realization details |
+| Spike 5 first profile | Streaming I/O, proved peak allocation, input/output policy inherited from Spike 3 | Partially selected by Craig 2026-08-31; codec/member/truncated-input choices remain open |
+| Graphics first profile | This machine, Windows/Vulkan/SPIR-V, loop until window close, conditionally recreate after device loss or report terminal loss, memory-safe | Selected by Craig 2026-08-31; exact allocation/binding and peak-memory contract remains to be chosen from implementation evidence |
+| Multi first profile | Windows/x86, demanded mutex fairness/progress class and no indefinite busy-wait; selected realization must yield blocking waits to scheduler | Selected by Craig 2026-08-31; mutex algorithm, exact fairness premises and Windows wait primitive remain realization details |
 | Cutover | Whole-spike atomic by default | Proposed design rule; exception needs unique canonical authority theorem |
 | Interface validation | Pathfinder plus Spike 1 universal VP roots before current use | Proposed validation gate, not implementation or compatibility authority |
 

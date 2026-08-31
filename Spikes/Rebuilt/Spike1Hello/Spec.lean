@@ -19,13 +19,14 @@ import Gasm.Core.Types
 /-!
 # Rebuilt Spike 1 source contract
 
-This file owns only the target-independent output contract selected by Craig on 2026-08-31.
-It contains no instruction, address, ABI, provider, artifact, or `VerifiedProgram` definition.
+This file owns the target-independent `writeAll text onFatal` contract selected by Craig on
+2026-08-31. It contains no handle, retry count, instruction, address, ABI, provider, numeric process
+status, artifact, or `VerifiedProgram` definition.
 -/
 
 namespace Spikes.Rebuilt.Spike1Hello
 
-/-- The logical text required before an ordinary successful exit. -/
+/-- The logical text required before an ordinary successful termination. -/
 def message : List UInt8 :=
   "Hello, World!\n".toUTF8.toList
 
@@ -35,68 +36,79 @@ inductive FatalOutputError where
   | writeFailure
 deriving DecidableEq, Repr
 
-/-- Result of one abstract write attempt. Positive or zero partial acceptance is nonfatal. -/
-inductive WriteResult where
-  | accepted (count : Nat)
-  | fatal (error : FatalOutputError)
+/-- Evidence delivered to the fatal continuation. Missing stdout occurs before output; a fatal
+write retains exactly some committed prefix. -/
+structure OutputFailure (text : List UInt8) where
+  error : FatalOutputError
+  committed : List UInt8
+  valid : match error with
+    | .noStdout => committed = []
+    | .writeFailure => committed.IsPrefix text
+
+/-- A source-level terminal observation. Target-specific numeric exit codes/actions are realization
+facts and do not occur in the precious root. -/
+inductive TerminalObservation where
+  | success (emitted : List UInt8)
+  | fatal (error : FatalOutputError) (committed : List UInt8)
 deriving DecidableEq, Repr
 
-/-- Logical state threaded through repeated writes. -/
-structure OutputState where
-  emitted : List UInt8
-  remaining : List UInt8
-deriving DecidableEq, Repr
+/-- The fatal continuation is semantically terminal: it produces a terminal observation directly,
+not an arbitrary program merely indexed by a non-returning result type. -/
+structure FatalContinuation (text : List UInt8) where
+  apply : OutputFailure text → TerminalObservation
+  terminatesExactly : ∀ failure,
+    apply failure = .fatal failure.error failure.committed
 
-/-- The state is an exact split of the required message. -/
-def OutputState.Valid (state : OutputState) : Prop :=
-  state.emitted ++ state.remaining = message
+/-- Standard fatal policy for Spike 1. -/
+def orFatal (text : List UInt8) : FatalContinuation text where
+  apply := fun failure => .fatal failure.error failure.committed
+  terminatesExactly := fun _ => rfl
 
-/-- Initial state before stdout acquisition and the first write. -/
-def initial : OutputState :=
-  { emitted := [], remaining := message }
+/-- The actual precious source operation. `writeAll` absorbs short/zero writes below this boundary;
+only complete success or the certified fatal continuation is source-visible. -/
+structure WriteAllProgram where
+  text : List UInt8
+  onFatal : FatalContinuation text
 
-theorem initial_valid : initial.Valid := by
-  simp [initial, OutputState.Valid]
+/-- Ergonomic constructor corresponding to `writeAll text onFatal`. -/
+def writeAll (text : List UInt8) (onFatal : FatalContinuation text) : WriteAllProgram :=
+  { text, onFatal }
 
-/-- Apply a nonfatal provider acceptance. The provider must not claim more bytes than remain. -/
-def accept (state : OutputState) (count : Nat) : OutputState :=
-  { emitted := state.emitted ++ state.remaining.take count
-    remaining := state.remaining.drop count }
+/-- Source semantics of `writeAll`: success emitted all text, or the actual fatal continuation ran.
+There is no source-level partial-success or numeric-exit case. -/
+def WriteAllProgram.Accepts (program : WriteAllProgram) : TerminalObservation → Prop
+  | .success emitted => emitted = program.text
+  | outcome@(.fatal _ _) => ∃ failure, program.onFatal.apply failure = outcome
 
-/-- Short and zero-length writes preserve the exact output split and therefore require retry. -/
-theorem accept_valid (state : OutputState) (valid : state.Valid) (count : Nat) :
-    (accept state count).Valid := by
-  simp only [accept, OutputState.Valid]
-  rw [List.append_assoc, List.take_append_drop, valid]
+/-- Rebuilt Spike 1 source program. -/
+def hello : WriteAllProgram :=
+  writeAll message (orFatal message)
 
-/-- Root-visible process outcome. Fatal exit codes are required to be nonzero. -/
-inductive Outcome where
-  | exited (code : UInt32) (emitted : List UInt8)
-  | fatal (error : FatalOutputError) (code : UInt32) (emitted : List UInt8)
-deriving DecidableEq, Repr
+/-- The sealed Spike 1 precious root used by lowering. -/
+def Accepts : TerminalObservation → Prop :=
+  hello.Accepts
 
-/-- Selected Spike 1 root: normal exit requires the complete text; fatal output failure permits
-only the exact committed prefix, and absence of stdout commits nothing. -/
-def Accepts : Outcome → Prop
-  | .exited code emitted => code = 0 ∧ emitted = message
-  | .fatal .noStdout code emitted => code ≠ 0 ∧ emitted = []
-  | .fatal .writeFailure code emitted => code ≠ 0 ∧ emitted.IsPrefix message
+theorem accepts_success : Accepts (.success message) := by
+  rfl
 
-/-- Finishing from a valid state is legal exactly when no bytes remain. -/
-theorem accepts_success (state : OutputState) (valid : state.Valid)
-    (done : state.remaining = []) : Accepts (.exited 0 state.emitted) := by
-  rw [OutputState.Valid, done, List.append_nil] at valid
-  exact ⟨rfl, valid⟩
+theorem accepts_failure (failure : OutputFailure message) :
+    Accepts (.fatal failure.error failure.committed) := by
+  exact ⟨failure, (orFatal message).terminatesExactly failure⟩
 
-/-- A fatal write after any sequence of accepted prefixes preserves an exact committed prefix. -/
-theorem accepts_write_failure (state : OutputState) (valid : state.Valid) (code : UInt32)
-    (failed : code ≠ 0) : Accepts (.fatal .writeFailure code state.emitted) := by
-  refine ⟨failed, ?_⟩
-  exact ⟨state.remaining, valid⟩
+theorem no_stdout_commits_nothing (failure : OutputFailure message)
+    (missing : failure.error = .noStdout) : failure.committed = [] := by
+  cases failure with
+  | mk error committed valid =>
+      simp only at missing
+      subst error
+      exact valid
 
-/-- Missing stdout is fatal before output begins. -/
-theorem accepts_no_stdout (code : UInt32) (failed : code ≠ 0) :
-    Accepts (.fatal .noStdout code []) := by
-  exact ⟨failed, rfl⟩
+theorem write_failure_commits_prefix (failure : OutputFailure message)
+    (failed : failure.error = .writeFailure) : failure.committed.IsPrefix message := by
+  cases failure with
+  | mk error committed valid =>
+      simp only at failed
+      subst error
+      exact valid
 
 end Spikes.Rebuilt.Spike1Hello

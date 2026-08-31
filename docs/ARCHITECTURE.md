@@ -106,20 +106,19 @@ alternatives do not exist. Public target-local raw serializers still exist and a
 unmigrated/fuzzing paths; they confer no verification claim and must be made private or gated before
 the “only emission path” property is mechanically true.
 
-External-provider nondeterminism does not require a relational replacement for `Platform.run`.
-The selected provisional direction reifies raw provider responses in a default-empty,
-target-neutral container within the same universally quantified `Environment`, preserving
-deterministic replay and the environment-only observable specification. Raw entries name a
-versioned `ProviderProtocolKey` and carry raw status/payload only. Provider semantics and total
-decoding are target-owned, never caller-authored
-predicates that shrink the input domain. Missing, malformed, mismatched, refused, and oversized
-entries map to explicit outcomes and resource dispositions.
+The accepted rebuild direction for external-provider nondeterminism is relational target execution,
+described by `PROOF_LOWERING_CORE_DESIGN.md` and `SPIKE1_REBUILD_SEAM.md`; it is not implemented or
+interface-frozen yet. `Environment` carries logical external inputs but neither selects a provider
+nor asserts admission/authority. Every concrete provider transition is classified by exactly one
+owner-defined result (universal soundness). The provider owner defines result eligibility, and the
+selected target realization proves conditional coverage only for root-required or selected eligible
+result classes under exact environment/profile premises. It neither requires every theoretical
+failure in every state nor permits deterministic-success narrowing that omits eligible branches.
 
-A provider-enabled target is a distinct platform profile whose actual state, load, run, and
-admissibility cover the combined CPU/provider execution; projecting the CPU component into an old
-runner while leaving provider state unused is not a connection proof. Provider streams are inspected
-at the head only, preserve the exact tail on every outcome, advance their response sequence exactly
-when the head is consumed, and retain monotone execution-scoped operation/response history.
+A deterministic runner may survive as a derived diagnostic for an exact closed transcript/profile
+only after soundness and completeness against the relational semantics. It is not whole-program
+behavior authority. The current functional `Platform.run` remains implementation evidence pending
+the atomic rebuild; it cannot close the new Spike 1 short-write/failure root by itself.
 
 The current pure `Platform.load : Artifact → Environment → State` cannot establish that identity is
 generative. Two calls with equal arguments return equal states; a phantom type, hidden existential,
