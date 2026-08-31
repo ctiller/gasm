@@ -278,8 +278,8 @@ The following code shapes have enough evidence to investigate but are not canoni
   `933efba56baa6793dda7336a424410c90d115d79` closes all four content findings, but its reported
   `933efba340...` hash is invalid and its actual parent is stale `36771e2`, not canonical `a62ca53`.
   Fresh replacement `d9c033a2b5d5b5007e49ffc60f50f4c73ed79d9d` re-authors the exact roadmap on
-  `a62ca53` and is MP+Reviewer exact-hash accepted with no P1.  Trust integration and a landed hash
-  remain pending, so it is not established guidance.
+  `a62ca53` and is MP+Reviewer exact-hash accepted with no P1.  Trust landed the identical narrow
+  delta canonically as `8db418abcc5789b62424c49ab3c16596196ff4d5`; it is established guidance.
 - Graphics candidates `733501b`, `6044dad`, and `5c405ca` remain integration-blocked on old base
   `da60357`: rebasing them would resurrect noncanonical `WINDOWS_VULKAN_PROFILE.md`.  Any retained
   mechanism must be re-authored on canonical `a62ca53` and independently reviewed again.
