@@ -354,6 +354,17 @@ evidence, and negative boundary after that comparison; it does not own a second 
   `8485743` is consumed by runnable spike `88edac5`, which replaces nine generated instructions with
   one `mov rax, 42`, regenerates its ten bytes and local frames, then separately re-proves placement,
   runtime silence, terminal dispatch, artifact identity, admission, and final composition.
+- The canonical Microsoft x64 structured-condition chain is comparison macro
+  `cc64f4dfc4e193cd069edeedc4e4fe12f3adf66f`, compiler adapter
+  `534369710c5a39acaa4129c9375f2865c61e06da`, corrected plan
+  `eee3d8f10d920e702044fc53d938d2308d157616`, then exact typed-CFG block binding
+  `f9223e5a3f9c4a863798a6c910afa32114a37666`.  Source role, logical contract, and symbolic topology
+  remain stable across replacement; selected implementation identity and its certificate are
+  regenerated.  The macro and adapter are local checked premises, and the block binding connects
+  both exact successors without claiming runnable branch compilation or final `VerifiedProgram`
+  authority.  The delivered differential control remains the nine-instruction-to-one-instruction
+  Microsoft x64 replacement above.  Earlier hand-expanded IDs and noncanonical held commit
+  `29b21f0b` are not provenance for this chain; use these repository-resolved canonical objects.
 - For production emission, pass the final `VerifiedProgram` to platform-neutral
   `emitVerifiedProgram`; handle its `Except` result rather than bypassing the proof boundary with a
   target serializer.  Canonical `94da7dd` migrated Spike 2 Linux's emitter and test to this path;
