@@ -15,7 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Compiler.Word.StructuredLeanReify
-import Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry
+import Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry.Differential
 import Gasm.Targets.Windows.Linker
 
 namespace Spikes.CompilerBulk.WindowsX64
@@ -51,10 +51,36 @@ theorem bulkExitFits : Fits (compile bulkExitSelected) := by
 def compiled : LocalCertificate bulkExitWord bulkExitSelected bulkExitFits :=
   lowerFunction bulkExitWord bulkExitSelected bulkExitFits
 
-/-- The generated bulk body is followed by two handwritten instructions: move the verified result
-    into ExitProcess's first argument and call the linker-resolved import. -/
+/- REF: docs/MACRO_ASSEMBLER.md#verified-microsoft-x64-compiler-bulk-spike -/
+/-- A hand-selected one-instruction implementation of the same selected result contract. -/
+def optimizedSegment : Gasm.Targets.X86_64.MacroAssembler.Segment :=
+  Gasm.Targets.X86_64.MacroAssembler.loadImm resultRegister 42
+
+/- REF: docs/MACRO_ASSEMBLER.md#verified-microsoft-x64-compiler-bulk-spike -/
+/-- Property-relative proof that the hand-selected body preserves the compiler baseline's RAX
+    result for every entry state. -/
+def optimizedDelta : FunctionalDelta compiled where
+  replacement := optimizedSegment
+  memoryPreserved := rfl
+  resultEq := by
+    intro state
+    calc
+      (Gasm.Targets.X86_64.MacroAssembler.runLocalSteps optimizedSegment.code state).gprs
+          resultRegister = 42 := optimizedSegment.localSound state trivial
+      _ = (Gasm.Targets.X86_64.MacroAssembler.runLocalSteps compiled.instructions state).gprs
+          resultRegister := by
+        rw [compiled.localResult]
+        simp [bulkExitWord, bulkExit]
+
+/-- Exact replacement-local facts regenerated from `optimizedDelta`. -/
+def optimized : BodyRealization bulkExitWord :=
+  optimizedDelta.realize
+
+/-- The selected bulk body is followed by three handwritten instructions: reserve the Microsoft
+    x64 call frame, move the verified result into ExitProcess's first argument, and call the
+    linker-resolved import. -/
 def symbolicProgram : List SymbolicInstr :=
-  compiled.instructions.map instr ++
+  optimized.instructions.map instr ++
     [instr (sub_rsp 40), instr (mov_r64 .rcx resultRegister), call_import "ExitProcess"]
 
 def linked : LinkedWindowsProgram :=

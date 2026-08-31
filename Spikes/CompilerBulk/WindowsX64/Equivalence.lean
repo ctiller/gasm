@@ -41,23 +41,23 @@ def indexed : List (UInt64 × X86_64Instr) :=
   indexInstructions executable.load.rip instructions
 
 theorem instructions_decomposition :
-    instructions = [] ++ compiled.instructions ++ instructions.drop compiled.instructions.length := by
+    instructions = [] ++ optimized.instructions ++ instructions.drop optimized.instructions.length := by
   rfl
 
 theorem indexedLayout : IndexedLayoutCertificate indexed :=
   IndexedLayoutCertificate.ofNoDupAddresses _ (by decide)
 
 theorem bodySubsequence :
-    ContiguousInstructionSubsequence indexed executable.load.rip compiled.instructions :=
+    ContiguousInstructionSubsequence indexed executable.load.rip optimized.instructions :=
   ContiguousInstructionSubsequence.ofDecomposition executable.load.rip executable.load.rip
-    instructions [] compiled.instructions (instructions.drop compiled.instructions.length)
+    instructions [] optimized.instructions (instructions.drop optimized.instructions.length)
     instructions_decomposition rfl
 
 /- REF: docs/MACRO_ASSEMBLER.md#verified-microsoft-x64-compiler-bulk-spike -/
 theorem bodyPlacement : ContextualStraightLinePlacement indexed executable.load.rip
-    compiled.instructions executable.load :=
+    optimized.instructions executable.load :=
   ContextualStraightLinePlacement.ofSubsequence indexed executable.load.rip
-    compiled.instructions executable.load compiled.controlFlowFree rfl indexedLayout bodySubsequence
+    optimized.instructions executable.load optimized.controlFlowFree rfl indexedLayout bodySubsequence
 
 private def SuccessorsUnaligned (base : UInt64) : List X86_64Instr → Bool
   | [] => true
@@ -98,7 +98,7 @@ private theorem SuccessorsUnaligned.resolve {base : UInt64} {code : List X86_64I
           simpa [instructionSpan, UInt64.add_assoc] using resolved
 
 private theorem bodySuccessorsUnaligned :
-    SuccessorsUnaligned executable.load.rip compiled.instructions = true := by
+    SuccessorsUnaligned executable.load.rip optimized.instructions = true := by
   rfl
 
 private theorem win32Intercept_none_of_unaligned {state : X86_64MachineState}
@@ -110,17 +110,17 @@ private theorem win32Intercept_none_of_unaligned {state : X86_64MachineState}
   rfl
 
 /- REF: docs/MACRO_ASSEMBLER.md#verified-microsoft-x64-compiler-bulk-spike -/
-theorem bodyRuntimeSilent : RuntimeSilentOn (Event := Event) compiled.instructions executable.load := by
+theorem bodyRuntimeSilent : RuntimeSilentOn (Event := Event) optimized.instructions executable.load := by
   intro before instruction suffix split
   let beforeState := runLocalSteps before executable.load
   let after := X86_64Instruction.step instruction beforeState
   have beforeOrdinary : ∀ selected ∈ before, ControlFlowFree selected := by
     intro selected member
-    apply compiled.controlFlowFree selected
+    apply optimized.controlFlowFree selected
     rw [split]
     exact List.mem_append_left _ member
   have instructionOrdinary : ControlFlowFree instruction := by
-    apply compiled.controlFlowFree instruction
+    apply optimized.controlFlowFree instruction
     rw [split]
     simp
   have beforeRip : beforeState.rip = executable.load.rip + instructionSpan before := by
@@ -134,22 +134,22 @@ theorem bodyRuntimeSilent : RuntimeSilentOn (Event := Event) compiled.instructio
     SuccessorsUnaligned.resolve bodySuccessorsUnaligned before instruction suffix split
 
 def bodyState : X86_64MachineState :=
-  runLocalSteps compiled.instructions executable.load
+  runLocalSteps optimized.instructions executable.load
 
 theorem bodyState_result : bodyState.gprs .rax = 42 := by
   rw [show bodyState.gprs .rax = bulkExitWord.fn (argsOfState executable.load) from
-    compiled.localResult executable.load]
+    optimized.localResult executable.load]
   rfl
 
 theorem bodyState_rip :
-    bodyState.rip = executable.load.rip + instructionSpan compiled.instructions := by
-  exact compiled.ripAdvance executable.load
+    bodyState.rip = executable.load.rip + instructionSpan optimized.instructions := by
+  exact optimized.ripAdvance executable.load
 
-private theorem compiled_instructionSpan : instructionSpan compiled.instructions = 34 := by
+private theorem optimized_instructionSpan : instructionSpan optimized.instructions = 10 := by
   rfl
 
 theorem bodyState_fault : bodyState.fault = none := by
-  exact (compiled.preservesFault executable.load).trans rfl
+  exact (optimized.preservesFault executable.load).trans rfl
 
 private def reserveCallFrame : X86_64Instr := sub_rsp 40
 
@@ -159,7 +159,7 @@ private def afterReserveCallFrame : X86_64MachineState :=
 private theorem lookupReserveCallFrame :
     instructionAtRipIndexed indexed bodyState.rip = some reserveCallFrame := by
   rw [bodyState_rip]
-  rw [compiled_instructionSpan]
+  rw [optimized_instructionSpan]
   rfl
 
 private theorem afterReserveCallFrame_fault : afterReserveCallFrame.fault = none := by
@@ -200,7 +200,7 @@ private def afterMoveExitCode : X86_64MachineState :=
 private theorem lookupMoveExitCode :
     instructionAtRipIndexed indexed afterReserveCallFrame.rip = some moveExitCode := by
   rw [afterReserveCallFrame_rip, bodyState_rip]
-  rw [compiled_instructionSpan]
+  rw [optimized_instructionSpan]
   rfl
 
 private theorem afterMoveExitCode_fault : afterMoveExitCode.fault = none := by
@@ -223,12 +223,12 @@ private theorem afterMoveExitCode_silent :
   rw [afterMoveExitCode_rip, afterReserveCallFrame_rip, bodyState_rip]
   rfl
 
-private def callExitProcess : X86_64Instr := call_rip 8169
+private def callExitProcess : X86_64Instr := call_rip 8193
 
 private theorem lookupCallExitProcess :
     instructionAtRipIndexed indexed afterMoveExitCode.rip = some callExitProcess := by
   rw [afterMoveExitCode_rip, afterReserveCallFrame_rip, bodyState_rip]
-  rw [compiled_instructionSpan]
+  rw [optimized_instructionSpan]
   rfl
 
 private theorem moveExitCodeTransition :
@@ -274,10 +274,10 @@ private theorem callExitProcessTransition :
     produces the terminal process outcome. -/
 theorem canonicalObservable :
     (runProgramOutcomeLoop (Event := Event) indexed
-      (compiled.instructions.length + 3) executable.load []).observable =
+      (optimized.instructions.length + 3) executable.load []).observable =
       .processExited 42 [Inject.inject (ProcessEvent.exit 42)] := by
-  rw [runProgramOutcomeLoop_prefix (Event := Event) compiled.instructions
-    compiled.controlFlowFree indexed executable.load.rip executable.load bodyPlacement
+  rw [runProgramOutcomeLoop_prefix (Event := Event) optimized.instructions
+    optimized.controlFlowFree indexed executable.load.rip executable.load bodyPlacement
     bodyRuntimeSilent rfl 3 []]
   change (runProgramOutcomeLoop (Event := Event) indexed 3 bodyState []).observable = _
   rw [runProgramOutcomeLoop]
@@ -295,7 +295,7 @@ theorem canonicalObservable :
     NativeRunOutcome.observable]
 
 def proofBudget : NativeProofBudget where
-  evaluatorFuel := compiled.instructions.length + 3
+  evaluatorFuel := optimized.instructions.length + 3
 
 def artifact : WindowsX86_64Artifact where
   executable := executable
@@ -393,7 +393,7 @@ def behaviorCertificate : ProgramBehaviorCertificate (WindowsX86_64 Event)
     rw [outcomeExternalInputFrame]
     simp only [NativeRunOutcome.withExternalInputs_observable]
     change (runProgramOutcomeLoop (Event := Event) indexed
-      (compiled.instructions.length + 3) executable.load []).observable = _
+      (optimized.instructions.length + 3) executable.load []).observable = _
     exact canonicalObservable
 
 /- REF: docs/MACRO_ASSEMBLER.md#verified-microsoft-x64-compiler-bulk-spike -/
