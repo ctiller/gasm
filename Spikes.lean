@@ -56,6 +56,7 @@ import Spikes.Spike2Fibonacci.Linux.Row8Parametric
 import Spikes.Spike2Fibonacci.Linux.RowLoopInvariant
 import Spikes.Spike2Fibonacci.Linux.RowTwoDigitIndex
 import Spikes.Spike2Fibonacci.Linux.RowInvariantPreservation
+import Spikes.Spike2Fibonacci.Linux.RowExit
 import Spikes.Spike2Fibonacci.Linux.Equivalence
 import Spikes.Spike2Fibonacci.Wasm.Program
 import Spikes.Spike2Fibonacci.Wasm.Equivalence

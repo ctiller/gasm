@@ -523,6 +523,24 @@ theorem spike2_exit_header_selected_prefix (state : X86_64MachineState)
     · exact .nil _ _
 
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
+/-- The terminal main-header facts projected to the linked exit-setup address.  Keeping this
+    projection separate lets the bounded exit-tail adapter consume the header certificate without
+    reopening its branch-condition proof. -/
+theorem spike2_after_exit_header_rip (state : X86_64MachineState)
+    (hrip : state.rip = spike2MainLoopRip)
+    (hcounter : state.gprs .r13 = (91 : UInt64)) :
+    (spike2AfterMainHeader state).rip = 4198706 := by
+  have hexits := mainLoopExits state hcounter
+  have hcmpRip : (X86_64Instruction.step (cmp_r64_imm8 .r13 91) state).rip = 4198441 := by
+    rw [stepCmpImm8, hrip]
+    rfl
+  unfold spike2AfterMainHeader
+  simp only [X86BranchCondition.holds] at hexits
+  rw [stepJge32]
+  simp [hexits, hcmpRip]
+  decide
+
+/- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- The selected exit setup clears the concrete exit-code register and loads Linux syscall 60.
     The certificate stops at the linked `SYSCALL`, allowing the typed process-exit theorem to
     terminate the unchanged production runner without pretending that exit is a safe prefix. -/
