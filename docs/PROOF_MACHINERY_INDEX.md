@@ -77,6 +77,12 @@ Reusable extraction should leave a short audit trail.  Record:
 6. the negative boundary: tempting facts the abstraction does **not** prove; and
 7. the canonical commit after independent review.
 
+For each stdlib-worthy item, inventory three statuses separately: representation-independent
+interface and laws, proved concrete representation, and executable implementation.  A pure function
+or container needs two real consumers or a named Trust request before extraction; a runnable
+end-to-end failure-boundary demonstration is a separate completion condition, not implied by the
+generic laws.
+
 Two useful precedents are:
 
 - `a7002a5` extracted local list execution and frame composition into
@@ -110,13 +116,18 @@ The following code shapes have enough evidence to investigate but are not canoni
   remove premises implied by stronger evidence and package consequences sharing one semantic
   witness--not to bundle independent facts into one theorem.  Promote declarations only after their
   exact commits integrate and current main contains the named modules.
-- Fallible-fold candidate lineage beginning at `e533d83` demonstrates a deliberately narrow generic ownership
-  boundary in `Stdlib.Control.FallibleFold`.  The generic layer owns only committed state, the
+- Fallible-fold candidate lineage beginning at `e533d83` demonstrates a deliberately narrow generic
+  ownership boundary in `Stdlib.Control.FallibleFold`.  The generic layer owns only committed state, the
   accepted prefix, first refused input, untouched tail, and conservation plus accepted-transition
   theorems.  Spike 3's additive bridge preserves its existing pure ingestion and classified sort
   results by equality; resource identity, unique reclamation, cleanup, target execution, and final
   artifact authority remain consumer-owned.  The focused fold-plus-bridge build completed warm in
-  1.7 seconds over 24 jobs.  A second materially different candidate consumer now exists in
+  1.7 seconds over 24 jobs.  The stable pure prerequisite for the current integration line is
+  reviewer-accepted `d500980f77aeb52137381f3a950ba3ac0d66458b` (parent main `31d1ac6`).  It
+  deliberately contains only the generic fold boundary; the facilities plan keeps the item Next
+  until a runnable Zlib failure-boundary demonstration is connected on that line.
+
+  A second materially different candidate consumer exists in
   `Stdlib.Zlib.Streaming`: the fold commits codec state, `AllocationScope`, and emitted chunks, while
   a domain refusal returns its post-attempt `AllocationScope` inside the consumer-owned error
   payload.  Thus generic refusal still commits no successor state, but the domain can account
@@ -146,9 +157,10 @@ The following code shapes have enough evidence to investigate but are not canoni
   independently accepted.  `Build Test` passed 115 jobs and `lake exe test_spike5` passed, emitting
   closed PE, Linux, and WASI `VerifiedProgram`s.  The same target exercises a nonvacuous fold-backed
   success and exact zero-capacity `.resourceExhausted` outcome.  The facilities roadmap marks the
-  finite fallible fold Present on that candidate line.  This closes the prior runnable-demonstration
-  gap, but the declarations remain in the candidate ledger until Trust confirms integration into
-  current main.
+  finite fallible fold Present on that older candidate line.  This demonstrates the required
+  end-to-end shape but is not an ancestor of the current `d500980` integration prerequisite; the
+  facility remains Next until that demonstration is ported or re-established on the current line and
+  Trust confirms integration.
 
   The abstraction negative control is equally important: a proposed generic
   `ResourceAccounting` count snapshot was removed because it had neither two domain connections nor
@@ -415,7 +427,9 @@ The following code shapes have enough evidence to investigate but are not canoni
 - Variable-fuel production-prefix composition exists in x86-64 `EventfulSegment`; it stays
   target-owned until a second accepted consumer demonstrates the same algebra.
 - Generic `ByteArray` facts in `Stdlib/Zlib/ByteArrayBridge.lean` are shared by PNG and Zlib but
-  should move atomically so the neutral module does not inherit a codec dependency.
+  should move atomically so the neutral module does not inherit a codec dependency.  Replacing
+  `ByteArray` with `Vec Byte` is a migration candidate, not a wholesale alias substitution: require
+  observation and roundtrip bridges plus one demonstration consumer before changing representation.
 
 Candidate status is intentionally visible: it tells agents where the delta may be removable without
 pretending the reusable contract has already been established.
