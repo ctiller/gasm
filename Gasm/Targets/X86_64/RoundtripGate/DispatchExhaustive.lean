@@ -60,6 +60,7 @@ import Gasm.Targets.X86_64.RoundtripGate.Xor
 -- which is the property `docs/TARGETS/X86_64.md` measures.
 namespace Gasm.Targets.X86_64.RoundtripGate
 
+open Lean Meta
 open Gasm.Targets.X86_64
 open Gasm.Targets.X86_64.Instructions
 
@@ -145,5 +146,45 @@ theorem xchgFamily_dispatchReachable : xchgFamilyCases.all (decodesOk decodeX86_
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem xorFamily_dispatchReachable : xorFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+
+-- Compiled closure audit: derive the family set from the live `X86_64Instruction` instances and
+-- require an exact, fully-qualified, closed dispatcher theorem for each.  In particular, a
+-- theorem of the same textual shape in another namespace, or one carrying a hidden section
+-- premise, cannot satisfy this check.
+run_cmd do
+  let env ← Lean.getEnv
+  Lean.Elab.Command.liftTermElabM do
+    let insts := Lean.Meta.instanceExtension.getState env
+    let mut families : List String := []
+    for (_, entry) in insts.instanceNames.toList do
+      let type ← inferType entry.val
+      let (params, _, body) ← forallMetaTelescopeReducing type
+      unless body.isAppOf ``X86_64Instruction do continue
+      if body.getAppArgs[0]!.constName? == some ``AnyX86_64Instruction then continue
+      unless params.isEmpty do
+        throwError "x86 dispatch audit found a parameterized X86_64Instruction instance"
+      let some typeName := body.getAppArgs[0]!.constName? | throwError
+        "x86 dispatch audit found an unnamed instruction-form type"
+      let some moduleIdx := env.getModuleIdxFor? typeName | throwError
+        "x86 dispatch audit cannot find defining module for `{typeName}`"
+      let moduleName := env.header.moduleNames[moduleIdx.toNat]!
+      unless moduleName.getPrefix == `Gasm.Targets.X86_64.Instructions do
+        throwError "x86 dispatch audit found `{typeName}` outside a direct instruction-family module"
+      families := moduleName.getString! :: families
+    for family in families.eraseDups do
+      let stem := family.toLower
+      let casesName := `Gasm.Targets.X86_64.RoundtripGate |>.str (stem ++ "FamilyCases")
+      let theoremName := `Gasm.Targets.X86_64.RoundtripGate |>.str
+        (stem ++ "Family_dispatchReachable")
+      let pred ← mkAppM ``decodesOk #[mkConst ``decodeX86_64Instr]
+      let allCases ← mkAppM ``List.all #[mkConst casesName, pred]
+      let expected ← mkAppM ``Eq #[allCases, mkConst ``Bool.true]
+      let some info := env.find? theoremName | throwError
+        "x86 dispatch audit: missing exact theorem `{theoremName}`"
+      unless ← isDefEq info.type expected do
+        throwError "x86 dispatch audit: `{theoremName}` has the wrong compiled proposition"
+      let hidden := mkForall `_ BinderInfo.default (mkConst ``True) expected
+      if ← isDefEq expected hidden then
+        throwError "x86 dispatch audit self-test failed: hidden theorem premise was accepted"
 
 end Gasm.Targets.X86_64.RoundtripGate

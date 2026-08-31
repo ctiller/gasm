@@ -84,7 +84,6 @@ jobs:
             --gate check_doc_facade \
             --gate check_orphan_modules \
             --gate check_instructions_umbrella \
-            --gate check_x86_family_pipeline \
             --parallel
 
   # ---------------------------------------------------------------------

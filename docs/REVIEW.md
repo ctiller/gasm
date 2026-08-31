@@ -305,18 +305,12 @@ This subsection specifies what the two Law 10 gate tools implement, so that Pill
     the repository root — must exit 0. It enforces the registered AArch64 instruction
     validation-oracle and cost-provenance obligations.
 14. **Instructions.lean Umbrella Completeness:** `python scripts/check_instructions_umbrella.py`
-    must return exit code 0. It diffs instruction-family declarations against the hand-maintained
-    x86 umbrella in both directions and has a planted-family self-test. This prevents a family from
-    being invisible to registry/environment audits merely because Lean never imported it. See
-    `docs/TARGETS/X86_64.md` §5 and the script's module docstring.
-15. **x86 Family-Pipeline Completeness:** `python scripts/check_x86_family_pipeline.py` must
-    return exit code 0. Starting from concrete `X86_64Instruction` instances, it checks that each
-    decoder family has its round-trip proof shard and aggregate import, registry population/count
-    entries, global-dispatch import and reachability theorem, and memory-frame shard/import. Its
-    temporary-tree self-test plants nine distinct omissions and requires each to turn the gate
-    red. This is wiring evidence only: Lean checks the proof terms, `MemoryFrameAudit` checks
-    per-instruction frame coverage, and neither this script nor those structural certificates
-    grant target fidelity or `VerifiedProgram` authority.
+    must return exit code 0. It requires every `Instructions/*.lean` file—including infrastructure
+    and every declaration spelling—to be reachable from the umbrella, with five alternate-form
+    planted controls. `FamilyPipelineAudit.lean`, `MemoryFrameAudit.lean`, and the separately built
+    `DispatchExhaustive.lean` then inspect the compiled environment: live instances, exact typed
+    witness multisets, and exact closed theorem propositions. Source-text matches are not evidence,
+    and these structural certificates do not grant target fidelity or `VerifiedProgram` authority.
 
 ### 4.1.2 Reference Coverage Tooling Specification
 
