@@ -120,10 +120,11 @@ theorem invariantEighty_iff_rowNinetyEntry (state : X86_64MachineState)
   simp [TwoDigitIterationInvariant]
 
 /- REF: docs/MACRO_ASSEMBLER.md#eventful-production-segments -/
-/-- The eighty-row iterator, one final row at the same per-pass bound, the four-step exit tail,
-and the typed exit transition fit inside the unchanged public 50,000-step budget. -/
-theorem twoDigitRows_fit_termination_budget :
-    80 * 285 + 285 + 4 + 1 ≤ 50000 := by
+/-- Rows 10 through 89, row 90 at the same per-pass bound, the four-step exit tail, and the typed
+exit transition consume at most 23,090 steps.  A whole-program closure must additionally account
+for the exact load-through-row-9 prefix; this theorem deliberately does not erase that cost. -/
+theorem decimalRowsAndExit_fuel :
+    80 * 285 + 285 + 4 + 1 = 23090 := by
   omega
 
 end RowDecimalIteration

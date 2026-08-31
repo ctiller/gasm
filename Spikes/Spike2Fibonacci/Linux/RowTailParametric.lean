@@ -170,6 +170,31 @@ private theorem recurrence_next_local (state : X86_64MachineState) :
   rfl
 
 /- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
+/-- The fixed recurrence tail exposes the three projections needed at the terminal loop boundary,
+without requiring the next-row range premise used by `afterRecurrence_entry`. -/
+theorem afterRecurrence_boundary {completed : Nat} {formatted : X86_64MachineState}
+    (entryCounter : formatted.gprs .r13 = (completed + 1).toUInt64)
+    (frame : Frame formatted) :
+    (afterRecurrence formatted).rip = spike2MainLoopRip ∧
+    (afterRecurrence formatted).gprs .r13 = (completed + 2).toUInt64 ∧
+    (afterRecurrence formatted).fault = none := by
+  constructor
+  · change (beforeBackEdge formatted).rip + 5 + signExtend32To64 4294967027 = _
+    rw [frame.backRip]
+    decide
+  constructor
+  · have h := recurrence_counter_local (afterWriteSyscall formatted)
+    rw [frame.liveR13, entryCounter] at h
+    rw [show afterRecurrence formatted = X86_64Instruction.step (jmp_rel32 4294967027)
+      (runLocalSteps recurrenceHeadCode (afterWriteSyscall formatted)) by rfl]
+    calc
+      _ = (completed + 1).toUInt64 + 1 := h
+      _ = ((completed + 1) + 1).toUInt64 := by
+        exact (UInt64.ofNat_add (completed + 1) 1).symm
+      _ = (completed + 2).toUInt64 := by congr 1 <;> omega
+  · exact frame.backSafe
+
+/- REF: docs/PROOF_TACTICS.md#design-relational-ghost-state -/
 /-- The fixed recurrence tail re-establishes the typed entry for the next row without unfolding
 the variable-width decimal schedule or equating whole machine states. -/
 theorem afterRecurrence_entry {completed : Nat} {current next : UInt64}
