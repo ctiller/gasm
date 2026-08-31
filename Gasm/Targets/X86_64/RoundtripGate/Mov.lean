@@ -280,6 +280,51 @@ theorem mov89_unsupported_addresses_rejected :
   decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Exact reverse controls for the selected byte-store identity.  In addition to the two disp8
+    endpoints, the zero case locks the shorter mod00 encoding.  The shared predicate requires
+    full input consumption, exact re-encoding, and the same semantic constructor identity. -/
+theorem movC6_address_and_consumption_controls :
+    [(ByteArray.mk #[0xC6, 0x04, 0x24, 0xA5], mov_rsp_byte 0x00 0xA5),
+     (ByteArray.mk #[0xC6, 0x44, 0x24, 0x7F, 0x5A], mov_rsp_byte 0x7F 0x5A),
+     (ByteArray.mk #[0xC6, 0x44, 0x24, 0x80, 0xC3], mov_rsp_byte 0x80 0xC3)].all
+      (fun pair => movDecodesExactlyAs pair.1 pair.2) = true := by
+  decide
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Alternate group extensions, address identities, prefixes, displacement spellings, and
+    truncated streams cannot be relabeled as the checked program's exact byte-store form. -/
+theorem movC6_hostile_bytes_rejected :
+    [ByteArray.mk #[0xC6, 0x0C, 0x24, 0xA5],
+     ByteArray.mk #[0xC6, 0x14, 0x24, 0xA5],
+     ByteArray.mk #[0xC6, 0x1C, 0x24, 0xA5],
+     ByteArray.mk #[0xC6, 0x24, 0x24, 0xA5],
+     ByteArray.mk #[0xC6, 0x2C, 0x24, 0xA5],
+     ByteArray.mk #[0xC6, 0x34, 0x24, 0xA5],
+     ByteArray.mk #[0xC6, 0x3C, 0x24, 0xA5],
+     ByteArray.mk #[0xC6, 0x00, 0xA5],
+     ByteArray.mk #[0xC6, 0x04, 0x00, 0xA5],
+     ByteArray.mk #[0xC6, 0x04, 0x64, 0xA5],
+     ByteArray.mk #[0xC6, 0x04, 0x20, 0xA5],
+     ByteArray.mk #[0xC6, 0x04, 0x25, 0, 0, 0, 0, 0xA5],
+     ByteArray.mk #[0x40, 0xC6, 0x04, 0x24, 0xA5],
+     ByteArray.mk #[0x41, 0xC6, 0x04, 0x24, 0xA5],
+     ByteArray.mk #[0x42, 0xC6, 0x04, 0x24, 0xA5],
+     ByteArray.mk #[0x44, 0xC6, 0x04, 0x24, 0xA5],
+     ByteArray.mk #[0x48, 0xC6, 0x04, 0x24, 0xA5],
+     ByteArray.mk #[0x40, 0x40, 0xC6, 0x04, 0x24, 0xA5],
+     ByteArray.mk #[0x67, 0xC6, 0x04, 0x24, 0xA5],
+     ByteArray.mk #[0x2E, 0xC6, 0x04, 0x24, 0xA5],
+     ByteArray.mk #[0xC6, 0x44, 0x24, 0x00, 0xA5],
+     ByteArray.mk #[0xC6, 0x84, 0x24, 0, 0, 0, 0, 0xA5],
+     ByteArray.mk #[0xC6, 0xC4, 0xA5],
+     ByteArray.mk #[0xC6],
+     ByteArray.mk #[0xC6, 0x04],
+     ByteArray.mk #[0xC6, 0x04, 0x24],
+     ByteArray.mk #[0xC6, 0x44, 0x24],
+     ByteArray.mk #[0xC6, 0x44, 0x24, 0x7F]].all movDecodeRejects = true := by
+  decide
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Exact reverse controls for the existing `0xC7 /0` identities.  `movDecodesExactlyAs`
     additionally requires the decoder to consume the complete byte sequence, so these vectors
     lock both architectural width and the stream boundary across every canonical address shape. -/

@@ -1457,32 +1457,40 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
             else
               .error "movTryDecode: 32-bit 0x8B MOV requires canonical mod=01 disp8"
     else if opcode == 0xC6 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (mod, _, rm, modPos) =>
-        if rm == 4 then
-          if rexB then
-            .error "movTryDecode: unsupported base register (R12 via REX.B) for 0xC6 MOV SIB form"
+      if hasRex then
+        .error "movTryDecode: unsupported REX prefix for 0xC6 MOV"
+      else
+        match readModRM bytes opOffset with
+        | .error e => .error e
+        | .ok (mod, extension, rm, modPos) =>
+          if extension != 0 then
+            .error "movTryDecode: 0xC6 MOV requires ModRM /0"
+          else if rm != 4 then
+            .error "movTryDecode: unsupported non-RSP rm field for 0xC6 MOV"
           else
             match readUInt8 bytes modPos with
             | .error e => .error e
-            | .ok _sib =>
-              let sibPos := modPos + 1
-              if mod == 0 then
-                match readUInt8 bytes sibPos with
-                | .error e => .error e
-                | .ok val => .ok (mov_rsp_byte 0 val, (sibPos + 1) - offset)
-              else if mod == 1 then
-                match readUInt8 bytes sibPos with
-                | .error e => .error e
-                | .ok disp8 =>
-                  match readUInt8 bytes (sibPos + 1) with
-                  | .error e => .error e
-                  | .ok val => .ok (mov_rsp_byte disp8 val, (sibPos + 2) - offset)
+            | .ok sib =>
+              if sib != makeSIB 0 4 4 then
+                .error "movTryDecode: unsupported indexed/noncanonical SIB for 0xC6 MOV"
               else
-                .error "movTryDecode: unsupported mod field for 0xC6 MOV"
-        else
-          .error "movTryDecode: unsupported non-RSP rm field for 0xC6 MOV"
+                let nextPos := modPos + 1
+                if mod == 0 then
+                  match readUInt8 bytes nextPos with
+                  | .error e => .error e
+                  | .ok val => .ok (mov_rsp_byte 0 val, (nextPos + 1) - offset)
+                else if mod == 1 then
+                  match readUInt8 bytes nextPos with
+                  | .error e => .error e
+                  | .ok disp8 =>
+                    if disp8 == 0 then
+                      .error "movTryDecode: noncanonical zero displacement for 0xC6 MOV"
+                    else
+                      match readUInt8 bytes (nextPos + 1) with
+                      | .error e => .error e
+                      | .ok val => .ok (mov_rsp_byte disp8 val, (nextPos + 2) - offset)
+                else
+                  .error "movTryDecode: unsupported mod field for 0xC6 MOV"
     else if opcode == 0xC7 then
       if rexR || rexX || (!rexW && hasRex) then
         .error "movTryDecode: unsupported or redundant REX prefix for 0xC7 MOV"
