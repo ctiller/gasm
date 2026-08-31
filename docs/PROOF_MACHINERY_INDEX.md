@@ -185,7 +185,17 @@ The following code shapes have enough evidence to investigate but are not canoni
   prefix-preserving disposition histories, with controls that reject cross-history reuse.  The
   callback transcript must also be result-indexed: callback fault, process termination, or nonreturn
   is terminal, and a `GetMessage` result exists only after every retrieval-time callback returns
-  normally.  These are active design constraints, not landed provider machinery.
+  normally.  MP-authored canonical-doc correction candidate
+  `563c9acfbe0db35ded3c826f5adf63b01deadb32` (parent main `1dc7686`) records this terminality and
+  registered-wait-compatible readiness; its checks pass and Reviewer verdict is pending.  These are
+  active design constraints, not landed provider machinery.
+
+  Provider identity has a separate generativity control.  Namespace-only checkpoint `d9685b5` does
+  not obtain freshness merely from a sealed existential or rank-2 interface.  Production requires a
+  runner-allocated generative `ExecutionInstanceId` root with uniqueness evidence, independent
+  root-indexed operation and response sequences, opaque provider mutation, and target-specific
+  transitions.  It must not expose a globally comparable erased correlation token.  Reviewer is
+  actively attacking this proposed boundary; it is not established machinery.
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
@@ -217,7 +227,9 @@ The following code shapes have enough evidence to investigate but are not canoni
   independently Reviewer-accepted semantics of `ecd5f9ec5da481c4eca0ee85765c9571f709ad24`.
   Reviewer nevertheless held the exact first public shape because the current ternary relation
   `Prop` has no stable relation-occurrence identity; exact redesign and re-review are required before
-  Trust integration.  The checkpoint implements only the thin
+  Trust integration.  The minimal proposal under review adds a stable `RelationOccurrenceId` and
+  relation-occurrence record carrier, plus a reserved `ConsequenceOccurrenceId`; it is not yet an
+  accepted interface.  The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
   event-agent and relation-endpoint laws, nonsemantic carrier-list order, proportionate eliminators,
   and private positive plus malformed-carrier controls.  Public `Domains` carries opaque
