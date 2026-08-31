@@ -282,8 +282,10 @@ The following code shapes have enough evidence to investigate but are not canoni
   multiplicity for equal records, and consequence vocabulary only.  MP nevertheless blocked its
   prose because `WellFormed` and `Nodup` establish only nominal execution-local carrier identity.
   They prove no allocation history, global freshness, cross-execution inequality, or authority.
-  A prose-only superseding hash and Reviewer verdict are pending; Trust integration and binding
-  history remain gated.
+  Prose-only superseding candidate `82f743eb4f511cd1d88375c82b8eb02e42bf60e9` accurately limits
+  identity to nominal carrier membership with no freshness and acknowledges consequence-occurrence
+  vocabulary without carrier semantics.  MP accepted its conformance; exact-hash Reviewer verdict
+  and Trust integration remain pending, and binding history plus later layers stay gated.
 
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
