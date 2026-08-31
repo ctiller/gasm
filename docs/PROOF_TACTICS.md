@@ -67,6 +67,23 @@ proof fuel distinct from a resource enforced by emitted code.  A useful bound of
 induction measure: `UInt64` decimal length is at most 20 and determines formatter capacity,
 iterations, and work.
 
+## Make refusal a first-class result
+
+For finite processing that may stop, return the committed state, accepted prefix, first refused
+input, and untouched tail.  Make refusal incapable of carrying a successor fold state, then prove
+input conservation, the accepted transition chain, and the exact first-refusal boundary once in the
+pure layer.  `Stdlib.Control.FallibleFold` owns this algebra; Zlib supplies codec and allocation state,
+and Spike 5 exercises both accepted compression and exact zero-capacity resource exhaustion through
+runnable verified targets.
+
+Keep domain obligations in the domain state or error.  A count snapshot does not prove resource
+identity, unique reclamation, cleanup, or terminal ownership.  Preserve operational cost as well as
+extensional equality when replacing production code: Zlib's first equivalent bridge used repeated
+left append and was quadratic, while the landed realization carries a difference-list output and
+materializes it once.  When rewriting beneath the fold result match stalls, split the recursive fold
+result and legacy result, use associativity on accepted branches, and eliminate impossible failure
+equalities.
+
 ## Iterate certificates, not evaluators
 
 For a bounded production loop, expose the mathematical bound, prove one pass, carry its invariant,
@@ -144,6 +161,15 @@ Host-runtime typeclass instances used by this boundary must be module-local or i
 platform.  A high-priority global x86 interceptor silently contaminated Linux and generic proofs.
 Instance search may deliver a stable proof dictionary, but it must not select an unrequested host
 semantic model.
+
+When a certificate API becomes more honest, migrate authority and regression evidence separately.
+Current entry certificates make entry establishment an explicit input to admissibility and behavior;
+the final `VerifiedProgram` still composes the authority-bearing layers.  Conversely, Spike 3's two
+closed stdin vectors remain useful regression theorems and executable tests, but their Bool-indexed
+`VerifiedProgram` facade was removed because two vectors do not establish arbitrary-stdin behavior.
+Preserve the tests; delete the false authority surface and its exception ledger.  Canonical repairs
+`03d22d6`, `17539b0`, and `01c5b0d` demonstrate the entry-certificate migration and regression-only
+retention across hosted and bare-metal spikes.
 
 ## Prove layers, then compose
 

@@ -28,6 +28,8 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.UInt64DecimalScheduleRealization` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection |
 | Cache an exact selected x86 production prefix | `ProductionPrefix.SelectedPrefix.Cutpoint` | x86-64 eventful production semantics | canonical evidence carried by `LocalBlockRun` | a cutpoint proves an exact prefix only; it does not classify the caller's logical phase or prove termination |
 | Discharge and compose an x86 local body contract | `LocalBlockDischarge`, `LocalBlockDischarge.refine`, and `LocalBlockRun.then` | x86-64 local contract/production-prefix bridge | accepted implementation-hole mechanism for proof-directed blocks | contracts and middle-entry facts remain explicit; CFG identity, placement, terminal outcomes, and artifact authority are separate |
+| Stop a finite fold at the first refused input | `Stdlib.fallibleFold`, `fallibleFold_conservation`, `fallibleFold_acceptedPrefix`, and `fallibleFold_refused_boundary` | dependency-light pure control algebra | Zlib streaming plus Spike 5 accepted and zero-capacity refusal outcomes | resource identity, reclamation, cleanup, effects, target execution, and artifact authority remain consumer-owned |
+| Lower bounded structured straight-line code to Microsoft x64 | `StructuredStraightLineMicrosoftX64Entry.lowerFunction` and its `LocalCertificate` | compiler's target-specific local lowering layer | canonical bounded Microsoft x64 entry backend | exact clobbers and local semantics are proved; process entry, non-return, platform outcome, PE placement, and `VerifiedProgram` authority remain separate |
 
 ## Proven composition patterns
 
@@ -60,6 +62,21 @@ evidence, and negative boundary after that comparison; it does not own a second 
   versus 12.64 seconds.  The reusable pattern is an observation-shaped invalidation boundary, not
   a new facts namespace.  Register-frame, `does_not_use_memory`, jump, and syscall summaries are
   likely consumers; their instruction and platform semantics remain owner-local.
+- For fallible finite processing, `Stdlib.Control.FallibleFold` makes the accepted prefix, first
+  refusal, retained remainder, conservation, and committed-state chain explicit.  Canonical
+  `89c46f7` supplies the pure algebra, `c107938` connects Zlib compression and decompression by exact
+  refinement, and `186f389` supplies runnable accepted/refused Spike 5 outcomes.  Zlib keeps
+  post-attempt allocation scope in its own error and uses a difference-list output so the production
+  replacement preserves linear accumulation.  The rejected generic count snapshot could not prove
+  identity, reclamation, or cleanup; the first extensionally equal Zlib bridge used quadratic left
+  append.  Those controls define the abstraction and cost boundaries.
+- For a bounded target backend, prove source evaluation, instruction effects, bytes, frames, exact
+  clobbers, and control-flow freedom locally, but do not let metadata assert entry or callability.
+  The rejected `60e744f` carried proof-free Boolean authority tags.  Accepted replacement
+  `dfead99b5441c6b78398bc4f2f3c13720a5c7582` removes them, and its identical tree is canonical as
+  `11f60475de851c4abab0e6938890d2be7d61603e`.  Absence of a callable certificate is honest; a later
+  PE terminal `VerifiedProgram` must still establish process entry, observer exclusions, placement,
+  outcome, and final artifact authority.
 
 ## Admission record
 
@@ -93,6 +110,10 @@ Two useful precedents are:
   composition.  Its before/after and unchanged-direction control demonstrate that dependency
   invalidation, rather than theorem relocation alone, produced the build improvement; the accepted
   implementation is integrated as `cec7e8e`.
+- `89c46f7`, `c107938`, and `186f389` land the pure FallibleFold algebra, its Zlib refinement, and
+  the runnable accepted/refused Spike 5 demonstration respectively.
+- `11f6047` lands the bounded Microsoft x64 local backend after removing self-asserted authority
+  metadata; it is a compiler-local certificate, not completion of the PE `VerifiedProgram` slice.
 
 Commit identifiers are provenance, not API names.  Follow the declarations above on current main;
 use the commits to inspect the reviewed extraction delta.
@@ -112,60 +133,6 @@ The following code shapes have enough evidence to investigate but are not canoni
   remove premises implied by stronger evidence and package consequences sharing one semantic
   witness--not to bundle independent facts into one theorem.  Promote declarations only after their
   exact commits integrate and current main contains the named modules.
-- Fallible-fold candidate lineage beginning at `e533d83` demonstrates a deliberately narrow generic
-  ownership boundary in `Stdlib.Control.FallibleFold`.  The generic layer owns only committed state, the
-  accepted prefix, first refused input, untouched tail, and conservation plus accepted-transition
-  theorems.  Spike 3's additive bridge preserves its existing pure ingestion and classified sort
-  results by equality; resource identity, unique reclamation, cleanup, target execution, and final
-  artifact authority remain consumer-owned.  The focused fold-plus-bridge build completed warm in
-  1.7 seconds over 24 jobs.  The stable pure prerequisite for the current integration line is
-  reviewer-accepted `d500980f77aeb52137381f3a950ba3ac0d66458b` (parent main `31d1ac6`).  It
-  deliberately contains only the generic fold boundary; the facilities plan keeps the item Next
-  until a runnable Zlib failure-boundary demonstration is connected on that line.
-
-  A second materially different candidate consumer exists in
-  `Stdlib.Zlib.Streaming`: the fold commits codec state, `AllocationScope`, and emitted chunks, while
-  a domain refusal returns its post-attempt `AllocationScope` inside the consumer-owned error
-  payload.  Thus generic refusal still commits no successor state, but the domain can account
-  exactly for resources touched by the failed attempt.  The first green bridge accumulated output as
-  `accumulated ++ newlyEmitted`: its equivalence theorem was behaviorally correct, but repeated
-  left-append made the production driver quadratic.  Reviewer correction `4a6b806` carries the
-  difference list `emitOutput : List ByteArray -> List ByteArray`; an accepted step composes
-  `fun tail => prior (newlyEmitted ++ tail)`, and final observation applies it to `[]`.  This keeps
-  the legacy right-associated order with constant-time accumulation per step and linear final
-  materialization.  Proof equivalence alone is therefore not enough evidence for an extraction that
-  replaces production code: preserve the relevant cost shape too.
-
-  The correction also exposes `driveStreamingFoldResult`, the raw `FallibleFoldResult`, before the
-  legacy projection.  Generic conservation, accepted-prefix, and refused-boundary laws now apply
-  directly; `driveStreamingViaFallibleFold_eq` still preserves the legacy driver for arbitrary push
-  function, state, scope, and input, and compression plus decompression consume it.  The initial
-  focused bridge build completed green in about 2.3 seconds over 23 jobs.  Reviewer confirmed the
-  corrected difference-list formula, order, and linear-materialization explanation; the initial
-  measurement does not transfer to the corrected implementation.  The useful
-  proof pattern generalizes over the output accumulator, splits both the recursive
-  fold result and legacy driver result, uses associativity on success, and eliminates incompatible
-  failure equalities.  Direct rewriting beneath the fold's accepted-prefix reconstruction match did
-  not fire; split the recursive fold result instead.
-
-  Final semantic candidate `8e76f811fe77714c67660c440c9c848dcccb07e5` and runnable demo/docs
-  `b417b82c0fd6a7dad34887b8603547dfaa2fbc11`, based on the Trust line from `1dc7686`, were
-  independently accepted.  `Build Test` passed 115 jobs and `lake exe test_spike5` passed, emitting
-  closed PE, Linux, and WASI `VerifiedProgram`s.  The same target exercises a nonvacuous fold-backed
-  success and exact zero-capacity `.resourceExhausted` outcome.  The facilities roadmap marks the
-  finite fallible fold Present on that older candidate line.  This demonstrates the required
-  end-to-end shape but is not an ancestor of the current `d500980` integration prerequisite; the
-  facility remains Next until that demonstration is ported or re-established on the current line and
-  Trust confirms integration.
-
-  The abstraction negative control is equally important: a proposed generic
-  `ResourceAccounting` count snapshot was removed because it had neither two domain connections nor
-  enough identity to prove unique reclamation or terminal cleanup.  Counts alone are not resource
-  accounting when aliasing and ownership determine correctness.  A later single-job focused Spike 3
-  WASI `Equivalence` build reached approximately 52.6 GiB RSS in one Lean process without a
-  diagnostic and was stopped.  Do not attribute that event to this extraction: the fold modules had
-  already passed, and no loaded rerun isolated the cause.  Preserve it as a build-triage observation,
-  not performance evidence for or against the candidate.
 - Dependent finite-table candidate `2d73a3a` keeps its public model representation-free as
   `(i : Fin n) -> family i`, while using a wrapped function-backed executable realization permitted
   by the facilities plan.  Its laws cover tabulation, dependent mapping, arbitrary finite
@@ -358,9 +325,12 @@ The following code shapes have enough evidence to investigate but are not canoni
   key and generation must fail through `binding_key_generation_unique`; the existing duplicate-root
   fixture exercises only duplicate identity and `Nodup`.  Replacement
   `1cc0c4e5574eb21440e389df71b01d7bf9e64b94` adds both controls without changing the public
-  mechanism and is MP+Reviewer exact-hash accepted with no P1.  Trust integration and a canonical
-  landed hash remain pending; chronology, liveness, alias, path, and composition semantics remain
-  nonclaims.
+  mechanism and is MP+Reviewer exact-hash accepted with no P1, but its old-base integration exposed
+  37 stale `REF:` anchors.  Citation validity must be rerun after rebasing even when the Lean
+  mechanism is unchanged.  Current-base reauthor `fde9975446eb8ff9ad1303a4879259b6fe720ecf`
+  preserves the accepted semantics and controls, and Trust landed its identical tree canonically as
+  `ece4308a92d3cc00773c4619c392bb36109b769e`.  Chronology, liveness, alias, path, and composition
+  semantics remain nonclaims.
 
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
@@ -370,6 +340,14 @@ The following code shapes have enough evidence to investigate but are not canoni
   membership, identity, occurrence/path binding, semantics, fidelity, admission, or authority.  It
   likewise proves no target fidelity, execution admission, binding, or aliasing law.  It does not
   complete M0 or the native-thread demonstration.
+
+  Reviewer accepts the next narrow M0 design boundary, `EnvelopeOccurrencePath`: derive an exact
+  occurrence edge from a carrier occurrence ID and its stored relation record, build labelled paths
+  from those edges, and provide only one-way erasure to the extensional label path.  It proves no
+  envelope well-formedness, admission, observable-node coverage, selected path, projected-edge
+  identity, consequence, or reverse reconstruction.  Carrier-position multiplicity is not available
+  without a separate well-formedness premise.  Observable projection and quotient choices remain M8.
+  Implementation is authorized, but no exact candidate or canonical hash exists yet.
 
   Signature review accepted the layer split but held implementation for four failures.  An
   unrestricted `PathConsequence.value` could invent completion, visibility, or resource return
@@ -385,34 +363,16 @@ The following code shapes have enough evidence to investigate but are not canoni
   roundtrip separately before M0 exit.  These are structural obligations only--target consistency
   and admission remain above M0.  Multi must return the revised signatures before implementation;
   MP will author canonical `MEMORY_MODEL` interface text only after the shape stabilizes.
-- A Microsoft x64 process-entry-only, no-return straight-line body may clobber nonvolatile registers
-  only when target-owned entry and termination evidence proves that no caller, unwind, or callback
-  continuation can observe them.  Keep the exact clobber set and make no callable claim.  This is an
-  applicability boundary, not an ABI exception: a future callable wrapper must consume that clobber
-  set and prove ordinary preservation.  Do not extract a generic save/restore API before that real
-  consumer demonstrates the reusable shape.  Reviewer found this ruling sound under the stated
-  no-caller/no-unwind/no-callback exclusions; it remains unlanded.  Compiler implementation candidate
-  `60e744f` demonstrates conforming local lowering, result, frame, clobber, and control-flow proofs,
-  but MP blocked it because self-asserted `entryOnly` or `callable` Boolean certificate fields are an
-  authority facade.  Noncallability is the absence of callable authority plus an exposed exact
-  clobber set; target-owned entry evidence may connect it later.  Replacement prose and comments must
-  state the complete applicability exclusions: fallthrough, return, unwind, callback, reentrancy,
-  exception or fault continuation, teardown, and caller observation.  No additional platform proof
-  is required by this finding.  Replacement `dfead99b5441c6b78398bc4f2f3c13720a5c7582` removes the
-  proof-free entry/callable tags and restores the full observer exclusions without changing the
-  substantive local proofs; MP and Reviewer accept the exact hash with no P1.  Trust integration
-  remains pending, so it is not yet reusable machinery.  This local backend alone does not complete
-  or deliver the compiler slice; a PE terminal `VerifiedProgram` spike remains required.
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
   Spike 3 still needs a theorem over every finite stdin with explicit reservation, allocation,
   read, output, exhaustion, and cleanup outcomes before its downstream production certificates can
   cease depending on grandfathered checks.  Narrowing the input domain is not proof reuse.
-- A failure-path composition candidate should prove the successful prefix, first failure
-  transition, unreachable untouched tail, and preservation of the relational ghost invariants and
-  outstanding obligations consumed at the typed block boundary.  Applicability remains edge-local:
-  an unselected failure mode adds no premise, while a selected local failure classification cannot
-  erase resource-return or cleanup obligations.  Keep this in the candidate ledger until accepted
-  code demonstrates the complete pattern.
+- `FallibleFold` now supplies the accepted pure algebra for successful prefix, first refusal, and
+  retained tail.  A CFG failure-path composition candidate must additionally preserve relational
+  ghost invariants and outstanding obligations at the typed block boundary and prove the untouched
+  tail unreachable.  Applicability remains edge-local: an unselected failure mode adds no premise,
+  while a selected local failure classification cannot erase resource-return or cleanup obligations.
+  Keep only this CFG-specific remainder in the candidate ledger.
 - Bidirectional contract derivation for typed CFGs is not yet present.
   `Gasm.Compiler.TypedCFG.SourceScope` permits contracts to be declared before bodies, but the
   author still supplies them;

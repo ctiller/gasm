@@ -190,15 +190,16 @@ concrete realization where it is useful.
 ## 6. Fallible streaming and base I/O
 
 This program is split into a pure finite-input fold and effectful source/sink I/O.
-The highest-priority **Next** primitive requested by Trust is the pure fold. Before
-implementation its step algebra must fix these semantics:
+The pure finite-input fold requested by Trust is **Present**. Its step algebra fixes
+these semantics:
 
 - acceptance commits exactly one input unit and returns the next fold state;
-- refusal is atomic with respect to fold state and ownership accounting;
+- refusal is atomic with respect to fold state;
 - the refused unit is retained as the head of the returned remainder and may be
   retried by the caller;
 - the result returns the committed state, accepted prefix, exact remainder, stop
-  reason, and resource-accounting witness.
+  reason. A consumer may include accounting in its state and separately prove the
+  domain-owned accounting and ownership invariant.
 
 Its conservation law partitions the original input into:
 
@@ -207,11 +208,21 @@ accepted prefix ++ refused input ++ unconsumed tail
 ```
 
 If the stop reason is refusal, the remainder is `refused :: unconsumedTail`; no state
-or ownership delta from that refused step is committed. Resource counts use one
-named unit per algebra. Required invariants are: live equals acquired minus reclaimed
-without underflow; peak is the maximum live count over all committed prefixes;
-refusal fabricates no ownership; reclamation is unique; and a terminal result names
-any unreclaimed resources rather than silently treating them as cleaned up.
+or fold-state delta from that refused step is committed.
+
+Zlib streaming is the first production realization and runnable demonstration. Its
+fold state uses a linear difference-list output accumulator, while domain rejection
+and resource exhaustion carry the exact post-attempt allocation scope. Compression
+and decompression refine the former structural driver by exact equality. Spike 5
+emits its closed Windows, Linux, and WASI `VerifiedProgram` artifacts and exercises
+both an accepted compression and a zero-capacity `resourceExhausted` outcome in the
+same executable verification target.
+
+Generic resource-count accounting remains **Candidate** until it has connection
+theorems to two accepted domain states. A count projection may prove conservation,
+live and historical peak bounds, and atomic refusal, but it is not an ownership
+witness: unique reclamation, resource identity, nested-scope close, cleanup, and
+terminal unreclaimed-resource meaning remain domain-owned.
 
 Effectful source/sink I/O remains **Candidate** and lives on the Gasm Effects lane,
 not in pure Stdlib. Its separate outcome algebra must define partial commit, EOF,
@@ -269,15 +280,16 @@ The plan borrows useful boundaries rather than copying APIs:
 Subject to higher-priority Trust/build repairs, the current sequence is:
 
 1. Complete Vec laws and lawful stable key sorting.
-2. Add the generic fallible streaming fold and resource-accounting lemmas requested
-   by Trust.
+2. Add resource-count projections only after two accepted domain connections prove their meaning;
+   the generic fallible fold itself is already present.
 3. Land dependent finite tables; separately promote `FinSet`/`FinMap` only when a
    named compiler migration is accepted.
 4. Promote persistent FIFO and finite worklist facilities independently when their
    first integrations meet the admission gate.
 5. Move neutral ByteArray lemmas atomically across their PNG/Zlib consumers.
 6. Promote alignment, cursor, endian, chunk, and decimal facilities as independent
-   librarian-reviewed slices; none is a prerequisite for landing the others.
+   slices; Librarian indexes evidence and duplicates, while independent Reviewer and Trust own
+   acceptance and integration. None is a prerequisite for landing the others.
 7. Establish the abstract finite-map contract and association-list reference before
    tree and B-tree realizations.
 8. Add bounded source/sink algorithms after two real streaming consumers agree on
@@ -296,8 +308,8 @@ A representation-bearing facility is ready to land when its slice has:
 6. No `sorry`, new axioms, or inappropriate decision-procedure authority.
 7. Focused builds and the repository gates appropriate to its dependency closure.
 8. Documentation that distinguishes present behavior from backlog.
-9. Librarian review for ownership and duplicate extraction, MASM review when the
-   compiler is a consumer, and Trust review for landing/build-health impact.
+9. Librarian indexing for ownership evidence and duplicate search, independent Reviewer judgment,
+   MASM review when the compiler is a consumer, and Trust review for landing/build-health impact.
 
 A theorem/algebra extraction instead requires a canonical definition, minimal named
 hypotheses, universal behavior laws, connection theorems to retained spellings, the
@@ -320,7 +332,8 @@ promotion requires filling any missing consumer, bound, and cost evidence.
 | Generic ByteArray lemmas | `Stdlib/Zlib/ByteArrayBridge.lean` | Zlib and PNG | exact list/array observation bridges; no Zlib dependency | Next |
 | `Nat.alignUp` | Linux ELF and Windows PE emitters | two linker/emitter paths | preserve zero policy; positive-alignment divisibility and minimality | Next |
 | UInt64 decimal bridge | present Fmt UInt64 writer/bounds and HTTP decimal handling | Fmt, HTTP, Spike 2 | connection theorem and behavior-preserving HTTP migration; add only a demonstrated missing partition lemma | Next bridge; re-check ownership |
-| Fallible finite fold | Trust streaming/accounting request | first integrations to be selected with Trust | atomic refusal, retained remainder, prefix conservation, live/peak/reclaim laws | Next by Trust request |
+| Fallible finite fold | Trust streaming request | Zlib streaming and Spike 5 | atomic refusal, retained remainder, prefix conservation, committed-state chain, exact legacy refinement | Present; runnable accepted/refused demonstration |
+| Resource count projection | SmolAlloc and WASI retain distinct executable states | connection consumers not yet landed | count conservation and historical peak bounds without claiming ownership identity | Candidate; connections required |
 | Byte cursor | ELF parser and x86 decoding | two parsing paths | no overread, monotone cursor, exact consumed slice | Candidate |
 | Endian primitives | ELF, x86 encoding, PNG big-endian emission | multiple byte formats | read/write roundtrip under exact width bounds | Candidate |
 | Byte chunks | Effects splitting and PNG/Zlib streaming | effect and codec paths | split/join reconstruction and cap; no environment requeue policy | Candidate |
