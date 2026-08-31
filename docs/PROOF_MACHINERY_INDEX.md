@@ -119,16 +119,28 @@ The following code shapes have enough evidence to investigate but are not canoni
   `Stdlib.Zlib.Streaming`: the fold commits codec state, `AllocationScope`, and emitted chunks, while
   a domain refusal returns its post-attempt `AllocationScope` inside the consumer-owned error
   payload.  Thus generic refusal still commits no successor state, but the domain can account
-  exactly for resources touched by the failed attempt.  `driveStreamingViaFallibleFold_eq` preserves
-  the legacy driver for arbitrary push function, state, scope, and input; compression and
-  decompression both consume it.  Its focused build completed green in about 2.3 seconds over 23
-  jobs.  The successful induction generalizes over the accumulated output prefix, splits both the
-  recursive fold result and legacy driver result, uses associativity on success, and eliminates
-  incompatible failure equalities.  Direct rewriting beneath the fold's accepted-prefix
-  reconstruction match did not fire; splitting the recursive fold result is the useful negative
-  proof control.  A runnable Spike 5 connection remains blocked by a pre-existing `Runtime.lean`
-  `RuntimeContext` mismatch, so the second library consumer is not a whole-program completion claim.
-  Independent review and that runnable connection still precede canonical promotion.
+  exactly for resources touched by the failed attempt.  The first green bridge accumulated output as
+  `accumulated ++ newlyEmitted`: its equivalence theorem was behaviorally correct, but repeated
+  left-append made the production driver quadratic.  Reviewer correction `4a6b806` carries the
+  difference list `emitOutput : List ByteArray -> List ByteArray`; an accepted step composes
+  `fun tail => prior (newlyEmitted ++ tail)`, and final observation applies it to `[]`.  This keeps
+  the legacy right-associated order with constant-time accumulation per step and linear final
+  materialization.  Proof equivalence alone is therefore not enough evidence for an extraction that
+  replaces production code: preserve the relevant cost shape too.
+
+  The correction also exposes `driveStreamingFoldResult`, the raw `FallibleFoldResult`, before the
+  legacy projection.  Generic conservation, accepted-prefix, and refused-boundary laws now apply
+  directly; `driveStreamingViaFallibleFold_eq` still preserves the legacy driver for arbitrary push
+  function, state, scope, and input, and compression plus decompression consume it.  The initial
+  focused bridge build completed green in about 2.3 seconds over 23 jobs; `4a6b806` is under exact
+  reviewer re-review, so do not transfer that measurement or canonical status without the corrected
+  run.  The useful proof pattern generalizes over the output accumulator, splits both the recursive
+  fold result and legacy driver result, uses associativity on success, and eliminates incompatible
+  failure equalities.  Direct rewriting beneath the fold's accepted-prefix reconstruction match did
+  not fire; split the recursive fold result instead.  A runnable Spike 5 connection remains blocked
+  by a pre-existing `Runtime.lean` `RuntimeContext` mismatch, so the second library consumer is not a
+  whole-program completion claim.  Independent review and that runnable connection still precede
+  canonical promotion.
 
   The abstraction negative control is equally important: a proposed generic
   `ResourceAccounting` count snapshot was removed because it had neither two domain connections nor
