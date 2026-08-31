@@ -26,12 +26,12 @@ Those are positive results: they show the obligations are SATISFIABLE. They cann
 obligations are non-vacuous -- a frame condition that everything satisfies constrains nothing,
 and `ReadsWithin` was exactly that until 2026-08-28 (see below).
 
-This file is the other half: two deliberately mis-declared instruction forms whose frame
+This file is the other half: deliberately mis-declared instruction forms whose frame
 obligations must be REFUTABLE, each with the refutation proved. If a future change to
 `WritesWithin`/`ReadsWithin` (or to the footprint machinery they rest on) weakens them back into
 vacuity, these proofs stop compiling, and that is the intended alarm.
 
-The two forms here are NOT registered as `X86_64Instruction` instances -- they are plain `def`s
+The forms here are NOT registered as `X86_64Instruction` instances -- they are plain `def`s
 of the typeclass structure, applied explicitly with `@`. Registering them would trip
 `Registry.lean`'s environment audit, which requires every live `X86_64Instruction` instance to
 appear in `expectedInstructionTypes`; these are proof fixtures, not instructions, and must not
@@ -57,6 +57,15 @@ structure EvilMemMem where
     store address itself is the lie here. -/
 structure MisdeclaredStore where
   deriving DecidableEq, Repr, Inhabited
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- Fixture: declares one load from `[rdi]`, but places a second, undeclared load from `[rsi]`
+    into `rax`. It challenges the structural factorization required by
+    `singleLoad_readsWithin`. -/
+private structure UndeclaredSecondLoad where
+  deriving DecidableEq, Repr, Inhabited
+
+private def undeclaredLoadRef : MemRef := ⟨some .rdi, none, 0⟩
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- `EvilMemMem`'s typeclass witness. A `def`, deliberately not an `instance` -- see this file's
@@ -88,6 +97,20 @@ def misdeclaredInst : X86_64Instruction MisdeclaredStore where
   memAccesses _ := [⟨.store, .w64, ⟨some .rdi, none, 0⟩⟩]
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- The undeclared-second-load fixture's unregistered typeclass witness. -/
+@[instance_reducible] private def undeclaredSecondLoadInst : X86_64Instruction UndeclaredSecondLoad where
+  encode _ := ByteArray.mk #[0x90]
+  step _ s := s.setGpr64 .rax (s.read64 (s.gprs .rsi))
+  toUops _ := []
+  toNASM _ := "undeclared.second.load"
+  toLean _ := "undeclared_second_load"
+  generateFuzzStates _ rng := ([], rng)
+  roundtripCases := []
+  validationOracle _ := .nasmEncoding "proof fixture; never assembled"
+  costProvenance _ := .modelInternalUnvalidated "proof fixture; never scheduled"
+  memAccesses _ := [⟨.load, .w64, undeclaredLoadRef⟩]
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- Shared counterexample base: `rdi = 0` (so the DECLARED store footprint is `[0, 8)`) and
     `rsi = 0x100` (the address actually touched, well outside it). -/
 def cexBase : X86_64MachineState :=
@@ -108,6 +131,31 @@ def cex2 : X86_64MachineState :=
 /-- The two counterexample states really do agree outside memory. -/
 theorem cex_agreeOutsideMemory : agreeOutsideMemory cex1 cex2 := by
   refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- A nominal singleton-load descriptor cannot certify a step whose register output depends on a
+    second undeclared address. Any proposed `post` either fails to reconstruct the real step or
+    fails memory-insensitivity on `cex1`/`cex2`, which agree at the declared `[rdi]` read but differ
+    at undeclared `[rsi]`. -/
+theorem undeclaredSecondLoad_no_singleLoad_factorization :
+    ¬ ∃ post : X86_64MachineState → UInt64 → X86_64MachineState,
+      (∀ s, @X86_64Instruction.step _ undeclaredSecondLoadInst UndeclaredSecondLoad.mk s =
+        post s (X86_64Mem.read .w64 (undeclaredLoadRef.effectiveAddress s) s.memory)) ∧
+      (∀ s1 s2 v, agreeOutsideMemory s1 s2 →
+        agreeOutsideMemory (post s1 v) (post s2 v)) := by
+  rintro ⟨post, hStep, hPost⟩
+  have hdeclared :
+      X86_64Mem.read .w64 (undeclaredLoadRef.effectiveAddress cex1) cex1.memory =
+        X86_64Mem.read .w64 (undeclaredLoadRef.effectiveAddress cex2) cex2.memory := by
+    decide
+  have hsteps : agreeOutsideMemory
+      (@X86_64Instruction.step _ undeclaredSecondLoadInst UndeclaredSecondLoad.mk cex1)
+      (@X86_64Instruction.step _ undeclaredSecondLoadInst UndeclaredSecondLoad.mk cex2) := by
+    rw [hStep cex1, hStep cex2, hdeclared]
+    exact hPost cex1 cex2 _ cex_agreeOutsideMemory
+  have hrax := congrFun hsteps.2.1 Reg64.rax
+  revert hrax
+  decide
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
 /-- The two counterexample states agree on `EvilMemMem`'s DECLARED load footprint -- which is
