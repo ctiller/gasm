@@ -797,6 +797,16 @@ The following code shapes have enough evidence to investigate but are not canoni
   capability, mapping, TSO, atomicity, platform-admission, registry-oracle, or `VerifiedProgram`
   authority.
 
+  Fifth-class extension `archive/experimental/x86-guarded-movzx-alias-gap-f3e6b846`
+  (`f3e6b846af70b80a14bb753a6fa7d7f3e8b89c2c`) is **BLOCKED** despite its family/load/w8,
+  case/preimage, full 64-bit zero-extension, and stale-bit controls.  A coherent mutation changes
+  `MOVZX R13, byte [R15+0x7f]` to the exact bytes for `[R13+0x7f]` and sets modeled pre-state R13 to
+  `accessAddress-0x7f`; the load overwrites that changed base, so public `compare` accepts the
+  unchanged native result even though native execution used different bytes.  Require a
+  native-framed owner identity covering exact emitted form, bytes, and pre-state--or prevent
+  caller-authored plans from entering comparison evidence--plus this R15-to-R13 alias control.
+  The supplemental-only nonclaims above remain in force.
+
   Follow-up consumer candidate
   `archive/experimental/x86-consumer-host-register-gap-1d7d2232`
   (`1d7d2232cb0b79edad2a2b92c9041957cf96682c`) is **BLOCKED**.  Its `decodeAndStep`
