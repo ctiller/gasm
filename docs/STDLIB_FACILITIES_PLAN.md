@@ -91,20 +91,15 @@ real consumers.
 ### 4.1 Sequences and finite tables
 
 - **Present:** representation-independent `Vec` model, Array-backed realization,
-  `ByteVec` bridge, executable operations, and reference insertion sort.
-- **Next:** complete append lookup laws, stable key-based sorting over a lawful total
-  preorder, and preservation of relative order within comparator-equivalent values.
-  For the current non-strict relation, keys are equivalent when precedence holds in
-  both directions; stability preserves original tagged order inside that class.  The candidate
-  representation-independent statement is `StableOn key beforeKey input output`: equality of each
-  mutual-preorder key-class projection, with `insertionSort_stableOn` requiring
-  `LawfulTotalRelation`.  Identity-key Spike 3 bytes are a vacuous control because mutual ordering
-  forces value equality; a real completion witness needs distinct tagged or nominal records sharing
-  one byte key and must preserve their observable origin order after movement across an intervening
-  key.
-- **Next:** a dependent finite-table contract with semantic model
+  `ByteVec` bridge, executable operations, reference insertion sort, and stable
+  key-based sorting over a lawful total preorder. For the non-strict relation, keys
+  are equivalent when precedence holds in both directions; stability preserves the
+  exact original tagged-record sequence inside every such class.
+- **Next:** complete append lookup laws.
+- **Candidate:** a dependent finite-table contract with semantic model
   `(i : Fin n) -> F i`, extensionality, tabulation, dependent mapping, reindexing by
-  finite equivalences, and append/split roundtrips.
+  finite equivalences, and append/split roundtrips. Promotion requires a named
+  consumer and its exact required operations.
 - **Candidate:** slices or spans with exact take/drop/append and bounds laws. Their
   semantic contract should not force copying or aliasing behavior.
 
@@ -154,8 +149,9 @@ The first extractions should be driven by concrete duplication:
 
 - **Next:** move generic `ByteArray` lemmas out of the Zlib namespace and update PNG
   and Zlib atomically.
-- **Next:** neutral alignment arithmetic such as `Nat.alignUp`, with exact divisibility
-  and bound laws, extracted from multiple emitters. The existing behavior at zero
+- **Candidate:** target-neutral alignment arithmetic with exact divisibility and bound
+  laws, extracted into a small Gasm-level Core/Data leaf rather than Stdlib so Effects
+  and Targets do not reverse the dependency direction. The existing behavior at zero
   alignment is preserved (`alignUp value 0 = value`); divisibility and round-up laws
   require positive alignment, and power-of-two laws state that stronger hypothesis
   separately.
@@ -172,8 +168,10 @@ The first extractions should be driven by concrete duplication:
   consumers.
 - **Candidate:** endian read/write primitives with roundtrip theorems. ELF, x86, and
   PNG provide consumer pressure without transferring their format semantics.
-- **Candidate:** exact byte-chunk split/join/cap algebra shared by Effects, PNG, and
-  Zlib. Environment queue/requeue policy remains effect-owned.
+- **Candidate:** exact byte-chunk split/join/cap algebra in two lanes: an import-light
+  Stdlib leaf for PNG/Zlib and a target-neutral Gasm Core/Data leaf for Effects, joined
+  only by connection theorems where their observable behavior agrees. Environment
+  queue/requeue policy remains effect-owned.
 - **Candidate:** a byte builder exposing append, push, finalize, content, and length
   laws. It should land only after measurements confirm at least two consumers.
 A general parser-combinator framework is not currently planned. Cursor and progress
@@ -279,19 +277,22 @@ The plan borrows useful boundaries rather than copying APIs:
 
 Subject to higher-priority Trust/build repairs, the current sequence is:
 
-1. Complete Vec laws and lawful stable key sorting.
-2. Add resource-count projections only after two accepted domain connections prove their meaning;
+1. Land lawful stable key sorting with its tagged Spike 3 executable witness.
+2. Complete Vec append/index observation laws and exercise them through ByteVec and
+   Spike 3 Vec ingestion.
+3. Move import-light ByteArray lemmas atomically across their PNG/Zlib consumers.
+4. Add resource-count projections only after two accepted domain connections prove their meaning;
    the generic fallible fold itself is already present.
-3. Land dependent finite tables; separately promote `FinSet`/`FinMap` only when a
-   named compiler migration is accepted.
-4. Promote persistent FIFO and finite worklist facilities independently when their
-   first integrations meet the admission gate.
-5. Move neutral ByteArray lemmas atomically across their PNG/Zlib consumers.
-6. Promote alignment, cursor, endian, chunk, and decimal facilities as independent
-   slices; Librarian indexes evidence and duplicates, while independent Reviewer and Trust own
-   acceptance and integration. None is a prerequisite for landing the others.
-7. Establish the abstract finite-map contract and association-list reference before
-   tree and B-tree realizations.
+5. Promote dependent finite tables, `FinSet`/`FinMap`, persistent FIFO, and finite
+   worklists independently only when a named consumer migration is accepted and its
+   exact operations are known.
+6. Promote alignment in a neutral Gasm-level leaf; promote cursor, endian, chunk, and
+   decimal facilities as independent ownership-respecting slices. Librarian indexes
+   evidence and duplicates, while independent Reviewer and Trust own acceptance and
+   integration. None is a prerequisite for landing the others.
+7. Establish the abstract finite-map contract and association-list reference only
+   after a semantics-bearing consumer is accepted; tree and B-tree realizations wait
+   for an actual asymptotic consumer.
 8. Add bounded source/sink algorithms after two real streaming consumers agree on
    the outcome algebra.
 9. Specify async lifecycles only after cancellation and effect prerequisites settle.
@@ -333,16 +334,16 @@ promotion requires filling any missing consumer, bound, and cost evidence.
 
 | Facility | Current spellings | Consumers / pressure | Required law or boundary | State |
 | --- | --- | --- | --- | --- |
-| Vec and stable key sort | `Stdlib/Containers/*` | Spike 3 and MASM record sorting | tagged-input stability within mutual-preorder equivalence `beforeKey a b = true` and `beforeKey b a = true` | Next |
-| Dependent finite table | function tables in RecursiveCFGBuilder and TypedCFG | compiler role and definition tables | extensionality, dependent get/map, reindex, append/split | Next |
+| Vec and stable key sort | `Stdlib/Containers/*` | Spike 3 model and tagged executable regression; MASM record sorting | exact class-projection stability within mutual-preorder equivalence `beforeKey a b = true` and `beforeKey b a = true` | Present; nonvacuous tagged demonstration |
+| Dependent finite table | function tables in RecursiveCFGBuilder and TypedCFG | prospective compiler role and definition tables | extensionality, dependent get/map, reindex, append/split | Candidate; named migration required |
 | Generic ByteArray lemmas | `Stdlib/Zlib/ByteArrayBridge.lean` | Zlib and PNG | exact list/array observation bridges; no Zlib dependency | Next |
-| `Nat.alignUp` | Linux ELF and Windows PE emitters | two linker/emitter paths | preserve zero policy; positive-alignment divisibility and minimality | Next |
+| Alignment arithmetic | Linux ELF and Windows PE emitters | two linker/emitter paths below Stdlib | preserve zero policy; positive-alignment divisibility and minimality | Candidate Gasm Core/Data leaf; ownership review required |
 | UInt64 decimal bridge | present Fmt UInt64 writer/bounds and HTTP decimal handling | Fmt, HTTP, Spike 2 | connection theorem and behavior-preserving HTTP migration; add only a demonstrated missing partition lemma | Next bridge; re-check ownership |
 | Fallible finite fold | Trust streaming request | Zlib streaming and Spike 5 | atomic refusal, retained remainder, prefix conservation, committed-state chain, exact legacy refinement | Present; runnable accepted/refused demonstration |
 | Resource count projection | SmolAlloc and WASI retain distinct executable states | connection consumers not yet landed | count conservation and historical peak bounds without claiming ownership identity | Candidate; connections required |
 | Byte cursor | ELF parser and x86 decoding | two parsing paths | no overread, monotone cursor, exact consumed slice | Candidate |
 | Endian primitives | ELF, x86 encoding, PNG big-endian emission | multiple byte formats | read/write roundtrip under exact width bounds | Candidate |
-| Byte chunks | Effects splitting and PNG/Zlib streaming | effect and codec paths | split/join reconstruction and cap; no environment requeue policy | Candidate |
+| Byte chunks | Effects splitting and PNG/Zlib streaming | effect and codec paths in different dependency lanes | split/join reconstruction and cap; no environment requeue policy; connection theorem across lanes | Candidate; split ownership |
 | `FinSet` / `FinMap` | Lists and function tables with differing local roles | prospective compiler analyses | membership/lookup, unequal-key preservation, exact unique enumeration | Candidate; integration required |
 | FIFO / worklist | local traversal/search shapes | prospective graph and compiler use | FIFO observation; reachability soundness/completeness separated from fuel-bounded search | Candidate; integration required |
 

@@ -49,6 +49,19 @@ def insertionSort (before : α → α → Bool) : List α → List α
   | value :: rest => insert before value (insertionSort before rest)
 
 /- REF: docs/STDLIB_CONTAINERS.md#2-generic-sorting -/
+/-- Two keys occupy the same equivalence class of a Boolean preorder. -/
+def KeyEquivalent (beforeKey : κ → κ → Bool) (left right : κ) : Bool :=
+  beforeKey left right && beforeKey right left
+
+/- REF: docs/STDLIB_CONTAINERS.md#2-generic-sorting -/
+/-- Sorting is stable when every preorder-equivalence class retains its exact input sequence. -/
+def StableOn (key : α → κ) (beforeKey : κ → κ → Bool)
+    (input output : List α) : Prop :=
+  ∀ pivotKey,
+    output.filter (fun value => KeyEquivalent beforeKey (key value) pivotKey) =
+      input.filter (fun value => KeyEquivalent beforeKey (key value) pivotKey)
+
+/- REF: docs/STDLIB_CONTAINERS.md#2-generic-sorting -/
 theorem insert_perm (before : α → α → Bool) (value : α) (values : List α) :
     (insert before value values).Perm (value :: values) := by
   induction values with
@@ -117,6 +130,59 @@ theorem insertionSort_perm (before : α → α → Bool) (values : List α) :
 theorem mem_insertionSort (before : α → α → Bool) (value : α) (values : List α) :
     value ∈ insertionSort before values ↔ value ∈ values :=
   List.Perm.mem_iff (insertionSort_perm before values)
+
+/- REF: docs/STDLIB_CONTAINERS.md#2-generic-sorting -/
+/-- Inserting by a projected preorder places a new value before all existing values in its
+    equivalence class and leaves every other class projection unchanged. -/
+theorem filter_insert_keyEquivalent (beforeKey : κ → κ → Bool)
+    (laws : LawfulTotalRelation beforeKey) (key : α → κ)
+    (value : α) (values : List α) (pivotKey : κ) :
+    (insert (fun left right => beforeKey (key left) (key right)) value values).filter
+        (fun item => KeyEquivalent beforeKey (key item) pivotKey) =
+      if KeyEquivalent beforeKey (key value) pivotKey then
+        value :: values.filter (fun item => KeyEquivalent beforeKey (key item) pivotKey)
+      else
+        values.filter (fun item => KeyEquivalent beforeKey (key item) pivotKey) := by
+  induction values with
+  | nil =>
+      cases equivalent : KeyEquivalent beforeKey (key value) pivotKey <;>
+        simp [insert, equivalent]
+  | cons current rest ih =>
+      unfold insert
+      split <;> rename_i valueBeforeCurrent
+      · cases valueEquivalent : KeyEquivalent beforeKey (key value) pivotKey <;>
+          simp [valueEquivalent]
+      · cases valueEquivalent : KeyEquivalent beforeKey (key value) pivotKey with
+        | false =>
+            cases currentEquivalent : KeyEquivalent beforeKey (key current) pivotKey <;>
+              simp [valueEquivalent, currentEquivalent, ih]
+        | true =>
+            cases currentEquivalent : KeyEquivalent beforeKey (key current) pivotKey with
+            | false => simp [valueEquivalent, currentEquivalent, ih]
+            | true =>
+                simp only [KeyEquivalent, Bool.and_eq_true] at valueEquivalent currentEquivalent
+                have valueBeforePivot : beforeKey (key value) pivotKey = true :=
+                  valueEquivalent.1
+                have pivotBeforeCurrent : beforeKey pivotKey (key current) = true :=
+                  currentEquivalent.2
+                exact False.elim
+                  (valueBeforeCurrent (laws.trans valueBeforePivot pivotBeforeCurrent))
+
+/- REF: docs/STDLIB_CONTAINERS.md#2-generic-sorting -/
+/-- Projected-key insertion sort is stable for every equivalence class of a lawful total
+    preorder. Distinct records with mutually-related keys retain their original relative order. -/
+theorem insertionSort_stableOn (beforeKey : κ → κ → Bool)
+    (laws : LawfulTotalRelation beforeKey) (key : α → κ) (input : List α) :
+    StableOn key beforeKey input
+      (insertionSort (fun left right => beforeKey (key left) (key right)) input) := by
+  intro pivotKey
+  induction input with
+  | nil => simp [insertionSort]
+  | cons value rest ih =>
+      rw [insertionSort, filter_insert_keyEquivalent beforeKey laws key value]
+      by_cases equivalent : KeyEquivalent beforeKey (key value) pivotKey = true
+      · simp [equivalent, ih]
+      · simp [equivalent, ih]
 
 /- REF: docs/STDLIB_CONTAINERS.md#2-generic-sorting -/
 /-- A sorted result packages both semantic obligations used by downstream clients. -/

@@ -12,12 +12,13 @@ future storage or balancing change from leaking into downstream specifications.
 `Stdlib.Sort` provides insertion sort parameterized by a Boolean comparison.
 `LawfulTotalRelation` carries exactly the transitivity and totality used by the
 orderedness proof. The optional stronger `LawfulOrder` adds reflexivity and
-antisymmetry for consumers that need equality reasoning. Neither certificate claims
-stability for distinct values with equivalent projected keys. The central sorting
-contract is the pair of universal theorems that sorting
-produces a pairwise-ordered list and a permutation of the input.  The implementation
-is deliberately simple: it is a reference algorithm and proof boundary, not a claim
-of asymptotically optimal runtime.
+antisymmetry for consumers that need equality reasoning. `StableOn` observes each
+mutual-preorder key class by filtering the full records; `insertionSort_stableOn`
+proves that every such class retains its exact input sequence, including distinct
+records with equivalent keys. The central sorting contract therefore separates three
+universal facts: pairwise ordering, permutation, and stability. The implementation is
+deliberately simple: it is a reference algorithm and proof boundary, not a claim of
+asymptotically optimal runtime.
 
 ## 3. Vector model
 
