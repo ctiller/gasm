@@ -49,7 +49,7 @@ local instance : ExternalCallInterceptor X86_64 AnyEvent :=
     fuel parameter, not `partial`, so it carries real kernel-unfoldable equations. `grep -rn "partial
     def" Gasm/Targets/X86_64 Gasm/Targets/Windows` returns nothing: there is no opaque interpreter
     core standing in the way here, so plain `decide` closes it directly with no oracle and no
-    allowlist entry. -/
+    native-evaluation dependency. -/
 theorem spike1_canonical_effect_trace_equivalence :
     (runAsmTrace (Event := AnyEvent) spike1Instructions spike1Executable.load ==
      runModelTrace (helloWorldWindowsSpec : TraceM AnyEvent Unit)) = true := by

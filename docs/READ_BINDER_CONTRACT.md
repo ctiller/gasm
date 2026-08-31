@@ -275,8 +275,7 @@ witnesses into an obligation already discharged, never a new source of proof wor
   (the ratified `VerifiedReactiveProgram` design in `docs/EQUIVALENCE_PROOFS.md`), independent of the **inner** per-read contract shape this
   document defines. Conflating the two would smuggle a liveness proof into what is supposed to
   be a statement about one read's result domain.
-- No attempt to close any of the nine grandfathered Spike 3/4 allowlist entries or any other
-  `scripts/gate_allowlist.txt` entry — this is deliberately separate work
+- No attempt to close the historical Spike 3/4 native-evaluation debts — this is deliberately separate work
   so it does not balloon into "read-binder work plus nine proofs."
 - No replacement or expansion of the landed `canonicalizeTrace` and bounded-read implementations.
   §4 states the preservation contract those foundations must satisfy as they are integrated into

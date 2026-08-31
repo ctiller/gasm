@@ -1120,31 +1120,24 @@ What the two histories jointly suggest, offered as observation rather than instr
 
 ## 11. The pointwise spike-equivalence convention, and the debt it mints
 
-### 11.1 What the ledger says
+### 11.1 Current zero-exception policy
 
-`scripts/gate_allowlist.txt` is this project's oracle-debt ledger. Each non-comment line has
-five `::`-delimited fields — relative path, bare declaration name, fully-qualified name,
-category, justification (format documented at `scripts/gate_allowlist.txt:3-42`). Every
-`native_decide` or `bv_decide` occurrence in the tree needs a matching entry under an honest
-category; a bare `decide` needs none, because the kernel performs that evaluation itself and
-no axiom is introduced (`docs/REVIEW.md:106`, Law 10, rungs 2–4).
-
-Counted at commit `38efb5f`: **81 entries — 34 `grandfathered`, 45 `axiom-only`, 2
-`finite-forall`.** The target the owner has stated is zero; the count is the score.
-The retired oracle-debt audit supplied the historical shape and path-to-zero analysis; its headline
-figures were from 2026-08-27 at 80 entries and are not a current count. This section preserves the
-architectural summary; `scripts/gate_allowlist.txt` is the authoritative live ledger.
+Every `native_decide` or `bv_decide` occurrence is a hard failure, and the compiled-environment
+gate rejects every reportable declaration that depends on a non-standard axiom. A bare `decide`
+needs no special treatment because the kernel performs that evaluation itself and introduces no
+axiom (`docs/REVIEW.md`, Law 10, rungs 2–4). There is no ledger, category, waiver, or
+grandfathering mechanism.
 
 ### 11.2 The debt is minted by the target convention, not by instructions
 
 This was measured, and the measurement corrected a coordinator's assumption:
 
-- **Instructions add zero allowlist entries.** `SyscallOp`
+- **Instructions added zero oracle debt.** `SyscallOp`
   (`Gasm/Targets/X86_64/Instructions/Syscall.lean:33`) — the instruction that made the entire
   Linux target possible — added none. Roundtrip proofs are discharged by kernel-checked
   `decide` across the sharded `Gasm/Targets/X86_64/RoundtripGate/*` gate theorems.
-- **The Linux target added a net 24 entries.** Measured directly:
-  `git show d3c2fc2 --numstat -- scripts/gate_allowlist.txt` reports 30 added, 6 removed.
+- **The Linux target historically added a net 24 exceptions.** This measurement identified the
+  target-level proof convention, rather than instruction definitions, as the source of debt.
 - The conclusion, recorded in `docs/X86_ISA_EXPANSION_PREREQUISITES.md`: "instructions
   add **zero** allowlist entries…; the ~24 came from the *target*. The debt mint is the
   pointwise spike-equivalence convention, not the ISA."
@@ -1156,15 +1149,14 @@ the proof is a single point. Law 9 (`docs/REVIEW.md:98`) prohibits exactly that,
 third bullet says the ~25 contracts of this shape are "grandfathered migration backlog…, not
 compliant instances."
 
-Five spikes on ARM, authored the way the Linux target authored them, lands a comparable
-number of entries.
+Five spikes on ARM authored with the old pointwise convention would create a comparable number
+of hard gate failures and cannot land.
 
 ### 11.3 The convention is ours, and it is known-bad
 
-We do not get to gate a new target on a standard the existing target does not meet at 81 entries;
-the proposed ratchet gate on this count was explicitly
-declined for that reason. Telling you is not the same as gating you. The alternative to
-telling you is exporting a defect silently, which is worse for you than knowing.
+The policy is now mechanical: a new target cannot add native-evaluation debt even while older
+target proofs are being migrated. The fast source gate and compiled axiom gate both fail without
+an exception path.
 
 ### 11.4 What has been tried, and what it cost
 
@@ -1176,7 +1168,7 @@ Recent, and directly relevant, because it bounds your options:
   `native_decide` it replaced, but Spikes 2 and 3 both exceeded 560 s and were killed —
   "kernel reduction pays for every loop iteration, and build time is a standing constraint
   here." So `decide` is a real option at Spike 1 scale and a measured non-option above it.
-- **Spike 1 bare metal on x86-64 is proved by `decide` today and carries no allowlist entry.**
+- **Spike 1 bare metal on x86-64 is proved by `decide` today and carries no native-evaluation axiom.**
   `Spikes/Spike1Hello/BareMetal/Equivalence.lean:52-56` discharges
   `spike1_baremetal_canonical_effect_trace_equivalence` with `set_option maxRecDepth 4000 in
   decide`. The only obstacle found was elaborator recursion depth, not opacity. This is the
@@ -1189,11 +1181,10 @@ Recent, and directly relevant, because it bounds your options:
   is still `native_decide`. That pairing is the whole state of the art here: the routine-level
   claim was closed; the whole-program trace claim was not.
 
-### 11.5 A recommendation, not a requirement
+### 11.5 Required proof shape
 
-If you author five spikes' equivalence proofs pointwise, the result will build, the gates
-will pass with honest allowlist entries, and you will have followed the convention this
-codebase actually practises. Nobody will block it, and per §11.3 nobody has standing to.
+Pointwise native-evaluation proofs do not pass the gates. New target equivalence work must use
+kernel-checked evaluation where tractable or constructive routine/trace proofs.
 
 The recommendation, offered because you would otherwise have to discover the alternatives by
 hitting them: **prove the routine, then derive the trace.** `fib_iter_asm_soundness` shows
@@ -1203,11 +1194,9 @@ CRC-table closure. **Status**: those gaps remain open, and some may not confiden
 bounded timeline. Read Law 9
 (`docs/REVIEW.md:98`) and Law 10 (`docs/REVIEW.md:106`) and choose knowingly.
 
-If you do land pointwise entries, the one thing that genuinely matters is that the
-justification field is honest and specific. `check_gates.py` reports stale entries and
-`lake exe check_gates_axioms` requires every `axiom-only` entry to match a real finding in
-its own scan — a decorative justification is the only failure mode here that is nobody's
-debt but the author's.
+The required migration target is a proof whose compiled axiom set contains only the standard
+kernel axioms. A pointwise regression vector may remain useful as a test, but it cannot be used
+as verification evidence through a native evaluator.
 
 ---
 
@@ -1450,4 +1439,3 @@ Concretely, and offered as orientation rather than as process imposed on you:
 The most useful thing you can write down is a place where this codebase's conventions did not
 fit AArch64. §12.3 is the example: a construct with nowhere honest to declare itself is
 evidence, and it is evidence only if it is recorded where somebody will read it.
-

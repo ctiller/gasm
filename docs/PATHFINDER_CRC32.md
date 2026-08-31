@@ -517,16 +517,11 @@ implementation time): this is admissible under Law 10 as written.** Law 10's act
 proof that the proposition holds for the **complete** finite domain, exactly the "exhaustive
 finite-∀" case Law 10 already admits `native_decide`/`decide` for. The novelty is only that the
 *mechanism* generating the certificate is a SAT solver rather than a brute-force evaluator; that
-distinction is not what Law 10 gates on. **Decision**: allowlist the `G8bf_table` (and `G =
-Gbf`) occurrences under `finite-forall`, with justification text naming the SAT certificate and
-the finite domain size (`2^32`, `UInt32`'s complete domain) explicitly, per
-`scripts/gate_allowlist.txt`'s five-field format. **Follow-up (small, separate task, not PA1's own
-scope, and corrected per M9(b) above)**: only `scripts/check_gates.py`'s source-level pre-check
-needs to learn the `bv_decide` spelling for its own corroboration-signal regex — the axiom-level
-`lake exe check_gates_axioms` gate already catches the occurrence structurally via
-`hasNativeComponent` and needs no change. File the pre-check teaching as backlog alongside the
-existing Law 10 gate-tooling backlog items rather than block PA1 on it; it is a nice-to-have for
-faster local feedback, not a soundness gap.
+distinction is not what the mathematical claim depends on. **Current decision:** the in-kernel
+gate nevertheless admits no native-evaluation exception. `G8bf_table` (and `G = Gbf`) therefore
+requires a kernel-replayed proof-producing mechanism or a structural proof before landing. The
+source pre-check recognizes `bv_decide`, while the compiled axiom gate catches its dependency
+structurally via `hasNativeComponent`.
 
 ### 3.7 What discharges by `simp` + step/block lemmas vs. `omega` vs. induction
 

@@ -662,8 +662,8 @@ as missing:
    returning distinct pointers instead of a constant, `GetStdHandle` returning distinct handles)
    leaves every pointwise contract discharged by `decide`/`native_decide` free to simply
    **recompute and pass**, while the property it originally captured has silently changed
-   underneath it — and `scripts/gate_allowlist.txt` currently names the grandfathered contracts
-   of exactly this shape. **A recomputed `decide`/`native_decide` pass is not evidence a
+   underneath it. The retired exception mechanism historically named contracts of exactly this
+   shape. **A recomputed `decide`/`native_decide` pass is not evidence a
    contract still means what it did; it must be re-justified by hand**, or explicitly marked as
    requiring re-derivation and left failing until that happens.
 

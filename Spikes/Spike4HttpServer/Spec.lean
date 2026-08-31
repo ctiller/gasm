@@ -204,7 +204,7 @@ def allHttpMethods : List Stdlib.Http11.Method :=
 
 /- REF: docs/STDLIB_HTTP11.md#11-what-this-library-models -/
 /-- `allHttpMethods` really does list every constructor of `Stdlib.Http11.Method`. Structural
-    (`cases` + `simp`), so it needs neither `decide` nor `native_decide` nor an allowlist entry
+    (`cases` + `simp`), so it needs neither `decide` nor `native_decide`
     (`docs/REVIEW.md` Law 10, rung 1); if the enum gains a constructor this proof breaks rather
     than the lowering silently under-approximating the model. -/
 theorem mem_allHttpMethods (m : Stdlib.Http11.Method) : m ∈ allHttpMethods := by

@@ -106,8 +106,8 @@ doc-facade rollout warns about -- and a gate that must be argued around
 is a gate that gets disabled. The 48 is a MODELLING GAP in the tools that walk only
 the three lib umbrellas, not 48 defects in the tree.
 
-The same gap explains the 23 "stale" entries `check_gates_axioms` reports against
-scripts/gate_allowlist.txt: all 23 are category `axiom-only`, and every one names a
+Historically, the same gap explained 23 "stale" transitive entries reported by
+`check_gates_axioms`; every one named a
 file in the 48 above. They are not stale. They correctly pre-authorize declarations
 the scanner never reaches, and it calls them stale because it cannot see their
 subjects. Deleting them would be the wrong fix.

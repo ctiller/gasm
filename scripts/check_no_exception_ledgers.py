@@ -35,6 +35,11 @@ PARSER_MARKERS = (
     "load_waivers", "parseWaiver", "load_exceptions", "parseExceptionLedger",
     "suppress_finding", "is_exempt",
 )
+RETIRED_LEDGER_REFERENCES = (
+    "scripts/gate_allowlist.txt",
+    "temporary law-10 ledger",
+    "authoritative live ledger",
+)
 
 
 def tracked_files() -> list[str]:
@@ -69,9 +74,29 @@ def parser_leaks(paths: Iterable[str]) -> list[str]:
     return sorted(leaks)
 
 
-def run_check(paths: Iterable[str] | None = None) -> tuple[list[str], list[str]]:
+def retired_reference_leaks(paths: Iterable[str]) -> list[str]:
+    leaks = []
+    for rel in paths:
+        if rel == RATCHET_PATH:
+            continue
+        path = REPO_ROOT / rel
+        try:
+            source = path.read_text(encoding="utf-8").lower()
+        except (OSError, UnicodeDecodeError):
+            continue
+        hits = [marker for marker in RETIRED_LEDGER_REFERENCES if marker in source]
+        if hits:
+            leaks.append(f"{rel}: {', '.join(hits)}")
+    return sorted(leaks)
+
+
+def run_check(paths: Iterable[str] | None = None) -> tuple[list[str], list[str], list[str]]:
     selected = list(paths) if paths is not None else tracked_files()
-    return forbidden_ledger_paths(selected), parser_leaks(selected)
+    return (
+        forbidden_ledger_paths(selected),
+        parser_leaks(selected),
+        retired_reference_leaks(selected),
+    )
 
 
 def self_test() -> int:
@@ -81,17 +106,26 @@ def self_test() -> int:
 
     parser_probe = "scripts/_exception_parser_probe.py"
     parser_path = REPO_ROOT / parser_probe
-    parser_path.write_text("def load_exceptions(): pass\n", encoding="utf-8")
+    parser_path.write_text(
+        "# scripts/gate_allowlist.txt is authoritative\n"
+        "def load_exceptions(): pass\n",
+        encoding="utf-8",
+    )
     try:
         bad_parsers = parser_leaks([parser_probe])
+        bad_references = retired_reference_leaks([parser_probe])
     finally:
         parser_path.unlink(missing_ok=True)
 
     passed = (
         bad_paths == [comment_only_ledger, empty_ledger]
         and bad_parsers == [f"{parser_probe}: load_exceptions"]
+        and bad_references == [f"{parser_probe}: scripts/gate_allowlist.txt"]
     )
-    print(f"synthetic empty-ledger/comment-ledger/parser rejection: {'PASS' if passed else 'FAIL'}")
+    print(
+        "synthetic empty-ledger/comment-ledger/parser/retired-reference rejection: "
+        f"{'PASS' if passed else 'FAIL'}"
+    )
     return 0 if passed else 1
 
 
@@ -102,7 +136,7 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
-    bad_paths, leaks = run_check()
+    bad_paths, leaks, retired_references = run_check()
     print("=" * 72)
     print(" Exception-ledger removal ratchet")
     print("=" * 72)
@@ -110,9 +144,11 @@ def main() -> int:
         print(f"[!] forbidden exception-ledger path: {path}")
     for leak in leaks:
         print(f"[!] exception parser authority remains: {leak}")
-    if not bad_paths and not leaks:
-        print("[+] no exception ledger or parser authority exists")
-    return 1 if bad_paths or leaks else 0
+    for leak in retired_references:
+        print(f"[!] retired exception-ledger guidance remains: {leak}")
+    if not bad_paths and not leaks and not retired_references:
+        print("[+] no exception ledger, parser authority, or retired-ledger guidance exists")
+    return 1 if bad_paths or leaks or retired_references else 0
 
 
 if __name__ == "__main__":

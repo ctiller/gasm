@@ -104,7 +104,7 @@ With the prerequisites in §3 met, the expansion is a sound project. Without P1�
 | Cascade composition | all 26 `RoundtripGate/*` shards + `Common` + aggregator + `Decoder` + `Registry` + `Assembler` + `Disassembler` + both linkers + `SemanticsFuzzer` + `Core.Verification` + umbrella | build log module list |
 | Registry gate enforcement | **verified live**: adding an unregistered `X86_64Instruction` instance fails the build at `Registry.lean:117`, naming the offending type | mutation test, then reverted (§4.1) |
 | One pointwise spike-equivalence module (`Spikes.Spike2Fibonacci.Linux.Equivalence`) | 156 s elaboration in isolation; 247 s under load, where it also died once with a non-deterministic crash before succeeding on retry | `lake build <module>`, timed twice |
-| `scripts/gate_allowlist.txt` | 85 entries: 36 grandfathered / 48 axiom-only / 1 finite-forall | parsed by category |
+| retired gate-exception ledger | historically 85 entries: 36 grandfathered / 48 transitive / 1 finite-forall | deleted; no parser remains |
 | Oracle debt added by the Linux target (one day, five spikes) | **+24 entries: 9 grandfathered pointwise `native_decide` + 15 axiom-only** | allowlist lines 152–175, diff of `a6a6381` |
 | Oracle debt added by a new *instruction* (`SyscallOp`, same merge) | **0 entries** — its roundtrip shard is plain `decide` | allowlist diff |
 | Forms with `canFuzzHardware := false` (zero silicon validation of semantics) | 50 of 88 (57%) | grep, type-level only; instance-level RSP filtering excludes more cases |
@@ -479,7 +479,7 @@ ratchet exists rather than an open status.
 
 ### 7.3 The allowlist's mojibake
 
-Multiple `scripts/gate_allowlist.txt` justification fields contained double-encoded UTF-8 —
+Multiple fields in the now-deleted gate-exception ledger contained double-encoded UTF-8 —
 harmless to the parser, but evidence that a tool had written the ledger under the wrong codepage.
 **Resolved:** the mojibake was removed; the checked-in allowlist now uses plain, reviewable text.
 
