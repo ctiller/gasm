@@ -212,6 +212,7 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Prove projected-key insertion-sort stability | `Stdlib.Sort.StableOn` and `insertionSort_stableOn` | pure container algebra | Spike 3 byte-line model plus distinct tagged equal-key regression | ordering and permutation are separate theorems; target execution and artifact authority remain consumer-owned |
 | Lower bounded structured straight-line code to Microsoft x64 | `StructuredStraightLineMicrosoftX64Entry.lowerFunction` and its `LocalCertificate` | compiler's target-specific local lowering layer | canonical bounded Microsoft x64 entry backend | exact clobbers and local semantics are proved; process entry, non-return, platform outcome, PE placement, and `VerifiedProgram` authority remain separate |
 | Bind a replaceable Microsoft x64 leaf into the stable symbolic CFG | `StructuredLeafMicrosoftX64CFG.Body`, `Body.ofGenerated`, `Body.ofReplacement`, `Terminal`, and `realizes` | compiler's target-specific leaf/typed-CFG bridge | generated backend and handwritten differential bodies | exact bytes, result, frames, clobbers, and control-flow freedom are retained; the caller still owns termination, emitted terminator semantics, layout, graph closure, admission, artifact identity, and `VerifiedProgram` authority |
+| Assemble exact Microsoft x64 blocks under one stable symbolic plan | `StructuredMicrosoftX64CFG.Selected`, `.leaf`, `.branch`, `.lower`, `idsExact`, and `rootIdExact` | compiler's target-specific plan-assignment layer | mixed generated/handwritten leaf control under one exact branch plan | nominal scope, child polarity, role order, and root are dependent identities; successors remain caller-owned, and finalization adds no layout, execution, artifact, admission, or `VerifiedProgram` authority |
 | Resume production execution after a proved local straight-line body | `ContextualStraightLinePlacement`, `RuntimeSilentOn`, and the target prefix-runner theorems | target production execution bridge | Microsoft x64 and AArch64 compiler-bulk spikes | the local certificate supplies no lookup, host-silence, ABI, outcome, artifact, admission, or `VerifiedProgram` authority |
 | Replace a compiler body while retaining one selected functional theorem | the AArch64 and Microsoft x64 differential modules' `FunctionalDelta` and `FunctionalDelta.realize` | each compiler target's local realization layer | runnable AArch64 and Windows x64 compiler-bulk spikes | only the named result property is transported; replacement bytes, frames, clobbers, classification, placement, runtime behavior, and final authority are regenerated or re-proved |
 | Emit production bytes from whole-program proof authority | `Gasm.Core.Platform.emitVerifiedProgram` | platform-neutral whole-program boundary | compiler-bulk plus migrated Spike 1, 2, 4, and 5 emitters/tests | serialization consumes an exact `VerifiedProgram` and may still return an error; public target-local serializers remain migration debt, while raw fuzzing requires `FuzzingEmitter` and confers no verification claim |
@@ -376,6 +377,18 @@ evidence, and negative boundary after that comparison; it does not own a second 
   same `Body` as generated code.  This preserves stable source expression and symbolic topology
   without copying implementation identity, and it supplies no emitted terminator step, layout,
   graph closure, platform admission, artifact identity, or final `VerifiedProgram` authority.
+- Canonical `2bf7c69dcc0acadf0bbf4b524228955887ad567b` composes those exact blocks beneath one
+  stable symbolic `Plan`.  `Selected` carries the replaceable `Assignment`/`Realizes` together with
+  `idsExact` and `rootIdExact`; the plan continues to own topology, roles, and root.  The branch
+  smart constructor derives child disjointness and parent freshness from plan laws plus the exact
+  child ID maps, while consuming caller-owned typed `Successors`.  Its dependent indices prevent
+  true/false child swaps and foreign nominal scopes at elaboration time.  The positive control mixes
+  a generated true leaf and one-instruction handwritten false leaf for the same exact source; the
+  two hostile controls are expected elaboration failures for polarity swap and foreign scope.
+  Finalization remains exactly `Realizes.lower`, so the wrapper adds no second graph or verification
+  authority.  Focused validation built 53 jobs and the `Gasm` umbrella built 283 jobs.  Comparison
+  and JCC placement/execution, terminal realization, artifact identity, ABI/export publication,
+  admission, and the sole final `VerifiedProgram` remain separate.
 - For production emission, pass the final `VerifiedProgram` to platform-neutral
   `emitVerifiedProgram`; handle its `Except` result rather than bypassing the proof boundary with a
   target serializer.  Canonical `94da7dd` migrated Spike 2 Linux's emitter and test to this path;
