@@ -248,6 +248,111 @@ provider capability, response cursor, destination loan, decoder, or proof obliga
 supplies reusable framing/irrelevance results for unused provider input once; unrelated programs do
 not re-prove them.
 
+### 2.4 Proof-tractable persistent execution gate
+
+Graphics verification must remain usable under the repository's full universal-input, exact-memory,
+generational-authority, failure, cleanup, and asynchronous-consequence requirements. Tractability may
+change proof decomposition and interfaces; it may not narrow an input domain, select a successful
+trace, erase an obligation, replace structural proof with native evaluation, or introduce a second
+verification/emission authority.
+
+The production proof graph is deliberately layered:
+
+1. raw provider-envelope controls and pure wire decoding/sparse-write lemmas;
+2. consumer-local ownership and result-indexed transition certificates;
+3. wrapper-runner instruction/provider lifting and irrelevance lemmas;
+4. target-owned import, IAT/dispatch, ABI, linkage, and runtime-support certificates;
+5. SPIR-V block/function/module certificates and exact local serialization identity; and
+6. the five whole-program certificates, joined only by `VerifiedProgram.compose`.
+
+Each layer exposes small named theorems that hide its implementation normalization. Final behavior
+proofs consume those certificates rather than unfolding the entire runner, shader module, PE layout,
+provider decoder, or WSI state machine at once. Reusable frame, lookup, selection, and composition
+lemmas are proved once at their owning layer. Unselected instruction families, capabilities, provider
+operations, Vulkan features, and WSI extensions create no terms and no proof obligations.
+
+Controls use kernel-checked structural proofs or ordinary kernel `decide` over genuinely finite
+fixtures. `native_decide`, `bv_decide`, pointwise demonstrations, and native probe results cannot
+discharge universal program authority. Executable negative fixtures remain narrow consumers of the
+same production definitions; they do not define parallel proof-only interpreters.
+
+A finite provider-response list is replay input, not a claim that a windowed graphics program has a
+finite lifetime. Its empty or exhausted case retains the canonical provider operation's explicit
+disposition and history; exhaustion alone does not create a blocked continuation or an appendable
+input supply. Production safety ranges over arbitrary finite execution prefixes of one exact loaded
+run, and extending such an execution prefix preserves every transition already justified within that
+run. A blocked/quiescent continuation exists only when the selected target operation explicitly
+returns one, with every window, buffer loan, GPU lease, callback obligation, and cleanup record given
+its exact disposition.
+
+If a future persistent-input profile needs appendable supply, it must select a separate target-local
+open-versus-closed supply model and an explicit `supply` transition that preserves the same execution
+root. Suspension occurs before a provider operation is begun or appended to history; closed
+exhaustion retains the canonical explicit outcome. This document does not yet choose that API.
+
+The render/event loop is a guarded step system rather than a proof by finite unrolling. Safety,
+framing, authority preservation, and selected resource invariants are proved by induction over every
+finite execution prefix. Each step is result-indexed among a continuing step, a normal or selected
+terminal outcome, an explicit blocked/quiescent continuation, and failure, fault, or forced
+termination; continuing execution may diverge. Every alternative states the exact authority and
+cleanup-obligation disposition it preserves or transfers.
+
+Claims that input is eventually delivered, a submitted frame eventually completes, presentation
+eventually retires, cleanup eventually executes, or the program eventually exits are separate
+liveness theorems and require the exact provider, scheduler, device, and presentation
+fairness/progress assumptions they use. Safety, framing, authority preservation, and cleanup
+safety/disposition may not depend on those assumptions.
+
+Long-running programs add one dedicated proof frontier: a guarded loop-step preservation theorem and
+a prefix-extension theorem compose the local certificates above for an arbitrary number of frames
+and input events. Concrete tests may use finite fuel, but production safety may not be obtained by
+normalizing a fixed number of loop iterations. Termination and liveness corollaries remain thin,
+result-indexed consumers of the invariant plus explicit progress hypotheses, so adding a frame or
+extending a replay transcript does not re-elaborate a monolithic whole-run proof.
+
+Every reviewable increment records its focused command, warm-cache wall time, actual rebuilt jobs,
+aggregate peak memory, maximum process peak, and expected invalidation frontier on the shared-box
+measurement path agreed with Speedracer. A change that unexpectedly pulls central ISA type closures,
+umbrella builds, or final whole-program normalization into an ordinary leaf edit is a design
+regression and is refactored before integration; serious latency or memory growth is reported rather
+than hidden by skipping useful verification.
+
+Initial warm incremental budgets on the shared Polonius measurement host are:
+
+| Frontier | Wall | Actual jobs | Aggregate peak | Process peak |
+| :--- | ---: | ---: | ---: | ---: |
+| raw provider replay controls | 4 s | 15 | 3.5 GiB | 1.8 GiB |
+| one pure wire decoder/write-plan control root | 3 s | 6 | 3.0 GiB | 1.8 GiB |
+| one consumer loan/transition control root | 5 s | 12 | 4.0 GiB | 2.0 GiB |
+| wrapper-runner lifting/frame controls | 7 s | 18 | 5.0 GiB | 2.5 GiB |
+| provider linkage/runtime-support controls | 8 s | 20 | 6.0 GiB | 3.0 GiB |
+| each final `Program*` certificate module | 8 s | 12 | 4.0 GiB | 3.0 GiB |
+| final composition/export root, promotion only | 15 s | 35 | 8.0 GiB | 3.0 GiB |
+
+Measurements use
+`scripts/measure_process_tree.py --sample-ms 100 -- lake build +Exact.Module.Controls` after one
+normalization build and one representative owner-leaf edit. A routine frontier over 10 seconds,
+twice its job budget, 6 GiB aggregate, or 3 GiB in one process is reported to Speedracer. A silent
+final module over 60 seconds or 10 GiB aggregate is stopped and diagnosed. Budgets are diagnostic,
+host-specific engineering gates, not semantic requirements: they may be recalibrated downward after
+repeated quiet samples, while raising one requires attributing the new dependency and job delta and
+never permits removal of required evidence.
+
+Routine layers do not unfold universal runner/fuel loops, compare whole environments or artifacts,
+normalize full program/module ASTs, use broad recursive `simp`, or couple exact execution and every
+classification/frame field into one dependent certificate. They prefer one opaque exact execution or
+transition equality, small `_of_execution` bridges, per-field projection and negative-frame lemmas,
+range-local wire proofs, explicit local provider dictionaries, and opaque theorem references in the
+final `Program*` records. This is proof-engineering guidance, not a ban on an owner-local unfolding
+needed to establish one of those reusable theorems.
+
+The required runnable graphics demonstration is also a tractability test: its shader, provider,
+runner, window/event loop, Vulkan/WSI, and export proofs must assemble the reusable layer
+certificates above and execute the exact emitted bytes. A one-off monolithic cube proof that cannot
+support a second provider consumer or a nearby shader/window change does not complete the gate; nor
+does a native demonstration confer proof authority over the loader, driver, presentation engine, or
+display.
+
 ---
 
 ## 3. High-Level Monadic Specification (`Gasm.Targets.Vulkan`)
