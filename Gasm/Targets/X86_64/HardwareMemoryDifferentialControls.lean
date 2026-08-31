@@ -65,6 +65,42 @@ private def trailingInstructionByteRejected : Bool :=
       let plan := { observation.plan with instructionBytes := observation.plan.instructionBytes.push 0x90 }
       comparisonRejected (compare { observation with plan := plan })
 
+private def planMutationRejected (mutate : Plan → Plan) : Bool :=
+  match matchingObservation with
+  | .error _ => false
+  | .ok observation =>
+      comparisonRejected (compare { observation with plan := mutate observation.plan })
+
+private def mutatedAccessAddressRejected : Bool :=
+  planMutationRejected fun plan => { plan with accessAddress := plan.accessAddress + 1 }
+
+private def mutatedAccessKindRejected : Bool :=
+  planMutationRejected fun plan => { plan with accessKind := .load }
+
+private def mutatedAccessWidthRejected : Bool :=
+  planMutationRejected fun plan => { plan with accessWidth := .w8 }
+
+private def mutatedAccessPrestateRejected : Bool :=
+  planMutationRejected fun plan =>
+    let base := plan.form.baseReg
+    let initialState := plan.initialState.setGpr64 base (plan.initialState.gprs base + 1)
+    { plan with initialState := initialState }
+
+private def mutatedClosedFormRejected : Bool :=
+  planMutationRejected fun plan =>
+    { plan with form := .mem64DispReg64 ⟨.rax, 0, .rcx⟩ }
+
+private def mutatedOutOfPayloadRejected : Bool :=
+  planMutationRejected fun plan =>
+    let base := plan.form.baseReg
+    let address := plan.payloadBase + payloadBytes.toUInt64
+    { plan with
+      accessAddress := address
+      initialState := plan.initialState.setGpr64 base address }
+
+private def mutatedRegionLayoutRejected : Bool :=
+  planMutationRejected fun plan => { plan with regionBase := plan.regionBase + 1 }
+
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- An exact model-shaped observation is accepted.
 #guard baselineAccepted
@@ -84,5 +120,33 @@ private def trailingInstructionByteRejected : Bool :=
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Native/model instruction identity is exact; an ignored trailing byte cannot pass.
 #guard trailingInstructionByteRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Stored address identity is rechecked from the decoded descriptor and exact pre-state.
+#guard mutatedAccessAddressRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Stored access kind cannot drift from the production descriptor.
+#guard mutatedAccessKindRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Stored access width cannot drift from the production descriptor.
+#guard mutatedAccessWidthRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Descriptor evaluation is pinned to the exact stored pre-state, not a reconstructed address.
+#guard mutatedAccessPrestateRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- The stored closed constructor cannot drift from the exact decoded production bytes.
+#guard mutatedClosedFormRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Even a self-consistent descriptor/pre-state mutation cannot move the access outside payload.
+#guard mutatedOutOfPayloadRejected
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+-- Region and payload coordinates remain one exact guarded layout.
+#guard mutatedRegionLayoutRejected
 
 end Gasm.Targets.X86_64.HardwareMemoryDifferentialControls

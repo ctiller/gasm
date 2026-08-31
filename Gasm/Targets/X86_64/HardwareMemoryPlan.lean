@@ -15,6 +15,7 @@ limitations under the License.
 -/
 
 import Gasm.Targets.X86_64.Decoder
+import Gasm.Targets.X86_64.MemoryRange
 
 namespace Gasm.Targets.X86_64.HardwareMemoryPlan
 
@@ -208,6 +209,38 @@ structure DecodedStep where
   accesses : List MemAccessSpec
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Revalidates the decoded production descriptor against the stored plan and its exact pre-state.
+    This check is intentionally owner-local: it hardens the supplemental hardware consumer but
+    proves no memory authority, mapping, target fidelity beyond this plan, or execution admission. -/
+private def Plan.validateDecodedAccess (plan : Plan) (accesses : List MemAccessSpec) :
+    Except String Unit := do
+  let spec ← match accesses with
+    | [spec] => pure spec
+    | specs => throw s!"case {plan.caseId}: decoded plan must expose exactly one access, got {specs.length}"
+  if spec.kind != plan.accessKind then
+    throw s!"case {plan.caseId}: decoded access kind disagrees with the stored plan"
+  if spec.width != plan.accessWidth then
+    throw s!"case {plan.caseId}: decoded access width disagrees with the stored plan"
+  let actual := spec.addressRange plan.initialState
+  let expected : Gasm.MemoryModel.AddressRange :=
+    { start := plan.accessAddress, length := plan.accessWidth.bytes }
+  if actual != expected then
+    throw s!"case {plan.caseId}: decoded access range disagrees with the stored exact pre-state range"
+  let regionEnd ← checkedAdd plan.regionBase regionBytes
+  let payloadBase ← checkedAdd plan.regionBase guardBytes
+  if payloadBase != plan.payloadBase then
+    throw s!"case {plan.caseId}: stored payload base disagrees with the guarded region layout"
+  let payloadEnd ← checkedAdd payloadBase payloadBytes
+  let accessEnd ← checkedAdd actual.start actual.length
+  if actual.start < payloadBase || accessEnd > payloadEnd then
+    throw s!"case {plan.caseId}: decoded access range is not wholly inside the scratch payload"
+  if !isCanonical48 plan.regionBase || !isCanonical48 (regionEnd - 1) ||
+      !isCanonical48 actual.start || !isCanonical48 (accessEnd - 1) then
+    throw s!"case {plan.caseId}: decoded plan contains a noncanonical guarded or access address"
+  if plan.regionBefore.size != regionBytes then
+    throw s!"case {plan.caseId}: stored guarded preimage length is not exact"
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Decodes and steps the exact stored production bytes.  This is the model authority used by the
     differential comparator; it never reconstructs an instruction independently of those bytes. -/
 def Plan.decodeAndStep (plan : Plan) : Except String DecodedStep :=
@@ -218,11 +251,17 @@ def Plan.decodeAndStep (plan : Plan) : Except String DecodedStep :=
         .error s!"case {plan.caseId}: decoder consumed {consumed}/{plan.instructionBytes.size} bytes"
       else if X86_64Instruction.encode decoded != plan.instructionBytes then
         .error s!"case {plan.caseId}: decoded instruction did not re-encode exactly"
-      else
+      else if X86_64Instruction.encode plan.form.pack != plan.instructionBytes then
+        .error s!"case {plan.caseId}: closed MOV form disagrees with the stored production bytes"
+      else if X86_64Instruction.toLean decoded != X86_64Instruction.toLean plan.form.pack then
+        .error s!"case {plan.caseId}: decoded instruction disagrees with the stored closed MOV form"
+      else do
+        let accesses := X86_64Instruction.memAccesses decoded
+        plan.validateDecodedAccess accesses
         .ok {
           state := X86_64Instruction.step decoded plan.initialState
           undefinedFlagsMask := X86_64Instruction.undefinedFlagsMask decoded
-          accesses := X86_64Instruction.memAccesses decoded
+          accesses := accesses
         }
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
