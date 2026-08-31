@@ -349,8 +349,14 @@ The following code shapes have enough evidence to investigate but are not canoni
   Reviewer accepted the complete root/frontier design with no P1 and authorized implementation on
   canonical base `a62ca53`.  A prefix may re-root its inherited state; no raw truncation,
   concatenation, or composition theorem is yet justified.
-  Chronology, liveness, alias semantics, and global origin remain deferred.  Exact code still requires
-  MP and Reviewer review.
+  Chronology, liveness, alias semantics, and global origin remain deferred.  MP, Trust, and Reviewer
+  also accept the layer boundary that `History.WellFormed` establishes only relative endpoint
+  membership and structural history; it remains independent of `Envelope.Execution.WellFormed` and
+  cannot repair a malformed envelope carrier or confer execution authority.  Later consumers must
+  require both facts separately, or use a thin nonduplicating private bundle when a concrete consumer
+  earns it; a fixture may construct both independently.  There is no public bundle or derivation
+  between them.  This is accepted design guidance only: no exact implementation candidate or
+  canonical landed hash exists yet.
 
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
