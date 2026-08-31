@@ -46,9 +46,12 @@ only when independently proved unique and unreachable from the old authority pat
 ### Root and choices
 
 The precious root is exact logical output plus selected partial-write, failure and terminal behavior
-for Linux, Windows, Wasm and bare-metal profiles. Unresolved choices are whether each profile retries
-short writes, exposes the committed prefix, how provider refusal/failure maps to the root, and which
-terminal action is selected. The literal, not a target buffer address, is source meaning.
+for Linux, Windows, Wasm and bare-metal profiles. Craig selected the common rule on 2026-08-31: the
+full text must be emitted before ordinary exit; every short write is retried and is not fatal; an
+actual write failure is fatal; and absence of stdout is fatal. A fatal result retains the exact
+committed prefix, while absence of stdout commits none. The literal, not a target buffer address, is
+source meaning. Target-specific fatal exit codes and terminal actions remain selected realization
+details and must be non-successful.
 
 ### Source package and monadic operations
 
@@ -98,17 +101,11 @@ whole spike atomically.
 
 ### Root and unresolved outcomes
 
-Commit `3b22faf6` is accepted source mathematics for recurrence, decimal schedule and row payload,
-but it is not a complete precious root until output refusal, terminal result and cleanup are chosen.
-Three legitimate roots remain:
-
-- all 90 rows must be accepted or the program returns a failure carrying the exact committed
-  prefix;
-- emit the maximal accepted prefix and return success-with-prefix/refusal status; or
-- require an infallible selected sink under an explicit environment premise.
-
-Recommendation: choose all rows or first-refusal with the exact committed prefix and a distinct
-terminal result. It exercises fallible composition without pretending the provider is infallible.
+Commit `3b22faf6` is accepted source mathematics for recurrence, decimal schedule and row payload.
+Craig selected the root outcome on 2026-08-31: ordinary exit requires the complete 90-row stream;
+short writes are retried and are not fatal; an actual output failure or missing stdout is fatal. A
+fatal write retains the exact committed byte prefix, while missing stdout commits none. Cleanup and
+the selected target's nonzero fatal exit action remain explicit realization duties.
 
 ### Source package and monadic operations
 
@@ -157,15 +154,12 @@ undefined. Atomic cutover follows root choice and universal VP closure.
 
 ### Root and unresolved choices
 
-The root sorts an arbitrary finite byte stream into lines with explicit stability policy, preserves
-the chosen line/terminator semantics and emits an exact byte prefix under fallible output. It must
-state whether equal keys are stable or unstable, how a final unterminated record is represented,
-what preparation may fail, whether output retries, and how allocation/input/output resources are
-cleaned on every result.
-
-Recommended baseline: stable sort; final unterminated bytes form a final record; preparation failure
-commits no output but returns exact input/allocation disposition; output uses an accepted-prefix or
-first-refusal contract with no rollback; cleanup is attempted and its failure remains distinct.
+The root sorts an arbitrary finite byte stream into lines. Craig selected on 2026-08-31 that file
+close terminates the final record exactly as a newline does, so the root needs no special
+unterminated-record or record-prefix case. Memory exhaustion during preparation produces no output.
+After successful preparation, output follows the Spike 1 rule: ordinary exit requires all bytes,
+short writes retry, and fatal output failure retains the exact committed byte prefix. Stability and
+the exact cleanup-failure disposition remain owner choices before this spike is rebuilt.
 
 ### Source package and monadic operations
 
@@ -213,11 +207,12 @@ standing in for allocation authority. Cut over all phases together.
 
 ### Root and choices
 
-The root describes an admitted sequence of request/response interactions, parser limits, exact
-uncommitted/committed response prefixes, policy rejection, overload/backpressure, cancellation,
-connection/request scope and cleanup. HTTP `414` policy rejection is distinct from allocation or
-provider admission failure. Unresolved choices include keep-alive/pipelining subset, concurrency,
-buffering, cancellation and send-retry policy.
+The first root is deliberately HTTP/0.9-like: one request is handled at a time, with no concurrency,
+keep-alive or pipelining, and the connection closes when that request terminates. It still states
+parser limits, exact uncommitted/committed response bytes, policy rejection, cancellation,
+connection/request scope and cleanup. HTTP policy rejection is distinct from allocation or provider
+admission failure. Buffering and cancellation details remain realization choices only where the
+selected single-request implementation exposes them.
 
 ### Source package and monadic operations
 
@@ -262,10 +257,12 @@ tree. Atomic cutover includes runtime, emitter and root.
 
 ### Root and choices
 
-The root relates an input byte stream to gzip/gunzip results, format errors, exact committed output
-prefix, stream finalization, checksum/trailer behavior, resource cleanup and selected progress.
-Choices include compression level/algorithm, buffering, concatenated-member policy, truncated input,
-provider retry and allocation strategy.
+The first root uses streaming input and output and requires a proved peak-allocation bound. Its input
+record/finalization and output-failure policy follows Spike 3, including no output on memory
+exhaustion before output begins and Spike 1 retry/fatal behavior after output begins. It relates the
+input byte stream to gzip/gunzip results, format errors, exact committed output, stream finalization,
+checksum/trailer behavior, resource cleanup and selected progress. Compression level/algorithm,
+concatenated-member policy and truncated-input semantics remain to be pinned.
 
 ### Source package and monadic operations
 
@@ -311,11 +308,13 @@ codec/provider/artifact path.
 
 ### Root and choices
 
-The root is a persistent presentation interaction: selected frames/cube state lead to specified
-rendering/presentation observations under explicit device/surface-loss, resize, acquisition,
-submission and teardown results. Acceptance, queue completion, fence/semaphore signal, image
-availability, presentation acceptance and display visibility are distinct. Choices include API,
-queue/device profile, shader, memory strategy, frame count and recovery policy.
+The first root is this machine running Windows/Vulkan/SPIR-V. It presents frames until the window is
+closed, recreates the required graphics state after device loss, and remains memory-safe throughout.
+Acceptance, queue completion, fence/semaphore signal, image availability, presentation acceptance
+and display visibility are distinct. “Memory strategy” is not yet a product choice: implementation
+may select appropriate host/device allocation and binding, then must expose the exact resource graph
+and safety/lifetime proof. A peak-memory or allocation-policy claim is added only when Craig selects
+one from implementation evidence.
 
 ### Source package and monadic operations
 
@@ -359,10 +358,12 @@ graphics artifact/runtime path atomically.
 
 ### Root and choices
 
-The root is a selected concurrent computation and exact observable result with explicit thread
-lifecycle, lock/wait results, failure disposition and claimed progress. It does not assume one global
-schedule, TSO, wake visibility or forced-termination cleanup. Choices include x86/AArch64,
-Linux/Windows/bare metal, mutex implementation, wait adapter, fairness and async surface.
+The first root selects Windows on x86, a fair mutex, and blocking waits that yield execution to the
+scheduler rather than spin indefinitely. It states the concurrent computation and exact observable
+result with explicit thread lifecycle, lock/wait results, failure disposition and claimed progress.
+It does not assume one global schedule, wake visibility or forced-termination cleanup. The mutex
+algorithm, exact Windows wait adapter, fairness premises and optional async surface remain selected
+realization details rather than source operations.
 
 ### Source package and monadic operations
 
@@ -445,10 +446,13 @@ design boundary is wrong; higher burden for a genuinely novel implementation is 
 | Obligation commonality | Representation-neutral routing protocol only; semantic family/lifecycle stays owner-local | Proposed, encoding disposable |
 | Implementation admission | Open extensional contract; reference constructors preferred but not privileged | Proposed |
 | Universal constraints | Interface-wide certified closure plus exact selected implementation | Proposed; deceptive controls mandatory |
-| Spike 1 root | Exact output plus selected partial/failure/terminal profile | Owner must pin per profile before experiment |
-| Spike 2 root | Recommend all rows or first refusal with exact committed prefix and distinct terminal result | Craig decision required |
-| Spike 3 root | Recommend stable, final unterminated record, explicit preparation/output/cleanup results | Craig decision required |
-| S4/S5/graphics/multi profiles | Narrow explicit first profiles, no completeness claim | Owner decisions required before implementation |
+| Spike 1 root | Full text before normal exit; retry every short write; fatal write failure or missing stdout | Selected by Craig 2026-08-31; target fatal codes/actions remain realization details |
+| Spike 2 root | Same output rule as Spike 1 for the complete row stream | Selected by Craig 2026-08-31 |
+| Spike 3 root | File close terminates the final record; memory exhaustion produces no output; after preparation, use the Spike 1 output rule with no additional record-prefix requirement | Selected by Craig 2026-08-31 |
+| Spike 4 first profile | HTTP/0.9-like, one request at a time, no keep-alive or pipelining, close connection on termination | Selected by Craig 2026-08-31 |
+| Spike 5 first profile | Streaming I/O, proved peak allocation, input/output policy inherited from Spike 3 | Selected by Craig 2026-08-31 |
+| Graphics first profile | This machine, Windows/Vulkan/SPIR-V, loop until window close, recreate after device loss, memory-safe | Selected by Craig 2026-08-31; exact allocation/binding and peak-memory contract remains to be chosen from implementation evidence |
+| Multi first profile | Windows/x86, scheduler-yielding waits, fair mutex | Selected by Craig 2026-08-31; exact fairness premises and Windows wait primitive remain realization details |
 | Cutover | Whole-spike atomic by default | Proposed design rule; exception needs unique canonical authority theorem |
 | Interface validation | Pathfinder plus Spike 1 universal VP roots before current use | Proposed validation gate, not implementation or compatibility authority |
 
