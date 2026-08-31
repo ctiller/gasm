@@ -5,6 +5,14 @@ need to reusable machinery?**  It complements [Practical proof tactics](PROOF_TA
 explains why the patterns work.  Entries here point to checked code, its owning layer, demonstrated
 consumers, and the facts that deliberately remain local.
 
+> **VerifiedProgram proof reset:** entries describing existing whole-program compositions are
+> historical evidence, not approved starting points for new proofs.  Do not extend, repair for
+> integration, or generalize them until `trustplan` announces a validated replacement template.
+> Rebuild applicable proofs by duplicating and adapting that template.  Dependency-light algebra
+> below remains available only where its use does not continue the paused whole-program pattern.
+> Publication requires an exact integrated commit, two clean-slate consumers, proof-burden
+> measurements, and explicit nonclaims; archive the old path rather than blending both designs.
+
 An entry is not permission to force a proof through the nearest abstraction.  Start with the exact
 caller-visible theorem, compare it with the reusable result, and keep the semantic delta in the
 layer that owns it.  If adapting the library costs as much as proving the local fact, record the
@@ -573,6 +581,16 @@ The following code shapes have enough evidence to investigate but are not canoni
   consumer that survives unrelated host evolution must construct or transport the association
   through target-owned `MappingFrame` or an explicit use-host relation, never universalize equality
   with the original load host.
+
+  The proposed reusable x86 checked-authoring envelope is paused as an implementation slice, not
+  rejected conceptually.  Any replacement template must index descriptor occurrences by position;
+  derive geometry from the exact descriptor and pre-state; require real `WritesWithin`/`ReadsWithin`
+  and production-codec linkage for selected forms; and keep generic discharge conditional and
+  authority-free.  Only sealed target adapters may admit production.  Host, mapping, and binding
+  remain profile-owned; unselected instruction forms impose no premises; no global catchall is
+  allowed; and the current `MemRef` shape is not frozen.  Hardware memory-form claims require a
+  rebased scratch preimage plus observed postimage and footprint.  These are constraints on the
+  future clean-slate template, not permission to continue the existing chain.
 ### Proof delivery, termination, and CFG composition
 
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.

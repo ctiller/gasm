@@ -3,6 +3,13 @@
 This is a short working guide, not a mandatory proof framework.  It records approaches that have
 made real Gasm proofs smaller or more honest.  Add abstractions only after repeated use.
 
+> **VerifiedProgram proof reset:** existing whole-program proof patterns are preserved evidence,
+> not templates for extension.  Their proof burden grew far beyond the assembly they certify.
+> Pause repair, integration, and generalization of those patterns until `trustplan` publishes a
+> validated replacement template.  Then duplicate and adapt that template rather than layering
+> further machinery onto the old proofs.  Import-light algebra and non-`VerifiedProgram` guidance
+> below remain usable when they do not extend the paused pattern.
+
 For a need-oriented map from these tactics to checked declarations, consumers, and deliberate
 negative boundaries, see the [proof machinery index](PROOF_MACHINERY_INDEX.md).
 
