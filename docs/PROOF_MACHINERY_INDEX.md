@@ -313,6 +313,14 @@ evidence, and negative boundary after that comparison; it does not own a second 
   constructors, steps, and access descriptors are unchanged.  Focused family validation built 21
   jobs and hygiene passed; this closes decoder admission without adding execution or final proof
   authority.
+- Canonical `f8d4c83515a554fde01f2a71265583347dbe0411` fixes the selected CALL and RET
+  identities to exact unprefixed preimages: `C3`, `E8 + disp32`, and literal `FF 15 + disp32`.
+  No selected identity admits REX, and the fixed RIP-relative indirect CALL cannot widen into a
+  general `FF /2` address form.  Positive controls pin zero and both signed disp32 endpoints with
+  full consumption, exact re-encoding, and exact `toLean` identity.  Hostile controls cover REX and
+  other prefixes, foreign group extensions and address forms, unrepresented `C2`, neighboring
+  opcodes, and truncation.  Constructors, semantics, access descriptors, and authority are
+  unchanged.  Focused family validation built 21 jobs and hygiene passed.
 - For an expensive exact execution proof, keep the complete certificate in its producer and export
   a separate typed boundary containing only the observations required by the successor.  The
   accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
