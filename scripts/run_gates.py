@@ -537,8 +537,8 @@ def build_gate_table(gzip_count: int) -> List[Dict]:
         {"key": "check_no_exception_ledgers",
          "desc": "python scripts/check_no_exception_ledgers.py",
          "group": "linters",
-         "long": "ratchet: retired gate exception ledgers and parser wiring cannot be reintroduced; "
-                 "the shrinking Law-10 debt ledger is the sole temporary exception",
+         "long": "ratchet: retired gate exception ledgers, parser wiring, and authorization "
+                 "guidance cannot be reintroduced",
          "cmd": [py, "scripts/check_no_exception_ledgers.py"], "slow": False,
          "tools": ["python"], "depends_on": []},
         {"key": "check_no_ignored_lean_sources",

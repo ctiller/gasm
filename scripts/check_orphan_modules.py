@@ -108,9 +108,9 @@ the three lib umbrellas, not 48 defects in the tree.
 
 Historically, the same gap explained 23 "stale" transitive entries reported by
 `check_gates_axioms`; every one named a
-file in the 48 above. They are not stale. They correctly pre-authorize declarations
-the scanner never reaches, and it calls them stale because it cannot see their
-subjects. Deleting them would be the wrong fix.
+file in the 48 above. That historical report exposed a scanner-closure defect, not authority to
+exempt declarations. The closure was widened so those dependencies are now observed and rejected
+directly.
 
 NOTE that "compiled" is a weaker property than "inside the axiom gate's environment
 walk": a `sorry` in those 47 modules is a compiler warning that `lake build` exits 0

@@ -303,7 +303,7 @@ witnesses into an obligation already discharged, never a new source of proof wor
 5. **The capability migration in `docs/MEMORY_MODEL.md`** must land before §5's composed obligation (read-quantifier
    inside a Law 11 write-safety proof) can be stated against real `MemoryPerm` tokens in a live
    routine rather than the schematic form given in §5.
-6. **The nine grandfathered Spike 3/4 entries** remain separate proof work; §5's Spike 4
+6. **The historical Spike 3/4 pointwise proofs** remain separate proof work; §5's Spike 4
    walkthrough is their starting point once a live contract carries the obligation.
 
 This document's own deliverable — the contract shape itself, demonstrated as real,

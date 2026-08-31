@@ -195,7 +195,7 @@ def load_reference_registry() -> Dict[str, dict]:
     have started yet on this branch). A file that DOES exist but fails to
     parse, or contains an entry missing its required 'slug' field, is a hard
     failure -- same "no silently-skipped malformed data" discipline this
-    project applies elsewhere (scripts/check_gates.py's allowlist parser).
+    project applied historically in the now-deleted gate exception parser.
     """
     if not REFERENCES_JSON_PATH.exists():
         return {}

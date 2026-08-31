@@ -54,7 +54,7 @@ The owner's initial view was "something around the x86 round trip proofs, perfor
 would be baseline here." Half confirmed, half redirected:
 
 - **The roundtrip proof machinery is the *healthiest* part of the instruction pipeline.** It is
-  kernel-checked (`decide`, Law 10 rung 2 — zero allowlist entries), per-family sharded,
+  kernel-checked (`decide`, Law 10 rung 2 — zero native-evaluation axioms), per-family sharded,
   registry-enforced, and the enforcement was re-verified live for this assessment by mutation
   (§4.1). Its debts are *build-structure* (the monolithic decoder couples every instruction edit
   to a 39-module rebuild) and *coverage convention* (curated witness lists), not proof shape.
@@ -105,8 +105,8 @@ With the prerequisites in §3 met, the expansion is a sound project. Without P1�
 | Registry gate enforcement | **verified live**: adding an unregistered `X86_64Instruction` instance fails the build at `Registry.lean:117`, naming the offending type | mutation test, then reverted (§4.1) |
 | One pointwise spike-equivalence module (`Spikes.Spike2Fibonacci.Linux.Equivalence`) | 156 s elaboration in isolation; 247 s under load, where it also died once with a non-deterministic crash before succeeding on retry | `lake build <module>`, timed twice |
 | retired gate-exception ledger | historically 85 entries: 36 grandfathered / 48 transitive / 1 finite-forall | deleted; no parser remains |
-| Oracle debt added by the Linux target (one day, five spikes) | **+24 entries: 9 grandfathered pointwise `native_decide` + 15 axiom-only** | allowlist lines 152–175, diff of `a6a6381` |
-| Oracle debt added by a new *instruction* (`SyscallOp`, same merge) | **0 entries** — its roundtrip shard is plain `decide` | allowlist diff |
+| Oracle debt historically added by the Linux target (one day, five spikes) | **24 exceptions: 9 pointwise `native_decide` + 15 transitive dependents** | historical diff of `a6a6381` |
+| Oracle debt added by a new *instruction* (`SyscallOp`, same merge) | **0** — its roundtrip shard is plain `decide` | compiled axiom scan |
 | Forms with `canFuzzHardware := false` (zero silicon validation of semantics) | 50 of 88 (57%) | grep, type-level only; instance-level RSP filtering excludes more cases |
 | Forms covered by the NASM encoding oracle | ≈21 of 88 (24%) — a hand-maintained 22-way `match` in `EncodingFuzzer.lean:78-115`, **not** derived from the registry | read directly |
 | Forms whose uop/latency coefficients cite any calibrated or vendored source | 0 of 88 | `docs/TECHNICAL_NOTES.md` §2; spot-confirmed in `Add.lean` (`latencyCycles := 1, reciprocalThroughput := 0.25`, inline literals) |
@@ -316,7 +316,7 @@ Each cheap, none individually blocking, all 10× harder after the expansion:
 - **Provability-forfeiting choices to ban in the expansion's conventions**, generalizing the
   `partial def` lesson (four confirmations today; the x86 path is currently clean —
   grep-verified zero `partial` in the instruction/semantics path): `partial def` and `mutual
-  partial` (kernel-opaque, zero equations — the Wasm interpreter's allowlist entry documents the
+  partial` (kernel-opaque, zero equations — the Wasm interpreter's historical failure documented the
   cost); well-founded recursion where equation lemmas get stuck under kernel `decide`
   (the LEB128 case); `Inhabited`-instance fabricators on oracle result types (TCB T10);
   `.getD`/fallback defaults on lookup paths (the assembler's silent jump-to-self, hardened only
@@ -326,16 +326,16 @@ Each cheap, none individually blocking, all 10× harder after the expansion:
 
 ### P9 — DESIRABLE: keep the oracle-debt convention from multiplying through the expansion's validation vehicles
 
-The measured data is unambiguous about *where* allowlist debt comes from: the `SyscallOp`
-instruction added **zero** entries (its gate is `decide`), while the Linux *target* added **24**
-in one day (9 grandfathered pointwise `native_decide` trace-equivalence proofs + 15 axiom-only
-downstream — allowlist lines 152–175). Instructions are debt-neutral under the current gate
+The measured data is unambiguous about *where* native-evaluation debt came from: the `SyscallOp`
+instruction added **zero** (its gate is `decide`), while the Linux *target* historically added
+**24** failures in one day (9 pointwise `native_decide` trace-equivalence proofs + 15 transitive
+downstream dependents). Instructions are debt-neutral under the current gate
 design; **spike×target pointwise equivalence proofs are the debt mint**, at ~5 entries and
 (measured) ~150 s of `native_decide` elaboration per spike×target module. The expansion itself
 therefore does not need the PA6/PA7/PA8 chain as a prerequisite — but its *validation vehicles*
 do: if each instruction wave is exercised by new spike-shaped programs proved pointwise, the
-ledger grows by the convention, not the ISA. The expansion's definition of validation should be
-registry-derived differential fuzzing (which is allowlist-free) plus structural step lemmas — not
+hard-failure count grows by the convention, not the ISA. The expansion's definition of validation should be
+registry-derived differential fuzzing plus structural step lemmas — not
 new `*_trace_equivalence : ... := by native_decide` theorems. The current trajectory is to reduce
 the debt, demonstrate the replacement, and ratchet the gate; the expansion must not reverse it.
 
@@ -347,8 +347,8 @@ the debt, demonstrate the replacement, and ratchet the gate; the expansion must 
 
 **How it works today** (read + verified): every instruction form's typeclass instance must
 supply `roundtripCases` (no default — omission is a compile error). 26 per-family shards each
-prove `<family>Cases.all decodesOk = true` **by plain `decide`** — kernel-checked, no axiom, no
-allowlist entry; two shards need `maxRecDepth 4000`, still `decide`. `Registry.lean`'s
+prove `<family>Cases.all decodesOk = true` **by plain `decide`** — kernel-checked, with no
+native-evaluation axiom; two shards need `maxRecDepth 4000`, still `decide`. `Registry.lean`'s
 `run_cmd` audit walks the *live environment's* instance table and diffs it against the manifest.
 **Mutation-verified for this assessment**: a probe `instance : X86_64Instruction
 MutationProbeInstr` with no manifest entry failed the build at `Registry.lean:117` naming the
@@ -375,9 +375,9 @@ model-internal/unvalidated. P4 is the landed ratchet; P5 is the open calibration
 
 ### 4.3 Oracle debt per instruction (question 3)
 
-Measured: **0 allowlist entries per instruction; ~24 per target (9 grandfathered + 15
-axiom-only across 5 spikes); ~5 per spike×target.** Current ledger: 85 entries (36/48/1). The
-brief's "eight new grandfathered" undercounted by one — the Linux block contains 9. The
+Historically measured: **0 native-evaluation debts per instruction; about 24 per target (9 direct
++ 15 transitive across 5 spikes); about 5 per spike×target.** The brief's "eight new" count
+undercounted by one — the Linux block contained 9. The
 convention change that makes expansion debt-neutral is not about instructions at all (they
 already are neutral); it is P9 — validation vehicles that do not mint pointwise
 trace-equivalence theorems.
@@ -477,11 +477,11 @@ was built to kill, one file over. **Resolved:** the NASM suite is registry-deriv
 obligation gate audits the shared instruction population, so this finding now records why that
 ratchet exists rather than an open status.
 
-### 7.3 The allowlist's mojibake
+### 7.3 Historical exception-ledger mojibake
 
 Multiple fields in the now-deleted gate-exception ledger contained double-encoded UTF-8 —
 harmless to the parser, but evidence that a tool had written the ledger under the wrong codepage.
-**Resolved:** the mojibake was removed; the checked-in allowlist now uses plain, reviewable text.
+**Resolved:** the affected ledger was deleted together with its parser and matching authority.
 
 ### 7.4 Retired task-board status vs reality
 

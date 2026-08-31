@@ -39,6 +39,12 @@ RETIRED_LEDGER_REFERENCES = (
     "scripts/gate_allowlist.txt",
     "temporary law-10 ledger",
     "authoritative live ledger",
+    "sole temporary exception",
+    "law-10 debt ledger",
+    "current ledger:",
+    "checked-in allowlist",
+    "pre-authorize declarations",
+    "debt ledger was not widened",
 )
 
 
@@ -104,23 +110,35 @@ def self_test() -> int:
     comment_only_ledger = "scripts/comment_only_allowlist.txt"
     bad_paths = forbidden_ledger_paths([empty_ledger, comment_only_ledger, RATCHET_PATH])
 
-    parser_probe = "scripts/_exception_parser_probe.py"
-    parser_path = REPO_ROOT / parser_probe
-    parser_path.write_text(
-        "# scripts/gate_allowlist.txt is authoritative\n"
-        "def load_exceptions(): pass\n",
-        encoding="utf-8",
-    )
+    probes = {
+        "scripts/_exception_parser_probe.py": "def load_exceptions(): pass\n",
+        "scripts/_retired_path_probe.py": "# scripts/gate_allowlist.txt\n",
+        "scripts/_sole_exception_probe.py": "# sole temporary exception\n",
+        "scripts/_current_ledger_probe.py": "# current ledger: 1\n",
+        "scripts/_checked_in_probe.py": "# checked-in allowlist\n",
+        "scripts/_preauthorize_probe.py": "# pre-authorize declarations\n",
+        "scripts/_widened_debt_probe.py": "# debt ledger was not widened\n",
+    }
+    for rel, contents in probes.items():
+        (REPO_ROOT / rel).write_text(contents, encoding="utf-8")
     try:
-        bad_parsers = parser_leaks([parser_probe])
-        bad_references = retired_reference_leaks([parser_probe])
+        bad_parsers = parser_leaks(probes)
+        bad_references = retired_reference_leaks(probes)
     finally:
-        parser_path.unlink(missing_ok=True)
+        for rel in probes:
+            (REPO_ROOT / rel).unlink(missing_ok=True)
 
     passed = (
         bad_paths == [comment_only_ledger, empty_ledger]
-        and bad_parsers == [f"{parser_probe}: load_exceptions"]
-        and bad_references == [f"{parser_probe}: scripts/gate_allowlist.txt"]
+        and bad_parsers == ["scripts/_exception_parser_probe.py: load_exceptions"]
+        and bad_references == [
+            "scripts/_checked_in_probe.py: checked-in allowlist",
+            "scripts/_current_ledger_probe.py: current ledger:",
+            "scripts/_preauthorize_probe.py: pre-authorize declarations",
+            "scripts/_retired_path_probe.py: scripts/gate_allowlist.txt",
+            "scripts/_sole_exception_probe.py: sole temporary exception",
+            "scripts/_widened_debt_probe.py: debt ledger was not widened",
+        ]
     )
     print(
         "synthetic empty-ledger/comment-ledger/parser/retired-reference rejection: "

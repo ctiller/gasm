@@ -1138,16 +1138,15 @@ This was measured, and the measurement corrected a coordinator's assumption:
   `decide` across the sharded `Gasm/Targets/X86_64/RoundtripGate/*` gate theorems.
 - **The Linux target historically added a net 24 exceptions.** This measurement identified the
   target-level proof convention, rather than instruction definitions, as the source of debt.
-- The conclusion, recorded in `docs/X86_ISA_EXPANSION_PREREQUISITES.md`: "instructions
-  add **zero** allowlist entries…; the ~24 came from the *target*. The debt mint is the
-  pointwise spike-equivalence convention, not the ISA."
+- The conclusion, recorded in `docs/X86_ISA_EXPANSION_PREREQUISITES.md`: instructions add
+  **zero** native-evaluation debt; the historical failures came from the *target*. The debt mint
+  was the pointwise spike-equivalence convention, not the ISA.
 
 The convention is this: each spike's `Equivalence.lean` states a whole-program claim of the
 shape `(runAsmTrace instructions executable.load == runModelTrace spec) = true` and proves it
 by evaluating both sides at **one hardcoded environment**. The claim's *type* is universal;
 the proof is a single point. Law 9 (`docs/REVIEW.md:98`) prohibits exactly that, and Law 10's
-third bullet says the ~25 contracts of this shape are "grandfathered migration backlog…, not
-compliant instances."
+zero-exception rule makes every native-evaluated contract of this shape a hard migration blocker.
 
 Five spikes on ARM authored with the old pointwise convention would create a comparable number
 of hard gate failures and cannot land.

@@ -276,9 +276,7 @@ This subsection specifies what the two Law 10 gate tools implement, so that Pill
    closure is not checked merely because it exists in the repository.
 9. **No-Exception-Ledger Ratchet:** `python scripts/check_no_exception_ledgers.py` must return
    exit code 0. Retired exception-ledger paths, their parser/matching machinery, and documentation
-   that advertises a retired ledger are forbidden. Until Law-10 debt reaches zero, its one named
-   ledger is the sole temporary exception and its live-entry count may only decrease; after zero,
-   that file and its two parsers are deleted too. The ratchet recognizes the established names
+   that advertises a retired ledger are forbidden. The ratchet recognizes the established names
    plus common waiver/exemption/bypass/suppression spellings; review still rejects semantic
    exception mechanisms regardless of vocabulary.
 10. **Roundtrip and Fuzzer Gates:** `lake exe test_roundtrip` must exit 0. The unfiltered local

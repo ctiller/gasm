@@ -767,8 +767,9 @@ somewhere plausible-looking.
 - **The decode-lemma set (§3.8)**: discharges "what instruction executes next" without
   `instructionAtRip`'s O(n) rewalk — this, not `simp` congestion, is what makes the per-iteration
   proof cost bounded rather than growing with program length (§3.3).
-- **`bv_decide` on the branch-free-normalized connection theorem (§3.6)**: discharges the per-byte
-  table/closed-form connection in one ∀-2³² SAT certificate, allowlisted per §3.6-policy.
+- **A kernel-replayed or structural proof of the branch-free-normalized connection theorem
+  (§3.6)**: must discharge the per-byte table/closed-form connection over the full UInt32 domain;
+  `bv_decide` is rejected by the zero-exception axiom gate.
 - **A second connection theorem, `crc32InternalFold` vs. `updateCrc32`'s `Id.run`/`for` form
   (§3.8/M3b)**: needed before the invariant can be *stated*, not only before it can be proven.
 - **`omega`**: the `k ≤ len`/loop-exit `Nat`/`UInt64` bridging arithmetic. Likely needs a small
@@ -934,7 +935,7 @@ independently-justified addition — not a PA1 prerequisite.
   otherwise have had to invent (`[b.address+0x00]=blockSize`, `[+0x08]=isFree`, `[+0x10]=alignment`,
   `[+0x18]=nextFree`, plus `r10 = freeListHead`). `:76-89` defines
   `smol_free_refinement_soundness_inst`, proved by `decide` on a **single ground vector** (one
-  `malloc` then one `free`, both at concrete arguments) — a Law-10-grandfathered pointwise instance,
+  `malloc` then one `free`, both at concrete arguments) — a narrow pointwise instance,
   not a universal theorem. **PA1's smolFree contribution is therefore not "author the first frame
   condition from scratch" — it is "universalize an existing pointwise refinement instance against
   an existing coupling invariant," turning a standing Law 9 violation into a Law 9 win.** This is a
@@ -1100,11 +1101,9 @@ are new in v3.
    individually cheap) introduce enough elaboration overhead of its own that the net win over the
    naive re-walk is smaller than §3.3's (twice-corrected) estimate suggests? This is an empirical
    question the implementer should measure, not assume.
-9. **Is the `bv_decide` allowlist policy (§3.6-policy) actually going to be accepted at review
-   time**, or does "a SAT certificate is not sampling" need a firmer citation/precedent than this
-   design provides before a reviewer signs off on the first `bv_decide` occurrence in the tree's
-   allowlist? Flagging this as a question rather than treating §3.6-policy's ruling as
-   self-evidently final, since it is a policy call, not a mechanical check.
+9. **Which kernel-replayed proof-producing mechanism can replace `bv_decide` for §3.6's full-domain
+   claim?** The zero-exception gate rejects native-evaluation axioms even when the proposition is
+   exhaustive, so this remains an implementation question rather than a policy exception.
 10. **Is the "not already free" precondition scoping §9.1(ii)'s refinement universalization to
     exclude double-free acceptable, or should PA1 instead treat the double-free divergence itself
     (asm silently "succeeds" and can corrupt the freelist into a cycle; spec correctly rejects it)

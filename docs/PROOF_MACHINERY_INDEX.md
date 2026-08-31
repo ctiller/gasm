@@ -434,7 +434,7 @@ The following code shapes have enough evidence to investigate but are not canoni
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
   Spike 3 still needs a theorem over every finite stdin with explicit reservation, allocation,
   read, output, exhaustion, and cleanup outcomes before its downstream production certificates can
-  cease depending on grandfathered checks.  Narrowing the input domain is not proof reuse.
+  cease depending on narrow pointwise checks. Narrowing the input domain is not proof reuse.
 - `FallibleFold` now supplies the accepted pure algebra for successful prefix, first refusal, and
   retained tail.  A CFG failure-path composition candidate must additionally preserve relational
   ghost invariants and outstanding obligations at the typed block boundary and prove the untouched
