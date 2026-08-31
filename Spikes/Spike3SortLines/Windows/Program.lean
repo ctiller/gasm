@@ -504,7 +504,7 @@ def spike3SymbolicProgramWithArena (arenaBytes : UInt32) : List SymbolicInstr :=
   instr (mov_r64 .rsi .rbx),                 -- rsi = nextNode
   jmp_near_label "free_nodes_loop",
 
-  -- 11. Root-program termination; the current ledger accepts the legacy page exit marker, but
+  -- 11. Root-program termination; the legacy page exit marker remains proof debt, and
   --     this instruction stream does not release the arena or prove typed root-lifetime teardown:
   label "cleanup_and_exit",
   instr (xor_r32 .ecx .ecx),

@@ -45,6 +45,7 @@ RETIRED_LEDGER_REFERENCES = (
     "checked-in allowlist",
     "pre-authorize declarations",
     "debt ledger was not widened",
+    "current ledger accepts",
 )
 
 
@@ -115,6 +116,7 @@ def self_test() -> int:
         "scripts/_retired_path_probe.py": "# scripts/gate_allowlist.txt\n",
         "scripts/_sole_exception_probe.py": "# sole temporary exception\n",
         "scripts/_current_ledger_probe.py": "# current ledger: 1\n",
+        "scripts/_ledger_accepts_probe.py": "# current ledger accepts this proof\n",
         "scripts/_checked_in_probe.py": "# checked-in allowlist\n",
         "scripts/_preauthorize_probe.py": "# pre-authorize declarations\n",
         "scripts/_widened_debt_probe.py": "# debt ledger was not widened\n",
@@ -134,6 +136,7 @@ def self_test() -> int:
         and bad_references == [
             "scripts/_checked_in_probe.py: checked-in allowlist",
             "scripts/_current_ledger_probe.py: current ledger:",
+            "scripts/_ledger_accepts_probe.py: current ledger accepts",
             "scripts/_preauthorize_probe.py: pre-authorize declarations",
             "scripts/_retired_path_probe.py: scripts/gate_allowlist.txt",
             "scripts/_sole_exception_probe.py: sole temporary exception",
