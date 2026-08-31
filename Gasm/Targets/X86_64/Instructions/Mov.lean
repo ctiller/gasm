@@ -485,9 +485,9 @@ instance : X86_64Instruction MovMem64DispImm32 where
   costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
   generateFuzzStates _ rng := ([], rng)
   -- basePtr varies over allReg64ListNoRsp: with basePtr=.rsp, this struct's SIB-base-4 encoding
-  -- is byte-identical to the dedicated MovRspDispImm32/64 helpers, which the decoder
+  -- is byte-identical to the dedicated qword `MovRspDispImm64` helper, which the decoder
   -- canonicalizes to on purpose (matching the ADD/SUB RSP-immediate precedent) — that RSP case
-  -- is exercised by MovRspDispImm32/64's own roundtripCases instead. RSP's SIB-base-4 sibling,
+  -- is exercised by `MovRspDispImm64.roundtripCases` instead. RSP's SIB-base-4 sibling,
   -- R12 (rexB=true), is a genuinely distinct, correctly round-tripping case and stays included.
   roundtripCases :=
     (allReg64ListNoRsp.map (MovMem64DispImm32.mk · 0 0x00000000)) ++
@@ -1484,55 +1484,89 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
         else
           .error "movTryDecode: unsupported non-RSP rm field for 0xC6 MOV"
     else if opcode == 0xC7 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (mod, _, rm, modPos) =>
-        if mod == 0 then
-          if rm == 4 then
-            match readUInt8 bytes modPos with
-            | .error e => .error e
-            | .ok _sib =>
-              let immPos := modPos + 1
-              match readUInt32LE bytes immPos with
+      if rexR || rexX || (!rexW && hasRex) then
+        .error "movTryDecode: unsupported or redundant REX prefix for 0xC7 MOV"
+      else
+        match readModRM bytes opOffset with
+        | .error e => .error e
+        | .ok (mod, extension, rm, modPos) =>
+          if extension != 0 then
+            .error "movTryDecode: 0xC7 MOV requires ModRM /0"
+          else if mod == 0 then
+            if rm == 4 then
+              match readUInt8 bytes modPos with
+              | .error e => .error e
+              | .ok sib =>
+                if sib != makeSIB 0 4 4 then
+                  .error "movTryDecode: unsupported indexed/noncanonical SIB for 0xC7 MOV"
+                else
+                  let immPos := modPos + 1
+                  match readUInt32LE bytes immPos with
+                  | .error e => .error e
+                  | .ok imm32 =>
+                    let pos := immPos + 4
+                    if rexW then
+                      if rexB then
+                        .ok (mov_mem64_disp_imm .r12 0 imm32, pos - offset)
+                      else
+                        .ok (mov_rsp64 0 imm32, pos - offset)
+                    else
+                      .ok (mov_rsp32 0 imm32, pos - offset)
+            else if rm == 5 then
+              .error "movTryDecode: unsupported RIP-relative/no-base form for 0xC7 MOV"
+            else if !rexW then
+              .error "movTryDecode: unsupported non-RSP dword form for 0xC7 MOV"
+            else
+              let basePtr := codeToReg64 rm rexB
+              match readUInt32LE bytes modPos with
               | .error e => .error e
               | .ok imm32 =>
-                let pos := immPos + 4
-                if rexB then .ok (mov_mem64_disp_imm (codeToReg64 4 rexB) 0 imm32, pos - offset)
-                else if rexW then .ok (mov_rsp64 0 imm32, pos - offset)
-                else .ok (mov_rsp32 0 imm32, pos - offset)
-          else
-            let basePtr := codeToReg64 rm rexB
-            match readUInt32LE bytes modPos with
-            | .error e => .error e
-            | .ok imm32 => .ok (mov_mem64_disp_imm basePtr 0 imm32, (modPos + 4) - offset)
-        else if mod == 1 then
-          if rm == 4 then
-            match readUInt8 bytes modPos with
-            | .error e => .error e
-            | .ok _sib =>
-              let dispPos := modPos + 1
-              match readUInt8 bytes dispPos with
+                .ok (mov_mem64_disp_imm basePtr 0 imm32, (modPos + 4) - offset)
+          else if mod == 1 then
+            if rm == 4 then
+              match readUInt8 bytes modPos with
+              | .error e => .error e
+              | .ok sib =>
+                if sib != makeSIB 0 4 4 then
+                  .error "movTryDecode: unsupported indexed/noncanonical SIB for 0xC7 MOV"
+                else
+                  let dispPos := modPos + 1
+                  match readUInt8 bytes dispPos with
+                  | .error e => .error e
+                  | .ok disp8 =>
+                    if disp8 == 0 then
+                      .error "movTryDecode: noncanonical zero displacement for 0xC7 MOV"
+                    else
+                      let immPos := dispPos + 1
+                      match readUInt32LE bytes immPos with
+                      | .error e => .error e
+                      | .ok imm32 =>
+                        let pos := immPos + 4
+                        if rexW then
+                          if rexB then
+                            .ok (mov_mem64_disp_imm .r12 disp8 imm32, pos - offset)
+                          else
+                            .ok (mov_rsp64 disp8 imm32, pos - offset)
+                        else
+                          .ok (mov_rsp32 disp8 imm32, pos - offset)
+            else if !rexW then
+              .error "movTryDecode: unsupported non-RSP dword form for 0xC7 MOV"
+            else
+              match readUInt8 bytes modPos with
               | .error e => .error e
               | .ok disp8 =>
-                let immPos := dispPos + 1
-                match readUInt32LE bytes immPos with
-                | .error e => .error e
-                | .ok imm32 =>
-                  let pos := immPos + 4
-                  if rexB then .ok (mov_mem64_disp_imm (codeToReg64 4 rexB) disp8 imm32, pos - offset)
-                  else if rexW then .ok (mov_rsp64 disp8 imm32, pos - offset)
-                  else .ok (mov_rsp32 disp8 imm32, pos - offset)
+                if disp8 == 0 && rm != 5 then
+                  .error "movTryDecode: noncanonical zero displacement for 0xC7 MOV"
+                else
+                  let basePtr := codeToReg64 rm rexB
+                  let immPos := modPos + 1
+                  match readUInt32LE bytes immPos with
+                  | .error e => .error e
+                  | .ok imm32 =>
+                    .ok (mov_mem64_disp_imm basePtr disp8 imm32,
+                      (immPos + 4) - offset)
           else
-            let basePtr := codeToReg64 rm rexB
-            match readUInt8 bytes modPos with
-            | .error e => .error e
-            | .ok disp8 =>
-              let immPos := modPos + 1
-              match readUInt32LE bytes immPos with
-              | .error e => .error e
-              | .ok imm32 => .ok (mov_mem64_disp_imm basePtr disp8 imm32, (immPos + 4) - offset)
-        else
-          .error "movTryDecode: unsupported mod field for 0xC7 MOV"
+            .error "movTryDecode: unsupported mod field for 0xC7 MOV"
     else if opcode == 0x0F then
       match readUInt8 bytes opOffset with
       | .error e => .error e
