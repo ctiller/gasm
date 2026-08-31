@@ -35,4 +35,3 @@ run_cmd do
   Lean.Elab.Command.liftTermElabM do
     let candidates ← classCandidates env ``X86_64Instruction
     validateCanonicalWrapper env candidates
-
