@@ -150,17 +150,15 @@ The following code shapes have enough evidence to investigate but are not canoni
   removed rather than export cast obligations to every consumer.  Append/split should remain on the
   roadmap until an implementation can internalize those transports.  With only one demonstrated
   consumer, this remains extraction evidence rather than canonical generic machinery.
-- MP's provisional external-provider ruling supplies an extraction gate, not yet a reusable API.
-  Keep the production runner functional and any future raw provider input universally quantified,
-  default-empty, and semantically decoded by its target; missing, malformed, mismatched, and
-  oversized inputs must totalize to explicit outcomes with bounded writes and defined authority
-  return.  A synchronous emitted Win32 `GetMessage` path through the sole `VerifiedProgram` is only
-  a checkpoint.  The neutral envelope is eligible to land only after a materially different
-  synchronous Vulkan scalar/out-buffer consumer validates the same shape and both consumers are
-  independently falsified.  A mismatch changes the still-unlanded shape rather than adding a
-  compatibility facade.  Target-local operation identity, decoding, loans, exact frames,
-  callbacks, and asynchronous consequences do not promote with the envelope.  This entry records
-  the proof-method and two-consumer gate; MP owns the canonical architecture specification.
+- MP-authored design candidate `355a6f7` (parent main `36771e2`) resolves the external-provider
+  drift identified in this ledger; it was not yet integrated when indexed.  After integration,
+  `docs/ARCHITECTURE.md` §2.1 and `docs/GRAPHICS_ARCHITECTURE.md` §2.3 are the canonical mechanism
+  and rationale.  The proof-facing extraction gate is concise: one emitted Win32 `GetMessage`
+  `VerifiedProgram` earns checkpoint acceptance, while the neutral raw envelope may land only after
+  a materially different synchronous Vulkan scalar/out-buffer consumer validates it and both are
+  independently falsified.  A mismatch revises the still-unlanded shape without compatibility debt;
+  target-local identity, decoding, loans, frames, callbacks, and async consequences do not promote
+  merely with the envelope.
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
@@ -170,6 +168,22 @@ The following code shapes have enough evidence to investigate but are not canoni
   distinct unless a selected profile proves a relation between them.  Reusable helpers should
   preserve these indexed obligations across the same witness; they must not collapse them into a
   count, Boolean completion flag, or destructive table update.
+- The first multithreading vertical-demo ruling requires actual emitted Windows x86-64
+  `CreateThread`, successful thread-object wait/close, and the sole production `VerifiedProgram`.
+  Its first payload is deliberately one-shot: child ordinary store, join publication, then parent
+  ordinary load--neither atomic RMW nor a cooperative scheduler presented as hardware concurrency.
+  Before lifecycle types harden, the canonical M0 envelope must close heterogeneous structural
+  identity: profile-indexed generative agents, references, events, relations, consequences, binding
+  generations and rebind invalidation, plus exact origin/projection with a CPU projection and opaque
+  non-CPU sentinel.  M0 imposes only laws selected by that structure, not every target consistency
+  theorem; an unselected single-threaded program incurs no concurrency premise.  This remains an MP
+  design ruling pending its canonical architecture text and runnable demonstration.
+- A Microsoft x64 process-entry-only, no-return straight-line body may clobber nonvolatile registers
+  only when target-owned entry and termination evidence proves that no caller, unwind, or callback
+  continuation can observe them.  Keep the exact clobber set and make no callable claim.  This is an
+  applicability boundary, not an ABI exception: a future callable wrapper must consume that clobber
+  set and prove ordinary preservation.  Do not extract a generic save/restore API before that real
+  consumer demonstrates the reusable shape.
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
   Spike 3 still needs a theorem over every finite stdin with explicit reservation, allocation,
   read, output, exhaustion, and cleanup outcomes before its downstream production certificates can
