@@ -309,11 +309,17 @@ The following code shapes have enough evidence to investigate but are not canoni
   provisional replacement adds `BindingRootId` and `RootRecord` with a key and initial optional
   binding; defines `Frontier` as either root or transition; stores only predecessor plus `after` on
   transitions and derives `before`; and makes each exact use-to-capture map name a `Frontier`.  A
-  captured binding is derived from that frontier and cannot redirect after rebind.  Global
-  key/generation uniqueness covers root- and transition-named bindings, preventing resurrection of
-  an old identity.  Root origin/liveness and temporal latest properties wait for target-owned exact
-  relation-path admission; alias semantics wait for profile evidence.  Reviewer design verdict is
-  pending and no code is authorized.
+  captured binding is derived from that frontier and cannot redirect after rebind.  Key/generation
+  uniqueness alone is insufficient: `b0 -> b1 -> b0` can reuse the same `BindingInstanceId`.  The
+  amended design adds a finite exact binding-instance carrier/map and requires exactly one in-history
+  introduction site for each ID--root initial XOR one transition `after`.  A root site may represent
+  an inherited binding; it is not a claim of global birth, origin, or event occurrence.  Controls
+  reject root/transition reuse, duplicate `after` sites, rebind-back, and reuse after unbind.
+  Reviewer accepted the complete root/frontier design with no P1 and authorized implementation on
+  canonical base `a62ca53`.  A prefix may re-root its inherited state; no raw truncation,
+  concatenation, or composition theorem is yet justified.
+  Chronology, liveness, alias semantics, and global origin remain deferred.  Exact code still requires
+  MP and Reviewer review.
 
   The checkpoint implements only the thin
   structural `Envelope` slice: existential event coverage, finite duplicate-free carriers,
