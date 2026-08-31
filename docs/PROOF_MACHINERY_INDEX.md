@@ -53,6 +53,28 @@ Spike 1 consumer validate the construction.
 The landing deliberately excludes two unrelated ByteArray commits, preserved on
 `codex/stdlib-bytearray-laws`, and does not modify `ScratchSpike3.lean`.
 
+Early specification-lowering review is **NARROW**, not accepted design or implementation
+authorization.  Interpret one explicit algebraic effect or capability-directed operation; do not
+introduce a generic handler framework.  AOP is only a metaphor: there are no ambient pointcuts,
+advice, or implicit ordering.  Keep demands, constraints, offers, and modal authority/lifecycle
+separate.  Handler selection is explicit structural data; fingerprints are metadata only.  The
+owner decides logging semantics before any sink design.  Composition or fusion requires explicit
+noninterference or a bespoke refinement, and local obligation conservation translates into the
+existing world rather than creating a global ledger.  Behavioral refinement, ISA definedness,
+physical resource admission, and policy authorization remain orthogonal.
+
+The semantic model must be fixed now, independently of implementation order.  It covers generative
+nested scopes; distinct cancellation authorization, request, delivery, observation, masking,
+unwind, cleanup, join, and terminal events; top-down rights versus bottom-up classified-refusal
+escalation; overcommit with atomic reservations and acquisition/cancel/spawn races; partial
+acquisitions; HTTP uncommitted, streaming-prefix, and complete phases; irreversible effects;
+cleanup failures and dispositions; persistent services versus linear handles; and cooperative
+versus forced termination and their failure domains.  State safety, progress, and latency
+assumptions separately.  Obligation conservation is local, translations are well-founded, and
+applicability is conservative.  Completing this model authorizes neither an implementation nor a
+generic framework.  Shared or public machinery still waits for a materially different second
+consumer and owner approval.
+
 An entry is not permission to force a proof through the nearest abstraction.  Start with the exact
 caller-visible theorem, compare it with the reusable result, and keep the semantic delta in the
 layer that owns it.  If adapting the library costs as much as proving the local fact, record the
@@ -205,8 +227,30 @@ Reusable extraction should leave a short audit trail.  Record:
 3. at least two real consumers, unless Trust explicitly requests the abstraction;
 4. the before/after local proof burden;
 5. focused build cost and dependency closure;
-6. the negative boundary: tempting facts the abstraction does **not** prove; and
-7. the canonical commit after independent review.
+6. the negative boundary: tempting facts the abstraction does **not** prove;
+7. the canonical commit after independent review; and
+8. documentation alignment: the canonical owner, every conflicting or narrower document and
+   section, stale examples or gates, and the exact decision to amend them or replace duplicate
+   normative prose with a link.
+
+A design is not documentation-complete while a live conflict remains unaccounted for.
+`MEMORY_MODEL.md` is the canonical owner of authority and resource algebra, obligations,
+cancellation state, lifecycle, cleanup, accounting/governors, and dynamic generations.
+`SYSTEM_EFFECTS.md` owns portable source-level effect vocabulary and semantics plus explicit
+lowering/interpretation shape; it consumes and never redefines the memory-model algebra.
+`ABI_CONTEXT.md` owns transport and projection of logical context across boundaries and creates no
+second ownership or cleanup system.  Alignment work explicitly rejects every dual-ledger or
+dual-owner interpretation.
+
+The current high-risk alignment ledger includes `EQUIVALENCE_PROOFS.md` reactive liveness;
+`ARCHITECTURE.md`, `REVIEW.md`, and `VISION.md` spike normativity; `SYSTEM_EFFECTS.md` hidden or
+typeclass selection and logging semantics; `ABI_CONTEXT.md` cancellation phases;
+`COMPILER_PLAN.md`'s old lowering flow; and Spike 4 parser exhaustion versus server overload.
+It also audits `OBLIGATIONS_AND_CAUSALITY.md`, `API_STATE_MODELS.md`, `READ_BINDER_CONTRACT.md`,
+`SPIKES/SPIKE3_SORT_LINES.md`, `SPIKES/SPIKE5_GZIP.md`, and `TARGETS/WASI.md` against that ownership
+split.
+Every decision touching one of these names its canonical owner and marks each affected document for
+amendment, replacement by an owner link, or historical/non-normative status.
 
 For each stdlib-worthy item, inventory three statuses separately: representation-independent
 interface and laws, proved concrete representation, and executable implementation.  A pure function
