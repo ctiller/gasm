@@ -182,6 +182,21 @@ exits with the usual contract variance, and composes adjacent runs through the e
 event, and ghost state.  Its result is a caller-logical phase classification; native termination,
 CFG identity, placement, and final artifact authority remain separate obligations.
 
+The Spike 3 SortLines proof spine (`533d22f` through `5ae2b6b`) applies the same discipline to a
+larger relational proof: prove each selected local block or cutpoint with an exact pre/post
+ghost-world handoff, then make the program theorem a fold over those typed boundaries.  Do not
+reconstruct ghost ownership from bytes between blocks, and do not let an intermediate phase result
+stand in for a runnable `VerifiedProgram` connection.
+
+## Frame external inputs once
+
+When a runner is parametric in stdin, incoming requests, or other unrelated environment state,
+prove the `withExternalInputs` commutation and observation laws at the machine/platform layer once.
+Then transport an exact closed execution through those laws.  Spike 1 and Spike 2 equivalence
+proofs reuse target-owned `withExternalInputs` laws for events, observables, and admissibility
+instead of replaying the implementation for each environment.  This is a frame theorem: it does
+not permit dropping an input that the selected host transition actually observes.
+
 ## Preserve exact dependent CFG definitions
 
 At the CFG authoring and lowering layer, composition or nominal-ID remapping must preserve the whole

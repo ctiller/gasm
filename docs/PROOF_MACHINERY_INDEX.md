@@ -138,6 +138,11 @@ The following code shapes have enough evidence to investigate but are not canoni
   invalidated jobs, dependency closure, search depth, and ambiguity/coherence failures.  Do not
   extract a class unless two real blocks improve; Lean's compiled modules already avoid replaying
   imported proof bodies, so shorter call syntax alone is not evidence of proof-economy.
+  The repeated module-local Spike 2 runtime instances expose a possible need for a
+  platform-indexed proof environment, but they are not evidence that the current declarations are
+  ergonomic or should be canonized.  A prototype must make cross-platform contamination
+  unrepresentable or mechanically rejected; a high-priority global x86 interceptor entering Linux
+  or generic proofs is the negative control.
 - Block-chain congruence and associativity, with fallthrough-versus-jump reasoning delayed until
   realization, is a candidate extracted from the Spike 2 Windows prefix chain (`75d01c8` and
   `f90bfc9`).  The accepted-in-practice consumer first proves one exact typed execution outcome,
