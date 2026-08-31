@@ -78,6 +78,20 @@ hook write at the descriptor address. This does not establish a Windows stack gr
       X86_64Mem.write .w8 (s.rsp + signExtend8To64 i.disp) i.val.toUInt64 s.memory := by
   rfl
 
+/- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
+/-- Complete operational normal form for the selected RSP-relative byte store.  Besides the one
+canonical byte write, the instruction changes only RIP by its exact canonical encoded length
+(four bytes at displacement zero, five otherwise).  This theorem is target-step realization for
+later artifact composition; it supplies no logical authority, mappedness, writability, stack
+grant, dynamic-event origin, or program-admission evidence. -/
+@[simp] theorem MovRspDispByte.step_eq (i : MovRspDispByte)
+    (s : X86_64MachineState) :
+    X86_64Instruction.step i s =
+      { s with
+        memory := X86_64Mem.write .w8 (s.rsp + signExtend8To64 i.disp) i.val.toUInt64 s.memory
+        rip := s.rip + if i.disp == 0 then 4 else 5 } := by
+  rfl
+
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#principal-invariant -/
 /-- The RSP-relative byte store writes its immediate at the exact declared address. Mapping,
 writability, range containment, and logical ownership remain separate checked-authoring premises. -/
