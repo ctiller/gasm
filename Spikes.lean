@@ -29,6 +29,8 @@ import Spikes.Spike1Hello.AArch64BareMetal.Program
 import Spikes.Spike1Hello.AArch64BareMetal.Equivalence
 import Spikes.Spike1Hello.AArch64Linux.Program
 import Spikes.Spike1Hello.AArch64Linux.Equivalence
+import Spikes.CompilerBulk.AArch64Linux.Program
+import Spikes.CompilerBulk.AArch64Linux.Equivalence
 
 import Spikes.Spike2Fibonacci.Spec
 import Spikes.Spike2Fibonacci.NativeLoop

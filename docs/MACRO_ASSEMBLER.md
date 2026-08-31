@@ -658,6 +658,56 @@ plan chooses no ISA, register allocation, spills, flags, ABI, CFG block, layout,
 handwritten optimized leaves may instead prove the same source/result and selected frame contracts.
 Target realization and differential replacement remain separate proof-producing layers.
 
+## Structured AArch64 bounded backend
+
+`Gasm.Compiler.Word.StructuredStraightLineAArch64` is the first target realization of those
+portable straight-line plans. It selects AAPCS64 X0--X3 as the four source inputs, X0 as the
+result, X9--X15 as seven stable creation-order temporaries, and X16/X17 as operand scratch
+registers. `Fits` is an explicit structural resource premise: a program needing more than seven
+simultaneously assigned temporaries is rejected. Register reuse, spilling, scheduling, and
+instruction selection optimization remain later, independently proved passes.
+
+The backend lowers through the target-owned AArch64 macro segments. Its `LocalCertificate` retains
+the exact structured `WordFunction`, selection witness, portable code, macro instructions,
+production instructions, serialized bytes, result theorem, PC advance, declared clobbers, and
+frame preservation. It is deliberately local evidence. It does not provide lookup, host-runtime
+silence, a process outcome, platform admission, artifact identity, or `VerifiedProgram` authority.
+That factorization is the optimization seam: an optimized or handwritten body can replace the
+generated body by proving the same selected logical and frame properties, while placement and bytes
+are regenerated for the replacement.
+
+## AArch64 platform execution bridge
+
+`Gasm.Targets.AArch64.MacroAssembler.PlatformBridge` connects admitted macro instructions to the
+production AArch64 outcome runner. The macro step uses the exact production existential instruction
+wrapper, which seals host input queues, but still performs no lookup, interception, stopping, fuel,
+or outcome classification by itself.
+
+`ContextualStraightLinePlacement` supplies exact final-index lookup at every reached instruction
+position. `RuntimeSilentOn` separately supplies the selected platform/profile fact that no interior
+successor is reinterpreted as a host call. Given those facts plus safe/running entry state,
+`runAArch64OutcomeLoop_prefix` proves that the real runner consumes exactly the body instruction
+count, emits no events, reaches the local-fold state, and resumes the caller's unchanged
+continuation fuel and event accumulator. The theorem does not claim the continuation terminates or
+is admissible. Relayout invalidates placement and runtime-silence evidence, while the source and
+local compiler proofs remain reusable.
+
+## Verified compiler-bulk spike
+
+`Spikes.CompilerBulk.AArch64Linux` is the completion gate for this slice. It starts with the named
+Lean function `bulkExit`, structurally reifies its nested lets, compiles the selected word fragment
+to nineteen AArch64 instructions, and proves that the generated body returns 42 in X0. A handwritten
+two-instruction tail selects Linux `exit` in X8 and executes `svc #0`.
+
+The spike proves exact placement and runtime silence for the generated prefix, uses the contextual
+prefix theorem at the platform's 50,000-step proof budget, classifies the real exit event, connects
+the exact serialized instructions to an ELF artifact, and builds the existing artifact, provider,
+entry, admissibility, and behavior certificates. `verifiedProgram` is composed through the sole
+platform `VerifiedProgram.compose` authority. `Emit` emits only through `emitVerifiedProgram`, and
+`Test` checks production semantics then runs the emitted ELF with QEMU when available. Thus the
+claim “this function is verified because this compiler was used” is demonstrated end-to-end for
+this selected bounded fragment, not generalized to unsupported Lean.
+
 ## Differential certificate transport
 
 Optimization and hand adjustment should support property-relative transport: a proved baseline `X`,

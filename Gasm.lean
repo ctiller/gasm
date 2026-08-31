@@ -104,6 +104,7 @@ import Gasm.Execution.QEMUAArch64
 
 import Gasm.Targets.AArch64
 import Gasm.Targets.AArch64.MacroAssembler
+import Gasm.Targets.AArch64.MacroAssembler.PlatformBridge
 import Gasm.Targets.AArch64.BareMetal.Device
 import Gasm.Targets.AArch64.BareMetal.Emitter
 import Gasm.Targets.AArch64.BareMetal.Executable
@@ -120,6 +121,7 @@ import Gasm.Compiler.Word.StructuredCFG
 import Gasm.Compiler.Word.StructuredLeanReify
 import Gasm.Compiler.Word.StructuredPlanCompiler
 import Gasm.Compiler.Word.StructuredStraightLine
+import Gasm.Compiler.Word.StructuredStraightLineAArch64
 import Gasm.Compiler.Word.Examples
 import Gasm.Compiler.TypedCFG
 
