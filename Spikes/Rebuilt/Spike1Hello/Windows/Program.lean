@@ -88,11 +88,19 @@ def symbolicProgram : List SymbolicInstr := [
 
 def linked :=
   linkWindowsProgram symbolicProgram [("message", messageBytes)]
+    ["GetStdHandle", "WriteFile", "ExitProcess"]
 
 def instructions : List X86_64Instr :=
   linked.instructions
 
 def executable :=
   linked.executable
+
+theorem instruction_count : instructions.length = 29 := by
+  decide
+
+theorem imports_exact : executable.imports.map (fun imported => imported.symbolName) =
+    ["GetStdHandle", "WriteFile", "ExitProcess"] := by
+  rfl
 
 end Spikes.Rebuilt.Spike1Hello.Windows
