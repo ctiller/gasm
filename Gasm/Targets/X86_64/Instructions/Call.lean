@@ -146,8 +146,10 @@ def callTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64I
   -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
   match parseRexAndOpcode bytes offset with
   | .error e => .error e
-  | .ok (_, _, _, _, _, opcode, opOffset) =>
-    if opcode == 0xE8 then
+  | .ok (hasRex, _, _, _, _, opcode, opOffset) =>
+    if hasRex then
+      .error "callTryDecode: noncanonical REX prefix for CALL"
+    else if opcode == 0xE8 then
       match readInt32LE bytes opOffset with
       | .error e => .error e
       | .ok disp32 => .ok (call_rel32 disp32, (opOffset + 4) - offset)
