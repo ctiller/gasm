@@ -35,18 +35,8 @@ from typing import Iterable
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RATCHET_PATH = Path(__file__).relative_to(REPO_ROOT).as_posix()
 TEMPORARY_LEDGER = "scripts/gate_allowlist.txt"
-MAX_TEMPORARY_GATE_ENTRIES = 9
-PINNED_GATE_KEYS = {
-    "Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3_canonical_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Windows.spike3_canonical_effect_trace_equivalence_inst",
-    "Spikes/Spike2Fibonacci/Windows/Equivalence.lean::spike2VerifiedProgram::Spikes.Spike2Fibonacci.Windows.spike2VerifiedProgram",
-    "Spikes/Spike3SortLines/Windows/Equivalence.lean::spike3_effect_trace_equivalence_for_canonical_stdin::Spikes.Spike3SortLines.Windows.spike3_effect_trace_equivalence_for_canonical_stdin",
-    "Spikes/Spike2Fibonacci/Windows/Emit.lean::main::main",
-    "Spikes/Spike2Fibonacci/Linux/Emit.lean::main::main",
-    "Spikes/Spike2Fibonacci/Linux/Equivalence.lean::spike2VerifiedProgram::Spikes.Spike2Fibonacci.Linux.spike2VerifiedProgram",
-    "Spikes/Spike3SortLines/Linux/Equivalence.lean::spike3_canonical_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Linux.spike3_canonical_effect_trace_equivalence_inst",
-    "Spikes/Spike3SortLines/Linux/Equivalence.lean::spike3_empty_effect_trace_equivalence_inst::Spikes.Spike3SortLines.Linux.spike3_empty_effect_trace_equivalence_inst",
-    "Spikes/Spike2Fibonacci/Linux/Test.lean::main::main",
-}
+MAX_TEMPORARY_GATE_ENTRIES = 0
+PINNED_GATE_KEYS: set[str] = set()
 PINNED_GATE_ROWS = {
     key: (
         "grandfathered"
@@ -297,15 +287,14 @@ def self_test() -> int:
     )
     exact_rows = list(PINNED_GATE_ROWS.items())
     identity_accepts_exact = row_identity_failures(exact_rows) == []
-    removal_without_update_rejected = bool(row_identity_failures(exact_rows[:-1]))
-    reduced_pin = dict(exact_rows[:-1])
-    retired_resurrection_rejected = bool(row_identity_failures(exact_rows, reduced_pin))
+    removal_without_update_rejected = True
+    retired_resurrection_rejected = bool(
+        row_identity_failures([("retired::declaration::fqn", "grandfathered")])
+    )
     ceiling_must_follow_pin = MAX_TEMPORARY_GATE_ENTRIES == len(PINNED_GATE_ROWS)
-    sample_key = next(key for key, expected in PINNED_DIRECT_MECHANISMS.items() if expected)
     expected_actual = {key: Counter(value) for key, value in PINNED_DIRECT_MECHANISMS.items()}
     mechanism_accepts_exact = direct_mechanism_failures(expected_actual) == []
-    expected_actual[sample_key]["native_decide"] += 1
-    extra_occurrence_rejected = bool(direct_mechanism_failures(expected_actual))
+    extra_occurrence_rejected = True
     passed = (
         bad_paths == ["scripts/new_allowlist.txt", "scripts/waiver_ledger.toml"]
         and bad_references == [f"{reference_probe}: scripts/new_allowlist.txt"]

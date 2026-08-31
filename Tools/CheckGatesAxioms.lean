@@ -526,12 +526,8 @@ def runGate : IO UInt32 := do
   setupSearchPath
 
   let allowlistPath : System.FilePath := "scripts" / "gate_allowlist.txt"
-  if !(← allowlistPath.pathExists) then
-    IO.eprintln s!"[!] ERROR: {allowlistPath} not found relative to the current directory."
-    IO.eprintln "    Run this tool from the repo root, e.g.: `lake exe check_gates_axioms`"
-    IO.eprintln "    (a direct binary invocation must also be run from the repo root)."
-    return 1
-  let allowlistText ← IO.FS.readFile allowlistPath
+  let allowlistText ←
+    if ← allowlistPath.pathExists then IO.FS.readFile allowlistPath else pure ""
   let (allowlist, parseErrors) := parseAllowlist allowlistText
 
   IO.println sepLine
