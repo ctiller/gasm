@@ -54,15 +54,7 @@ private def negativeCalibration (observations : List Observation) : Except Strin
   let observation ← match observations with
     | [] => throw "runtime negative calibration received no native observation"
     | observation :: _ => pure observation
-  let old := observation.result.regionAfter.get! 0
-  let corrupted := observation.result.regionAfter.set! 0 (old ^^^ 0xff)
-  let mutated := {
-    observation with
-    result := { observation.result with regionAfter := corrupted }
-  }
-  match HardwareMemoryDifferential.compare mutated with
-  | .error _ => pure ()
-  | .ok () => throw "runtime negative calibration accepted a corrupted leading guard"
+  HardwareMemoryDifferential.calibrateLeadingGuardRejection observation
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 -- Adding an admitted class without a nonempty native control turns this module red.

@@ -30,6 +30,16 @@ private def comparableRegs : List Reg64 :=
 private def firstByteMismatch (expected actual : ByteArray) : Option Nat :=
   (List.range (min expected.size actual.size)).find? fun i => expected.get! i != actual.get! i
 
+private def compareRegion (plan : Plan) (actualRegion : ByteArray) : Except String Unit := do
+  let expectedRegion ← plan.modelRegionAfter
+  if actualRegion.size != regionBytes then
+    throw s!"case {plan.caseId}: guarded postimage length mismatch"
+  if expectedRegion != actualRegion then
+    match firstByteMismatch expectedRegion actualRegion with
+    | some index =>
+        throw s!"case {plan.caseId}: guarded postimage byte {index} mismatch (model={expectedRegion.get! index}, native={actualRegion.get! index})"
+    | none => throw s!"case {plan.caseId}: guarded postimage mismatch"
+
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Compares one case against the exact production step used to construct its plan.  RSP is the
     sole excluded register because the Windows harness owns its stack; the planner rejects every
@@ -39,6 +49,8 @@ def compare (observation : Observation) : Except String Unit := do
   let plan := observation.plan
   if observation.result.caseId != plan.caseId then
     throw s!"case {plan.caseId}: native result identity disagrees with the checked plan"
+  if observation.result.planIdentity != plan.planIdentity then
+    throw s!"case {plan.caseId}: native result plan identity disagrees with the exact form/bytes/pre-state"
   let native := observation.result.machine
   let decoded ← plan.decodeAndStep
   let model := decoded.state
@@ -53,15 +65,17 @@ def compare (observation : Observation) : Except String Unit := do
   let mask := arithmeticStatusMask &&& (~~~undefined)
   if (model.flags &&& mask) != (native.flags &&& mask) then
     throw s!"case {plan.caseId}: defined arithmetic flags mismatch"
-  let expectedRegion ← plan.modelRegionAfter
-  let actualRegion := observation.result.regionAfter
-  if actualRegion.size != regionBytes then
-    throw s!"case {plan.caseId}: guarded postimage length mismatch"
-  if expectedRegion != actualRegion then
-    match firstByteMismatch expectedRegion actualRegion with
-    | some index =>
-        throw s!"case {plan.caseId}: guarded postimage byte {index} mismatch (model={expectedRegion.get! index}, native={actualRegion.get! index})"
-    | none => throw s!"case {plan.caseId}: guarded postimage mismatch"
+  compareRegion plan observation.result.regionAfter
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Exercises the exact guarded-postimage comparator against a locally corrupted leading canary.
+    No transformed `Observation` escapes, so calibration cannot repair or relabel native evidence. -/
+def calibrateLeadingGuardRejection (observation : Observation) : Except String Unit := do
+  let actual := observation.result.regionAfter
+  let corrupted := actual.set! 0 (actual.get! 0 ^^^ 0xff)
+  match compareRegion observation.plan corrupted with
+  | .error _ => pure ()
+  | .ok () => throw "runtime negative calibration accepted a corrupted leading guard"
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Runs the exact comparator over a nonempty batch.  An enabled batch producing no observations

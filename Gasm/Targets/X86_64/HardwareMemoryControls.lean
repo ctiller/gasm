@@ -44,7 +44,7 @@ private def controlFrame (caseId : UInt64) : ByteArray := Id.run do
   bytes := putU64 bytes 16 caseId
   bytes := putU32 bytes 24 regionBytes.toUInt32
   for i in [0:regionBytes] do
-    bytes := putU8 bytes (168 + i) ((i * 13 + 7) % 256).toUInt8
+    bytes := putU8 bytes (regionResultOffset + i) ((i * 13 + 7) % 256).toUInt8
   bytes
 
 private def decodedExactly (caseId : UInt64) (bytes : ByteArray) : Bool :=
