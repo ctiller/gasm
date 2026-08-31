@@ -1188,6 +1188,25 @@ The following code shapes have enough evidence to investigate but are not canoni
   genuinely hidden evaluator/eliminator surface, or a certificate coupling safety to load-bearing
   semantic-access coverage and origin.  The next repair needs external negative controls.
 
+  Noncanonical sealed-audit candidate `95d7094cddcd5d75b662c51d2af72c5e048317f5` is likewise
+  **BLOCKED**.  Private constructors do not establish denial non-laundering when a public constructor
+  accepts arbitrary callbacks and the evaluator remains public.  Its external counterexample gives
+  `execute` a decision callback that invokes public `run` on a refused checked computation from a
+  reconstructed initial state, catches `.denied`, returns `.ok`, and obtains the outer `Safe` proof
+  through `Safe.execute`.  Sealing proves only the provided eliminators' local behavior--for example,
+  that `bind` has no denied continuation--and cannot stop a public callback from re-entering a public
+  observer.  The next negative control must attack callback re-entry, not only `bind`.
+
+  Its local error-to-audit-append, machine-preservation, and bind-terminality equations may remain
+  reusable as local laws, but none implies global authorization safety across the callback escape
+  hatch.
+
+  The honest reusable claim is `NoDenial` or audit-clean success, not memory safety.  Treat
+  `execute` as a trusted profile adapter, and require both decision soundness (success means the
+  exact access was authorized) and semantic-access coverage (the target's real transition performs
+  only those accesses) at the target bridge.  This blocked candidate is durable failure evidence,
+  not a current-main API or proof authority.
+
 ### Proof delivery, termination, and CFG composition
 
 - Literal or Boolean-domain execution checks do not establish a universal finite-input theorem.
