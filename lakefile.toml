@@ -25,7 +25,8 @@ name = "gasm"
 version = "0.1.0"
 defaultTargets = [
   "Gasm", "Spikes", "Stdlib", "GateSubprocess",
-  "X86DispatchExhaustive", "check_gates_axioms", "check_refs_coverage_full"
+  "X86DispatchExhaustive", "X86InstructionCensusControls",
+  "check_gates_axioms", "check_refs_coverage_full"
 ]
 
 [[lean_lib]]
@@ -54,6 +55,13 @@ roots = ["Tools.GateSubprocess"]
 [[lean_lib]]
 name = "X86DispatchExhaustive"
 roots = ["Gasm.Targets.X86_64.RoundtripGate.DispatchExhaustive"]
+
+# Hostile real-instance controls for the compiled x86 census. This is a default gate root but is
+# deliberately absent from every library umbrella: it registers an overlapping wrapper instance
+# whose rejection is the test, so importing it into Gasm would pollute the delivered environment.
+[[lean_lib]]
+name = "X86InstructionCensusControls"
+roots = ["Gasm.Targets.X86_64.InstructionCensusControls"]
 
 # Law 10 axiom-level gate verifier: walks every compiled declaration in
 # Gasm/Stdlib/Spikes and cross-checks its axiom dependencies (Lean's own
