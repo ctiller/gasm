@@ -226,7 +226,8 @@ The following code shapes have enough evidence to investigate but are not canoni
   discipline/result, witness-consuming handles, and derived two-load root distinctness.  Reviewer
   accepted the exact candidate with no remaining blocker; Trust rebase/integration is pending and no
   canonical landed hash exists yet.  `d9685b5` remains namespace-only and runner work remains
-  blocked.  This is an accepted design candidate, not current-main established machinery.
+  gated on signature migration.  This is an accepted design candidate, not current-main established
+  machinery.
 - Resource protocols supply three related negative controls.  A range/nonempty `MemoryPerm` is not
   generative or linear ownership.  Timeout-capable queue locks may return a typed outstanding-node
   withdrawal obligation rather than an immediately reclaimed auxiliary loan.  Destroying a handle
