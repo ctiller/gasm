@@ -28,11 +28,20 @@ def addFamilyCases : List AnyX86_64Instruction :=
   ((X86_64Instruction.roundtripCases : List AddR64Imm8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List AddRspImm8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List AddRspImm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
-  ((X86_64Instruction.roundtripCases : List AddR64Imm32).map fun i => (⟨i⟩ : AnyX86_64Instruction))
+  ((X86_64Instruction.roundtripCases : List AddR64Imm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AddR32R32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AddR32Imm8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AddR32Imm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AddR16R16).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AddR16Imm8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AddR16Imm16).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AddR8R8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AddR8Imm8).map fun i => (⟨i⟩ : AnyX86_64Instruction))
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the ADD family: every `roundtripCases` witness decodes back. -/
-theorem addFamily_roundtripGate : addFamilyCases.all (decodesOk addTryDecode) = true := by decide
+theorem addFamily_roundtripGate : addFamilyCases.all (decodesOk addTryDecode) = true := by
+  set_option maxRecDepth 8000 in decide
 
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/

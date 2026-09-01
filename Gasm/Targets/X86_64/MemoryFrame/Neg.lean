@@ -45,4 +45,43 @@ theorem NegR64.readsWithin (i : NegR64) : ReadsWithin i :=
         X86_64MachineState.setFlagsNeg64, hrip, hgprs, hflags, hstdin, hreq, hfault] <;>
       (try split) <;> (try split) <;> (try split) <;> (try split) <;> rfl)
 
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NegR32.writesWithin (i : NegR32) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NegR32.readsWithin (i : NegR32) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NegR16.writesWithin (i : NegR16) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NegR16.readsWithin (i : NegR16) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NegR8.writesWithin (i : NegR8) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NegR8.readsWithin (i : NegR8) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
 end Gasm.Targets.X86_64.MemoryFrame

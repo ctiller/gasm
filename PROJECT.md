@@ -49,7 +49,7 @@
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
 | M1 | Sub-Register & Flag Foundation | `Reg16`, `Reg8`, `setGpr16`, `setGpr8`, flag accessors (`pf`, `af`, `df`), flag calculation helpers, 0x66 prefix decoder support | none | DONE |
-| M2 | ALU, Logic, & Test Width Expansion | 32/16/8-bit forms for ADD, SUB, AND, OR, XOR, CMP, TEST, NOT, NEG | M1 | PLANNED |
+| M2 | ALU, Logic, & Test Width Expansion | 32/16/8-bit forms for ADD, SUB, AND, OR, XOR, CMP, TEST, NOT, NEG | M1 | DONE |
 | M3 | Shift, Mov, Xchg, Imul, Div Expansion | 32/16/8-bit SHIFT (SHL, SHR, SAR), MOV (including sign-extended Imm32), XCHG, IMUL, DIV/MUL | M1 | PLANNED |
 | M4 | New ALU, Flags, & Conversion Families | ADC, SBB, Flags (CLC, STC, CMC, CLD, STD, LAHF, SAHF), Extensions/Conversions (CBW, CWDE, CDQE, CWD, CDQ, CQO, MOVSX, MOVZX, MOVSXD) | M1, M2 | PLANNED |
 | M5 | Bit Operations, Scans, & Byte Swaps | BT, BTC, BTR, BTS, BSF, BSR, POPCNT, LZCNT, TZCNT, BSWAP, XADD, CMPXCHG | M1 | PLANNED |

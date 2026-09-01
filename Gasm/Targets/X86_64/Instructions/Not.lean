@@ -50,28 +50,142 @@ instance : X86_64Instruction NotR64 where
   roundtripCases := allReg64List.map NotR64.mk
   memAccesses _ := []
 
+/- REF: intel-sdm#vol=2;instr=NOT;part=description -/
+/-- NOT r32: One's complement negation of a 32-bit register with 64-bit zero-extension. -/
+structure NotR32 where
+  dst : Reg32
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=NOT;part=operation -/
+instance : X86_64Instruction NotR32 where
+  encode i :=
+    let (dstCode, dstExt) := reg32Code i.dst
+    let rexPrefix := if dstExt then #[makeRex false false false dstExt] else #[]
+    ByteArray.mk rexPrefix ++ ByteArray.mk #[0xF7, makeModRM 3 2 dstCode]
+  step i s :=
+    let dVal := s.readGpr32 i.dst
+    let res := ~~~dVal
+    let s' := s.setGpr32 i.dst res
+    let len := (if (reg32Code i.dst).2 then 1 else 0) + 2
+    { s' with rip := s.rip + len }
+  toUops _ := [{ mnemonic := "NOT.alu", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
+  toNASM i := s!"not {i.dst}"
+  toLean i := s!"not_r32 .{i.dst}"
+  undefinedFlagsMask _ := 0
+  canFuzzHardware i := hwSafeReg32 i.dst
+  validationOracle i := if hwSafeReg32 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  generateFuzzStates i rng := generateStandardFuzzStatesFor1Reg (reg32To64 i.dst) rng
+  roundtripCases := allReg32List.map NotR32.mk
+  memAccesses _ := []
+
+/- REF: intel-sdm#vol=2;instr=NOT;part=description -/
+/-- NOT r16: One's complement negation of a 16-bit register, preserving upper 48 bits. -/
+structure NotR16 where
+  dst : Reg16
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=NOT;part=operation -/
+instance : X86_64Instruction NotR16 where
+  encode i :=
+    let (dstCode, dstExt) := reg16Code i.dst
+    let rexBytes := if dstExt then #[makeRex false false false dstExt] else #[]
+    ByteArray.mk (#[0x66] ++ rexBytes ++ #[0xF7, makeModRM 3 2 dstCode])
+  step i s :=
+    let dVal := s.readGpr16 i.dst
+    let res := ~~~dVal
+    let s' := s.setGpr16 i.dst res
+    let len := 1 + (if (reg16Code i.dst).2 then 1 else 0) + 2
+    { s' with rip := s.rip + len }
+  toUops _ := [{ mnemonic := "NOT.alu", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
+  toNASM i := s!"not {i.dst}"
+  toLean i := s!"not_r16 .{i.dst}"
+  undefinedFlagsMask _ := 0
+  canFuzzHardware i := hwSafeReg16 i.dst
+  validationOracle i := if hwSafeReg16 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  generateFuzzStates i rng := generateStandardFuzzStatesFor1Reg (reg16To64 i.dst) rng
+  roundtripCases := allReg16List.map NotR16.mk
+  memAccesses _ := []
+
+/- REF: intel-sdm#vol=2;instr=NOT;part=description -/
+/-- NOT r8: One's complement negation of an 8-bit register, preserving upper 56 bits. -/
+structure NotR8 where
+  dst : Reg8
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=NOT;part=operation -/
+instance : X86_64Instruction NotR8 where
+  encode i :=
+    let (dstCode, dstExt, dstMandatory) := reg8Code i.dst
+    let rexNeeded := dstExt || dstMandatory
+    let rexPrefix := if rexNeeded then #[makeRex false false false dstExt] else #[]
+    ByteArray.mk rexPrefix ++ ByteArray.mk #[0xF6, makeModRM 3 2 dstCode]
+  step i s :=
+    let dVal := s.readGpr8 i.dst
+    let res := ~~~dVal
+    let s' := s.setGpr8 i.dst res
+    let rexNeeded := (reg8Code i.dst).2.1 || (reg8Code i.dst).2.2
+    let len := (if rexNeeded then 1 else 0) + 2
+    { s' with rip := s.rip + len }
+  toUops _ := [{ mnemonic := "NOT.alu", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
+  toNASM i := s!"not {i.dst}"
+  toLean i := s!"not_r8 .{i.dst}"
+  undefinedFlagsMask _ := 0
+  canFuzzHardware i := hwSafeReg8 i.dst
+  validationOracle i := if hwSafeReg8 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness (see canFuzzHardware/hwSafeReg64/hwSafeReg32's own doc comment); encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; the RDTSC/RDTSCP measurement harness and provisional calibration files exist, but no accepted calibration result is bound to this instance, and intel-sdm (the registered combined architecture SDM) does not publish cycle-latency data -- see docs/RDTSC_HARNESS.md section 8 and docs/X86_ISA_EXPANSION_PREREQUISITES.md P5"
+  generateFuzzStates i rng := generateStandardFuzzStatesFor1Reg (reg8To64 i.dst) rng
+  roundtripCases := allReg8List.map NotR8.mk
+  memAccesses _ := []
+
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- NOT r64 helper. -/
 def not_r64 (dst : Reg64) : AnyX86_64Instruction :=
   ⟨NotR64.mk dst⟩
 
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+def not_r32 (dst : Reg32) : AnyX86_64Instruction := ⟨NotR32.mk dst⟩
+def not_r16 (dst : Reg16) : AnyX86_64Instruction := ⟨NotR16.mk dst⟩
+def not_r8 (dst : Reg8) : AnyX86_64Instruction := ⟨NotR8.mk dst⟩
+
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the NOT family: `0xF7 /2` (the Group 3 opcode NOT shares with
-    TEST/NEG/DIV, disambiguated by ModR/M.reg). Errors for any other byte pattern. -/
+/-- Co-located decoder for the NOT family: `0xF7 /2` (NOT r64/r32/r16) and `0xF6 /2` (NOT r8).
+    Errors for any other byte pattern. -/
 def notTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
+  match parsePrefixesAndOpcode bytes offset with
   | .error e => .error e
-  | .ok (_, _, _, _, rexB, opcode, opOffset) =>
-    if opcode == 0xF7 then
+  | .ok (has0x66, _, rexW, _, _, rexB, opcode, opOffset) =>
+    if has0x66 then
+      if opcode == 0xF7 then
+        match readModRM bytes opOffset with
+        | .error e => .error e
+        | .ok (_, reg, rm, pos) =>
+          if reg == 2 then
+            let dst := codeToReg16 rm rexB
+            .ok (not_r16 dst, pos - offset)
+          else .error "notTryDecode: 0xF7 sub-opcode is not NOT"
+      else .error s!"notTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} with 0x66 prefix is not NOT"
+    else if opcode == 0xF6 then
       match readModRM bytes opOffset with
       | .error e => .error e
       | .ok (_, reg, rm, pos) =>
         if reg == 2 then
-          let dst := codeToReg64 rm rexB
-          .ok (not_r64 dst, pos - offset)
-        else
-          .error "notTryDecode: 0xF7 sub-opcode is not NOT"
+          let dst := codeToReg8 rm rexB
+          .ok (not_r8 dst, pos - offset)
+        else .error "notTryDecode: 0xF6 sub-opcode is not NOT"
+    else if opcode == 0xF7 then
+      match readModRM bytes opOffset with
+      | .error e => .error e
+      | .ok (_, reg, rm, pos) =>
+        if reg == 2 then
+          if rexW then
+            let dst := codeToReg64 rm rexB
+            .ok (not_r64 dst, pos - offset)
+          else
+            let dst := codeToReg32 rm rexB
+            .ok (not_r32 dst, pos - offset)
+        else .error "notTryDecode: 0xF7 sub-opcode is not NOT"
     else
       .error s!"notTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not NOT"
 

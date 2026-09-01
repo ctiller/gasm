@@ -72,10 +72,12 @@ open Gasm.Targets.X86_64.Instructions
     encoding before `addTryDecode` gets a chance to claim it. Proved the same way as the per-family
     roundtrip gates: `decodesOk`, instantiated with the real dispatcher instead of the family's own
     `tryDecode`, checked exhaustively over that family's finite `roundtripCases` witness list. -/
-theorem addFamily_dispatchReachable : addFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+theorem addFamily_dispatchReachable : addFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-theorem andFamily_dispatchReachable : andFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+theorem andFamily_dispatchReachable : andFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem callFamily_dispatchReachable : callFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
@@ -85,7 +87,8 @@ theorem cmovFamily_dispatchReachable : cmovFamilyCases.all (decodesOk decodeX86_
   set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-theorem cmpFamily_dispatchReachable : cmpFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+theorem cmpFamily_dispatchReachable : cmpFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem divFamily_dispatchReachable : divFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
@@ -113,10 +116,12 @@ theorem movFamily_dispatchReachable : movFamilyCases.all (decodesOk decodeX86_64
 theorem negFamily_dispatchReachable : negFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-theorem notFamily_dispatchReachable : notFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+theorem notFamily_dispatchReachable : notFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-theorem orFamily_dispatchReachable : orFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+theorem orFamily_dispatchReachable : orFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem outFamily_dispatchReachable : outFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
@@ -134,19 +139,22 @@ theorem retFamily_dispatchReachable : retFamilyCases.all (decodesOk decodeX86_64
 theorem shiftFamily_dispatchReachable : shiftFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-theorem subFamily_dispatchReachable : subFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+theorem subFamily_dispatchReachable : subFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem syscallFamily_dispatchReachable : syscallFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-theorem testFamily_dispatchReachable : testFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+theorem testFamily_dispatchReachable : testFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem xchgFamily_dispatchReachable : xchgFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-theorem xorFamily_dispatchReachable : xorFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+theorem xorFamily_dispatchReachable : xorFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
+  set_option maxRecDepth 8000 in decide
 
 -- Compiled closure audit: derive the family set from the live `X86_64Instruction` instances and
 -- require an exact, fully-qualified, closed dispatcher theorem for each.  In particular, a

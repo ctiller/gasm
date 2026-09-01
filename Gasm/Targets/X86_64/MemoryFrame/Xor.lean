@@ -45,4 +45,134 @@ theorem XorR32R32.readsWithin (i : XorR32R32) : ReadsWithin i :=
         X86_64MachineState.setFlagsLogic, hrip, hgprs, hflags, hstdin, hreq, hfault] <;>
       (try split) <;> (try split) <;> (try split) <;> (try split) <;> rfl)
 
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR64R64.writesWithin (i : XorR64R64) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR64R64.readsWithin (i : XorR64R64) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR64Imm8.writesWithin (i : XorR64Imm8) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR64Imm8.readsWithin (i : XorR64Imm8) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR64Imm32.writesWithin (i : XorR64Imm32) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR64Imm32.readsWithin (i : XorR64Imm32) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR32Imm8.writesWithin (i : XorR32Imm8) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR32Imm8.readsWithin (i : XorR32Imm8) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR32Imm32.writesWithin (i : XorR32Imm32) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR32Imm32.readsWithin (i : XorR32Imm32) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR16R16.writesWithin (i : XorR16R16) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR16R16.readsWithin (i : XorR16R16) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR16Imm8.writesWithin (i : XorR16Imm8) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR16Imm8.readsWithin (i : XorR16Imm8) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR16Imm16.writesWithin (i : XorR16Imm16) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR16Imm16.readsWithin (i : XorR16Imm16) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR8R8.writesWithin (i : XorR8R8) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR8R8.readsWithin (i : XorR8R8) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR8Imm8.writesWithin (i : XorR8Imm8) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem XorR8Imm8.readsWithin (i : XorR8Imm8) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
 end Gasm.Targets.X86_64.MemoryFrame

@@ -44,4 +44,43 @@ theorem NotR64.readsWithin (i : NotR64) : ReadsWithin i :=
         hreq, hfault] <;>
       (try split) <;> (try split) <;> (try split) <;> (try split) <;> rfl)
 
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NotR32.writesWithin (i : NotR32) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NotR32.readsWithin (i : NotR32) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NotR16.writesWithin (i : NotR16) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NotR16.readsWithin (i : NotR16) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NotR8.writesWithin (i : NotR8) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem NotR8.readsWithin (i : NotR8) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
 end Gasm.Targets.X86_64.MemoryFrame

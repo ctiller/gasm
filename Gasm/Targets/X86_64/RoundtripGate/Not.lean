@@ -24,11 +24,15 @@ open Gasm.Targets.X86_64.Instructions
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Every `roundtripCases` witness for the NOT family, lifted into the open existential wrapper. -/
 def notFamilyCases : List AnyX86_64Instruction :=
-  (X86_64Instruction.roundtripCases : List NotR64).map fun i => (⟨i⟩ : AnyX86_64Instruction)
+  ((X86_64Instruction.roundtripCases : List NotR64).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List NotR32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List NotR16).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List NotR8).map fun i => (⟨i⟩ : AnyX86_64Instruction))
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the NOT family: every `roundtripCases` witness decodes back. -/
-theorem notFamily_roundtripGate : notFamilyCases.all (decodesOk notTryDecode) = true := by decide
+theorem notFamily_roundtripGate : notFamilyCases.all (decodesOk notTryDecode) = true := by
+  set_option maxRecDepth 8000 in decide
 
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/

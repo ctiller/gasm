@@ -24,12 +24,22 @@ open Gasm.Targets.X86_64.Instructions
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Every `roundtripCases` witness for the AND family, lifted into the open existential wrapper. -/
 def andFamilyCases : List AnyX86_64Instruction :=
+  ((X86_64Instruction.roundtripCases : List AndR64R64).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List AndR64Imm8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
-  ((X86_64Instruction.roundtripCases : List AndR64R64).map fun i => (⟨i⟩ : AnyX86_64Instruction))
+  ((X86_64Instruction.roundtripCases : List AndR64Imm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AndR32R32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AndR32Imm8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AndR32Imm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AndR16R16).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AndR16Imm8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AndR16Imm16).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AndR8R8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List AndR8Imm8).map fun i => (⟨i⟩ : AnyX86_64Instruction))
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the AND family: every `roundtripCases` witness decodes back. -/
-theorem andFamily_roundtripGate : andFamilyCases.all (decodesOk andTryDecode) = true := by decide
+theorem andFamily_roundtripGate : andFamilyCases.all (decodesOk andTryDecode) = true := by
+  set_option maxRecDepth 8000 in decide
 
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
