@@ -137,43 +137,46 @@ def cmp_r64_imm32 (dst : Reg64) (imm : UInt32) : AnyX86_64Instruction :=
   ⟨CmpR64Imm32.mk dst imm⟩
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the CMP family: `0x39` (CMP r64, r64), `0x81 /7` (CMP r64, imm32), and
-    `0x83 /7` (CMP r64, imm8). Errors for any other byte pattern. -/
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Declarative decoding rules for the CMP family: `0x39` (CMP r64, r64), `0x81 /7` (CMP r64, imm32),
+    and `0x83 /7` (CMP r64, imm8). -/
+def cmpDecodeRules : List DecodeRule := [
+  { opcode := .one 0x39,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "cmp_r64: missing ModR/M byte"
+      | some m =>
+        let dst := codeToReg64 m.rm ctx.rexB
+        let src := codeToReg64 m.reg ctx.rexR
+        .ok (cmp_r64 dst src, m.pos - ctx.startOffset)
+  },
+  { opcode := .one 0x81,
+    modrmReg := some 7,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "cmp_r64_imm32: missing ModR/M byte"
+      | some m =>
+        let dst := codeToReg64 m.rm ctx.rexB
+        match readUInt32LE ctx.bytes m.pos with
+        | .error e => .error e
+        | .ok imm32 => .ok (cmp_r64_imm32 dst imm32, (m.pos + 4) - ctx.startOffset)
+  },
+  { opcode := .one 0x83,
+    modrmReg := some 7,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "cmp_r64_imm8: missing ModR/M byte"
+      | some m =>
+        let dst := codeToReg64 m.rm ctx.rexB
+        match readUInt8 ctx.bytes m.pos with
+        | .error e => .error e
+        | .ok imm8 => .ok (cmp_r64_imm8 dst imm8, (m.pos + 1) - ctx.startOffset)
+  }
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the CMP family, evaluating its declarative rules. -/
 def cmpTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, rexR, _, rexB, opcode, opOffset) =>
-    if opcode == 0x39 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (_, reg, rm, pos) =>
-        let dst := codeToReg64 rm rexB
-        let src := codeToReg64 reg rexR
-        .ok (cmp_r64 dst src, pos - offset)
-    else if opcode == 0x81 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (_, reg, rm, modPos) =>
-        if reg == 7 then
-          let dst := codeToReg64 rm rexB
-          match readUInt32LE bytes modPos with
-          | .error e => .error e
-          | .ok imm32 => .ok (cmp_r64_imm32 dst imm32, (modPos + 4) - offset)
-        else
-          .error "cmpTryDecode: 0x81 sub-opcode is not CMP"
-    else if opcode == 0x83 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (_, reg, rm, modPos) =>
-        if reg == 7 then
-          let dst := codeToReg64 rm rexB
-          match readUInt8 bytes modPos with
-          | .error e => .error e
-          | .ok imm8 => .ok (cmp_r64_imm8 dst imm8, (modPos + 1) - offset)
-        else
-          .error "cmpTryDecode: 0x83 sub-opcode is not CMP"
-    else
-      .error s!"cmpTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not CMP"
+  tryDecodeWithRules cmpDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions

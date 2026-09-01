@@ -239,36 +239,43 @@ def shr_r64_cl (dst : Reg64) : AnyX86_64Instruction :=
 def sar_r64_imm8 (dst : Reg64) (imm : UInt8) : AnyX86_64Instruction :=
   ⟨SarR64Imm8.mk dst imm⟩
 
+private def shiftImm8Rule (reg : UInt8) (mk : Reg64 → UInt8 → AnyX86_64Instruction) : DecodeRule := {
+  opcode := .one 0xC1,
+  modrmReg := some reg,
+  builder := fun ctx =>
+    match ctx.modrm with
+    | none => .error "shift imm8: missing ModR/M byte"
+    | some m =>
+      let dst := codeToReg64 m.rm ctx.rexB
+      match readUInt8 ctx.bytes m.pos with
+      | .error e => .error e
+      | .ok imm8 => .ok (mk dst imm8, (m.pos + 1) - ctx.startOffset)
+}
+
+private def shiftClRule (reg : UInt8) (mk : Reg64 → AnyX86_64Instruction) : DecodeRule := {
+  opcode := .one 0xD3,
+  modrmReg := some reg,
+  builder := fun ctx =>
+    match ctx.modrm with
+    | none => .error "shift cl: missing ModR/M byte"
+    | some m =>
+      let dst := codeToReg64 m.rm ctx.rexB
+      .ok (mk dst, m.pos - ctx.startOffset)
+}
+
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the SHIFT family: `0xC1 /4,/5,/7` (SHL/SHR/SAR r64, imm8) and
-    `0xD3 /4,/5` (SHL/SHR r64, cl). Errors for any other byte pattern. -/
+/-- Declarative decoding rules for the SHIFT family. -/
+def shiftDecodeRules : List DecodeRule := [
+  shiftImm8Rule 4 shl_r64_imm8,
+  shiftImm8Rule 5 shr_r64_imm8,
+  shiftImm8Rule 7 sar_r64_imm8,
+  shiftClRule 4 shl_r64_cl,
+  shiftClRule 5 shr_r64_cl
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the SHIFT family, evaluating its declarative rules. -/
 def shiftTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, _, _, rexB, opcode, opOffset) =>
-    if opcode == 0xC1 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (_, reg, rm, modPos) =>
-        let dst := codeToReg64 rm rexB
-        match readUInt8 bytes modPos with
-        | .error e => .error e
-        | .ok imm8 =>
-          let pos := modPos + 1
-          if reg == 4 then .ok (shl_r64_imm8 dst imm8, pos - offset)
-          else if reg == 5 then .ok (shr_r64_imm8 dst imm8, pos - offset)
-          else if reg == 7 then .ok (sar_r64_imm8 dst imm8, pos - offset)
-          else .error "shiftTryDecode: 0xC1 sub-opcode is not SHIFT"
-    else if opcode == 0xD3 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (_, reg, rm, pos) =>
-        let dst := codeToReg64 rm rexB
-        if reg == 4 then .ok (shl_r64_cl dst, pos - offset)
-        else if reg == 5 then .ok (shr_r64_cl dst, pos - offset)
-        else .error "shiftTryDecode: 0xD3 sub-opcode is not SHIFT"
-    else
-      .error s!"shiftTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not SHIFT"
+  tryDecodeWithRules shiftDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions

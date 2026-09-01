@@ -70,17 +70,23 @@ instance : X86_64Instruction PopR64 where
 def pop_r64 (r : Reg64) : AnyX86_64Instruction :=
   ⟨PopR64.mk r⟩
 
+private def popRule (regCode : UInt8) : DecodeRule := {
+  opcode := .one (0x58 + regCode),
+  builder := fun ctx =>
+    let r := codeToReg64 regCode ctx.rexB
+    .ok (pop_r64 r, ctx.opcodePos - ctx.startOffset)
+}
+
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the POP family: `0x58 .. 0x5F` (POP r64). Errors for any other byte
-    pattern. -/
+/-- Declarative decoding rules for the POP family: `0x58 .. 0x5F` (POP r64). -/
+def popDecodeRules : List DecodeRule := [
+  popRule 0, popRule 1, popRule 2, popRule 3,
+  popRule 4, popRule 5, popRule 6, popRule 7
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the POP family, evaluating its declarative rules. -/
 def popTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, _, _, rexB, opcode, pos) =>
-    if opcode >= 0x58 && opcode <= 0x5F then
-      let r := codeToReg64 (opcode - 0x58) rexB
-      .ok (pop_r64 r, pos - offset)
-    else
-      .error s!"popTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not POP"
+  tryDecodeWithRules popDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions

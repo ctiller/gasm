@@ -52,46 +52,88 @@ open Gasm.Core
 open Gasm.Targets.X86_64.Instructions
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Stage B registry-driven dispatch table: every instruction family's own co-located
-    `tryDecode` (defined next to its `encode` in `Instructions/<Family>.lean`), in one place.
-    This is the thin dispatcher's sole routing data — adding a new family means adding one entry
-    here, not adding a new branch to a monolithic pattern match. Order does not affect
-    correctness (each family's `tryDecode` only claims byte patterns belonging to its own
-    instructions and returns `.error` on anything else, verified per-family by the exhaustive
-    `RoundtripGate/<Family>.lean` `decide` proof and, across families, by this module's own
-    `RoundtripGate/DispatchExhaustive.lean` companion) — only dispatch cost, since earlier
-    entries are tried first. -/
-def allTryDecoders : List (ByteArray → Nat → Except String (AnyX86_64Instruction × Nat)) :=
-  [retTryDecode, pushTryDecode, popTryDecode, jccTryDecode, movTryDecode, callTryDecode,
-   syscallTryDecode, imulTryDecode, cmovTryDecode, addTryDecode, orTryDecode, andTryDecode,
-   subTryDecode, xorTryDecode, cmpTryDecode, testTryDecode, xchgTryDecode, leaTryDecode,
-   shiftTryDecode, notTryDecode, negTryDecode, divTryDecode, inTryDecode, outTryDecode,
-   hltTryDecode]
+/-- All declarative decode rules aggregated from across all 25 instruction families. -/
+def allDecodeRules : List DecodeRule :=
+  retDecodeRules ++ pushDecodeRules ++ popDecodeRules ++ jccDecodeRules ++
+  movDecodeRules ++ callDecodeRules ++ syscallDecodeRules ++ imulDecodeRules ++
+  cmovDecodeRules ++ addDecodeRules ++ orDecodeRules ++ andDecodeRules ++
+  subDecodeRules ++ xorDecodeRules ++ cmpDecodeRules ++ testDecodeRules ++
+  xchgDecodeRules ++ leaDecodeRules ++ shiftDecodeRules ++ notDecodeRules ++
+  negDecodeRules ++ divDecodeRules ++ inDecodeRules ++ outDecodeRules ++
+  hltDecodeRules
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Tries each decoder in `fs` in order against `(bytes, offset)`, returning the first success.
-    This is the entire routing logic of the thin dispatcher: no opcode is inspected here at all
-    — that knowledge lives solely in each family's own `tryDecode`. -/
-def tryDecoders (fs : List (ByteArray → Nat → Except String (AnyX86_64Instruction × Nat)))
-    (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  match fs with
-  | [] => .error s!"Unsupported x86-64 instruction at offset {offset}: no registered family's tryDecode claimed this byte pattern"
-  | f :: rest =>
-    match f bytes offset with
-    | .ok r => .ok r
-    | .error _ => tryDecoders rest bytes offset
+/-- Table-driven opcode dispatcher: indexes candidate rules by primary opcode.
+    Each opcode routes directly to its small bucket of matching rules (typically 1–4 rules)
+    rather than scanning across unrelated families. In Lean 4, pattern matching on constructors
+    and UInt8 values compiles to a decision tree evaluated by the kernel in O(1) reduction steps
+    with minimal recursion depth. -/
+def dispatchOpcode (op : DecodeOpcode) : List DecodeRule :=
+  match op with
+  | .one 0x01 => addDecodeRules.filter (·.opcode == op)
+  | .one 0x09 => orDecodeRules.filter (·.opcode == op)
+  | .one 0x21 => andDecodeRules.filter (·.opcode == op)
+  | .one 0x29 => subDecodeRules.filter (·.opcode == op)
+  | .one 0x31 => xorDecodeRules.filter (·.opcode == op)
+  | .one 0x39 => cmpDecodeRules.filter (·.opcode == op)
+  | .one 0x50 | .one 0x51 | .one 0x52 | .one 0x53
+  | .one 0x54 | .one 0x55 | .one 0x56 | .one 0x57 =>
+    pushDecodeRules.filter (·.opcode == op)
+  | .one 0x58 | .one 0x59 | .one 0x5A | .one 0x5B
+  | .one 0x5C | .one 0x5D | .one 0x5E | .one 0x5F =>
+    popDecodeRules.filter (·.opcode == op)
+  | .one 0x72 | .one 0x73 | .one 0x74 | .one 0x75
+  | .one 0x76 | .one 0x77 | .one 0x7C | .one 0x7D
+  | .one 0x7E | .one 0x7F | .one 0xEB | .one 0xE9 =>
+    jccDecodeRules.filter (·.opcode == op)
+  | .one 0x81 =>
+    addDecodeRules.filter (·.opcode == op) ++
+    orDecodeRules.filter (·.opcode == op) ++
+    subDecodeRules.filter (·.opcode == op) ++
+    cmpDecodeRules.filter (·.opcode == op)
+  | .one 0x83 =>
+    addDecodeRules.filter (·.opcode == op) ++
+    orDecodeRules.filter (·.opcode == op) ++
+    andDecodeRules.filter (·.opcode == op) ++
+    subDecodeRules.filter (·.opcode == op) ++
+    cmpDecodeRules.filter (·.opcode == op)
+  | .one 0x85 => testDecodeRules.filter (·.opcode == op)
+  | .one 0x87 => xchgDecodeRules.filter (·.opcode == op)
+  | .one 0x88 | .one 0x89 | .one 0x8B
+  | .one 0xB8 | .one 0xB9 | .one 0xBA | .one 0xBB
+  | .one 0xBC | .one 0xBD | .one 0xBE | .one 0xBF
+  | .one 0xC7 => movDecodeRules.filter (·.opcode == op)
+  | .one 0xC6 => [movRuleC6]
+  | .one 0x8D => leaDecodeRules.filter (·.opcode == op)
+  | .one 0xC1 | .one 0xD3 => shiftDecodeRules.filter (·.opcode == op)
+  | .one 0xC3 => retDecodeRules.filter (·.opcode == op)
+  | .one 0xE4 | .one 0xE5 | .one 0xEC | .one 0xED => inDecodeRules.filter (·.opcode == op)
+  | .one 0xE6 | .one 0xE7 | .one 0xEE | .one 0xEF => outDecodeRules.filter (·.opcode == op)
+  | .one 0xE8 | .one 0xFF => callDecodeRules.filter (·.opcode == op)
+  | .one 0xF4 => hltDecodeRules.filter (·.opcode == op)
+  | .one 0xF7 =>
+    testDecodeRules.filter (·.opcode == op) ++
+    notDecodeRules.filter (·.opcode == op) ++
+    negDecodeRules.filter (·.opcode == op) ++
+    divDecodeRules.filter (·.opcode == op)
+  | .two0F 0x05 => syscallDecodeRules.filter (·.opcode == op)
+  | .two0F 0x42 | .two0F 0x43 | .two0F 0x44 | .two0F 0x45
+  | .two0F 0x4C | .two0F 0x4D | .two0F 0x4E | .two0F 0x4F =>
+    cmovDecodeRules.filter (·.opcode == op)
+  | .two0F 0x82 | .two0F 0x83 | .two0F 0x84 | .two0F 0x85
+  | .two0F 0x87 | .two0F 0x8D | .two0F 0x8E =>
+    jccDecodeRules.filter (·.opcode == op)
+  | .two0F 0xAF => imulDecodeRules.filter (·.opcode == op)
+  | .two0F 0xB6 => movDecodeRules.filter (·.opcode == op)
+  | _ => []
 
 /- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
 /-- Decodes a single x86-64 instruction from a ByteArray starting at the specified byte offset.
     Returns the decoded instruction AST and the number of bytes consumed.
 
-    Stage B: this used to be a single 700+-line pattern match owning every family's decode logic
-    directly. It is now a thin registry-driven dispatcher — `allTryDecoders` lists every family's
-    own co-located `tryDecode`, and this function just tries them in order. All REX-parsing,
-    ModR/M-parsing, and per-opcode decode logic lives in `Instructions/<Family>.lean` next to
-    that family's `encode`, not here. -/
+    Uses table-driven dispatch indexed by primary opcode. -/
 def decodeX86_64Instr (bytes : ByteArray) (offset : Nat) : Except String (X86_64Instr × Nat) :=
-  tryDecoders allTryDecoders bytes offset
+  decodeWithTable dispatchOpcode bytes offset
 
 /- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
 /-- Disassembles a complete ByteArray stream of x86-64 instructions until the buffer is exhausted. -/

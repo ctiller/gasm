@@ -289,37 +289,33 @@ def cmovae_r64 (dst src : Reg64) : AnyX86_64Instruction :=
   ⟨CmovaeR64R64.mk dst src⟩
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the CMOV family: `0x0F 0x42/0x43/0x44/0x45/0x4C/0x4D/0x4E/0x4F`
-    (CMOVB/CMOVAE/CMOVE/CMOVNE/CMOVL/CMOVGE/CMOVLE/CMOVG r64, r64). Errors for any other byte
-    pattern. -/
+private def cmovRule (op : UInt8) (mk : Reg64 → Reg64 → AnyX86_64Instruction) : DecodeRule := {
+  opcode := .two0F op,
+  builder := fun ctx =>
+    match ctx.modrm with
+    | none => .error "cmov: missing ModR/M byte"
+    | some m =>
+      let dst := codeToReg64 m.reg ctx.rexR
+      let src := codeToReg64 m.rm ctx.rexB
+      .ok (mk dst src, m.pos - ctx.startOffset)
+}
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Declarative decoding rules for the CMOV family. -/
+def cmovDecodeRules : List DecodeRule := [
+  cmovRule 0x42 cmovb_r64,
+  cmovRule 0x43 cmovae_r64,
+  cmovRule 0x44 cmove_r64,
+  cmovRule 0x45 cmovne_r64,
+  cmovRule 0x4C cmovl_r64,
+  cmovRule 0x4D cmovge_r64,
+  cmovRule 0x4E cmovle_r64,
+  cmovRule 0x4F cmovg_r64
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the CMOV family, evaluating its declarative rules. -/
 def cmovTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, rexR, _, rexB, opcode, opOffset) =>
-    if opcode == 0x0F then
-      match readUInt8 bytes opOffset with
-      | .error e => .error e
-      | .ok op2 =>
-        if op2 == 0x42 || op2 == 0x43 || op2 == 0x44 || op2 == 0x45 ||
-           op2 == 0x4C || op2 == 0x4D || op2 == 0x4E || op2 == 0x4F then
-          match readModRM bytes (opOffset + 1) with
-          | .error e => .error e
-          | .ok (_, reg, rm, pos) =>
-            let dst := codeToReg64 reg rexR
-            let src := codeToReg64 rm rexB
-            let len := pos - offset
-            if op2 == 0x42 then .ok (cmovb_r64 dst src, len)
-            else if op2 == 0x43 then .ok (cmovae_r64 dst src, len)
-            else if op2 == 0x44 then .ok (cmove_r64 dst src, len)
-            else if op2 == 0x45 then .ok (cmovne_r64 dst src, len)
-            else if op2 == 0x4C then .ok (cmovl_r64 dst src, len)
-            else if op2 == 0x4D then .ok (cmovge_r64 dst src, len)
-            else if op2 == 0x4E then .ok (cmovle_r64 dst src, len)
-            else .ok (cmovg_r64 dst src, len)
-        else
-          .error "cmovTryDecode: 0x0F sub-opcode is not CMOV"
-    else
-      .error s!"cmovTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not CMOV"
+  tryDecodeWithRules cmovDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions

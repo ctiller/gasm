@@ -120,7 +120,8 @@ def isRex (b : UInt8) : Bool :=
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Parses a REX prefix byte into its (W, R, X, B) flag bits. -/
 def parseRex (b : UInt8) : Bool × Bool × Bool × Bool :=
-  ((b &&& 8) != 0, (b &&& 4) != 0, (b &&& 2) != 0, (b &&& 1) != 0)
+  let n := b.toNat
+  (n / 8 % 2 == 1, n / 4 % 2 == 1, n / 2 % 2 == 1, n % 2 == 1)
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Constructs an 8-bit ModR/M byte from mod, reg, and rm fields. -/
@@ -130,7 +131,8 @@ def makeModRM (mod : UInt8) (reg : UInt8) (rm : UInt8) : UInt8 :=
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Unpacks an 8-bit ModR/M byte into (mod, reg, rm) fields. -/
 def extractModRM (b : UInt8) : UInt8 × UInt8 × UInt8 :=
-  ((b >>> 6) &&& 3, (b >>> 3) &&& 7, b &&& 7)
+  let n := b.toNat
+  ((n / 64 % 4).toUInt8, (n / 8 % 8).toUInt8, (n % 8).toUInt8)
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Constructs an 8-bit SIB byte from scale, index, and base fields. -/
@@ -140,7 +142,8 @@ def makeSIB (scale : UInt8) (index : UInt8) (base : UInt8) : UInt8 :=
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Unpacks an 8-bit SIB byte into (scale, index, base) fields. -/
 def extractSIB (b : UInt8) : UInt8 × UInt8 × UInt8 :=
-  ((b >>> 6) &&& 3, (b >>> 3) &&& 7, b &&& 7)
+  let n := b.toNat
+  ((n / 64 % 4).toUInt8, (n / 8 % 8).toUInt8, (n % 8).toUInt8)
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Reads an 8-bit unsigned byte from the ByteArray at the given offset. -/
@@ -202,6 +205,138 @@ def parsePrefixesAndOpcode (bytes : ByteArray) (offset : Nat) :
       (false, false, false, false, false, after0x66Offset)
   let opcode ← readUInt8 bytes opOffset
   pure (has0x66, hasRex, rexW, rexR, rexX, rexB, opcode, opOffset + 1)
+
+/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
+/-- Represents a 1-byte opcode or a 2-byte opcode prefixed by 0x0F escape. -/
+inductive DecodeOpcode where
+  | one (op : UInt8) : DecodeOpcode
+  | two0F (op : UInt8) : DecodeOpcode
+  deriving DecidableEq, Repr, Inhabited
+
+/-- Converts an opcode to an index in the range 0..511 for table dispatch. -/
+def DecodeOpcode.toKey : DecodeOpcode → Nat
+  | .one op => op.toNat
+  | .two0F op => 256 + op.toNat
+
+/- REF: intel-sdm#vol=2;sec=2.1.3;part=modrm-and-sib-bytes -/
+/-- Unpacked ModR/M byte information and the byte offset immediately following it. -/
+structure ModRM where
+  mod : UInt8
+  reg : UInt8
+  rm  : UInt8
+  pos : Nat
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
+/-- Unified context extracted once up front: prefixes (0x66, REX), opcode, and optional ModR/M. -/
+structure DecodeContext where
+  bytes       : ByteArray
+  startOffset : Nat
+  has0x66     : Bool
+  hasRex      : Bool
+  rexW        : Bool
+  rexR        : Bool
+  rexX        : Bool
+  rexB        : Bool
+  opcode      : DecodeOpcode
+  opcodePos   : Nat
+  modrm       : Option ModRM := none
+  deriving Inhabited
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Compact declarative decoding rule for x86-64 instructions. -/
+structure DecodeRule where
+  opcode   : DecodeOpcode
+  has0x66  : Option Bool := none
+  rexW     : Option Bool := none
+  modrmReg : Option UInt8 := none
+  builder  : DecodeContext → Except String (AnyX86_64Instruction × Nat)
+
+/-- Checks if candidate rule constraints match the extracted context. -/
+def DecodeRule.matches (rule : DecodeRule) (ctx : DecodeContext) : Bool :=
+  (ctx.opcode == rule.opcode) &&
+  (match rule.has0x66 with
+   | some b => ctx.has0x66 == b
+   | none => true) &&
+  (match rule.rexW with
+   | some b => ctx.rexW == b
+   | none => true) &&
+  (match rule.modrmReg with
+   | some reg =>
+     match ctx.modrm with
+     | some m => m.reg == reg
+     | none => false
+   | none => true)
+
+/- REF: intel-sdm#vol=2;sec=2.1;part=21-instruction-format-for-protected-mode-real-address-mode-and-virtual-8086-mode -/
+/-- Unified prefix and ModR/M extraction: parses optional 0x66, REX, opcode, and optional ModR/M byte once up front. -/
+def extractContext (bytes : ByteArray) (offset : Nat) : Except String DecodeContext := do
+  let b0 ← readUInt8 bytes offset
+  let (has0x66, b1, opPos) ←
+    if b0 == 0x66 then do
+      let bNext ← readUInt8 bytes (offset + 1)
+      pure (true, bNext, offset + 1)
+    else
+      pure (false, b0, offset)
+  let (hasRex, rexW, rexR, rexX, rexB, bOp, opOffset) ←
+    if isRex b1 then do
+      let (w, r, x, b) := parseRex b1
+      let bNext ← readUInt8 bytes (opPos + 1)
+      pure (true, w, r, x, b, bNext, opPos + 1)
+    else
+      pure (false, false, false, false, false, b1, opPos)
+  let (opcode, opcodePos) ←
+    if bOp == 0x0F then do
+      let bOp2 ← readUInt8 bytes (opOffset + 1)
+      pure (DecodeOpcode.two0F bOp2, opOffset + 2)
+    else
+      pure (DecodeOpcode.one bOp, opOffset + 1)
+  let modrm ←
+    match readUInt8 bytes opcodePos with
+    | .ok bMod =>
+      let (mod, reg, rm) := extractModRM bMod
+      pure (some ⟨mod, reg, rm, opcodePos + 1⟩)
+    | .error _ =>
+      pure none
+  pure {
+    bytes := bytes,
+    startOffset := offset,
+    has0x66 := has0x66,
+    hasRex := hasRex,
+    rexW := rexW,
+    rexR := rexR,
+    rexX := rexX,
+    rexB := rexB,
+    opcode := opcode,
+    opcodePos := opcodePos,
+    modrm := modrm
+  }
+
+/-- Evaluates candidate rules sequentially against an extracted decode context. -/
+def evalDecodeRules (ctx : DecodeContext) : List DecodeRule → Except String (AnyX86_64Instruction × Nat)
+  | [] => .error s!"Unsupported x86-64 instruction at offset {ctx.startOffset}"
+  | r :: rest =>
+    if r.matches ctx then
+      match r.builder ctx with
+      | .ok res => .ok res
+      | .error _ => evalDecodeRules ctx rest
+    else
+      evalDecodeRules ctx rest
+
+/-- Tries a list of declarative rules against an instruction stream at `offset`. -/
+def tryDecodeWithRules (rules : List DecodeRule) (bytes : ByteArray) (offset : Nat) :
+    Except String (AnyX86_64Instruction × Nat) :=
+  match extractContext bytes offset with
+  | .error e => .error e
+  | .ok ctx => evalDecodeRules ctx rules
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Table-driven instruction decoder: looks up rules matching the primary opcode. -/
+def decodeWithTable (rulesForOp : DecodeOpcode → List DecodeRule) (bytes : ByteArray) (offset : Nat) :
+    Except String (AnyX86_64Instruction × Nat) :=
+  match extractContext bytes offset with
+  | .error e => .error e
+  | .ok ctx => evalDecodeRules ctx (rulesForOp ctx.opcode)
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- Reads a 16-bit little-endian integer from the ByteArray at the given offset. -/

@@ -140,28 +140,32 @@ theorem call_rel32_step_return_slot (disp : Int32) (state : X86_64MachineState) 
   exact (Gasm.Targets.X86_64.push64_pop64_roundtrip state (state.rip + 5)).1
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the CALL family: `0xE8` (CALL rel32) and `0xFF /2` with the specific
-    `0x15` ModR/M byte (indirect `CALL [RIP + disp32]`). Errors for any other byte pattern. -/
-def callTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, _, _, _, opcode, opOffset) =>
-    if opcode == 0xE8 then
-      match readInt32LE bytes opOffset with
+/-- Declarative decoding rules for the CALL family: `0xE8` (CALL rel32) and `0xFF /2` with `0x15` ModR/M byte (indirect `CALL [RIP + disp32]`). -/
+def callDecodeRules : List DecodeRule := [
+  { opcode := .one 0xE8,
+    builder := fun ctx =>
+      match readInt32LE ctx.bytes ctx.opcodePos with
       | .error e => .error e
-      | .ok disp32 => .ok (call_rel32 disp32, (opOffset + 4) - offset)
-    else if opcode == 0xFF then
-      match readUInt8 bytes opOffset with
-      | .error e => .error e
-      | .ok modrmByte =>
-        if modrmByte == 0x15 then
-          match readInt32LE bytes (opOffset + 1) with
+      | .ok disp32 => .ok (call_rel32 disp32, (ctx.opcodePos + 4) - ctx.startOffset)
+  },
+  { opcode := .one 0xFF,
+    modrmReg := some 2,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "call_rip: missing ModR/M byte"
+      | some m =>
+        if m.mod == 0 && m.rm == 5 then
+          match readInt32LE ctx.bytes m.pos with
           | .error e => .error e
-          | .ok disp32 => .ok (call_rip disp32, (opOffset + 5) - offset)
+          | .ok disp32 => .ok (call_rip disp32, (m.pos + 4) - ctx.startOffset)
         else
           .error "callTryDecode: unsupported ModR/M for 0xFF CALL"
-    else
-      .error s!"callTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not CALL"
+  }
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the CALL family, evaluating its declarative rules. -/
+def callTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  tryDecodeWithRules callDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions

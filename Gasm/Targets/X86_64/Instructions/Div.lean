@@ -112,23 +112,22 @@ def div_r64 (r : Reg64) : AnyX86_64Instruction :=
   ⟨DivR64.mk r⟩
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the DIV family: `0xF7 /6` (the Group 3 opcode DIV shares with
-    TEST/NOT/NEG, disambiguated by ModR/M.reg). Errors for any other byte pattern. -/
+/-- Declarative decoding rules for the DIV family: `0xF7 /6` (DIV r64). -/
+def divDecodeRules : List DecodeRule := [
+  { opcode := .one 0xF7,
+    modrmReg := some 6,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "div_r64: missing ModR/M byte"
+      | some m =>
+        let divisor := codeToReg64 m.rm ctx.rexB
+        .ok (div_r64 divisor, m.pos - ctx.startOffset)
+  }
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the DIV family, evaluating its declarative rules. -/
 def divTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, _, _, rexB, opcode, opOffset) =>
-    if opcode == 0xF7 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (_, reg, rm, pos) =>
-        if reg == 6 then
-          let divisor := codeToReg64 rm rexB
-          .ok (div_r64 divisor, pos - offset)
-        else
-          .error "divTryDecode: 0xF7 sub-opcode is not DIV"
-    else
-      .error s!"divTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not DIV"
+  tryDecodeWithRules divDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions

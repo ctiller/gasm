@@ -680,257 +680,277 @@ theorem mov_mem64_disp_imm_sign_extension_soundness :
   decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the MOV/MOVZX family: `0xB8..0xBF` (MOV reg, imm — 32-bit or 64-bit
-    depending on REX.W), `0x88` (MOV byte ptr [mem], reg8), `0x89` (MOV r64, r64 or MOV
-    [base+disp], reg64), `0x8B` (MOV r64, [base+disp] when REX.W=1, or the fixed MOV r32,
-    [RSP+disp8] form when REX.W=0), `0xC6` (MOV byte ptr [RSP+disp8], imm8, RSP-only), `0xC7`
-    (MOV [mem], imm32, with the same RSP/R12 canonicalization `encode` uses), and `0x0F 0xB6`
-    (MOVZX r64, byte ptr [base+disp]). Preserves every soundness fix the original monolithic
-    branch carried (the 0x8B REX.W-conditioned width switch; SIB-base-4 deriving R12 via `rexB`
-    instead of hardcoding RSP for 0x88/0x89/0x8B/0xC7). Errors for any other byte pattern. -/
-def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, rexW, rexR, _, rexB, opcode, opOffset) =>
-    if opcode >= 0xB8 && opcode <= 0xBF then
-      let regCode := opcode - 0xB8
-      if rexW then
-        let dst := codeToReg64 regCode rexB
-        match readUInt64LE bytes opOffset with
-        | .error e => .error e
-        | .ok imm64 => .ok (mov_r64_imm64 dst imm64, (opOffset + 8) - offset)
-      else
-        let dst := codeToReg32 regCode rexB
-        match readUInt32LE bytes opOffset with
-        | .error e => .error e
-        | .ok imm32 => .ok (mov_r32 dst imm32, (opOffset + 4) - offset)
-    else if opcode == 0x88 then
-      match readModRM bytes opOffset with
+private def movImmRule (regCode : UInt8) : DecodeRule := {
+  opcode := .one (0xB8 + regCode),
+  builder := fun ctx =>
+    if ctx.rexW then
+      let dst := codeToReg64 regCode ctx.rexB
+      match readUInt64LE ctx.bytes ctx.opcodePos with
       | .error e => .error e
-      | .ok (mod, reg, rm, modPos) =>
-        let srcReg := codeToReg64 reg rexR
-        if mod == 0 && rm == 4 then
-          match readUInt8 bytes modPos with
+      | .ok imm64 => .ok (mov_r64_imm64 dst imm64, (ctx.opcodePos + 8) - ctx.startOffset)
+    else
+      let dst := codeToReg32 regCode ctx.rexB
+      match readUInt32LE ctx.bytes ctx.opcodePos with
+      | .error e => .error e
+      | .ok imm32 => .ok (mov_r32 dst imm32, (ctx.opcodePos + 4) - ctx.startOffset)
+}
+
+/-- Declarative decode rule for 0xC6 MOV (imm8 store). -/
+def movRuleC6 : DecodeRule := {
+  opcode := .one 0xC6,
+  builder := fun ctx =>
+    match ctx.modrm with
+    | none => .error "mov 0xC6: missing ModR/M byte"
+    | some m =>
+      if m.rm == 4 then
+        if ctx.rexB then
+          .error "movTryDecode: unsupported base register (R12 via REX.B) for 0xC6 MOV SIB form"
+        else
+          match readUInt8 ctx.bytes m.pos with
           | .error e => .error e
           | .ok _sib =>
-            let dstPtr := codeToReg64 4 rexB
-            .ok (mov_mem8 dstPtr srcReg, (modPos + 1) - offset)
-        else if mod == 1 && rm == 5 then
-          match readUInt8 bytes modPos with
+            let sibPos := m.pos + 1
+            if m.mod == 0 then
+              match readUInt8 ctx.bytes sibPos with
+              | .error e => .error e
+              | .ok val => .ok (mov_rsp_byte 0 val, (sibPos + 1) - ctx.startOffset)
+            else if m.mod == 1 then
+              match readUInt8 ctx.bytes sibPos with
+              | .error e => .error e
+              | .ok disp8 =>
+                match readUInt8 ctx.bytes (sibPos + 1) with
+                | .error e => .error e
+                | .ok val => .ok (mov_rsp_byte disp8 val, (sibPos + 2) - ctx.startOffset)
+            else
+              .error "movTryDecode: unsupported mod field for 0xC6 MOV"
+      else
+        .error "movTryDecode: unsupported non-RSP rm field for 0xC6 MOV"
+}
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Declarative decoding rules for the MOV/MOVZX family. -/
+def movDecodeRules : List DecodeRule := [
+  movImmRule 0,
+  movImmRule 1,
+  movImmRule 2,
+  movImmRule 3,
+  movImmRule 4,
+  movImmRule 5,
+  movImmRule 6,
+  movImmRule 7,
+  { opcode := .one 0x88,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "mov byte ptr: missing ModR/M byte"
+      | some m =>
+        let srcReg := codeToReg64 m.reg ctx.rexR
+        if m.mod == 0 && m.rm == 4 then
+          match readUInt8 ctx.bytes m.pos with
+          | .error e => .error e
+          | .ok _sib =>
+            let dstPtr := codeToReg64 4 ctx.rexB
+            .ok (mov_mem8 dstPtr srcReg, (m.pos + 1) - ctx.startOffset)
+        else if m.mod == 1 && m.rm == 5 then
+          match readUInt8 ctx.bytes m.pos with
           | .error e => .error e
           | .ok _disp =>
-            let dstPtr := codeToReg64 5 rexB
-            .ok (mov_mem8 dstPtr srcReg, (modPos + 1) - offset)
-        else if mod == 0 then
-          let dstPtr := codeToReg64 rm rexB
-          .ok (mov_mem8 dstPtr srcReg, modPos - offset)
+            let dstPtr := codeToReg64 5 ctx.rexB
+            .ok (mov_mem8 dstPtr srcReg, (m.pos + 1) - ctx.startOffset)
+        else if m.mod == 0 then
+          let dstPtr := codeToReg64 m.rm ctx.rexB
+          .ok (mov_mem8 dstPtr srcReg, m.pos - ctx.startOffset)
         else
           .error "movTryDecode: unsupported mod field for 0x88 MOV"
-    else if opcode == 0x89 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (mod, reg, rm, modPos) =>
-        if mod == 3 then
-          let dst := codeToReg64 rm rexB
-          let src := codeToReg64 reg rexR
-          .ok (mov_r64 dst src, modPos - offset)
-        else if mod == 0 then
-          let srcReg := codeToReg64 reg rexR
-          if rm == 4 then
-            match readUInt8 bytes modPos with
+  },
+  { opcode := .one 0x89,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "mov 0x89: missing ModR/M byte"
+      | some m =>
+        if m.mod == 3 then
+          let dst := codeToReg64 m.rm ctx.rexB
+          let src := codeToReg64 m.reg ctx.rexR
+          .ok (mov_r64 dst src, m.pos - ctx.startOffset)
+        else if m.mod == 0 then
+          let srcReg := codeToReg64 m.reg ctx.rexR
+          if m.rm == 4 then
+            match readUInt8 ctx.bytes m.pos with
             | .error e => .error e
             | .ok _sib =>
-              let basePtr := codeToReg64 4 rexB
-              .ok (mov_mem64_disp basePtr 0 srcReg, (modPos + 1) - offset)
+              let basePtr := codeToReg64 4 ctx.rexB
+              .ok (mov_mem64_disp basePtr 0 srcReg, (m.pos + 1) - ctx.startOffset)
           else
-            let basePtr := codeToReg64 rm rexB
-            .ok (mov_mem64_disp basePtr 0 srcReg, modPos - offset)
-        else if mod == 1 then
-          let srcReg := codeToReg64 reg rexR
-          if rm == 4 then
-            match readUInt8 bytes modPos with
+            let basePtr := codeToReg64 m.rm ctx.rexB
+            .ok (mov_mem64_disp basePtr 0 srcReg, m.pos - ctx.startOffset)
+        else if m.mod == 1 then
+          let srcReg := codeToReg64 m.reg ctx.rexR
+          if m.rm == 4 then
+            match readUInt8 ctx.bytes m.pos with
             | .error e => .error e
             | .ok _sib =>
-              match readUInt8 bytes (modPos + 1) with
+              match readUInt8 ctx.bytes (m.pos + 1) with
               | .error e => .error e
               | .ok disp8 =>
-                let basePtr := codeToReg64 4 rexB
-                .ok (mov_mem64_disp basePtr disp8 srcReg, (modPos + 2) - offset)
+                let basePtr := codeToReg64 4 ctx.rexB
+                .ok (mov_mem64_disp basePtr disp8 srcReg, (m.pos + 2) - ctx.startOffset)
           else
-            match readUInt8 bytes modPos with
+            match readUInt8 ctx.bytes m.pos with
             | .error e => .error e
             | .ok disp8 =>
-              let basePtr := codeToReg64 rm rexB
-              .ok (mov_mem64_disp basePtr disp8 srcReg, (modPos + 1) - offset)
+              let basePtr := codeToReg64 m.rm ctx.rexB
+              .ok (mov_mem64_disp basePtr disp8 srcReg, (m.pos + 1) - ctx.startOffset)
         else
           .error "movTryDecode: unsupported mod field for 0x89 MOV"
-    else if opcode == 0x8B then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (mod, reg, rm, modPos) =>
-        if rexW then
-          let dstReg := codeToReg64 reg rexR
-          if mod == 0 then
-            if rm == 4 then
-              match readUInt8 bytes modPos with
-              | .error e => .error e
-              | .ok _sib =>
-                let basePtr := codeToReg64 4 rexB
-                .ok (mov_reg64_mem64_disp dstReg basePtr 0, (modPos + 1) - offset)
-            else
-              let basePtr := codeToReg64 rm rexB
-              .ok (mov_reg64_mem64_disp dstReg basePtr 0, modPos - offset)
-          else if mod == 1 then
-            if rm == 4 then
-              match readUInt8 bytes modPos with
-              | .error e => .error e
-              | .ok _sib =>
-                match readUInt8 bytes (modPos + 1) with
-                | .error e => .error e
-                | .ok disp8 =>
-                  let basePtr := codeToReg64 4 rexB
-                  .ok (mov_reg64_mem64_disp dstReg basePtr disp8, (modPos + 2) - offset)
-            else
-              match readUInt8 bytes modPos with
+  },
+  { opcode := .one 0x8B,
+    rexW := some true,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "mov 0x8B: missing ModR/M byte"
+      | some m =>
+        let dstReg := codeToReg64 m.reg ctx.rexR
+        if m.mod == 0 then
+          if m.rm == 4 then
+            match readUInt8 ctx.bytes m.pos with
+            | .error e => .error e
+            | .ok _sib =>
+              let basePtr := codeToReg64 4 ctx.rexB
+              .ok (mov_reg64_mem64_disp dstReg basePtr 0, (m.pos + 1) - ctx.startOffset)
+          else
+            let basePtr := codeToReg64 m.rm ctx.rexB
+            .ok (mov_reg64_mem64_disp dstReg basePtr 0, m.pos - ctx.startOffset)
+        else if m.mod == 1 then
+          if m.rm == 4 then
+            match readUInt8 ctx.bytes m.pos with
+            | .error e => .error e
+            | .ok _sib =>
+              match readUInt8 ctx.bytes (m.pos + 1) with
               | .error e => .error e
               | .ok disp8 =>
-                let basePtr := codeToReg64 rm rexB
-                .ok (mov_reg64_mem64_disp dstReg basePtr disp8, (modPos + 1) - offset)
+                let basePtr := codeToReg64 4 ctx.rexB
+                .ok (mov_reg64_mem64_disp dstReg basePtr disp8, (m.pos + 2) - ctx.startOffset)
           else
-            .error "movTryDecode: unsupported mod field for 0x8B MOV"
+            match readUInt8 ctx.bytes m.pos with
+            | .error e => .error e
+            | .ok disp8 =>
+              let basePtr := codeToReg64 m.rm ctx.rexB
+              .ok (mov_reg64_mem64_disp dstReg basePtr disp8, (m.pos + 1) - ctx.startOffset)
         else
-          -- 32-bit form: the only encodable pattern is MovReg32RspDisp32's fixed [RSP + disp8]
-          -- SIB encoding (mod=1, rm=4, base=4), disp8 always present.
-          if mod == 1 && rm == 4 then
-            match readUInt8 bytes modPos with
+          .error "movTryDecode: unsupported mod field for 0x8B MOV"
+  },
+  { opcode := .one 0x8B,
+    rexW := some false,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "mov 0x8B: missing ModR/M byte"
+      | some m =>
+        if m.mod == 1 && m.rm == 4 then
+          match readUInt8 ctx.bytes m.pos with
+          | .error e => .error e
+          | .ok _sib =>
+            match readUInt8 ctx.bytes (m.pos + 1) with
             | .error e => .error e
-            | .ok _sib =>
-              match readUInt8 bytes (modPos + 1) with
-              | .error e => .error e
-              | .ok disp8 =>
-                let dstReg32 := codeToReg32 reg rexR
-                .ok (mov_r32_rsp dstReg32 disp8, (modPos + 2) - offset)
-          else
-            .error "movTryDecode: unsupported mod/rm field for 32-bit 0x8B MOV"
-    else if opcode == 0xC6 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (mod, _, rm, modPos) =>
-        if rm == 4 then
-          if rexB then
-            .error "movTryDecode: unsupported base register (R12 via REX.B) for 0xC6 MOV SIB form"
-          else
-            match readUInt8 bytes modPos with
-            | .error e => .error e
-            | .ok _sib =>
-              let sibPos := modPos + 1
-              if mod == 0 then
-                match readUInt8 bytes sibPos with
-                | .error e => .error e
-                | .ok val => .ok (mov_rsp_byte 0 val, (sibPos + 1) - offset)
-              else if mod == 1 then
-                match readUInt8 bytes sibPos with
-                | .error e => .error e
-                | .ok disp8 =>
-                  match readUInt8 bytes (sibPos + 1) with
-                  | .error e => .error e
-                  | .ok val => .ok (mov_rsp_byte disp8 val, (sibPos + 2) - offset)
-              else
-                .error "movTryDecode: unsupported mod field for 0xC6 MOV"
+            | .ok disp8 =>
+              let dstReg32 := codeToReg32 m.reg ctx.rexR
+              .ok (mov_r32_rsp dstReg32 disp8, (m.pos + 2) - ctx.startOffset)
         else
-          .error "movTryDecode: unsupported non-RSP rm field for 0xC6 MOV"
-    else if opcode == 0xC7 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (mod, _, rm, modPos) =>
-        if mod == 0 then
-          if rm == 4 then
-            match readUInt8 bytes modPos with
+          .error "movTryDecode: unsupported mod/rm field for 32-bit 0x8B MOV"
+  },
+  movRuleC6,
+
+  { opcode := .one 0xC7,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "mov 0xC7: missing ModR/M byte"
+      | some m =>
+        if m.mod == 0 then
+          if m.rm == 4 then
+            match readUInt8 ctx.bytes m.pos with
             | .error e => .error e
             | .ok _sib =>
-              let immPos := modPos + 1
-              match readUInt32LE bytes immPos with
+              let immPos := m.pos + 1
+              match readUInt32LE ctx.bytes immPos with
               | .error e => .error e
               | .ok imm32 =>
                 let pos := immPos + 4
-                if rexB then .ok (mov_mem64_disp_imm (codeToReg64 4 rexB) 0 imm32, pos - offset)
-                else if rexW then .ok (mov_rsp64 0 imm32, pos - offset)
-                else .ok (mov_rsp32 0 imm32, pos - offset)
+                if ctx.rexB then .ok (mov_mem64_disp_imm (codeToReg64 4 ctx.rexB) 0 imm32, pos - ctx.startOffset)
+                else if ctx.rexW then .ok (mov_rsp64 0 imm32, pos - ctx.startOffset)
+                else .ok (mov_rsp32 0 imm32, pos - ctx.startOffset)
           else
-            let basePtr := codeToReg64 rm rexB
-            match readUInt32LE bytes modPos with
+            let basePtr := codeToReg64 m.rm ctx.rexB
+            match readUInt32LE ctx.bytes m.pos with
             | .error e => .error e
-            | .ok imm32 => .ok (mov_mem64_disp_imm basePtr 0 imm32, (modPos + 4) - offset)
-        else if mod == 1 then
-          if rm == 4 then
-            match readUInt8 bytes modPos with
+            | .ok imm32 => .ok (mov_mem64_disp_imm basePtr 0 imm32, (m.pos + 4) - ctx.startOffset)
+        else if m.mod == 1 then
+          if m.rm == 4 then
+            match readUInt8 ctx.bytes m.pos with
             | .error e => .error e
             | .ok _sib =>
-              let dispPos := modPos + 1
-              match readUInt8 bytes dispPos with
+              let dispPos := m.pos + 1
+              match readUInt8 ctx.bytes dispPos with
               | .error e => .error e
               | .ok disp8 =>
                 let immPos := dispPos + 1
-                match readUInt32LE bytes immPos with
+                match readUInt32LE ctx.bytes immPos with
                 | .error e => .error e
                 | .ok imm32 =>
                   let pos := immPos + 4
-                  if rexB then .ok (mov_mem64_disp_imm (codeToReg64 4 rexB) disp8 imm32, pos - offset)
-                  else if rexW then .ok (mov_rsp64 disp8 imm32, pos - offset)
-                  else .ok (mov_rsp32 disp8 imm32, pos - offset)
+                  if ctx.rexB then .ok (mov_mem64_disp_imm (codeToReg64 4 ctx.rexB) disp8 imm32, pos - ctx.startOffset)
+                  else if ctx.rexW then .ok (mov_rsp64 disp8 imm32, pos - ctx.startOffset)
+                  else .ok (mov_rsp32 disp8 imm32, pos - ctx.startOffset)
           else
-            let basePtr := codeToReg64 rm rexB
-            match readUInt8 bytes modPos with
+            let basePtr := codeToReg64 m.rm ctx.rexB
+            match readUInt8 ctx.bytes m.pos with
             | .error e => .error e
             | .ok disp8 =>
-              let immPos := modPos + 1
-              match readUInt32LE bytes immPos with
+              let immPos := m.pos + 1
+              match readUInt32LE ctx.bytes immPos with
               | .error e => .error e
-              | .ok imm32 => .ok (mov_mem64_disp_imm basePtr disp8 imm32, (immPos + 4) - offset)
+              | .ok imm32 => .ok (mov_mem64_disp_imm basePtr disp8 imm32, (immPos + 4) - ctx.startOffset)
         else
           .error "movTryDecode: unsupported mod field for 0xC7 MOV"
-    else if opcode == 0x0F then
-      match readUInt8 bytes opOffset with
-      | .error e => .error e
-      | .ok op2 =>
-        if op2 == 0xB6 then
-          match readModRM bytes (opOffset + 1) with
-          | .error e => .error e
-          | .ok (mod, reg, rm, modPos) =>
-            let dstReg := codeToReg64 reg rexR
-            if mod == 0 then
-              if rm == 4 then
-                match readUInt8 bytes modPos with
-                | .error e => .error e
-                | .ok _sib =>
-                  let basePtr := codeToReg64 4 rexB
-                  .ok (movzx_r64_mem8 dstReg basePtr 0, (modPos + 1) - offset)
-              else
-                let basePtr := codeToReg64 rm rexB
-                .ok (movzx_r64_mem8 dstReg basePtr 0, modPos - offset)
-            else if mod == 1 then
-              if rm == 4 then
-                match readUInt8 bytes modPos with
-                | .error e => .error e
-                | .ok _sib =>
-                  match readUInt8 bytes (modPos + 1) with
-                  | .error e => .error e
-                  | .ok disp8 =>
-                    let basePtr := codeToReg64 4 rexB
-                    .ok (movzx_r64_mem8 dstReg basePtr disp8, (modPos + 2) - offset)
-              else
-                match readUInt8 bytes modPos with
-                | .error e => .error e
-                | .ok disp8 =>
-                  let basePtr := codeToReg64 rm rexB
-                  .ok (movzx_r64_mem8 dstReg basePtr disp8, (modPos + 1) - offset)
-            else
-              .error "movTryDecode: unsupported mod field for 0F B6 MOVZX"
+  },
+  { opcode := .two0F 0xB6,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "movzx: missing ModR/M byte"
+      | some m =>
+        let dstReg := codeToReg64 m.reg ctx.rexR
+        if m.mod == 0 then
+          if m.rm == 4 then
+            match readUInt8 ctx.bytes m.pos with
+            | .error e => .error e
+            | .ok _sib =>
+              let basePtr := codeToReg64 4 ctx.rexB
+              .ok (movzx_r64_mem8 dstReg basePtr 0, (m.pos + 1) - ctx.startOffset)
+          else
+            let basePtr := codeToReg64 m.rm ctx.rexB
+            .ok (movzx_r64_mem8 dstReg basePtr 0, m.pos - ctx.startOffset)
+        else if m.mod == 1 then
+          if m.rm == 4 then
+            match readUInt8 ctx.bytes m.pos with
+            | .error e => .error e
+            | .ok _sib =>
+              match readUInt8 ctx.bytes (m.pos + 1) with
+              | .error e => .error e
+              | .ok disp8 =>
+                let basePtr := codeToReg64 4 ctx.rexB
+                .ok (movzx_r64_mem8 dstReg basePtr disp8, (m.pos + 2) - ctx.startOffset)
+          else
+            match readUInt8 ctx.bytes m.pos with
+            | .error e => .error e
+            | .ok disp8 =>
+              let basePtr := codeToReg64 m.rm ctx.rexB
+              .ok (movzx_r64_mem8 dstReg basePtr disp8, (m.pos + 1) - ctx.startOffset)
         else
-          .error "movTryDecode: 0x0F sub-opcode is not MOVZX"
-    else
-      .error s!"movTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not MOV"
+          .error "movTryDecode: unsupported mod field for 0F B6 MOVZX"
+  }
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the MOV/MOVZX family, evaluating its declarative rules. -/
+def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
+  tryDecodeWithRules movDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions
 

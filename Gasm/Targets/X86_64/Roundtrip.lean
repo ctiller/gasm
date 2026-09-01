@@ -40,7 +40,6 @@ import Gasm.Targets.X86_64.Instructions.Cmov
 import Gasm.Targets.X86_64.Instructions.Call
 import Gasm.Targets.X86_64.Instructions.Ret
 import Gasm.Targets.X86_64.Decoder
-import Gasm.Targets.X86_64.DecoderRouting
 import Gasm.Targets.X86_64.Assembler
 
 namespace Gasm.Targets.X86_64.Roundtrip
@@ -82,71 +81,82 @@ theorem roundtrip_ja_rel8 : ∀ d : UInt8, DecodesTo (ja_rel8 d) := by intro d; 
 /-- Universal: JBE rel8 (0x76) decodes back for every displacement byte (same rationale as JA rel8). -/
 theorem roundtrip_jbe_rel8 : ∀ d : UInt8, DecodesTo (jbe_rel8 d) := by intro d; rfl
 
-private def decodersBeforeMov :
-    List (ByteArray → Nat → Except String (AnyX86_64Instruction × Nat)) :=
-  [retTryDecode, pushTryDecode, popTryDecode, jccTryDecode]
-
-private def decodersAfterMov :
-    List (ByteArray → Nat → Except String (AnyX86_64Instruction × Nat)) :=
-  [callTryDecode, syscallTryDecode, imulTryDecode, cmovTryDecode, addTryDecode,
-   orTryDecode, andTryDecode, subTryDecode, xorTryDecode, cmpTryDecode, testTryDecode,
-   xchgTryDecode, leaTryDecode, shiftTryDecode, notTryDecode, negTryDecode, divTryDecode,
-   inTryDecode, outTryDecode, hltTryDecode]
-
-private theorem decodersBeforeMov_reject_c6 (bytes : ByteArray)
-    (parsed : parseRexAndOpcode bytes 0 =
-      .ok (false, false, false, false, false, 0xC6, 1)) :
-    ∀ decoder ∈ decodersBeforeMov, DecoderRouting.RejectsAt decoder bytes 0 := by
-  intro decoder member
-  simp only [decodersBeforeMov, List.mem_cons, List.not_mem_nil, or_false] at member
-  rcases member with rfl | rfl | rfl | rfl
-  all_goals
-    simp [DecoderRouting.RejectsAt, retTryDecode, pushTryDecode, popTryDecode,
-      jccTryDecode, parsed]
 
 private theorem decode_mov_rsp_byte_zero (val : UInt8) :
     decodeX86_64Instr (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
       .ok (mov_rsp_byte 0 val, 4) := by
-  have parsed : parseRexAndOpcode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
-      .ok (false, false, false, false, false, 0xC6, 1) := by
-    rfl
-  have hlocal : movTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
-      .ok (mov_rsp_byte 0 val, 4) := by
-    unfold movTryDecode
-    rw [parsed]
-    simp only
-    rw [show readModRM (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 1 =
-      .ok (0, 0, 4, 2) by
-        unfold readModRM
-        rw [show readUInt8 (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 1 = .ok 0x04 by rfl]
-        change Except.ok ((extractModRM 0x04).1, (extractModRM 0x04).2.1,
-          (extractModRM 0x04).2.2, 2) = .ok (0, 0, 4, 2)
-        rw [show extractModRM 0x04 = (0, 0, 4) by decide]]
-    rfl
-  exact DecoderRouting.decode_of_registered_success decodersBeforeMov decodersAfterMov
-    movTryDecode _ 0 _ (by rfl) (decodersBeforeMov_reject_c6 _ parsed) hlocal
+  have h0 : readUInt8 (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 = .ok 0xC6 := rfl
+  have h1 : readUInt8 (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 1 = .ok 0x04 := rfl
+  have h0x66 : ((0xC6 : UInt8) == 0x66) = false := by decide
+  have hrex : isRex 0xC6 = false := by decide
+  have hop0F : ((0xC6 : UInt8) == 0x0F) = false := by decide
+  have hmodrm : extractModRM 0x04 = (0, 0, 4) := by decide
+  have hctx : extractContext (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
+      .ok {
+        bytes := ByteArray.mk #[0xC6, 0x04, 0x24, val],
+        startOffset := 0,
+        has0x66 := false,
+        hasRex := false,
+        rexW := false,
+        rexR := false,
+        rexX := false,
+        rexB := false,
+        opcode := .one 0xC6,
+        opcodePos := 1,
+        modrm := some ⟨0, 0, 4, 2⟩
+      } := by
+    unfold extractContext
+    simp only [h0, h0x66, hrex, hop0F, h1, hmodrm, bind, Except.bind, pure, Except.pure,
+               Bool.false_eq_true, ite_false, Nat.zero_add]
+  have hdisp : dispatchOpcode (.one 0xC6) = [movRuleC6] := rfl
+  unfold decodeX86_64Instr decodeWithTable
+  rw [hctx]
+  dsimp only
+  rw [hdisp]
+  dsimp only [evalDecodeRules, movRuleC6, DecodeRule.matches]
+  rw [show readUInt8 (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 2 = .ok 0x24 by rfl]
+  dsimp only
+  rw [show readUInt8 (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 3 = .ok val by rfl]
+  rfl
 
 private theorem decode_mov_rsp_byte_disp (disp val : UInt8) :
     decodeX86_64Instr (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
       .ok (mov_rsp_byte disp val, 5) := by
-  have parsed : parseRexAndOpcode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
-      .ok (false, false, false, false, false, 0xC6, 1) := by
-    rfl
-  have hlocal : movTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
-      .ok (mov_rsp_byte disp val, 5) := by
-    unfold movTryDecode
-    rw [parsed]
-    simp only
-    rw [show readModRM (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 1 =
-      .ok (1, 0, 4, 2) by
-        unfold readModRM
-        rw [show readUInt8 (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 1 = .ok 0x44 by rfl]
-        change Except.ok ((extractModRM 0x44).1, (extractModRM 0x44).2.1,
-          (extractModRM 0x44).2.2, 2) = .ok (1, 0, 4, 2)
-        rw [show extractModRM 0x44 = (1, 0, 4) by decide]]
-    rfl
-  exact DecoderRouting.decode_of_registered_success decodersBeforeMov decodersAfterMov
-    movTryDecode _ 0 _ (by rfl) (decodersBeforeMov_reject_c6 _ parsed) hlocal
+  have h0 : readUInt8 (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 = .ok 0xC6 := rfl
+  have h1 : readUInt8 (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 1 = .ok 0x44 := rfl
+  have h0x66 : ((0xC6 : UInt8) == 0x66) = false := by decide
+  have hrex : isRex 0xC6 = false := by decide
+  have hop0F : ((0xC6 : UInt8) == 0x0F) = false := by decide
+  have hmodrm : extractModRM 0x44 = (1, 0, 4) := by decide
+  have hctx : extractContext (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
+      .ok {
+        bytes := ByteArray.mk #[0xC6, 0x44, 0x24, disp, val],
+        startOffset := 0,
+        has0x66 := false,
+        hasRex := false,
+        rexW := false,
+        rexR := false,
+        rexX := false,
+        rexB := false,
+        opcode := .one 0xC6,
+        opcodePos := 1,
+        modrm := some ⟨1, 0, 4, 2⟩
+      } := by
+    unfold extractContext
+    simp only [h0, h0x66, hrex, hop0F, h1, hmodrm, bind, Except.bind, pure, Except.pure,
+               Bool.false_eq_true, ite_false, Nat.zero_add]
+  have hdisp : dispatchOpcode (.one 0xC6) = [movRuleC6] := rfl
+  unfold decodeX86_64Instr decodeWithTable
+  rw [hctx]
+  dsimp only
+  rw [hdisp]
+  dsimp only [evalDecodeRules, movRuleC6, DecodeRule.matches]
+  rw [show readUInt8 (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 2 = .ok 0x24 by rfl]
+  dsimp only
+  rw [show readUInt8 (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 3 = .ok disp by rfl]
+  dsimp only
+  rw [show readUInt8 (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 4 = .ok val by rfl]
+  rfl
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
 /-- Universal production-decoder roundtrip for the byte-store form selected by the checked

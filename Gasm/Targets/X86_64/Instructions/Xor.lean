@@ -87,21 +87,22 @@ theorem xor_r32_self_step_gpr (dst : Reg32) (state : X86_64MachineState) :
   exact XorR32R32.step_self_gpr dst _
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the XOR family: `0x31` (XOR r32, r32). Errors for any other byte
-    pattern. -/
+/-- Declarative decoding rules for the XOR family: `0x31` (XOR r32, r32). -/
+def xorDecodeRules : List DecodeRule := [
+  { opcode := .one 0x31,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "xor_r32: missing ModR/M byte"
+      | some m =>
+        let dst := codeToReg32 m.rm ctx.rexB
+        let src := codeToReg32 m.reg ctx.rexR
+        .ok (xor_r32 dst src, m.pos - ctx.startOffset)
+  }
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the XOR family, evaluating its declarative rules. -/
 def xorTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, rexR, _, rexB, opcode, opOffset) =>
-    if opcode == 0x31 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (_, reg, rm, pos) =>
-        let dst := codeToReg32 rm rexB
-        let src := codeToReg32 reg rexR
-        .ok (xor_r32 dst src, pos - offset)
-    else
-      .error s!"xorTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not XOR"
+  tryDecodeWithRules xorDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions

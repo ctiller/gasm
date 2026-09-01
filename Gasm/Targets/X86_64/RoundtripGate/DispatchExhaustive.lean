@@ -82,7 +82,7 @@ theorem callFamily_dispatchReachable : callFamilyCases.all (decodesOk decodeX86_
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem cmovFamily_dispatchReachable : cmovFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
-  set_option maxRecDepth 8000 in decide
+  set_option maxRecDepth 1000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem cmpFamily_dispatchReachable : cmpFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
@@ -107,7 +107,7 @@ theorem leaFamily_dispatchReachable : leaFamilyCases.all (decodesOk decodeX86_64
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem movFamily_dispatchReachable : movFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
-  set_option maxRecDepth 8000 in decide
+  set_option maxRecDepth 2000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem negFamily_dispatchReachable : negFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide

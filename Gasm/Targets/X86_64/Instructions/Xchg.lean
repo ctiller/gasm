@@ -73,21 +73,22 @@ def xchg_r64 (dst src : Reg64) : AnyX86_64Instruction :=
   ⟨XchgR64R64.mk dst src⟩
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the XCHG family: `0x87` (XCHG r64, r64). Errors for any other byte
-    pattern. -/
+/-- Declarative decoding rules for the XCHG family: `0x87` (XCHG r64, r64). -/
+def xchgDecodeRules : List DecodeRule := [
+  { opcode := .one 0x87,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "xchg_r64: missing ModR/M byte"
+      | some m =>
+        let dst := codeToReg64 m.rm ctx.rexB
+        let src := codeToReg64 m.reg ctx.rexR
+        .ok (xchg_r64 dst src, m.pos - ctx.startOffset)
+  }
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the XCHG family, evaluating its declarative rules. -/
 def xchgTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, rexR, _, rexB, opcode, opOffset) =>
-    if opcode == 0x87 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (_, reg, rm, pos) =>
-        let dst := codeToReg64 rm rexB
-        let src := codeToReg64 reg rexR
-        .ok (xchg_r64 dst src, pos - offset)
-    else
-      .error s!"xchgTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not XCHG"
+  tryDecodeWithRules xchgDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions

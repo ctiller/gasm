@@ -53,12 +53,16 @@ def hlt_op : AnyX86_64Instruction :=
   ⟨HltOp.mk⟩
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the HLT family: `0xF4`. Errors for any other byte pattern. -/
+/-- Declarative decoding rules for the HLT family: `0xF4`. -/
+def hltDecodeRules : List DecodeRule := [
+  { opcode := .one 0xF4,
+    builder := fun ctx => .ok (hlt_op, ctx.opcodePos - ctx.startOffset)
+  }
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the HLT family, evaluating its declarative rules. -/
 def hltTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, _, _, _, opcode, pos) =>
-    if opcode == 0xF4 then .ok (hlt_op, pos - offset)
-    else .error s!"hltTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not HLT"
+  tryDecodeWithRules hltDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions

@@ -84,13 +84,16 @@ theorem ret_op_step_memory (state : X86_64MachineState) :
   rfl
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the RET family: `0xC3` (unconditional near RET). Errors for any other
-    byte pattern. -/
+/-- Declarative decoding rules for the RET family: `0xC3` (unconditional near RET). -/
+def retDecodeRules : List DecodeRule := [
+  { opcode := .one 0xC3,
+    builder := fun ctx => .ok (ret_op, ctx.opcodePos - ctx.startOffset)
+  }
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the RET family, evaluating its declarative rules. -/
 def retTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, _, _, _, opcode, pos) =>
-    if opcode == 0xC3 then .ok (ret_op, pos - offset)
-    else .error s!"retTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not RET"
+  tryDecodeWithRules retDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions

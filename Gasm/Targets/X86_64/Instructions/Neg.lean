@@ -57,23 +57,22 @@ def neg_r64 (dst : Reg64) : AnyX86_64Instruction :=
   ⟨NegR64.mk dst⟩
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-/-- Co-located decoder for the NEG family: `0xF7 /3` (the Group 3 opcode NEG shares with
-    TEST/NOT/DIV, disambiguated by ModR/M.reg). Errors for any other byte pattern. -/
+/-- Declarative decoding rules for the NEG family: `0xF7 /3` (NEG r64). -/
+def negDecodeRules : List DecodeRule := [
+  { opcode := .one 0xF7,
+    modrmReg := some 3,
+    builder := fun ctx =>
+      match ctx.modrm with
+      | none => .error "neg_r64: missing ModR/M byte"
+      | some m =>
+        let dst := codeToReg64 m.rm ctx.rexB
+        .ok (neg_r64 dst, m.pos - ctx.startOffset)
+  }
+]
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Co-located decoder for the NEG family, evaluating its declarative rules. -/
 def negTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
-  -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
-  | .error e => .error e
-  | .ok (_, _, _, _, rexB, opcode, opOffset) =>
-    if opcode == 0xF7 then
-      match readModRM bytes opOffset with
-      | .error e => .error e
-      | .ok (_, reg, rm, pos) =>
-        if reg == 3 then
-          let dst := codeToReg64 rm rexB
-          .ok (neg_r64 dst, pos - offset)
-        else
-          .error "negTryDecode: 0xF7 sub-opcode is not NEG"
-    else
-      .error s!"negTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} is not NEG"
+  tryDecodeWithRules negDecodeRules bytes offset
 
 end Gasm.Targets.X86_64.Instructions
