@@ -25,11 +25,18 @@ open Gasm.Targets.X86_64.Instructions
 /-- Every `roundtripCases` witness for the TEST family, lifted into the open existential wrapper. -/
 def testFamilyCases : List AnyX86_64Instruction :=
   ((X86_64Instruction.roundtripCases : List TestR64R64).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
-  ((X86_64Instruction.roundtripCases : List TestR64Imm32).map fun i => (⟨i⟩ : AnyX86_64Instruction))
+  ((X86_64Instruction.roundtripCases : List TestR64Imm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List TestR32R32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List TestR32Imm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List TestR16R16).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List TestR16Imm16).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List TestR8R8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List TestR8Imm8).map fun i => (⟨i⟩ : AnyX86_64Instruction))
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the TEST family: every `roundtripCases` witness decodes back. -/
-theorem testFamily_roundtripGate : testFamilyCases.all (decodesOk testTryDecode) = true := by decide
+theorem testFamily_roundtripGate : testFamilyCases.all (decodesOk testTryDecode) = true := by
+  set_option maxRecDepth 8000 in decide
 
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/

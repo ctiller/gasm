@@ -143,23 +143,29 @@ theorem call_rel32_step_return_slot (disp : Int32) (state : X86_64MachineState) 
 /-- Declarative decoding rules for the CALL family: `0xE8` (CALL rel32) and `0xFF /2` with `0x15` ModR/M byte (indirect `CALL [RIP + disp32]`). -/
 def callDecodeRules : List DecodeRule := [
   { opcode := .one 0xE8,
+    has0x66 := some false,
     builder := fun ctx =>
-      match readInt32LE ctx.bytes ctx.opcodePos with
-      | .error e => .error e
-      | .ok disp32 => .ok (call_rel32 disp32, (ctx.opcodePos + 4) - ctx.startOffset)
+      if ctx.hasRex then .error "callTryDecode: noncanonical REX prefix for CALL"
+      else
+        match readInt32LE ctx.bytes ctx.opcodePos with
+        | .error e => .error e
+        | .ok disp32 => .ok (call_rel32 disp32, (ctx.opcodePos + 4) - ctx.startOffset)
   },
   { opcode := .one 0xFF,
+    has0x66 := some false,
     modrmReg := some 2,
     builder := fun ctx =>
-      match ctx.modrm with
-      | none => .error "call_rip: missing ModR/M byte"
-      | some m =>
-        if m.mod == 0 && m.rm == 5 then
-          match readInt32LE ctx.bytes m.pos with
-          | .error e => .error e
-          | .ok disp32 => .ok (call_rip disp32, (m.pos + 4) - ctx.startOffset)
-        else
-          .error "callTryDecode: unsupported ModR/M for 0xFF CALL"
+      if ctx.hasRex then .error "callTryDecode: noncanonical REX prefix for CALL"
+      else
+        match ctx.modrm with
+        | none => .error "call_rip: missing ModR/M byte"
+        | some m =>
+          if m.mod == 0 && m.rm == 5 then
+            match readInt32LE ctx.bytes m.pos with
+            | .error e => .error e
+            | .ok disp32 => .ok (call_rip disp32, (m.pos + 4) - ctx.startOffset)
+          else
+            .error "callTryDecode: unsupported ModR/M for 0xFF CALL"
   }
 ]
 

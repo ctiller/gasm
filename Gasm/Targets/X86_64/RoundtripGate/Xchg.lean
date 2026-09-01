@@ -24,11 +24,16 @@ open Gasm.Targets.X86_64.Instructions
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Every `roundtripCases` witness for the XCHG family, lifted into the open existential wrapper. -/
 def xchgFamilyCases : List AnyX86_64Instruction :=
-  (X86_64Instruction.roundtripCases : List XchgR64R64).map fun i => (⟨i⟩ : AnyX86_64Instruction)
+  ((X86_64Instruction.roundtripCases : List XchgR64R64).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List XchgR32R32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List XchgR16R16).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List XchgR8R8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List NopOp).map fun i => (⟨i⟩ : AnyX86_64Instruction))
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the XCHG family: every `roundtripCases` witness decodes back. -/
-theorem xchgFamily_roundtripGate : xchgFamilyCases.all (decodesOk xchgTryDecode) = true := by decide
+theorem xchgFamily_roundtripGate : xchgFamilyCases.all (decodesOk xchgTryDecode) = true := by
+  set_option maxRecDepth 8000 in decide
 
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/

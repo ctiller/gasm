@@ -70,48 +70,48 @@ def allDecodeRules : List DecodeRule :=
     with minimal recursion depth. -/
 def dispatchOpcode (op : DecodeOpcode) : List DecodeRule :=
   match op with
-  | .one 0x01 => addDecodeRules.filter (·.opcode == op)
-  | .one 0x09 => orDecodeRules.filter (·.opcode == op)
-  | .one 0x21 => andDecodeRules.filter (·.opcode == op)
-  | .one 0x29 => subDecodeRules.filter (·.opcode == op)
-  | .one 0x31 => xorDecodeRules.filter (·.opcode == op)
-  | .one 0x39 => cmpDecodeRules.filter (·.opcode == op)
+  | .one 0x00 | .one 0x01 => addDecodeRules.filter (·.opcode == op)
+  | .one 0x08 | .one 0x09 => orDecodeRules.filter (·.opcode == op)
+  | .one 0x20 | .one 0x21 => andDecodeRules.filter (·.opcode == op)
+  | .one 0x28 | .one 0x29 => subDecodeRules.filter (·.opcode == op)
+  | .one 0x30 | .one 0x31 => xorDecodeRules.filter (·.opcode == op)
+  | .one 0x38 | .one 0x39 => cmpDecodeRules.filter (·.opcode == op)
   | .one 0x50 | .one 0x51 | .one 0x52 | .one 0x53
   | .one 0x54 | .one 0x55 | .one 0x56 | .one 0x57 =>
     pushDecodeRules.filter (·.opcode == op)
   | .one 0x58 | .one 0x59 | .one 0x5A | .one 0x5B
   | .one 0x5C | .one 0x5D | .one 0x5E | .one 0x5F =>
     popDecodeRules.filter (·.opcode == op)
+  | .one 0x69 | .one 0x6B => imulDecodeRules.filter (·.opcode == op)
   | .one 0x72 | .one 0x73 | .one 0x74 | .one 0x75
   | .one 0x76 | .one 0x77 | .one 0x7C | .one 0x7D
   | .one 0x7E | .one 0x7F | .one 0xEB | .one 0xE9 =>
     jccDecodeRules.filter (·.opcode == op)
-  | .one 0x81 =>
-    addDecodeRules.filter (·.opcode == op) ++
-    orDecodeRules.filter (·.opcode == op) ++
-    subDecodeRules.filter (·.opcode == op) ++
-    cmpDecodeRules.filter (·.opcode == op)
-  | .one 0x83 =>
+  | .one 0x80 | .one 0x81 | .one 0x83 =>
     addDecodeRules.filter (·.opcode == op) ++
     orDecodeRules.filter (·.opcode == op) ++
     andDecodeRules.filter (·.opcode == op) ++
     subDecodeRules.filter (·.opcode == op) ++
+    xorDecodeRules.filter (·.opcode == op) ++
     cmpDecodeRules.filter (·.opcode == op)
-  | .one 0x85 => testDecodeRules.filter (·.opcode == op)
-  | .one 0x87 => xchgDecodeRules.filter (·.opcode == op)
-  | .one 0x88 | .one 0x89 | .one 0x8B
+  | .one 0x84 | .one 0x85 => testDecodeRules.filter (·.opcode == op)
+  | .one 0x86 | .one 0x87 | .one 0x90 => xchgDecodeRules.filter (·.opcode == op)
+  | .one 0x88 | .one 0x89 | .one 0x8A | .one 0x8B
+  | .one 0xB0 | .one 0xB1 | .one 0xB2 | .one 0xB3
+  | .one 0xB4 | .one 0xB5 | .one 0xB6 | .one 0xB7
   | .one 0xB8 | .one 0xB9 | .one 0xBA | .one 0xBB
   | .one 0xBC | .one 0xBD | .one 0xBE | .one 0xBF
   | .one 0xC7 => movDecodeRules.filter (·.opcode == op)
   | .one 0xC6 => [movRuleC6]
   | .one 0x8D => leaDecodeRules.filter (·.opcode == op)
-  | .one 0xC1 | .one 0xD3 => shiftDecodeRules.filter (·.opcode == op)
+  | .one 0xC0 | .one 0xC1 | .one 0xD0 | .one 0xD1 | .one 0xD2 | .one 0xD3 =>
+    shiftDecodeRules.filter (·.opcode == op)
   | .one 0xC3 => retDecodeRules.filter (·.opcode == op)
   | .one 0xE4 | .one 0xE5 | .one 0xEC | .one 0xED => inDecodeRules.filter (·.opcode == op)
   | .one 0xE6 | .one 0xE7 | .one 0xEE | .one 0xEF => outDecodeRules.filter (·.opcode == op)
   | .one 0xE8 | .one 0xFF => callDecodeRules.filter (·.opcode == op)
   | .one 0xF4 => hltDecodeRules.filter (·.opcode == op)
-  | .one 0xF7 =>
+  | .one 0xF6 | .one 0xF7 =>
     testDecodeRules.filter (·.opcode == op) ++
     notDecodeRules.filter (·.opcode == op) ++
     negDecodeRules.filter (·.opcode == op) ++

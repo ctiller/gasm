@@ -32,6 +32,57 @@ def callFamilyCases : List AnyX86_64Instruction :=
     (`CallRel32` / `call_rel32`) this change added a decoder branch for. -/
 theorem callFamily_roundtripGate : callFamilyCases.all (decodesOk callTryDecode) = true := by decide
 
+private def callDecodesExactlyAs (bytes : ByteArray) (expected : AnyX86_64Instruction) : Bool :=
+  match callTryDecode bytes 0 with
+  | .ok (decoded, consumed) =>
+      consumed == bytes.size &&
+        X86_64Instruction.encode decoded == bytes &&
+        X86_64Instruction.toLean decoded == X86_64Instruction.toLean expected
+  | .error _ => false
+
+private def callDecodeRejects (bytes : ByteArray) : Bool :=
+  match callTryDecode bytes 0 with
+  | .ok _ => false
+  | .error _ => true
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- Direct and fixed RIP-relative calls recover their exact selected identities at zero and both
+    signed-disp32 endpoints, with full consumption and byte-for-byte re-encoding. -/
+theorem call_canonical_reverse_controls :
+    [(ByteArray.mk #[0xE8, 0, 0, 0, 0], call_rel32 0),
+     (ByteArray.mk #[0xE8, 0xFF, 0xFF, 0xFF, 0x7F], call_rel32 0x7FFFFFFF),
+     (ByteArray.mk #[0xE8, 0, 0, 0, 0x80], call_rel32 (-0x80000000)),
+     (ByteArray.mk #[0xFF, 0x15, 0, 0, 0, 0], call_rip 0),
+     (ByteArray.mk #[0xFF, 0x15, 0xFF, 0xFF, 0xFF, 0x7F], call_rip 0x7FFFFFFF),
+     (ByteArray.mk #[0xFF, 0x15, 0, 0, 0, 0x80], call_rip (-0x80000000))].all
+      (fun pair => callDecodesExactlyAs pair.1 pair.2) = true := by
+  decide
+
+/- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+/-- CALL has no selected REX-prefixed identity. The fixed indirect form admits only literal
+    `FF 15`; other group extensions, register/address forms, prefixes, and truncations reject. -/
+theorem call_hostile_bytes_rejected :
+    [ByteArray.mk #[0x40, 0xE8, 0, 0, 0, 0],
+     ByteArray.mk #[0x41, 0xE8, 0, 0, 0, 0],
+     ByteArray.mk #[0x48, 0xE8, 0, 0, 0, 0],
+     ByteArray.mk #[0x4F, 0xE8, 0, 0, 0, 0],
+     ByteArray.mk #[0x40, 0x40, 0xE8, 0, 0, 0, 0],
+     ByteArray.mk #[0x66, 0xE8, 0, 0, 0, 0],
+     ByteArray.mk #[0x40, 0xFF, 0x15, 0, 0, 0, 0],
+     ByteArray.mk #[0x41, 0xFF, 0x15, 0, 0, 0, 0],
+     ByteArray.mk #[0x48, 0xFF, 0x15, 0, 0, 0, 0],
+     ByteArray.mk #[0x4F, 0xFF, 0x15, 0, 0, 0, 0],
+     ByteArray.mk #[0xFF, 0x05, 0, 0, 0, 0],
+     ByteArray.mk #[0xFF, 0x1D, 0, 0, 0, 0],
+     ByteArray.mk #[0xFF, 0xD0],
+     ByteArray.mk #[0xFF, 0x14, 0x24],
+     ByteArray.mk #[0xFF, 0x55, 0x00],
+     ByteArray.mk #[0xE8],
+     ByteArray.mk #[0xE8, 0, 0, 0],
+     ByteArray.mk #[0xFF],
+     ByteArray.mk #[0xFF, 0x15, 0, 0, 0]].all callDecodeRejects = true := by
+  decide
+
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- In-bucket exclusivity for the CALL family: no two of this family's own byte patterns

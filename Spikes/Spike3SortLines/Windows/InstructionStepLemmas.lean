@@ -106,14 +106,15 @@ theorem step_mov_reg64_mem64_disp (dstReg basePtr : Reg64) (disp : UInt8) (s : X
 -- MH1 (docs/MEMORY_HOOK.md): the raw `memory : Address -> Byte` field is sealed behind
 -- X86_64Memory; `s.memory a` no longer type-checks. `step_mov_r32_rsp`/`step_mov_rsp64` are
 -- restated against the width-indexed hook API the corresponding `step` definitions
--- (`Gasm/Targets/X86_64/Instructions/Mov.lean`'s `MovReg32RspDisp32`/`MovRspDispImm64`) were
+-- (`Gasm/Targets/X86_64/Instructions/Mov.lean`'s `MovReg32Mem32Disp`/`MovRspDispImm64`) were
 -- themselves migrated onto, so both remain `rfl` (MovRspDispImm64's single `write64` call of the
 -- pre-sign-extended value is byte-identical to the old 8-byte inline ladder this theorem used to
 -- assert -- see that instance's own comment).
 theorem step_mov_r32_rsp (dstReg : Reg32) (disp : UInt8) (s : X86_64MachineState) :
     X86_64Instruction.step (mov_r32_rsp dstReg disp) s =
       { s.setGpr32 dstReg (s.read32 (s.rsp + signExtend8To64 disp)).toUInt32 with
-        rip := s.rip + (4 + (if (reg32Code dstReg).2 then 1 else 0)) } := rfl
+        rip := s.rip +
+          (movReg32Mem32DispEncodedLength ⟨dstReg, .rsp, disp⟩).toUInt64 } := rfl
 
 /- REF: docs/PATHFINDER_CRC32.md -/
 theorem step_mov_rsp64 (disp : UInt8) (imm : UInt32) (s : X86_64MachineState) :

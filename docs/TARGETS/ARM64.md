@@ -894,8 +894,8 @@ gate first.
   2026-08-28) as the single chokepoint for Law 11 permission-checking and the performance
   model's latency/cache accounting. *(Updated 2026-08-28: MH1 has landed since this section
   was written — the field is live on the typeclass at
-  `Gasm/Targets/X86_64/Instructions/Base.lean:66`, and 74 forms declare `memAccesses _ := []`
-  while 14 declare real accesses.)* The mandatory class field remains x86-only.
+  `Gasm/Targets/X86_64/Instructions/Base.lean:66`, and every registered x86 form must declare
+  its access list explicitly.)* The mandatory class field remains x86-only.
   `Gasm/Targets/AArch64/Addressing.lean` now defines `AArch64MemAccessSpec`, but
   `AArch64Instruction` does not require an access list, so omission is still possible and no
   dynamic event projection exists. **Status**: the target-generic event/projection contract is
@@ -1327,18 +1327,17 @@ actually in the tree, verified rather than quoted from the design:
 - `MemAccessKind` (`load`/`store`), `MemWidth`, `MemRef`, `MemAccessSpec`, and the footprint
   functions (`Gasm/Targets/X86_64/MemoryCell.lean:41-43`, `Gasm/Targets/X86_64/Memory.lean:49-105`).
 - `memAccesses : ι → List MemAccessSpec` on the instruction class with **no default**
-  (`Gasm/Targets/X86_64/Instructions/Base.lean:66`) — 74 forms declare `memAccesses _ := []`,
-  14 declare real accesses; 74 + 14 = the 88 forms.
+  (`Gasm/Targets/X86_64/Instructions/Base.lean:66`), requiring every registered form to state
+  whether and how it accesses memory.
 - `WritesWithin`/`ReadsWithin` obligations (`Gasm/Targets/X86_64/MemoryFrame/Common.lean:39-78`)
-  discharged for the 14 memory forms across six per-family shards, aggregated by
+  discharged for the registered memory forms in per-family shards, aggregated by
   `Gasm/Targets/X86_64/MemoryFrame.lean` so they elaborate whenever `Gasm` builds.
 
-Two corrections to figures that circulate about MH1, both verified here: the frame-lemma
-count is not 88 × 2. There are 30 theorems under `Gasm/Targets/X86_64/MemoryFrame/`, of which
-28 are the 14 memory forms' `writesWithin`/`readsWithin` pairs and 2 are the shared batch
-lemmas `registerOnly_writesWithin`/`registerOnly_readsWithin`
-(`Gasm/Targets/X86_64/MemoryFrame/Common.lean:88`, `:107`). The 74 register-only forms are
-covered *in principle* by those batch lemmas; they are not individually instantiated today.
+At the cited `55b87ad` refinement snapshot, the frame-lemma count was not 88 × 2: that
+historical tree contained 30 theorems under `Gasm/Targets/X86_64/MemoryFrame/`, comprising
+28 memory-form `writesWithin`/`readsWithin` theorems and the two shared register-only batch
+lemmas. Those figures describe that snapshot only; subsequent shared derivations and consumers
+make them unsuitable as a live tree inventory.
 
 Two defects in this surface were found by adversarial review on 2026-08-28 and are recorded
 in the code rather than left implicit — read both notes before you design an ARM equivalent,

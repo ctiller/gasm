@@ -50,12 +50,16 @@ with authority minted by the target; source-visible contracts remain separate fr
 and mappings.
 
 The replacement must also retain the checked-access leaf checklist and current `MemRef`/hardware
-no-freeze gates and assign shared facts to noncircular library owners.  The 10:1 proof-burden ratio
-is a human-facing architecture smell test only: an overage prompts judgment, while an underage
-proves nothing.  Do not add counters, manifests, charging or amortization infrastructure, CI gates,
-semantic proof-budget indices, or acceptance rules around it.  Soundness, applicability,
-universality, authority, lifecycle, and cleanup cannot be weakened to improve the ratio.  Cutover
-deletion remains unpushed until review and the substantive gates pass.
+no-freeze gates and assign shared facts to noncircular library owners.  The advisory 10:1 figure is
+an upper-pressure observation about marginal bespoke proof bulk per assembly-semantics or
+implementation line--not staffing or reviewer counts.  Repeated ordinary work near that burden
+suggests missing shared lemmas or a misplaced boundary; mature routine flow aims roughly at the
+inverse marginal glue burden while allowing large foundations that amortize across families and
+targets.  An overage prompts judgment and an underage proves nothing.  Do not add counters,
+manifests, charging or amortization infrastructure, CI gates, semantic proof-budget indices, or
+acceptance rules around it.  Soundness, applicability, universality, authority, lifecycle, and
+cleanup cannot be weakened to improve the ratio.  Cutover deletion remains unpushed until review
+and the substantive gates pass.
 This is a blocked design checkpoint, not permission to implement or integrate the old proof chain.
 Archived follow-up plan `archive/design/trust-rebuild-plan-f97b3bd5` (`f97b3bd5`) remains blocked
 until it removes its blanket `Sᵢ₊₁ → Sᵢ` and supersession-record requirement.  Intermediate layers
@@ -139,6 +143,33 @@ emitted-prefix effect, and fatal cause; preserve oversized/provider-fault proven
 erase it through shared fatal control flow; and quantify final verification over every admitted
 execution.  This checkpoint authorizes neither a public/shared interface nor canonical cutover.
 
+Follow-up chain `b8368cd2903283c31288912b2de15534966c8280`,
+`0dc2efcfe99dbe6d916a17330052f5bea6d32402`, and latest archive
+`archive/experimental/spike1-private-verifiedartifact-gap-be83d334`
+(`be83d3345221b130208ac5ec5b8b9ea0b36264d2`) is **BLOCKED**.  Its exact provider projection
+theorem and grouping of provider occurrence, returned count, output effect, and fatal cause are
+useful.  But its private `VerifiedArtifact` is neither stronger than canonical `VerifiedProgram`
+nor adequate emission authority.  The `0dc2efcf` witness layer introduces 32 `native_decide`
+proofs and `be83d334` adds further closed-proof debt.  The certificate omits canonical
+`Environment`, artifact connection, exports, imports/providers, entry, platform admissibility, and
+behavior-equivalence obligations.  `ProviderStep` circularly requires the source logical `Step` it
+is meant to derive, while `Config.Agrees` omits machine, ABI, message, output, emitted-prefix,
+pending-cause, and artifact simulation invariants.
+
+Its progress result establishes only that an existing execution implies a logical terminal state;
+it does not show that every `EligiblePlan` has an exact execution with exact response projection and
+terminal `ExitProcess`.  Writable eligibility is unused, synchronous-handle admission is unproved,
+the no-stdout case omits `INVALID_HANDLE_VALUE`, and symbolic/boundary instruction indices,
+recomputed layout, and message address lack linker-owned artifact/import/symbol connections.  The
+replacement remains target-only: define provider outcomes without a source-`Step` premise, carry a
+phase-indexed `ExactInvariant`, and use a spike-local checked derivation over every eligible plan to
+produce exact execution, provider projection, and terminal exit.  Prove one structural soundness
+theorem plus totality/coverage, then compose every canonical `VerifiedProgram` subcertificate before
+emission.  Full, short, zero, no-stdout, and write-failure traces survive only as regressions.  The
+measured 21.1 then 24.4 proof-lines-per-instruction burden supports redesign because it accompanies
+missing universal coverage and visible repetition; the ratio itself remains advisory and is not an
+acceptance gate.
+
 The semantic model must be fixed now, independently of implementation order.  It covers generative
 nested scopes; distinct cancellation authorization, request, delivery, observation, masking,
 unwind, cleanup, join, and terminal events; top-down rights versus bottom-up classified-refusal
@@ -165,10 +196,14 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Proof need | Reusable machinery | Owning layer | Demonstrated use | Deliberate boundary |
 |---|---|---|---|---|
 | Establish that a proof build reads the committed source under review | `scripts/check_no_ignored_lean_sources.py` | repository source/build boundary, before cached compilation | every hosted Lean-bearing build and the unfiltered local gate | it establishes source identity, not theorem correctness; an intentional uncommitted source remains a reported failure rather than something the gate may remove |
+| Reuse an already-built import environment across repeated edits to one Lean source | `scripts/run_incremental_lean.py` with Lean `--incr-save`/`--incr-load` snapshots | edit-local proof-delivery tooling | repeated direct elaboration with unchanged imports, toolchain, dependencies, and accepted resource/diagnostic arguments | accelerator only: it neither builds dependencies nor replaces focused builds, gates, or kernel checking |
 | Execute a list of local steps and compose the result | `Gasm.Proof.LocalExecution.runSteps_append` | target-independent list algebra | x86-64 and AArch64 macro assemblers | fetch, faults, fuel, host effects, termination, instruction admission, and artifact identity stay target-owned |
 | Lift a one-step frame fact over a list | `runSteps_preserves`, `runSteps_preservesOutside` | target-independent observation algebra | AArch64 memory, SP, flags, fault, termination, and GPR frames; x86-64 composed GPR frames | the target supplies the one-step theorem and clobber classification |
 | Compose frame facts without clobber-order obligations | `preserves_comp`, `preservesOutside_comp`, `preservesOutside_comp_append` | target-independent observation algebra | x86-64 segment composition and the shared list-execution consumers | append is only a conservative union representation; uniqueness and order are irrelevant |
 | Preserve an x86 64-bit read across a lower, non-wrapping write | `Gasm.Targets.X86_64.X86_64Mem.read64_write_below` | x86-64 memory semantics | Spike 2 decimal authority and Spike 5 native proofs | address arithmetic, write width, nowrap, and strict-below premises remain explicit; this is not a target-independent memory model |
+| Derive an exact singleton-store frame | `X86_64Mem.readByte_write_outside_addresses`, `readByte_write_inside`, `MemoryFrame.singleStore_writesWithin`, and `singleStore_readsWithin` | x86-64 memory and frame semantics | `MovMem32DispReg32` and `MovMem64DispReg64` | exact singleton descriptor and step-memory equality are mandatory; address, value, and non-memory projection congruence remain consumer facts; this supplies no admission or artifact authority |
+| Derive an exact singleton-load read frame | `MemoryFrame.singleLoad_readsWithin`, with `registerOnly_writesWithin` for the separate no-write frame | x86-64 memory and frame semantics | `MovReg32Mem32Disp`, `MovReg64Mem64Disp`, and `MovzxR32Mem8` | exact singleton descriptor, address congruence, one-read step factorization, and memory-insensitive post transformation are mandatory; write preservation remains a separate audited obligation |
+| Ratchet exact frame coverage across the registered x86 census | `MemoryFrameAudit.frameCoverageDebtCeiling` and its compiled exact-theorem audit | x86-64 registry/frame boundary | every currently registered instruction form; `CheckedMemoryWindows.ProductionStoreUse` manually consumes the selected store facts | the ceiling is zero and must not be raised; theorem presence does not package descriptor equality, execution identity, admission, or `VerifiedProgram` authority |
 | Show bounded finite exploration contains only normative reachable states | `Gasm.MemoryModel.FiniteSearch.Enumerator.search_sound` | memory-model presentation/search boundary | the checked incomplete-enumerator negative control exercises the one-way guarantee | completeness is separate and may not be inferred from bounded fuel or a finite result |
 | Preserve dependent CFG identity through lowering or nominal remapping | `Gasm.Compiler.TypedCFG.ProgramPlan.loweredBlock`, `lower_ref_exact`, and `lowerDefinitions_mapBlockId_block` | compiler CFG authoring/lowering | typed CFG lowering and x86-64 control-point remapping | matching names or entries do not substitute for equality of the complete dependent definition |
 | Turn bounded UInt64 decimal progress into a reusable certificate | `Stdlib.Fmt.UInt64DecimalScheduleCertificate` and `Gasm.Targets.X86_64.DecimalSchedule.UInt64DecimalScheduleRealization.selectedPrefix_bounded` | pure formatting schedule, then x86 realization | Spike 2 native decimal loop | the pure layer owns digit/count bounds; the target owns machine effects and the final production connection; the fuel theorem supplies no resource authority |
@@ -178,12 +213,128 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Refine one successful observation without unfolding its producer | `WasiObservable.normalizeSuccessfulExit`, its constructor equations, and `WasiObservable.refines_normalizeSuccessfulExit` | WASI observation algebra | Spike 3 Wasm equivalence | the consumer must prove the exact success payload and exclude fuel exhaustion; evaluator, outcome vocabulary, runtime bounds, and `VerifiedProgram` authority are unchanged |
 | Prove projected-key insertion-sort stability | `Stdlib.Sort.StableOn` and `insertionSort_stableOn` | pure container algebra | Spike 3 byte-line model plus distinct tagged equal-key regression | ordering and permutation are separate theorems; target execution and artifact authority remain consumer-owned |
 | Lower bounded structured straight-line code to Microsoft x64 | `StructuredStraightLineMicrosoftX64Entry.lowerFunction` and its `LocalCertificate` | compiler's target-specific local lowering layer | canonical bounded Microsoft x64 entry backend | exact clobbers and local semantics are proved; process entry, non-return, platform outcome, PE placement, and `VerifiedProgram` authority remain separate |
+| Bind a replaceable Microsoft x64 leaf into the stable symbolic CFG | `StructuredLeafMicrosoftX64CFG.Body`, `Body.ofGenerated`, `Body.ofReplacement`, `Terminal`, and `realizes` | compiler's target-specific leaf/typed-CFG bridge | generated backend and handwritten differential bodies | exact bytes, result, frames, clobbers, and control-flow freedom are retained; the caller still owns termination, emitted terminator semantics, layout, graph closure, admission, artifact identity, and `VerifiedProgram` authority |
+| Assemble exact Microsoft x64 blocks under one stable symbolic plan | `StructuredMicrosoftX64CFG.Selected`, `.leaf`, `.branch`, `.lower`, `idsExact`, and `rootIdExact` | compiler's target-specific plan-assignment layer | mixed generated/handwritten leaf control under one exact branch plan | nominal scope, child polarity, role order, and root are dependent identities; successors remain caller-owned, and finalization adds no layout, execution, artifact, admission, or `VerifiedProgram` authority |
 | Resume production execution after a proved local straight-line body | `ContextualStraightLinePlacement`, `RuntimeSilentOn`, and the target prefix-runner theorems | target production execution bridge | Microsoft x64 and AArch64 compiler-bulk spikes | the local certificate supplies no lookup, host-silence, ABI, outcome, artifact, admission, or `VerifiedProgram` authority |
 | Replace a compiler body while retaining one selected functional theorem | the AArch64 and Microsoft x64 differential modules' `FunctionalDelta` and `FunctionalDelta.realize` | each compiler target's local realization layer | runnable AArch64 and Windows x64 compiler-bulk spikes | only the named result property is transported; replacement bytes, frames, clobbers, classification, placement, runtime behavior, and final authority are regenerated or re-proved |
 | Emit production bytes from whole-program proof authority | `Gasm.Core.Platform.emitVerifiedProgram` | platform-neutral whole-program boundary | compiler-bulk plus migrated Spike 1, 2, 4, and 5 emitters/tests | serialization consumes an exact `VerifiedProgram` and may still return an error; public target-local serializers remain migration debt, while raw fuzzing requires `FuzzingEmitter` and confers no verification claim |
 
 ## Proven composition patterns
 
+- Accepted extraction `archive/accepted/x86-singleton-store-frame-4c6fbf4c`
+  (`4c6fbf4c46899c85e4db88110b050f906ecaf799`) realizes a dependency-light
+  `MemoryFrame.Common` boundary for `MovMem32DispReg32` and `MovMem64DispReg64`.  Its plain theorem
+  helpers include `readByte_write_outside_addresses` over the exact modular address list without a
+  no-wrap premise; exact singleton `.store` descriptor equality; exact post-step memory equality to
+  writing the descriptor address/value into pre-memory; and derivations of `WritesWithin` from
+  outside-address preservation and `StoreAgreeOn` from `readByte_write_inside`.  The `ReadsWithin`
+  helper additionally receives effective-address, stored-value, and post-step non-memory congruence
+  under `agreeOutsideMemory`; the exact store descriptor makes the load footprint empty.
+
+  Both W32 and W64 instantiate the unchanged theorem signature while preserving their public theorem
+  names/types and compiled `MemoryFrameAudit`; every other form remains untouched.  The repeated
+  consumer theorem text fell from 61 lines to 44 (28 percent), an observed burden delta rather than
+  a metric or gate.  Focused audit validation passed 101/101; only three inherited Spike
+  `native_decide` gate failures remained, with none introduced by this slice.  No record, typeclass,
+  interface, negative fixture, admission, platform, carrier, atomic, CFG, authority, or ratio
+  machinery was added; the existing `NegativeControl` remains authoritative.
+- Accepted extraction `archive/accepted/x86-singleton-load-frame-aa80e2b1`
+  (`aa80e2b184e043a33d5cd6d34e7ae8b3dd4cb7c6`; reviewed successor
+  `dda5776618e4acea13c98e689672f6d1946c29e3`) adds `singleLoad_readsWithin` for
+  the former RSP-specific W32 load (now subsumed by `MovReg32Mem32Disp`) and
+  `MovReg64Mem64Disp`. One exact singleton `.load` descriptor,
+  effective-address congruence, a step factorization through that width read, and a post transformer
+  parametric under `agreeOutsideMemory` derive declared-read dependence via `agreeOn` and
+  `X86_64Mem.read_congr'`.  The empty store footprint discharges `StoreAgreeOn`.
+  `registerOnly_writesWithin` remains the single generic no-memory-change theorem and supplies each
+  consumer's separately audited write frame; `singleLoad_readsWithin` does not duplicate a memory
+  preservation premise.
+
+  `undeclaredSecondLoad_no_singleLoad_factorization` is the load-bearing negative control.  Its
+  hostile step materially combines the declared `[rdi]` value with hidden `[rsi]`; the counterexample
+  pair fixes the declared value and varies only the hidden one, so no memory-insensitive post
+  transformer can conceal the second dependency.  The blocked predecessor `58a624ff` instead ignored
+  the declared value and tested a wholly misdeclared load.  The canonical slice preserves public
+  theorem names/types and the compiled `MemoryFrameAudit`/`FamilyPipelineAudit`; focused validation
+  built 101 jobs.  It supplies no admission, concurrency, platform, CFG, or artifact authority.
+- At canonical `f8d4c83515a554fde01f2a71265583347dbe0411`, the compiled x86 census contains 88
+  registered forms and every form has exact closed `MemoryFrame.WritesWithin` and `ReadsWithin`
+  theorems; `frameCoverageDebtCeiling = 0` is a ratchet, not a budget to raise.  These predicates say
+  that steps write nowhere beyond declared stores and depend on memory only through declared loads.
+  `CheckedMemoryWindows.ProductionStoreUse` manually joins `descriptorExact`, both frame theorems,
+  exact fetch/step/prefix evidence, and the selected invocation before reaching its sole
+  `VerifiedProgram` demonstration.
+
+  A proposed `InstructionMemoryFidelity` bundle is intentionally held: adding it detached would not
+  reduce a real consumer's proof burden.  Refactor the existing consumer first, then retain only the
+  package fields it actually removes from that proof.  Coverage of frame theorems alone does not
+  package exact descriptor identity, production occurrence, admission, or final authority.
+- Canonical `eab58954d98590d5a51b684e7d5164392300b85e` extends that singleton-load reuse to
+  `MovzxR32Mem8` and preserves the existing `MovzxR64Mem8`, whose frame proofs remain bespoke.  One
+  shared `0F B6` encoder/length shape drives both encoders, encoded length, and therefore RIP
+  advance; the decoder separately shares `decodeMovzxMem8Address` across both widths.  REX.W selects
+  the nominal instruction identity rather than being erased, while REX.R and REX.B remain
+  independent.  Target semantics own pre-state effective-address calculation and the width result:
+  R32 zero-extension is tied to `setGpr32`, and the prior R64 bytes and authority remain unchanged.
+  Reverse controls
+  distinguish both widths and canonical REX/SIB corners.  Hostile controls reject RIP-relative or
+  no-base shapes, indexed/ignored SIB, REX.X, redundant REX, zero-displacement aliases, wrong modes
+  or prefixes, and truncation.  The focused MOV frontier built 62 jobs.  This is exact target
+  encoding, decoding, semantics, and frame evidence only; it adds no native, platform, consumer, or
+  `VerifiedProgram` authority.
+- Canonical `e964f9e0d9b78aecf768353ec68f725af180baf2` repairs the existing `0x88` byte-store
+  decoder to be an exact inverse on the encoder's represented subset.  Decoder and encoder use the
+  same REX-presence predicate, preserving the exact low-byte register bank, independent REX.R/B,
+  canonical no-index SIB/base identity, and forced zero displacement for RBP/R13.  The prior decoder
+  could relabel legacy high-byte sources as low-byte registers, indexed or RIP-relative addresses as
+  base-only, erase nonzero displacement, and under-consume the RIP form.  Controls first reproduce
+  those concrete semantic and stream-boundary ambiguities, then lock canonical reverse cases and
+  reject hostile prefixes, modes, SIB/index forms, displacement aliases, and truncations.  Encoder,
+  instruction semantics, frames, consumers, and authority are unchanged; this repair supplies no
+  new native, platform, admission, or `VerifiedProgram` claim.
+- Canonical `e56f084f6c01c1c56eddf4df666c17730873a23e` repairs `0xC7 /0` by making width and
+  represented addressing select an explicit nominal store identity.  W=0 admits only the existing
+  exact RSP dword identity; W=1 admits the exact RSP qword identity or the represented general qword
+  store with sign-extended imm32 semantics.  The prior decoder could relabel W=0 as qword, ignore
+  the ModRM extension, SIB, or displacement, and under-consume RIP-relative input.  Positive controls
+  require decoded identity, complete consumed length, and re-encode equality together.  Hostile
+  controls reproduce width, `/extension`, SIB, RIP, displacement, REX, prefix, mode, and truncation
+  failures.  The focused MOV frontier built 62 jobs.  This is a decoder identity/stream-boundary
+  repair, not new native, platform, admission, consumer, or `VerifiedProgram` authority.
+- Canonical `54628d789049bc4f31012f53c953cdbbf45c6120` applies the same exact-preimage rule to
+  the existing `0xC6 /0` RSP byte-store identity.  Constructor identity now requires the `/0`
+  extension, exact RSP no-index SIB, prefix policy, canonical displacement spelling, complete
+  consumption, exact re-encoding, and exact `toLean` identity together.  Negative controls partition
+  nonzero group extensions, non-RSP or indexed/no-base SIB aliases, REX and other prefixes,
+  zero-disp and wider-mode aliases, register mode, and every truncation boundary.  The constructor,
+  encoder, step, frame, and existing `VerifiedProgram` consumer are unchanged.  Validation passed
+  the 62-job MOV frontier, 1775/1775 x86 obligations, and reference, license, publishability, and
+  diff gates; these checks preserve the existing authority rather than creating new authority.
+- Canonical `83952e5d675a2b0a50b8ec87d239f2423874b2da` extends exact canonical-preimage checking
+  to `0x89` stores.  For W32, a REX prefix is present exactly when REX.R or REX.B is semantically
+  required; W64 retains mandatory REX.W plus meaningful R/B, and REX.X rejects because no selected
+  identity contains an index.  Zero displacement uses mod00 except RBP/R13's forced mod01 zero;
+  RSP/R12 use the literal no-index SIB.  Every accepted control requires full consumption, exact
+  re-encoding, and exact semantic identity, while hostile controls cover redundant prefixes,
+  unsupported addressing aliases, noncanonical displacement spellings, modes, and truncation.
+  Constructor, semantics, frames, and consumers are unchanged.  The 62-job MOV frontier and
+  reference, license, publishability, and diff gates passed; no new authority is claimed.
+- Canonical `48e1d32812aa16c993412c973a884f5dccabf610` applies exact canonical-prefix identity to
+  opcode-register PUSH and POP.  Low-bank registers have no REX prefix; r8-r15 have literal REX.B
+  only.  Redundant low-bank REX, REX.W/R/X, and doubled prefixes reject instead of aliasing an
+  existing constructor.  Positive controls preserve all sixteen register identities with complete
+  consumption, while hostile controls partition the forbidden prefix bits and truncation.  The
+  constructors, steps, and access descriptors are unchanged.  Focused family validation built 21
+  jobs and hygiene passed; this closes decoder admission without adding execution or final proof
+  authority.
+- Canonical `f8d4c83515a554fde01f2a71265583347dbe0411` fixes the selected CALL and RET
+  identities to exact unprefixed preimages: `C3`, `E8 + disp32`, and literal `FF 15 + disp32`.
+  No selected identity admits REX, and the fixed RIP-relative indirect CALL cannot widen into a
+  general `FF /2` address form.  Positive controls pin zero and both signed disp32 endpoints with
+  full consumption, exact re-encoding, and exact `toLean` identity.  Hostile controls cover REX and
+  other prefixes, foreign group extensions and address forms, unrepresented `C2`, neighboring
+  opcodes, and truncation.  Constructors, semantics, access descriptors, and authority are
+  unchanged.  Focused family validation built 21 jobs and hygiene passed.
 - For an expensive exact execution proof, keep the complete certificate in its producer and export
   a separate typed boundary containing only the observations required by the successor.  The
   accepted Spike 2 Linux Row 8 proof uses `spike2_row8_selected_prefix` for the exact 64-transition
@@ -285,6 +436,55 @@ evidence, and negative boundary after that comparison; it does not own a second 
   `8485743` is consumed by runnable spike `88edac5`, which replaces nine generated instructions with
   one `mov rax, 42`, regenerates its ten bytes and local frames, then separately re-proves placement,
   runtime silence, terminal dispatch, artifact identity, admission, and final composition.
+- The canonical Microsoft x64 structured-condition chain is comparison macro
+  `cc64f4dfc4e193cd069edeedc4e4fe12f3adf66f`, compiler adapter
+  `534369710c5a39acaa4129c9375f2865c61e06da`, corrected plan
+  `eee3d8f10d920e702044fc53d938d2308d157616`, then exact typed-CFG block binding
+  `f9223e5a3f9c4a863798a6c910afa32114a37666`.  Source role, logical contract, and symbolic topology
+  remain stable across replacement; selected implementation identity and its certificate are
+  regenerated.  The macro and adapter are local checked premises, and the block binding connects
+  both exact successors without claiming runnable branch compilation or final `VerifiedProgram`
+  authority.  The delivered differential control remains the nine-instruction-to-one-instruction
+  Microsoft x64 replacement above.  Earlier hand-expanded IDs and noncanonical held commit
+  `29b21f0b` are not provenance for this chain; use these repository-resolved canonical objects.
+- Canonical `f2adc350aa5fd1c3a306a962c7dd55af6ceca129` turns that replacement boundary into one
+  implementation-neutral typed-CFG leaf contract.  `Body.ofGenerated` and `Body.ofReplacement`
+  retain each selected body's exact instructions, bytes, source-indexed RAX result, memory/fault/RIP
+  frames, clobbers, outside-clobber preservation, and constructor-derived control-flow freedom.
+  `afterBody_ghostFrame` changes only the physical machine, while caller-owned `Terminal` supplies
+  an exhaustive target-free logical terminator before `realizes` constructs the existing
+  `StructuredCFG.RealizesLeaf` premise.  The one-instruction handwritten control enters through the
+  same `Body` as generated code.  This preserves stable source expression and symbolic topology
+  without copying implementation identity, and it supplies no emitted terminator step, layout,
+  graph closure, platform admission, artifact identity, or final `VerifiedProgram` authority.
+- Canonical `2bf7c69dcc0acadf0bbf4b524228955887ad567b` composes those exact blocks beneath one
+  stable symbolic `Plan`.  `Selected` carries the replaceable `Assignment`/`Realizes` together with
+  `idsExact` and `rootIdExact`; the plan continues to own topology, roles, and root.  The branch
+  smart constructor derives child disjointness and parent freshness from plan laws plus the exact
+  child ID maps, while consuming caller-owned typed `Successors`.  Its dependent indices prevent
+  true/false child swaps and foreign nominal scopes at elaboration time.  The positive control mixes
+  a generated true leaf and one-instruction handwritten false leaf for the same exact source; the
+  two hostile controls are expected elaboration failures for polarity swap and foreign scope.
+  Finalization remains exactly `Realizes.lower`, so the wrapper adds no second graph or verification
+  authority.  Focused validation built 53 jobs and the `Gasm` umbrella built 283 jobs.  Comparison
+  and JCC placement/execution, terminal realization, artifact identity, ABI/export publication,
+  admission, and the sole final `VerifiedProgram` remain separate.
+- Canonical `699cd9198b4a88bb78f0137f3f9a2b5ef6f0a9bd` adds an edit-local incremental Lean
+  snapshot cache.  Reuse is keyed by the pinned toolchain, exact import header, accepted arguments,
+  and contents of direct compiled dependencies; dependency discovery uses those same arguments.
+  One source-wide cross-process lock spans cache selection, load, publication, and pruning, and a
+  manifest published last authenticates both snapshot files by size and SHA.  The accepted argument
+  grammar is closed and non-file-backed.  Mutable setup, plugin, dynamic-library, output, package,
+  server, and incremental-control inputs reject rather than entering cache identity.
+
+  The blocked precursor admitted mutable executable inputs and published its two snapshot files
+  without one enclosing lock, allowing stale identity and mixed-generation pairs.  The reusable
+  rule is therefore fail-closed identity plus atomic pair publication, not merely “turn on
+  `--incr-load`.”  On quiet Linux, representative direct warm elaboration measured about
+  0.74 seconds/1.66 GiB versus 0.37 seconds/0.60 GiB for cache hits; first save was about 2.7 seconds,
+  for an observed break-even near seven elaborations.  The integrated Windows seven-test mutation
+  and concurrency suite completed in 12.1 seconds.  This is an accelerator only: it never builds
+  dependencies or replaces focused builds, repository gates, or kernel proof checking.
 - For production emission, pass the final `VerifiedProgram` to platform-neutral
   `emitVerifiedProgram`; handle its `Except` result rather than bypassing the proof boundary with a
   target serializer.  Canonical `94da7dd` migrated Spike 2 Linux's emitter and test to this path;
@@ -293,6 +493,39 @@ evidence, and negative boundary after that comparison; it does not own a second 
   production-profile instance.  Public target-local raw serializers still exist as migration debt,
   so their existence neither carries a verification claim nor proves mechanically that every
   repository emission path is already gated.
+
+## Nonnormative proof-design references
+
+These papers are design comparisons, not governing semantics, trusted code, or evidence for the
+proof-burden heuristic.
+
+- Kommrusch, Monperrus, and Pouchet's
+  [S4Eq paper](https://par.nsf.gov/servlets/purl/10333807) demonstrates a useful proposer/checker
+  split: an untrusted learned search emits an explicit rewrite sequence, while a deterministic
+  checker validates each rule application and the final equality.  Self-supervised selection of
+  hard examples is relevant to proof-search improvement.  Gasm may reuse that architecture, but not
+  the paper's domain assumptions or failure classification.  S4Eq studies pure straight-line/SESE
+  AST programs with known interfaces and excludes the aliasing, side effects, pointers, control
+  flow, and concurrency central to Gasm.  Soundness remains conditional on the manually implemented
+  rewrite rules and checker.  Search failure is incompleteness, so Gasm must report “not proved” or
+  “unknown,” never semantic non-equivalence.  Model confidence supplies no admission authority and
+  the paper provides no empirical basis for a 10:1 proof-burden ratio.
+- Recoules et al.'s [TInA paper](https://arxiv.org/abs/1903.06407) supports per-artifact translation
+  validation, lowering architecture-specific binary semantics into a small neutral IR, and
+  proof-oriented recovery of types, predicates, unpacked logical values, expressions, and loop
+  structure.  Its warning that declared inline-assembly inputs, outputs, and clobbers require
+  checking parallels Gasm's descriptor-versus-step obligation.  TInA's CFG-isomorphism,
+  blockwise-SMT, and `-O0` recompilation method cannot freeze Gasm CFG shape or replace relational
+  phase invariants that admit code motion.  A failed proof followed by fuzzing is supplemental
+  evidence, not validated equivalence.  Its binary lifter, compiler/debug mapping, and SMT solver
+  remain trusted or correlated risks, while system instructions, interrupts, floats, dynamic jumps,
+  concurrency, and general CFGs lie outside its demonstrated scope.
+
+  Appendix E visibly presents division self-rewrites such as `x udiv x → 1` without a displayed
+  nonzero premise.  Do not call this a paper bug without first resolving the source language's
+  division-by-zero semantics; use it only as a reminder that plausible algebra is not validation and
+  rewrite implementations stay outside the trusted base.  TInA's generated-C-statements figures are
+  unrelated to marginal proof bulk and establish no 10:1 target.
 
 ## Admission record
 
@@ -435,6 +668,34 @@ The following code shapes have enough evidence to investigate but are not canoni
 - The blocked cross-consumer architecture dossier review is preserved in
   [Cross-consumer proof-architecture dossier review](PROOF_ARCHITECTURE_DOSSIER_REVIEW.md).  It is a
   pressure-test and correction checklist, not a second architecture owner or implementation seam.
+
+### Effect-occurrence quotient candidate
+
+- Design-reviewed but unimplemented: effect equivalence should quantify over every related
+  source/target execution pair and compare canonical finite typed effect-occurrence graphs modulo
+  node renaming.  Labelled relation occurrences and exact path witnesses are authority; vector
+  clocks may only be proved caches.  A proposed effect-owned `Gasm.Effects.CausalTimeline` layer
+  would own selected labelled causality, nonempty disjoint quotient fibers,
+  `ProjectedCausalEdge`, forward/reverse quotient fidelity, acyclicity, renaming invariance, and
+  graph-isomorphism equivalence.  Existing architecture-neutral `Gasm.MemoryModel.Envelope` and
+  `RelationPath` remain structural spare parts and must not acquire effect semantics.
+- A proposed effect-specific `Gasm.Effects.ConsoleCanonicalization` layer would own
+  `ConsoleEvent.out`/`.err` merging: same stream tag, an ordered associative text fold, causally
+  convex fibers, and input/cross-effect/barrier exclusions.  The Windows owner must separately
+  prove a result-aware refinement from the exact `WriteFile` handle generation, return, and
+  committed byte prefix to the emitted `ConsoleEvent.out`; Spike 1 then supplies its source/target
+  execution projections, concrete console-merge eligibility, and final small quotient isomorphism.
+  Current `FileSystemEvent.write` carries only a handle and length, so it cannot silently own this
+  console fold.  A future filesystem canonicalization requires its own observation redesign and
+  cross-effect refinement.
+- Quotient boundary edges derive from raw labelled reachability and preserve incoming and outgoing
+  causality.  The library should pay graph well-formedness, quotient/equivalence/idempotence,
+  fold/partition/congruence, and barrier laws once.
+- `Gasm.Effects.CanonicalizeTrace` is not authority in its current single-thread vector-clock form;
+  replacement or a compatibility facade is only a proposed migration direction.  Timestamps,
+  transitive reductions, deterministic node IDs, universal registries, predecessor pointers, and
+  vector-clock families are rejected abstraction bases.  No implementation or accepted frozen hash
+  exists yet.  Promotion waits for checked TrustRebuild1 code and exact-hash MP/TrustPlan acceptance.
 
 ### Memory-model carriers and provider worlds
 
@@ -878,6 +1139,116 @@ The following code shapes have enough evidence to investigate but are not canoni
   harness; the applicability, capability, mapping, memory-model, platform-admission,
   registry-oracle, and `VerifiedProgram` nonclaims remain unchanged.
 
+  GPR Milestone 1 extension `archive/experimental/x86-gpr-m1-decoder-gap-ffc83591`
+  (`ffc835915214672875292883e84a3b75bebd9501`) is **BLOCKED** on decoder admission.  Its
+  `MovMem32DispReg32` production encoding, step, descriptors, uops, roundtrip, and exact W32 frame
+  are correct for the supported base-only forms.  It also correctly handles the REX.W width split,
+  extension bits, RSP/R12 SIB emission, RBP/R13 forced displacement, 32-bit source truncation, and
+  four-byte read/write footprints.  Sealed plan identity remains intact, a source with nonzero high
+  32 bits detects accidental widened writes, and the byte-after-footprint calibrator reaches the
+  private full-region comparator.
+
+  The decoder nevertheless accepts unsupported addressing encodings: `89 04 00` is really
+  `[rax+rax]` but is relabelled `[rsp]`; `89 05 00000000` is RIP-relative but is relabelled
+  `[rbp+0]` and under-consumed; and `42 89 04 24` uses REX.X to address `[rsp+r12]` but is relabelled
+  `[rsp]`.  The mod=1/rm=4 path also accepts arbitrary SIB bytes.  The narrow repair is to bind
+  REX.X, reject unsupported mod=0/rm=5 RIP-relative forms, and require the exact base-only SIB with
+  REX.X clear whenever rm=4, preferably in both W32 and existing W64 `0x89` paths; retain the three
+  hostile byte strings as decoder controls.  This needs no new proof machinery and grants no
+  production-admission or final proof authority.
+
+  Accepted successor `archive/accepted/x86-gpr-m1-decoder-controls-29bbc937`
+  (`29bbc93795a29068600d38a28a2bf4e5b26bd6bf`), integrated on main as `5fbf3f3d`, closes that
+  decoder-admission gap.  The `0x89` decoder retains REX.X, rejects unsupported mod=0/rm=5
+  RIP-relative forms at W32 and W64, and admits rm=4 only when REX.X is clear and the SIB is the
+  exact canonical no-index/base-4 form in mod=0 or mod=1.  Eight kernel-decided negative vectors
+  cover indexed SIB, REX.X-created index, RIP-relative, and indexed disp8 cases at both widths.
+  The three prior hostile byte strings now reject; supported W32/W64 RSP/R12 canonical-SIB and
+  RBP/R13 forced-displacement forms decode with exact consumption and matching semantic identity.
+  The exact W32 encode/step/descriptor/frame, sealed plan identity, nonzero-high-source native case,
+  and byte-after-footprint comparator falsifier remain accepted.  The focused gate passed 19/19 and
+  all nine independent probes succeeded.  This closes the Milestone 1 slice only; the supplemental
+  harness's existing nonclaims and final-authority boundary remain in force.
+
+  Provisional singleton-load scope from canonical `4c6fbf4c` permits a `MemoryFrame.Common`
+  experiment for the W32 MOV load family and `MovReg64Mem64Disp`. The W32 family has since been
+  canonicalized as `MovReg32Mem32Disp`, subsuming the former RSP-specific identity. Retain
+  `registerOnly_writesWithin` under its existing name and implementation, correct its documentation
+  to the genuinely generic no-memory-change meaning, and reuse it for both load consumers; do not
+  introduce an alias or rename its existing call sites.  Proposed `singleLoad_readsWithin` requires
+  one exact singleton `.load` descriptor, effective-address congruence, explicit post-state
+  factorization through the one width read, and a post projection parametric in equal read values.
+  It derives read equality from `agreeOn` plus `X86_64Mem.read_congr'` and discharges
+  `StoreAgreeOn` from the empty store footprint.
+
+  Do not add a step-memory-preservation premise to `singleLoad_readsWithin`: `ReadsWithin` does not
+  demand it.  Exact memory preservation remains mandatory once, through each consumer's separately
+  audited `WritesWithin` theorem.  A narrow `NegativeControl` must refute factorization for a
+  declared-one-load instruction whose GPR result also depends on a second undeclared read.  Preserve
+  both consumers' public theorem names/types and audits, leave every other form untouched, and update
+  `MEMORY_HOOK.md` qualitatively without inventory counts.  This is a final implementation boundary,
+  not accepted machinery; it authorizes no platform, shared, CFG, authority, or ratio framework.
+
+  First implementation `archive/experimental/x86-singleton-load-control-gap-58a624ff`
+  (`58a624ffc7c37684e38ab12508da43834a129362`) is **BLOCKED** on its advertised laundering
+  control.  The helper and the two production consumers otherwise preserve the approved semantic
+  boundary, but `undeclaredSecondLoad_no_singleLoad_factorization` does not make its observable
+  result depend on both reads: it ignores the declared `[rdi]` value and depends only on hidden
+  `[rsi]`.  It therefore proves rejection of a wholly misdeclared load, not the required case where
+  an instruction genuinely uses its declared load and additionally launders a second undeclared
+  read.  Replace the fixture with an observable result that materially combines both values and
+  obtain renewed review before promoting the helper or citing the fixture as the load-bearing
+  negative control.
+
+  One-line successor `dda5776618e4acea13c98e689672f6d1946c29e3` makes the result depend on both
+  values and is integrated canonically as `aa80e2b1`; the accepted reusable result is indexed under
+  Proven composition patterns above.  Keep `58a624ff` as the defective-fixture checkpoint, not an
+  accepted implementation.
+
+  Design-approved target-owned experiment from canonical `aa80e2b1` reserves a new ISA-only MOV
+  r32,[base+disp8] family; its type/name is a provisional spare-part API, not a frozen shared
+  interface.  The authoritative owner ruling supersedes an interim disjoint-domain proposal: one
+  `MovReg32Mem32Disp { dstReg : Reg32, basePtr : Reg64, disp : UInt8 }` production identity absorbs
+  and retires `MovReg32RspDisp32`.  An optional `mov_r32_rsp` convenience constructor may return the
+  general form, but it is not a second type, instance, registry entry, or compatibility authority.
+  Existing frame proofs, roundtrip cases, census/registry entries, controls, comments, and downstream
+  references migrate rather than preserve duplicate identities.
+
+  Semantics computes effective address from the pre-state base plus signed disp8 modulo 2^64 before
+  the destination update, including destination/base aliasing, then applies 32-bit GPR update
+  semantics with cleared upper bits and unchanged memory.  RIP advances by
+  `3 + rexPresent + sibPresent`, where the fixed bytes are opcode, ModRM, and disp8; REX is present
+  exactly when destination REX.R or base REX.B is required, and SIB exactly when the low base code is
+  4.  Encode and step must share one encoding-shape helper, or prove this length equal to encoded
+  size, while preserving every other non-memory projection.
+
+  Canonical encoding is always mod=01 with an explicit disp8, including zero, preserving existing
+  RSP bytes.  Non-SIB rm values decode through REX.B; rm=4 requires exactly scale=0, index=4, base=4,
+  with REX.B distinguishing RSP/R12.  Admission rejects REX.W, REX.X, redundant REX/prefix aliases,
+  mod=00/10/11, RIP-relative, address-size and segment prefixes, indexed or no-base SIB, and
+  noncanonical SIB spellings; decoded bytes must re-encode exactly.  Roundtrip and hostile controls
+  cover all sixteen destination/base identities; destination=base; RSP/R12; RBP/R13; zero, +127,
+  and -128; required REX.R/B combinations; truncation; forbidden W/X; all three instruction-length
+  classes (3 without REX/SIB, 4 with exactly one, and 5 with both); and model-only modular EA wrap
+  examples even when native scratch preparation excludes those host addresses.
+
+  `memAccesses` is exactly one ordinary `.load`/`.w32` reference and `toUops` derives from it.  Frame
+  proofs reuse `registerOnly_writesWithin` plus `singleLoad_readsWithin` without a second memory
+  premise.  A supplemental `HardwareMemoryPlan` extension requires separate Trust acceptance, a
+  distinct closed scratch class threaded through every exhaustive classifier/control, exact
+  production byte/identity comparison pointing only to the new general identity, every GPR
+  consequence including zero-extension, and the unchanged guarded region; native host-address
+  limits remain non-admission, not a weakened form.
+  The slice must replace brittle current inventory counts in `MEMORY_HOOK.md`,
+  `X86_ISA_EXPANSION_PREREQUISITES.md`, and any exact-initial-family hardware prose with qualitative
+  mechanically audited language.  It broadens no World, ABI, CFG, shared-memory, or authority layer.
+
+  Canonical migration `71864fa48f53c7104b5f1d610b0ad1284c72f3bc` and documentation cleanup
+  `190104845cf9083011da94b55683fa883ba84736` realize the one-identity ruling: current code and
+  consumer references use `MovReg32Mem32Disp`, while the former RSP-specific identity is gone.
+  Follow current declarations for the accepted target-owned family; the design scope above remains
+  the admission and negative boundary, not a generic load framework or compatibility API.
+
 - Blocked archive `archive/experimental/access-audit-b99ea1ce` (`b99ea1ce`) preserves a useful
   checked-access failure.  Its individual `execute` and provided `bind` laws are sound, and
   precondition-indexed `SafeUnder` is the right proof-economical goal shape.  But public
@@ -899,6 +1270,25 @@ The following code shapes have enough evidence to investigate but are not canoni
   deferral and `SafeUnder` proof economy, but require either fixed checked syntax/derivations, a
   genuinely hidden evaluator/eliminator surface, or a certificate coupling safety to load-bearing
   semantic-access coverage and origin.  The next repair needs external negative controls.
+
+  Noncanonical sealed-audit candidate `95d7094cddcd5d75b662c51d2af72c5e048317f5` is likewise
+  **BLOCKED**.  Private constructors do not establish denial non-laundering when a public constructor
+  accepts arbitrary callbacks and the evaluator remains public.  Its external counterexample gives
+  `execute` a decision callback that invokes public `run` on a refused checked computation from a
+  reconstructed initial state, catches `.denied`, returns `.ok`, and obtains the outer `Safe` proof
+  through `Safe.execute`.  Sealing proves only the provided eliminators' local behavior--for example,
+  that `bind` has no denied continuation--and cannot stop a public callback from re-entering a public
+  observer.  The next negative control must attack callback re-entry, not only `bind`.
+
+  Its local error-to-audit-append, machine-preservation, and bind-terminality equations may remain
+  reusable as local laws, but none implies global authorization safety across the callback escape
+  hatch.
+
+  The honest reusable claim is `NoDenial` or audit-clean success, not memory safety.  Treat
+  `execute` as a trusted profile adapter, and require both decision soundness (success means the
+  exact access was authorized) and semantic-access coverage (the target's real transition performs
+  only those accesses) at the target bridge.  This blocked candidate is durable failure evidence,
+  not a current-main API or proof authority.
 
 ### Proof delivery, termination, and CFG composition
 

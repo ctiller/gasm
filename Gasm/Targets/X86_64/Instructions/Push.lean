@@ -72,9 +72,13 @@ def push_r64 (r : Reg64) : AnyX86_64Instruction :=
 
 private def pushRule (regCode : UInt8) : DecodeRule := {
   opcode := .one (0x50 + regCode),
+  has0x66 := some false,
   builder := fun ctx =>
-    let r := codeToReg64 regCode ctx.rexB
-    .ok (push_r64 r, ctx.opcodePos - ctx.startOffset)
+    if ctx.rexW || ctx.rexR || ctx.rexX || ctx.hasRex != ctx.rexB then
+      .error "pushTryDecode: noncanonical REX prefix for PUSH r64"
+    else
+      let r := codeToReg64 regCode ctx.rexB
+      .ok (push_r64 r, ctx.opcodePos - ctx.startOffset)
 }
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/

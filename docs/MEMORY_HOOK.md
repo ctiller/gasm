@@ -15,8 +15,8 @@
 and P have since been built**. The sealed
 memory cell, the width-indexed read/write API, `MemRef`, `fault : Option X86_64Fault`, the
 defaultless `memAccesses` field and the frame-lemma set all exist in the tree today (§3's
-Status line enumerates them with file evidence). `MemCostModel`, `memUops`, the 14-form
-derivation, and the registry audit also exist (§5). **Layer A (capability authoring) remains
+Status line enumerates them with file evidence). `MemCostModel`, the registered forms'
+`memUops` derivation, and the registry audit also exist (§5). **Layer A (capability authoring) remains
 unbuilt** — `CheckedAsm` has no declaration anywhere in `Gasm/`, `Stdlib/` or `Spikes/`.
 
 Read the **per-section `**Status**:` lines as authoritative**, not this preamble: each was
@@ -46,15 +46,16 @@ carry"* — Law 11's fail-to-assemble bar, not a runtime check.
 This document designs that hook: what instructions call, how the capability proof is
 carried and enforced at assemble time, what the perf side records and how it stays
 falsifiable, the migration path for the existing 88 instruction forms, the effect on
-existing proofs, and how faults become distinguishable observations.
+existing proofs, and how faults become distinguishable observations. Counts in the baseline below
+are explicitly historical measurements, not a live registry census.
 
 ### 1.1 Verified pre-MH1 baseline (the evidence this design is grounded in)
 
 | Fact | Evidence |
 | :-- | :-- |
-| 14 of 88 instruction forms touch memory | `MovRspDispByte`, `MovRspDispImm32`, `MovRspDispImm64`, `MovMem8Reg8`, `MovMem64DispReg64`, `MovMem64DispImm32`, `MovReg64Mem64Disp`, `MovzxR64Mem8`, `MovReg32RspDisp32`, `PushR64`, `PopR64`, `CallRipRel`, `CallRel32`, `RetOp` — enumerated from `Gasm/Targets/X86_64/Registry.lean` + each `step`'s body |
+| 14 of 88 instruction forms touch memory | `MovRspDispByte`, `MovRspDispImm32`, `MovRspDispImm64`, `MovMem8Reg8`, `MovMem64DispReg64`, `MovMem64DispImm32`, `MovReg64Mem64Disp`, `MovzxR64Mem8`, `MovReg32Mem32Disp` (the current canonical successor to the snapshot's RSP-specific form), `PushR64`, `PopR64`, `CallRipRel`, `CallRel32`, `RetOp` — historical inventory, reconciled to the current production type name |
 | The machine model's only memory primitives are five helpers + raw field access | `X86_64MachineState.read64`/`write8`/`write64`/`push64`/`pop64` (`Gasm/Targets/X86_64/Registers.lean:226-265`); the field itself is `memory : Address → Byte`, total, public |
-| Instruction steps already bypass even those helpers | `MovRspDispImm32.step` inlines a raw 4-byte store lambda (`Mov.lean:166-173` — no `write32` helper exists so it was re-implemented inline); `MovzxR64Mem8.step` and `MovReg32RspDisp32.step` read raw `s.memory addr` bytes inline. The missing widths already caused the exact per-instruction re-implementation this hook exists to end |
+| Instruction steps already bypass even those helpers | `MovRspDispImm32.step` inlined a raw 4-byte store lambda (no `write32` helper existed); `MovzxR64Mem8.step` and the former RSP-specific W32 MOV load read raw memory bytes inline. The missing widths already caused the exact per-instruction re-implementation this hook exists to end |
 | Non-instruction code also writes memory raw | `Gasm/Targets/Windows/Win32API.lean` hooks (`readFileHook`/`recvHook` write destination buffers via raw `memory := fun a => ...` lambdas, lines 112–136, 214–217); the linkers' `loadMemory` installs the image raw |
 | Zero capability call sites | Law 11's own Status line; `MemoryPerm`/`MemoryPermissions`/`BlockM` have no call sites outside `Gasm/Core` |
 | Memory cost is 14 sets of inline, uncited literals | every load is flat `latencyCycles := 4`, every store `1`, duplicated per instance; 0 of 88 forms cite any calibrated or vendored source (`docs/TECHNICAL_NOTES.md` §2) |
@@ -68,8 +69,8 @@ One module family, `Gasm/Targets/X86_64/Memory*.lean`, exposing three coupled su
 MH1/MH2/MH3 respectively." **Layers S and P exist** — Layer S landed as
 `Gasm/Targets/X86_64/MemoryCell.lean` (the sealed cell), `Memory.lean` (`MemRef`, the
 width-indexed API), `MemoryFrame/` (the frame-lemma set) and `MemoryFrameAudit.lean` (the
-seal audit); Layer P landed as `MemCostModel.lean`, the 14 instruction-family derivations,
-and the memory-cost/provenance checks in `Tools/CheckX86Obligations.lean`. Layer A does
+seal audit); Layer P landed as `MemCostModel.lean`, the registered instruction-family
+derivations, and the memory-cost/provenance checks in `Tools/CheckX86Obligations.lean`. Layer A does
 **not** exist and is superseded by the cross-architecture authoring design in
 `docs/MEMORY_MODEL.md` §§6–7.
 
@@ -124,7 +125,7 @@ landed together. What exists in the tree:
 | Width-indexed `read`/`write`, `readByte`/`writeByte`/`writeBytes`, `initRegion` | `Gasm/Targets/X86_64/MemoryCell.lean:79`–`:156` |
 | `MemRef` | `Gasm/Targets/X86_64/Memory.lean:49` |
 | `fault : Option X86_64Fault` (`.divideError | .memFault | .halted`) replacing `faulted : Bool` | `Gasm/Targets/X86_64/Registers.lean:84`; `X86_64Fault` at `:66` |
-| The §3.4 lemma set | `Gasm/Targets/X86_64/MemoryFrame/` — 35 theorems across `Common`/`Mov`/`Push`/`Pop`/`Call`/`Ret`, plus a Law-13 negative control |
+| The §3.4 lemma set | `Gasm/Targets/X86_64/MemoryFrame/` — per-family frame proofs, shared register-only and exact singleton store/load derivations, plus a Law-13 negative control |
 | Seal audit (the §3.2 tier-3 fallback) | `Gasm/Targets/X86_64/MemoryFrameAudit.lean` |
 | `memAccesses`, defaultless | `Gasm/Targets/X86_64/Instructions/Base.lean:66`, cited from `:40` as the reason it has no default |
 
@@ -140,8 +141,8 @@ inductive MemWidth | w8 | w16 | w32 | w64          -- 1/2/4/8 bytes
 def MemWidth.bytes : MemWidth → Nat
 
 /-- Canonical x86-64 effective-address term: base + index*scale + disp.
-    Today's 14 forms use only base+disp8/disp32; index is the forward slot the ISA
-    expansion's SIB-indexed forms fill without a new address representation. -/
+    The original MH1 forms use only base+disp8/disp32; index is the forward slot ISA
+    expansion fills without a new address representation. -/
 structure MemRef where
   base  : Reg64
   index : Option (Reg64 × Nat) := none   -- scale ∈ {1,2,4,8}
@@ -264,9 +265,12 @@ theorem Foo.readsWithin : ∀ (i : Foo) (s₁ s₂), agreeOutsideRegs s₁ s₂ 
     agreeOn (loadFootprint (memAccesses i) s₁) s₁ s₂ → step i s₁ ≈ step i s₂
 ```
 
-These are provable by unfolding for the 14 memory forms (their steps are literally
-hook calls at the declared addresses once migrated), and by a shared batch lemma for
-the 74 `[]` forms (their steps never mention memory). They live in the
+The memory-form obligations are discharged either directly from the corresponding hook calls or
+through exact shared derivations whose premises bind the descriptor to the semantic step. The first
+singleton-store consumers are `MovMem32DispReg32` and `MovMem64DispReg64`; register-only forms use
+the shared memory-preservation derivation. The first singleton-load consumers are
+`MovReg32Mem32Disp` and `MovReg64Mem64Disp`. The W32 family now subsumes the former
+RSP-specific identity. The proofs live in the
 `RoundtripGate/*`-style per-family shard convention so a new memory form cannot land
 without them. **Status** (corrected 2026-08-28): this line previously read "unbuilt; MH1
 (field + 14 real descriptors + frame lemmas for the memory families), with the
@@ -319,9 +323,11 @@ exists nowhere (no store-form step lemma exists in the tree):
   (`docs/VISION.md` §4: "capability tokens … are also the frame conditions").
 
 **Status** (corrected 2026-08-28): this line previously read "unbuilt; MH1". **The lemma
-set is built** — 35 theorems across `Gasm/Targets/X86_64/MemoryFrame/{Common,Mov,Push,Pop,Call,Ret}.lean`,
-with the byte-granular read-over-write and `initRegion` read-back half proved once in
-`MemoryCell.lean:171`ff and a Law-13 negative control in `MemoryFrame/NegativeControl.lean`.
+set is built** across `Gasm/Targets/X86_64/MemoryFrame/`, with byte-granular read-over-write,
+exact singleton store/load derivations, and `initRegion` read-back proved in shared modules and a
+Law-13 negative control in `MemoryFrame/NegativeControl.lean`. The W32/W64 register-to-memory
+stores above are the first singleton-store consumers; `MovReg32Mem32Disp` and
+`MovReg64Mem64Disp` are the first singleton-load consumers.
 The disjointness lemmas are `omega`-class arithmetic over
 `UInt64` intervals; wraparound at 2⁶⁴ is handled the way `MemoryPerm.validRange`
 already does (a no-overflow side condition carried by the capability, not re-proven per
@@ -461,8 +467,8 @@ Nothing here narrows the read quantifier; nothing there weakens the write bound.
 ## 5. Layer P: the perf side, and how it stays falsifiable
 
 **Status** (corrected 2026-08-29): built. `Gasm/Targets/X86_64/MemCostModel.lean` owns the
-provenance-marked coefficient table and `memUops`; all 14 memory-touching forms derive their
-memory uops through it; `Tools/CheckX86Obligations.lean` audits the derivation and reports
+provenance-marked coefficient table and `memUops`; the registered memory-touching forms derive
+their memory uops through it; `Tools/CheckX86Obligations.lean` audits the derivation and reports
 provenance. Calibration remains incomplete exactly as §5.2 states.
 
 ### 5.1 One table, provenance-marked, instead of 14 sets of inline literals
@@ -676,9 +682,9 @@ ahead of those gates merely because the historical H3 proposal allowed that sequ
    question, not a competing memory-model plan.** Resolve it in the x86 target/expansion work
    after M1 fixes the capability-bearing authoring boundary. It must not change the canonical
    cross-architecture authority model or bypass M1's stage-entry gate.
-3. **Q3 — the `memAccesses` mandatory field: resolved.** The no-default field exists on all
-   88 registered forms, with 14 real descriptors and 74 explicit empty lists; omission is a
-   compile error and the frame/registry audits are built (§3).
+3. **Q3 — the `memAccesses` mandatory field: resolved.** The no-default field requires every
+   registered form to declare its accesses explicitly; omission is a compile error and the
+   frame/registry audits are built (§3).
 
 ## 11. Follow-on work
 

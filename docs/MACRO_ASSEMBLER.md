@@ -37,6 +37,20 @@ The initial x86-64 library contains proved register-to-register `mov`, 64-bit co
 and register `add`, `sub`, and `and`. These are deliberately small primitives. Larger macros should
 be assembled from them and expose domain-specific postconditions.
 
+## x86-64 comparison condition macros
+
+`Gasm.Targets.X86_64.MacroAssembler.Condition` adds the exact `CMP r64,r64` building block needed
+by structured conditions. Its segment declares no GPR clobbers, proves every GPR and memory are
+preserved, and gives law-bearing postconditions for both equality through ZF and unsigned
+less-than through CF. The target-owned `ControlFlowFree` classification admits this exact ordinary
+constructor; a JCC remains a separate selected control-transfer form.
+
+The comparison segment establishes flags only. It does not choose a destination, construct a typed
+edge, assign block addresses, or authorize native execution. Compiler condition lowering must
+connect its operand values to the portable Bool expression; CFG assignment must retain both exact
+target definitions; and the linker/platform layers must still prove the selected JCC encoding,
+polarity, placement, runtime transition, and ghost-world transfer.
+
 ## Macro programs
 
 `MacroAssembler.Program` is a list of proved fragments. It is an authoring form, not a mandatory
@@ -657,6 +671,92 @@ plan chooses no ISA, register allocation, spills, flags, ABI, CFG block, layout,
 `VerifiedProgram` evidence. Later x86-64, AArch64, and SPIR-V selectors may realize the same plan;
 handwritten optimized leaves may instead prove the same source/result and selected frame contracts.
 Target realization and differential replacement remain separate proof-producing layers.
+
+## Structured Microsoft x64 conditions
+
+`Gasm.Compiler.Word.StructuredConditionMicrosoftX64Entry` is the first target realization of a
+portable structured condition. It recognizes exactly `eq` and unsigned `ult` between two of the
+four source input variables, optionally negated once. Literals, arithmetic operands, lets, nested
+negation, and every other Boolean shape reject rather than being normalized into a larger hidden
+compiler surface.
+
+The target-owned `MacroAssembler.Condition.compare` emits one exact register `CMP`. Its closed
+constructor classification proves that it is ordinary straight-line code; its local laws prove no
+GPR or memory clobber and relate the resulting equality and unsigned-below flags to the two input
+register values. The compiler `LoweredCondition` retains the selected source term, input-register
+mapping, exact instruction and serialized bytes, condition-code polarity, portable-Bool agreement,
+and the applicable input/memory/fault/RIP frames.
+
+This is condition preparation only. It selects no successor and establishes no typed edge, ghost
+transfer, branch displacement, block layout, production lookup, artifact, or `VerifiedProgram`
+property. A later branch lowering must combine it with the existing symbolic decision plan, exact
+JCC definition and polarity, both closed child definitions, target-owned layout/relocation, and
+selected-edge world transfer. Handwritten condition blocks remain first class by supplying the
+same logical agreement and selected frame contracts instead of using this macro.
+
+## Structured Microsoft x64 branch blocks
+
+`Gasm.Compiler.Word.StructuredConditionMicrosoftX64CFG` lifts one accepted comparison into an exact
+logical `DirectBlock`. Its `afterCondition` state changes only the physical x86 machine field and
+definitionally preserves API typestate, stack depth, permissions, obligations, causal clock, and
+event history. `Successors` supplies the two existing `ConditionalBlockEdge`s and their exact child
+definitions; the compiler never manufactures a destination entry proof or ghost-world transfer
+from the source Boolean.
+
+The generated block uses the target-owned condition code with definitionally identical flag
+semantics, retains true/false orientation, and produces the existing `StructuredCFG.RealizesCondition`
+premise. Consequently it can be one replaceable implementation assignment in the stable symbolic
+decision plan, while `StructuredCFG.Realizes.lower` remains the only path to the existing typed CFG.
+
+This adapter does not emit a JCC. The comparison instruction body remains exact in its
+`LoweredCondition`; the linker must separately select and prove the JCC encoding, both placements,
+fallthrough orientation, displacement, production lookup and operational step. It also proves no
+graph closure by itself, no artifact or execution outcome, and no `VerifiedProgram` authority.
+
+## Structured Microsoft x64 leaf blocks
+
+`Gasm.Compiler.Word.StructuredLeafMicrosoftX64CFG` gives generated and handwritten leaf bodies the
+same exact implementation contract. `Body` retains the selected instructions and bytes, RAX result
+relation to one exact branch-free source expression, memory/fault/RIP frames, actual clobbers,
+preservation outside those clobbers, and constructor-derived control-flow freedom.
+
+`Body.ofGenerated` consumes the bounded Microsoft-x64 backend certificate. `Body.ofReplacement`
+consumes the existing differential `BodyRealization`, so a hand-optimized macro segment can replace
+the generated leaf while the source expression and symbolic decision topology remain unchanged.
+The internal `leafFunction` only adapts that exact leaf expression to the existing local backend;
+the root structured function remains the declaration tied to the user's Lean source.
+
+The block adapter changes only physical machine state and preserves API typestate, stack,
+permissions, obligations, causal clock, and event history. A caller-owned `Terminal` supplies RET,
+exit, or halt and proves the exhaustive target-free classification, after which `realizes` produces
+the existing `StructuredCFG.RealizesLeaf` premise. It cannot hide JMP/JCC, manufacture termination,
+or establish emitted terminator semantics, layout, graph closure, artifact identity, platform
+admission, or `VerifiedProgram` authority.
+
+## Structured Microsoft x64 plan assembly
+
+`Gasm.Compiler.Word.StructuredMicrosoftX64CFG` is the finite compositional assembler that joins an
+existing stable `StructuredCFG.Plan` to exact Microsoft-x64 leaf and condition implementations.
+The plan's nominal `NodeId` is also the block ID. `Selected.leaf` accepts one reviewed leaf `Body`,
+entry contract, and target-free terminator. `Selected.branch` accepts two already selected child
+plans, one exact `LoweredCondition`, and caller-owned typed successors. It derives child block-ID
+disjointness and parent freshness from the symbolic plan laws and the exact child ID maps, rather
+than asking each implementation assignment to repeat freshness proofs.
+
+Every selected package proves that its exact postorder block IDs equal the plan's role list and that
+its root block ID equals the symbolic root. The branch constructor binds the portable condition,
+true and false child plans, exact definitions, and polarity in its dependent type. The focused
+control assembles a three-block decision tree whose true leaf is compiler-generated and whose false
+leaf is a one-instruction handwritten differential replacement; compile-time controls reject
+swapped child polarity and a leaf from a foreign nominal scope. Duplicate IDs are excluded by the
+derived exact role map and the existing plan/assignment uniqueness theorems.
+
+`Selected.lower` is exactly the existing `StructuredCFG.Realizes.lower`; it introduces no second
+CFG or finalization path. Its theorems expose only the existing exact graph blocks, entry, and
+symbolic root ID. This module is an internal prerequisite for the structured branch compiler, not a
+completed branch feature: comparison/JCC layout and production execution, terminal realization,
+artifact identity, ABI/export publication, admission, and the sole `VerifiedProgram` spike remain
+separate mandatory work.
 
 ## Structured Microsoft x64 process-entry backend
 

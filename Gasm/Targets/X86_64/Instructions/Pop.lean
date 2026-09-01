@@ -72,9 +72,13 @@ def pop_r64 (r : Reg64) : AnyX86_64Instruction :=
 
 private def popRule (regCode : UInt8) : DecodeRule := {
   opcode := .one (0x58 + regCode),
+  has0x66 := some false,
   builder := fun ctx =>
-    let r := codeToReg64 regCode ctx.rexB
-    .ok (pop_r64 r, ctx.opcodePos - ctx.startOffset)
+    if ctx.rexW || ctx.rexR || ctx.rexX || ctx.hasRex != ctx.rexB then
+      .error "popTryDecode: noncanonical REX prefix for POP r64"
+    else
+      let r := codeToReg64 regCode ctx.rexB
+      .ok (pop_r64 r, ctx.opcodePos - ctx.startOffset)
 }
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/

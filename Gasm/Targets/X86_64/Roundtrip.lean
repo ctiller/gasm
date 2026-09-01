@@ -119,7 +119,7 @@ private theorem decode_mov_rsp_byte_zero (val : UInt8) :
   rw [show readUInt8 (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 3 = .ok val by rfl]
   rfl
 
-private theorem decode_mov_rsp_byte_disp (disp val : UInt8) :
+private theorem decode_mov_rsp_byte_disp (disp val : UInt8) (h : (disp == 0) = false) :
     decodeX86_64Instr (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
       .ok (mov_rsp_byte disp val, 5) := by
   have h0 : readUInt8 (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 = .ok 0xC6 := rfl
@@ -156,6 +156,8 @@ private theorem decode_mov_rsp_byte_disp (disp val : UInt8) :
   rw [show readUInt8 (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 3 = .ok disp by rfl]
   dsimp only
   rw [show readUInt8 (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 4 = .ok val by rfl]
+  dsimp only
+  simp only [h, Bool.false_eq_true, ite_false]
   rfl
 
 /- REF: docs/M1_X86_CHECKED_AUTHORING_PROOF_BRIEF.md#completion-gate -/
@@ -189,7 +191,8 @@ theorem roundtrip_mov_rsp_disp_byte :
           ByteArray.mk #[0xC6, makeModRM 0 0 4, makeSIB 0 4 4, val]
         else ByteArray.mk #[0xC6, makeModRM 1 0 4, makeSIB 0 4 4, disp, val]) = _
         rw [if_neg h, modrm1, sib]]
-    exact decode_mov_rsp_byte_disp disp val
+    have hdisp0 : (disp == 0) = false := by simpa using h
+    exact decode_mov_rsp_byte_disp disp val hdisp0
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Universal: SHL r64, CL (0xD3 /4) decodes back for every destination register. `encode` has no
     value-dependent branching (unlike the disp8-omitting MOV/LEA forms), so once `dst` is fixed by

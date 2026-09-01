@@ -703,15 +703,50 @@ def X86_64MachineState.setFlagsNeg8 (s : X86_64MachineState) (val : UInt8) : X86
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Updates RFLAGS condition codes for 64-bit shift operations (SHL, SHR, SAR) when count > 0, supporting 1-bit OF semantics. -/
 def X86_64MachineState.setFlagsShift64 (s : X86_64MachineState) (res : UInt64) (cfBit : UInt64) (ofBit : UInt64) (count : UInt8) : X86_64MachineState :=
-  if count == 0 then s
-  else
-    let zf : UInt64 := if res == 0 then ((1 : UInt64) <<< 6) else 0
-    let sf : UInt64 := if (res >>> 63) == 1 then ((1 : UInt64) <<< 7) else 0
-    let cf : UInt64 := if cfBit != 0 then ((1 : UInt64) <<< 0) else 0
-    let of_val : UInt64 := if ofBit != 0 then ((1 : UInt64) <<< 11) else 0
-    let pf := computeParity8 res
-    let preserved := s.flags &&& (~~~arithmeticStatusMask)
-    { s with flags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf }
+  let zf : UInt64 := if res == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (res >>> 63) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if cfBit != 0 then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if ofBit != 0 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 res
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  let newFlags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf
+  { s with flags := if count == 0 then s.flags else newFlags }
+
+/- REF: intel-sdm#vol=2;instr=SAL_SAR_SHL_SHR;part=operation -/
+/-- Updates RFLAGS condition codes for 32-bit shift operations (SHL, SHR, SAR) when count > 0, supporting 1-bit OF semantics. -/
+def X86_64MachineState.setFlagsShift32 (s : X86_64MachineState) (res : UInt32) (cfBit : UInt64) (ofBit : UInt64) (count : UInt8) : X86_64MachineState :=
+  let zf : UInt64 := if res == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (res >>> 31) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if cfBit != 0 then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if ofBit != 0 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 res.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  let newFlags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf
+  { s with flags := if count == 0 then s.flags else newFlags }
+
+/- REF: intel-sdm#vol=2;instr=SAL_SAR_SHL_SHR;part=operation -/
+/-- Updates RFLAGS condition codes for 16-bit shift operations (SHL, SHR, SAR) when count > 0, supporting 1-bit OF semantics. -/
+def X86_64MachineState.setFlagsShift16 (s : X86_64MachineState) (res : UInt16) (cfBit : UInt64) (ofBit : UInt64) (count : UInt8) : X86_64MachineState :=
+  let zf : UInt64 := if res == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (res >>> 15) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if cfBit != 0 then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if ofBit != 0 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 res.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  let newFlags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf
+  { s with flags := if count == 0 then s.flags else newFlags }
+
+/- REF: intel-sdm#vol=2;instr=SAL_SAR_SHL_SHR;part=operation -/
+/-- Updates RFLAGS condition codes for 8-bit shift operations (SHL, SHR, SAR) when count > 0, supporting 1-bit OF semantics. -/
+def X86_64MachineState.setFlagsShift8 (s : X86_64MachineState) (res : UInt8) (cfBit : UInt64) (ofBit : UInt64) (count : UInt8) : X86_64MachineState :=
+  let zf : UInt64 := if res == 0 then ((1 : UInt64) <<< 6) else 0
+  let sf : UInt64 := if (res >>> 7) == 1 then ((1 : UInt64) <<< 7) else 0
+  let cf : UInt64 := if cfBit != 0 then ((1 : UInt64) <<< 0) else 0
+  let of_val : UInt64 := if ofBit != 0 then ((1 : UInt64) <<< 11) else 0
+  let pf := computeParity8 res.toUInt64
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  let newFlags := preserved ||| zf ||| sf ||| cf ||| of_val ||| pf
+  { s with flags := if count == 0 then s.flags else newFlags }
 
 /- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
 /-- Updates RFLAGS condition codes for signed 64-bit multiplication (IMUL r64, r64): sets CF and OF on signed truncation, clears other status flags, preserves system flags. -/
@@ -726,6 +761,32 @@ def X86_64MachineState.setFlagsImul64 (s : X86_64MachineState) (a b : UInt64) : 
   let preserved := s.flags &&& (~~~arithmeticStatusMask)
   { s with flags := preserved ||| cf_of }
 
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Updates RFLAGS condition codes for signed 32-bit multiplication (IMUL): sets CF and OF on signed truncation, clears other status flags, preserves system flags. -/
+def X86_64MachineState.setFlagsImul32 (s : X86_64MachineState) (a b : UInt32) : X86_64MachineState :=
+  let aInt : Int := if (a >>> 31) == 1 then -(0x100000000 - a.toNat : Int) else (a.toNat : Int)
+  let bInt : Int := if (b >>> 31) == 1 then -(0x100000000 - b.toNat : Int) else (b.toNat : Int)
+  let prodInt := aInt * bInt
+  let minInt : Int := -0x80000000
+  let maxInt : Int := 0x7FFFFFFF
+  let overflow := prodInt < minInt || prodInt > maxInt
+  let cf_of : UInt64 := if overflow then (((1 : UInt64) <<< 0) ||| ((1 : UInt64) <<< 11)) else 0
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| cf_of }
+
+/- REF: docs/TARGETS/X86_64.md#1-machine-state-model-sub-register-aliasing -/
+/-- Updates RFLAGS condition codes for signed 16-bit multiplication (IMUL): sets CF and OF on signed truncation, clears other status flags, preserves system flags. -/
+def X86_64MachineState.setFlagsImul16 (s : X86_64MachineState) (a b : UInt16) : X86_64MachineState :=
+  let aInt : Int := if (a >>> 15) == 1 then -(0x10000 - a.toNat : Int) else (a.toNat : Int)
+  let bInt : Int := if (b >>> 15) == 1 then -(0x10000 - b.toNat : Int) else (b.toNat : Int)
+  let prodInt := aInt * bInt
+  let minInt : Int := -0x8000
+  let maxInt : Int := 0x7FFF
+  let overflow := prodInt < minInt || prodInt > maxInt
+  let cf_of : UInt64 := if overflow then (((1 : UInt64) <<< 0) ||| ((1 : UInt64) <<< 11)) else 0
+  let preserved := s.flags &&& (~~~arithmeticStatusMask)
+  { s with flags := preserved ||| cf_of }
+
 /- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
 /-- Reads a single byte from machine memory, through the sealed hook. -/
 abbrev X86_64MachineState.read8 (s : X86_64MachineState) (a : Address) : UInt64 :=
@@ -733,8 +794,8 @@ abbrev X86_64MachineState.read8 (s : X86_64MachineState) (a : Address) : UInt64 
 
 /- REF: docs/MEMORY_HOOK.md#31-types-and-api -/
 /-- Reads a 4-byte little-endian doubleword from machine memory, through the sealed hook. This is
-    one of the "missing widths" `docs/MEMORY_HOOK.md` §1.1 names: before this hook,
-    `MovReg32RspDisp32.step` re-implemented this ladder inline because no `read32` existed. -/
+    one of the "missing widths" `docs/MEMORY_HOOK.md` §1.1 names: before this hook, the former
+    RSP-specific W32 MOV load re-implemented this ladder inline because no `read32` existed. -/
 abbrev X86_64MachineState.read32 (s : X86_64MachineState) (a : Address) : UInt64 :=
   X86_64Mem.read .w32 a s.memory
 

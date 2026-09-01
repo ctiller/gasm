@@ -61,6 +61,21 @@ private def movzxDestination? (form : ScratchMov) : Option Reg64 :=
   | ⟨.movzxR64Mem8, instruction⟩ => some instruction.dstReg
   | _ => none
 
+private def load32Destination? (form : ScratchMov) : Option Reg64 :=
+  match form with
+  | ⟨.reg32Mem32Disp, instruction⟩ => some (reg32To64 instruction.dstReg)
+  | _ => none
+
+private def calibrateDestinationBitRejection (observation : Observation) (destination : Reg64)
+    (mask : UInt64) (label : String) : Except String Unit := do
+  let native := observation.result.machine
+  let corruptedGprs := fun reg =>
+    if reg == destination then native.gprs reg ^^^ mask else native.gprs reg
+  let corrupted := { native with gprs := corruptedGprs }
+  match compareMachine observation.plan corrupted with
+  | .error _ => pure ()
+  | .ok () => throw s!"runtime negative calibration accepted stale {label} destination bits"
+
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Compares one case against the exact production step used to construct its plan.  RSP is the
     sole excluded register because the Windows harness owns its stack; the planner rejects every
@@ -107,13 +122,27 @@ def calibrateMovzxStaleHighBitsRejection (observation : Observation) : Except St
   let destination ← match movzxDestination? observation.plan.form with
     | some destination => pure destination
     | none => throw "MOVZX high-bit calibration requires a MOVZX observation"
-  let native := observation.result.machine
-  let corruptedGprs := fun reg =>
-    if reg == destination then native.gprs reg ^^^ 0x100 else native.gprs reg
-  let corrupted := { native with gprs := corruptedGprs }
-  match compareMachine observation.plan corrupted with
-  | .error _ => pure ()
-  | .ok () => throw "runtime negative calibration accepted stale MOVZX destination high bits"
+  calibrateDestinationBitRejection observation destination 0x100 "MOVZX"
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Flips bit 32 above a W32-load result and requires the complete GPR comparator to reject it.
+    This directly calibrates the architectural rule that a 32-bit destination write clears bits
+    63:32; no transformed `Observation` escapes. -/
+def calibrateLoad32StaleHighBitsRejection (observation : Observation) : Except String Unit := do
+  let destination ← match load32Destination? observation.plan.form with
+    | some destination => pure destination
+    | none => throw "W32-load high-bit calibration requires a 32-bit load observation"
+  calibrateDestinationBitRejection observation destination 0x100000000 "W32-load"
+
+/- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
+/-- Corrupts the first byte above an admitted W32 store and requires the complete-region
+    comparator to reject it.  The family check prevents this calibration from becoming a vague
+    fixed-offset test for some other access width. -/
+def calibrateStore32UpperNeighborRejection (observation : Observation) : Except String Unit := do
+  if observation.plan.form.scratchClass != .mem32DispReg32 then
+    throw "W32 upper-neighbor calibration requires a 32-bit register store observation"
+  let accessIndex := (observation.plan.accessAddress - observation.plan.regionBase).toNat
+  calibrateRegionByteRejection observation (accessIndex + 4) "W32-upper-neighbor"
 
 /- REF: docs/TRUST_REBUILD_PLAN.md#25-applicability-and-checked-access-authority -/
 /-- Runs the exact comparator over a nonempty batch.  An enabled batch producing no observations

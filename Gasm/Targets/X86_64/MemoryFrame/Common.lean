@@ -21,7 +21,7 @@ import Gasm.Targets.X86_64.Instructions.Base
 
 -- Mirrors the `RoundtripGate/*.lean` shard convention (`docs/MEMORY_HOOK.md` §3.3): this file
 -- hosts the per-family connection-obligation SHAPE and the shared register-only batch lemma;
--- `MemoryFrame/<Family>.lean` shards host the 14 real memory forms' concrete `writesWithin`/
+-- `MemoryFrame/<Family>.lean` shards host the registered memory forms' concrete `writesWithin`/
 -- `readsWithin` instances. It cannot live in `Memory.lean` itself: `WritesWithin`/`ReadsWithin`
 -- quantify over `X86_64Instruction.step`/`memAccesses`, and that typeclass (declared in
 -- `Instructions/Base.lean`) already imports `Memory.lean` for the `memAccesses` field's type --
@@ -78,13 +78,10 @@ def ReadsWithin {ι : Type} [X86_64Instruction ι] (i : ι) : Prop :=
       StoreAgreeOn i s1 s2
 
 /- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
-/-- The shared batch lemma covering every `memAccesses _ := []` (register-only) form
-    (`docs/MEMORY_HOOK.md`'s "one shared batch lemma covering the `[]` forms"):
-    if `step` never changes the memory field at all, `WritesWithin` holds vacuously against the
-    empty footprint. Reduces each of the 74 register-only forms' proof obligation to the single,
-    `rfl`-discharged fact that their `step` doesn't touch `.memory` (true by construction: none of
-    their `step` bodies mention it), rather than needing a bespoke connection-theorem proof per
-    type. -/
+/-- Any instruction whose `step` preserves the memory field satisfies `WritesWithin`, regardless
+    of whether its descriptor is empty or contains loads. The historical name reflects its first
+    consumers: register-only forms discharge the premise by `rfl`; read-only forms can reuse the
+    same semantic fact without a duplicate no-write theorem. -/
 theorem registerOnly_writesWithin {ι : Type} [X86_64Instruction ι] (i : ι)
     (hNoMem : ∀ s : X86_64MachineState, (X86_64Instruction.step i s).memory = s.memory) :
     WritesWithin i := by
@@ -113,5 +110,103 @@ theorem registerOnly_readsWithin {ι : Type} [X86_64Instruction ι] (i : ι)
   refine ⟨hCongr s1 s2 hout, ?_⟩
   intro a ha
   simp [storeFootprint, footprintFor, hEmpty] at ha
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- Derives the read-dependence frame for an exact singleton load. `hStep` factors the semantic
+    step through precisely the declared width-indexed read, while `hPost` proves the remaining
+    state transformer cannot inspect memory behind that value. Thus an undeclared second read
+    cannot be hidden in an opaque post-state congruence premise. -/
+theorem singleLoad_readsWithin {ι : Type} [X86_64Instruction ι] (i : ι)
+    (width : MemWidth) (ref : MemRef)
+    (post : X86_64MachineState → UInt64 → X86_64MachineState)
+    (hAccess : X86_64Instruction.memAccesses i = [⟨.load, width, ref⟩])
+    (hAddress : ∀ s1 s2, agreeOutsideMemory s1 s2 →
+      ref.effectiveAddress s1 = ref.effectiveAddress s2)
+    (hStep : ∀ s, X86_64Instruction.step i s =
+      post s (X86_64Mem.read width (ref.effectiveAddress s) s.memory))
+    (hPost : ∀ s1 s2 v, agreeOutsideMemory s1 s2 →
+      agreeOutsideMemory (post s1 v) (post s2 v)) :
+    ReadsWithin i := by
+  intro s1 s2 hout hagree
+  have haddr := hAddress s1 s2 hout
+  have hread :
+      X86_64Mem.read width (ref.effectiveAddress s1) s1.memory =
+        X86_64Mem.read width (ref.effectiveAddress s2) s2.memory := by
+    have hsame :
+        X86_64Mem.read width (ref.effectiveAddress s1) s1.memory =
+          X86_64Mem.read width (ref.effectiveAddress s1) s2.memory := by
+      apply X86_64Mem.read_congr'
+      intro k hk
+      apply hagree
+      simpa [hAccess, loadFootprint, footprintFor, MemAccessSpec.addresses] using
+        (List.mem_map.mpr ⟨k, List.mem_range.mpr hk, rfl⟩)
+    simpa [haddr] using hsame
+  constructor
+  · rw [hStep s1, hStep s2, hread]
+    exact hPost s1 s2 _ hout
+  · intro a ha
+    simp [hAccess, storeFootprint, footprintFor] at ha
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- Derives the write-frame obligation for an instruction whose exact descriptor is one store and
+    whose semantic step performs the matching width/address write. The footprint is the exact
+    modular address list, so wrapping is handled identically by descriptor and semantics. -/
+theorem singleStore_writesWithin {ι : Type} [X86_64Instruction ι] (i : ι)
+    (width : MemWidth) (ref : MemRef) (value : X86_64MachineState → UInt64)
+    (hAccess : X86_64Instruction.memAccesses i = [⟨.store, width, ref⟩])
+    (hMemory : ∀ s, (X86_64Instruction.step i s).memory =
+      X86_64Mem.write width (ref.effectiveAddress s) (value s) s.memory) :
+    WritesWithin i := by
+  intro s a ha
+  have hout : a ∉ (List.range width.bytes).map
+      (fun k => ref.effectiveAddress s + k.toUInt64) := by
+    simpa [hAccess, storeFootprint, footprintFor, MemAccessSpec.addresses] using ha
+  rw [hMemory]
+  simp only [X86_64Mem.read]
+  exact congrArg UInt8.toUInt64
+    (X86_64Mem.readByte_write_outside_addresses width _ _ _ a hout)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+/-- Derives the read-dependence frame for the same exact singleton-store shape. The premises are
+    deliberately projection-level: the address and stored value must agree when pre-states agree
+    outside memory, the post-step RIP projection must agree, and every other non-memory field is
+    unchanged. This is substantially stronger and cheaper to check than accepting an opaque
+    post-step `agreeOutsideMemory` claim, while `readByte_write_inside` supplies the store-byte
+    agreement independently of either pre-image. -/
+theorem singleStore_readsWithin {ι : Type} [X86_64Instruction ι] (i : ι)
+    (width : MemWidth) (ref : MemRef) (value : X86_64MachineState → UInt64)
+    (hAccess : X86_64Instruction.memAccesses i = [⟨.store, width, ref⟩])
+    (hMemory : ∀ s, (X86_64Instruction.step i s).memory =
+      X86_64Mem.write width (ref.effectiveAddress s) (value s) s.memory)
+    (hAddress : ∀ s1 s2, agreeOutsideMemory s1 s2 →
+      ref.effectiveAddress s1 = ref.effectiveAddress s2)
+    (hValue : ∀ s1 s2, agreeOutsideMemory s1 s2 → value s1 = value s2)
+    (hRip : ∀ s1 s2, agreeOutsideMemory s1 s2 →
+      (X86_64Instruction.step i s1).rip = (X86_64Instruction.step i s2).rip)
+    (hGprs : ∀ s, (X86_64Instruction.step i s).gprs = s.gprs)
+    (hFlags : ∀ s, (X86_64Instruction.step i s).flags = s.flags)
+    (hStdin : ∀ s, (X86_64Instruction.step i s).stdinBuffer = s.stdinBuffer)
+    (hRequests : ∀ s, (X86_64Instruction.step i s).incomingRequests = s.incomingRequests)
+    (hFault : ∀ s, (X86_64Instruction.step i s).fault = s.fault) :
+    ReadsWithin i := by
+  intro s1 s2 hout _
+  obtain ⟨hrip, hgprs, hflags, hstdin, hrequests, hfault⟩ := hout
+  constructor
+  · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+    · exact hRip s1 s2 ⟨hrip, hgprs, hflags, hstdin, hrequests, hfault⟩
+    · rw [hGprs, hGprs, hgprs]
+    · rw [hFlags, hFlags, hflags]
+    · rw [hStdin, hStdin, hstdin]
+    · rw [hRequests, hRequests, hrequests]
+    · rw [hFault, hFault, hfault]
+  · intro a ha
+    have haddr := hAddress s1 s2 ⟨hrip, hgprs, hflags, hstdin, hrequests, hfault⟩
+    have hval := hValue s1 s2 ⟨hrip, hgprs, hflags, hstdin, hrequests, hfault⟩
+    simp [hAccess, storeFootprint, footprintFor, MemAccessSpec.addresses] at ha
+    obtain ⟨k, hk, rfl⟩ := ha
+    simp only [hMemory, X86_64Mem.read]
+    rw [haddr, hval]
+    exact congrArg UInt8.toUInt64
+      (X86_64Mem.readByte_write_inside width _ _ _ _ k hk)
 
 end Gasm.Targets.X86_64.MemoryFrame

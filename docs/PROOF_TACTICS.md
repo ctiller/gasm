@@ -84,6 +84,22 @@ case-id bits and binds result case identity to the plan; canonical `f5e0c855` ad
 the harness sole construction of a sealed observation carrying owner-derived plan identity.
 Provenance or occurrence identity is a separate obligation from observational equivalence.
 
+## Test decoder admission, not only roundtrip
+
+An encode/decode roundtrip proves that bytes produced by the encoder are accepted; it does not prove
+that the decoder rejects different byte strings which it might relabel as a supported form.  When a
+codec intentionally supports only a subset of an ISA addressing family, keep the positive roundtrip
+gate and targeted rejection controls in the target decoder.  Cover the load-bearing excluded
+discriminators in the claimed or repaired boundary--such as prefix extension bits, ModRM modes, SIB
+index/base fields, and displacement consumption--with kernel-decided hostile byte vectors.  Treat
+those vectors as regression evidence, not an exhaustive characterization of decoder admission.
+
+Canonical `5fbf3f3d` applies this to x86 `0x89`: indexed SIB, REX.X-created index, RIP-relative, and
+indexed disp8 encodings are rejected at both W32 and W64, while canonical RSP/R12 SIB and RBP/R13
+forced-displacement forms retain exact consumption and semantic identity.  This is decoder-admission
+regression evidence for that stated boundary, not a complete subset theorem or a substitute for
+instruction semantics, framing, hardware comparison, platform admission, or artifact authority.
+
 ## Keep falsification controls monotonic and evidence-sealed
 
 Every validation repair must rerun the complete accumulated negative-control suite, not only its
@@ -111,6 +127,16 @@ remaining cost is attached to a selected semantic obligation.  Do not weaken the
 domain, substitute a second evaluator, or move work behind a new name and call that optimization.
 Compare the same consumer before and after, and keep an unchanged-direction or deliberately malformed
 control when it distinguishes the mechanism from mere relocation.
+
+Interpret the advisory 10:1 figure as upper pressure on marginal bespoke proof bulk relative to the
+assembly semantics or implementation being justified--never as staffing, author/reviewer counts, or
+a soundness threshold.  Repeatedly needing roughly ten lines of one-off proof per implementation
+line is a signal to look for missing family lemmas, indexed descriptors, automation, or a misplaced
+boundary.  Mature routine flow should aim in the opposite direction: roughly one line of marginal
+glue per ten lines of ordinary implementation, while allowing substantial foundational proofs that
+amortize across families and future targets.  A poor ratio triggers redesign review; it never permits
+omitting or weakening a necessary proof, and it creates no counter, quota, CI gate, or acceptance
+rule.
 
 Accepted `Gasm.Proof.LocalExecution` removed duplicated list induction while leaving both targets'
 semantics local.  The decimal-pass split reduced the consumer's invalidation frontier; moving the same
@@ -389,6 +415,43 @@ For that alignment proof, expose one recursive layer with `change` and apply the
 hypothesis directly.  A broad `simp` over the fold can unfold a target's large step semantics: in
 this extraction the direct proof reduced the focused rebuild from about 97 seconds to 5 seconds.
 
+## Derive repeated store frames from exact effects
+
+When two instruction forms have the same single-store semantic shape, derive their frame laws from
+plain theorems over the exact descriptor and step result rather than enumerating each written byte
+inside both consumers.  Require equality to one `.store` descriptor and exact post-step memory
+equality to the corresponding write into pre-memory; these premises prevent a convenient parallel
+effect from laundering an instruction-specific proof.  Derive outside-footprint preservation over
+the write operation's exact modular address list, without adding a no-wrap premise that the memory
+semantics does not need.
+
+For read dependence, keep effective-address, stored-value, and post-step non-memory projection
+congruence as consumer premises.  `StoreAgreeOn` then follows from the inside-write byte lemma, while
+the exact store descriptor makes the load footprint empty.  Canonical `4c6fbf4c` applies the same
+`singleStore_writesWithin`/`singleStore_readsWithin` signature to x86 W32 and W64 MOV stores without
+changing their public theorem types or compiled frame audits.  Repeated consumer theorem text fell
+from 61 lines to 44; that 28 percent reduction is comparative evidence, not a target or acceptance
+gate.  Instruction admission, concurrency, platform behavior, and artifact authority stay outside
+this frame algebra.
+
+## Factor a load frame through one declared read
+
+For an exact singleton load, factor the instruction step through the one width-indexed declared
+read and make the remaining post-state transformer parametric under `agreeOutsideMemory`.  Prove the
+effective address stable, use `agreeOn` with `X86_64Mem.read_congr'` to equate the declared values,
+and let the empty store footprint discharge `StoreAgreeOn`.  Do not add memory preservation to this
+read-frame helper: reuse the instruction's separately audited no-write theorem so each obligation is
+proved once by its owning layer.
+
+The negative control must exercise an additional dependency, not substitute one load for another.
+Canonical `aa80e2b1` uses a hostile step whose observable RAX materially combines declared `[rdi]`
+and hidden `[rsi]`, then holds the declared value fixed while varying only the hidden value.  This
+refutes every proposed one-read factorization with a memory-insensitive post transformer.  The
+blocked predecessor `58a624ff` ignored the declared value and therefore tested only a wholly
+misdeclared load.  Exact factorization and a dual-dependent control make the helper reusable for the
+two accepted x86 load consumers; they do not establish admission, concurrency, platform behavior,
+or artifact authority.
+
 ## Make control-flow obligations local
 
 At the core CFG layer, use typed block-entry contracts as invariant transfer points and close every
@@ -479,3 +542,26 @@ Callers prove facts that vary at the call site.  Libraries prove their transitio
 targets prove instruction and calling-convention facts; linkers prove layout and joint
 admissibility.  A feature absent from a path imposes no obligation on that path.  Proof economy may
 move and reuse a necessary fact, but never omit it.
+
+## Reuse the import environment during edit-local elaboration
+
+For repeated work on one Lean source whose dependencies are already built, use
+`python scripts/run_incremental_lean.py path/to/Module.lean -- -M 4096`.  The first run saves
+Lean's incremental command snapshot under `.lake/build`; later runs reload it and reconcile the
+current source body against the saved command stream.  The launcher fingerprints the pinned
+toolchain, exact import header, Lean arguments, and contents of every direct compiled dependency
+before reuse.  It runs dependency discovery with the same accepted arguments and rechecks that
+fingerprint under a per-source process lock before either loading or publishing a snapshot. A small
+manifest authenticates both of Lean's snapshot files, so a partial, corrupt, or mixed-generation
+pair fails closed; use `--refresh` to replace it deliberately.
+
+Forwarded arguments are intentionally limited to Lean's resource controls (`-M`/`--memory`,
+`-T`/`--timeout`, `-j`/`--threads`, `-s`/`--tstack`) and diagnostic controls (`-q`/`--quiet`,
+`--json`, `--profile`, `--stats`, `-E`/`--error`).  File-backed inputs such as `--setup`,
+`--plugin`, and `--load-dynlib`, arbitrary `-D` options, output paths, package roots, server modes,
+and incremental-control arguments are rejected rather than cached under a mutable path or allowed
+to bypass the launcher's cache authority.
+
+This is an edit-local frontend, not a dependency builder or validation gate.  Run the focused Lake
+target when an imported module changes, and run the repository's required gates before review.  The
+cache changes no proof authority: an invalid edited theorem is still sent to Lean and rejected.

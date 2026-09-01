@@ -88,6 +88,7 @@ import Gasm.Targets.X86_64.Roundtrip
 import Gasm.Targets.X86_64.Semantics
 import Gasm.Targets.X86_64.MacroAssembler
 import Gasm.Targets.X86_64.MacroAssembler.PlatformBridge
+import Gasm.Targets.X86_64.MacroAssembler.Condition
 import Gasm.Targets.X86_64.MacroAssembler.SelectedPrefixBridge
 import Gasm.Targets.X86_64.MacroAssembler.ControlPoints
 import Gasm.Targets.X86_64.CFGBridge
@@ -143,6 +144,13 @@ import Gasm.Compiler.Word.StructuredStraightLine
 import Gasm.Compiler.Word.StructuredStraightLineAArch64
 import Gasm.Compiler.Word.StructuredStraightLineAArch64.Differential
 import Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry
+import Gasm.Compiler.Word.StructuredConditionMicrosoftX64Entry
+import Gasm.Compiler.Word.StructuredConditionMicrosoftX64EntryControls
+import Gasm.Compiler.Word.StructuredConditionMicrosoftX64CFG
+import Gasm.Compiler.Word.StructuredLeafMicrosoftX64CFG
+import Gasm.Compiler.Word.StructuredLeafMicrosoftX64CFGControls
+import Gasm.Compiler.Word.StructuredMicrosoftX64CFG
+import Gasm.Compiler.Word.StructuredMicrosoftX64CFGControls
 import Gasm.Compiler.Word.StructuredStraightLineMicrosoftX64Entry.Differential
 import Gasm.Compiler.Word.Examples
 import Gasm.Compiler.TypedCFG

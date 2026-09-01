@@ -87,7 +87,10 @@ theorem ret_op_step_memory (state : X86_64MachineState) :
 /-- Declarative decoding rules for the RET family: `0xC3` (unconditional near RET). -/
 def retDecodeRules : List DecodeRule := [
   { opcode := .one 0xC3,
-    builder := fun ctx => .ok (ret_op, ctx.opcodePos - ctx.startOffset)
+    has0x66 := some false,
+    builder := fun ctx =>
+      if ctx.hasRex then .error "retTryDecode: noncanonical REX prefix for RET"
+      else .ok (ret_op, ctx.opcodePos - ctx.startOffset)
   }
 ]
 

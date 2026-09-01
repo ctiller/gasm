@@ -312,6 +312,46 @@ theorem readByte_write_inside (w : MemWidth) (a : Address) (v : UInt64) (m1 m2 :
       simp [write, readByte, writeByte, Nat.toUInt64, hne]
 
 /- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
+/-- A width-indexed write preserves every byte outside the exact modular address list used by
+    `MemAccessSpec.addresses`. Unlike `readByte_write_disjoint`, this formulation needs no
+    no-wrap premise: both the semantic write and the descriptor enumerate the same `UInt64`
+    additions, so wrapping aliases remain members of the list rather than being interpreted as a
+    separate mathematical interval. -/
+theorem readByte_write_outside_addresses (w : MemWidth) (a : Address) (v : UInt64)
+    (m : X86_64Memory) (a' : Address)
+    (h : a' ∉ (List.range w.bytes).map (fun k => a + k.toUInt64)) :
+    readByte (write w a v m) a' = readByte m a' := by
+  have hoff : ∀ k : Nat, k < w.bytes → a' ≠ a + k.toUInt64 := by
+    intro k hk he
+    apply h
+    rw [he]
+    exact List.mem_map.mpr ⟨k, List.mem_range.mpr hk, rfl⟩
+  cases w with
+  | w8 =>
+    have h0 : a' ≠ a := by simpa using hoff 0 (by decide)
+    simpa [write] using readByte_writeByte_diff m a a' v.toUInt8 h0
+  | w16 =>
+    have h0 : a' ≠ a := by simpa using hoff 0 (by decide)
+    have h1 : a' ≠ a + 1 := by simpa using hoff 1 (by decide)
+    simp [write, readByte, h0, h1]
+  | w32 =>
+    have h0 : a' ≠ a := by simpa using hoff 0 (by decide)
+    have h1 : a' ≠ a + 1 := by simpa using hoff 1 (by decide)
+    have h2 : a' ≠ a + 2 := by simpa using hoff 2 (by decide)
+    have h3 : a' ≠ a + 3 := by simpa using hoff 3 (by decide)
+    simp [write, readByte, h0, h1, h2, h3]
+  | w64 =>
+    have h0 : a' ≠ a := by simpa using hoff 0 (by decide)
+    have h1 : a' ≠ a + 1 := by simpa using hoff 1 (by decide)
+    have h2 : a' ≠ a + 2 := by simpa using hoff 2 (by decide)
+    have h3 : a' ≠ a + 3 := by simpa using hoff 3 (by decide)
+    have h4 : a' ≠ a + 4 := by simpa using hoff 4 (by decide)
+    have h5 : a' ≠ a + 5 := by simpa using hoff 5 (by decide)
+    have h6 : a' ≠ a + 6 := by simpa using hoff 6 (by decide)
+    have h7 : a' ≠ a + 7 := by simpa using hoff 7 (by decide)
+    simp [write, readByte, h0, h1, h2, h3, h4, h5, h6, h7]
+
+/- REF: docs/MEMORY_HOOK.md#34-the-lemma-set-what-one-place-buys-proofs -/
 /-- `initRegion` read-back: reading any byte of an installed image returns exactly what the
     installing function says at that address. -/
 theorem readByte_initRegion (f : Address → Byte) (a : Address) :
