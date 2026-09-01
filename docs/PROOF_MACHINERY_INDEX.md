@@ -196,6 +196,7 @@ evidence, and negative boundary after that comparison; it does not own a second 
 | Proof need | Reusable machinery | Owning layer | Demonstrated use | Deliberate boundary |
 |---|---|---|---|---|
 | Establish that a proof build reads the committed source under review | `scripts/check_no_ignored_lean_sources.py` | repository source/build boundary, before cached compilation | every hosted Lean-bearing build and the unfiltered local gate | it establishes source identity, not theorem correctness; an intentional uncommitted source remains a reported failure rather than something the gate may remove |
+| Reuse an already-built import environment across repeated edits to one Lean source | `scripts/run_incremental_lean.py` with Lean `--incr-save`/`--incr-load` snapshots | edit-local proof-delivery tooling | repeated direct elaboration with unchanged imports, toolchain, dependencies, and accepted resource/diagnostic arguments | accelerator only: it neither builds dependencies nor replaces focused builds, gates, or kernel checking |
 | Execute a list of local steps and compose the result | `Gasm.Proof.LocalExecution.runSteps_append` | target-independent list algebra | x86-64 and AArch64 macro assemblers | fetch, faults, fuel, host effects, termination, instruction admission, and artifact identity stay target-owned |
 | Lift a one-step frame fact over a list | `runSteps_preserves`, `runSteps_preservesOutside` | target-independent observation algebra | AArch64 memory, SP, flags, fault, termination, and GPR frames; x86-64 composed GPR frames | the target supplies the one-step theorem and clobber classification |
 | Compose frame facts without clobber-order obligations | `preserves_comp`, `preservesOutside_comp`, `preservesOutside_comp_append` | target-independent observation algebra | x86-64 segment composition and the shared list-execution consumers | append is only a conservative union representation; uniqueness and order are irrelevant |
@@ -468,6 +469,22 @@ evidence, and negative boundary after that comparison; it does not own a second 
   authority.  Focused validation built 53 jobs and the `Gasm` umbrella built 283 jobs.  Comparison
   and JCC placement/execution, terminal realization, artifact identity, ABI/export publication,
   admission, and the sole final `VerifiedProgram` remain separate.
+- Canonical `699cd9198b4a88bb78f0137f3f9a2b5ef6f0a9bd` adds an edit-local incremental Lean
+  snapshot cache.  Reuse is keyed by the pinned toolchain, exact import header, accepted arguments,
+  and contents of direct compiled dependencies; dependency discovery uses those same arguments.
+  One source-wide cross-process lock spans cache selection, load, publication, and pruning, and a
+  manifest published last authenticates both snapshot files by size and SHA.  The accepted argument
+  grammar is closed and non-file-backed.  Mutable setup, plugin, dynamic-library, output, package,
+  server, and incremental-control inputs reject rather than entering cache identity.
+
+  The blocked precursor admitted mutable executable inputs and published its two snapshot files
+  without one enclosing lock, allowing stale identity and mixed-generation pairs.  The reusable
+  rule is therefore fail-closed identity plus atomic pair publication, not merely “turn on
+  `--incr-load`.”  On quiet Linux, representative direct warm elaboration measured about
+  0.74 seconds/1.66 GiB versus 0.37 seconds/0.60 GiB for cache hits; first save was about 2.7 seconds,
+  for an observed break-even near seven elaborations.  The integrated Windows seven-test mutation
+  and concurrency suite completed in 12.1 seconds.  This is an accelerator only: it never builds
+  dependencies or replaces focused builds, repository gates, or kernel proof checking.
 - For production emission, pass the final `VerifiedProgram` to platform-neutral
   `emitVerifiedProgram`; handle its `Except` result rather than bypassing the proof boundary with a
   target serializer.  Canonical `94da7dd` migrated Spike 2 Linux's emitter and test to this path;
