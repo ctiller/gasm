@@ -110,10 +110,13 @@ private theorem decode_mov_rsp_byte_zero (val : UInt8) :
   have parsed : parseRexAndOpcode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
       .ok (false, false, false, false, false, 0xC6, 1) := by
     rfl
+  have parsedPrefixes : parsePrefixesAndOpcode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
+      .ok (false, false, false, false, false, false, 0xC6, 1) := by
+    rfl
   have hlocal : movTryDecode (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 0 =
       .ok (mov_rsp_byte 0 val, 4) := by
     unfold movTryDecode
-    rw [parsed]
+    rw [parsedPrefixes]
     simp only
     rw [show readModRM (ByteArray.mk #[0xC6, 0x04, 0x24, val]) 1 =
       .ok (0, 0, 4, 2) by
@@ -126,16 +129,19 @@ private theorem decode_mov_rsp_byte_zero (val : UInt8) :
   exact DecoderRouting.decode_of_registered_success decodersBeforeMov decodersAfterMov
     movTryDecode _ 0 _ (by rfl) (decodersBeforeMov_reject_c6 _ parsed) hlocal
 
-private theorem decode_mov_rsp_byte_disp (disp val : UInt8) :
+private theorem decode_mov_rsp_byte_disp (disp val : UInt8) (h : (disp == 0) = false) :
     decodeX86_64Instr (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
       .ok (mov_rsp_byte disp val, 5) := by
   have parsed : parseRexAndOpcode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
       .ok (false, false, false, false, false, 0xC6, 1) := by
     rfl
+  have parsedPrefixes : parsePrefixesAndOpcode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
+      .ok (false, false, false, false, false, false, 0xC6, 1) := by
+    rfl
   have hlocal : movTryDecode (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 0 =
       .ok (mov_rsp_byte disp val, 5) := by
     unfold movTryDecode
-    rw [parsed]
+    rw [parsedPrefixes]
     simp only
     rw [show readModRM (ByteArray.mk #[0xC6, 0x44, 0x24, disp, val]) 1 =
       .ok (1, 0, 4, 2) by
@@ -144,6 +150,10 @@ private theorem decode_mov_rsp_byte_disp (disp val : UInt8) :
         change Except.ok ((extractModRM 0x44).1, (extractModRM 0x44).2.1,
           (extractModRM 0x44).2.2, 2) = .ok (1, 0, 4, 2)
         rw [show extractModRM 0x44 = (1, 0, 4) by decide]]
+    change (if (disp == 0) then
+        Except.error "movTryDecode: noncanonical zero displacement for 0xC6 MOV"
+      else Except.ok (mov_rsp_byte disp val, 5)) = Except.ok (mov_rsp_byte disp val, 5)
+    rw [h]
     rfl
   exact DecoderRouting.decode_of_registered_success decodersBeforeMov decodersAfterMov
     movTryDecode _ 0 _ (by rfl) (decodersBeforeMov_reject_c6 _ parsed) hlocal
@@ -179,7 +189,8 @@ theorem roundtrip_mov_rsp_disp_byte :
           ByteArray.mk #[0xC6, makeModRM 0 0 4, makeSIB 0 4 4, val]
         else ByteArray.mk #[0xC6, makeModRM 1 0 4, makeSIB 0 4 4, disp, val]) = _
         rw [if_neg h, modrm1, sib]]
-    exact decode_mov_rsp_byte_disp disp val
+    have hne : (disp == 0) = false := by simpa using h
+    exact decode_mov_rsp_byte_disp disp val hne
 /- REF: docs/EQUIVALENCE_PROOFS.md#1-mathematical-formulation-of-equivalence -/
 /-- Universal: SHL r64, CL (0xD3 /4) decodes back for every destination register. `encode` has no
     value-dependent branching (unlike the disp8-omitting MOV/LEA forms), so once `dst` is fixed by

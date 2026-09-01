@@ -39,7 +39,15 @@ def movFamilyCases : List AnyX86_64Instruction :=
   ((X86_64Instruction.roundtripCases : List MovReg32Mem32Disp).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovReg8Mem8Disp).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
   ((X86_64Instruction.roundtripCases : List MovzxR32Mem8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
-  ((X86_64Instruction.roundtripCases : List MovzxR64Mem8).map fun i => (⟨i⟩ : AnyX86_64Instruction))
+  ((X86_64Instruction.roundtripCases : List MovzxR64Mem8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List MovR64Imm32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List MovR32R32).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List MovR16R16).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List MovR16Imm16).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List MovR8R8).map fun i => (⟨i⟩ : AnyX86_64Instruction)) ++
+  ((X86_64Instruction.roundtripCases : List MovR8Imm8).map fun i => (⟨i⟩ : AnyX86_64Instruction))
+
+set_option maxHeartbeats 800000
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the MOV/MOVZX family. This is the regression gate for both
@@ -51,7 +59,7 @@ def movFamilyCases : List AnyX86_64Instruction :=
     kernel's default reduction stack depth on this family's largest case list, so this raises
     `maxRecDepth` rather than falling back to `native_decide`. -/
 theorem movFamily_roundtripGate : movFamilyCases.all (decodesOk movTryDecode) = true := by
-  set_option maxRecDepth 4000 in decide
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- Test-only predicate for the fail-closed side of the MOV decoder contract. -/
@@ -108,7 +116,6 @@ theorem movMem8Reg8_hostile_bytes_rejected :
      ByteArray.mk #[0x2E, 0x88, 0x00],
      ByteArray.mk #[0x88, 0x40, 0x00],
      ByteArray.mk #[0x88, 0x80, 0, 0, 0, 0],
-     ByteArray.mk #[0x88, 0xC0],
      ByteArray.mk #[0x88],
      ByteArray.mk #[0x88, 0x04],
      ByteArray.mk #[0x88, 0x45]].all movDecodeRejects = true := by
@@ -290,7 +297,6 @@ theorem mov89_unsupported_addresses_rejected :
      ByteArray.mk #[0x2E, 0x89, 0x00],
      ByteArray.mk #[0x89, 0x80, 0, 0, 0, 0],
      ByteArray.mk #[0x48, 0x89, 0x80, 0, 0, 0, 0],
-     ByteArray.mk #[0x89, 0xC0],
      ByteArray.mk #[0x89],
      ByteArray.mk #[0x89, 0x04],
      ByteArray.mk #[0x89, 0x44, 0x24],
@@ -425,7 +431,6 @@ theorem movC7_hostile_bytes_rejected :
      ByteArray.mk #[0x48, 0xC7, 0x44, 0x24, 0x00, 0x78, 0x56, 0x34, 0x12],
      ByteArray.mk #[0xC7, 0x44, 0x24, 0x00, 0x78, 0x56, 0x34, 0x12],
      ByteArray.mk #[0x48, 0xC7, 0x80, 0, 0, 0, 0, 0x78, 0x56, 0x34, 0x12],
-     ByteArray.mk #[0x48, 0xC7, 0xC0, 0x78, 0x56, 0x34, 0x12],
      ByteArray.mk #[0x48, 0x48, 0xC7, 0x00, 0x78, 0x56, 0x34, 0x12],
      ByteArray.mk #[0x67, 0x48, 0xC7, 0x00, 0x78, 0x56, 0x34, 0x12],
      ByteArray.mk #[0xC7],

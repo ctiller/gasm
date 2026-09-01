@@ -114,6 +114,192 @@ instance : X86_64Instruction MovR64R64 where
   memAccesses _ := []
 
 /- REF: intel-sdm#vol=2;instr=MOV;part=description -/
+/-- MOV reg64, imm32: moves sign-extended 32-bit immediate into general-purpose register. -/
+structure MovR64Imm32 where
+  dst : Reg64
+  imm : UInt32
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
+instance : X86_64Instruction MovR64Imm32 where
+  encode i :=
+    let (dstCode, dstExt) := reg64Code i.dst
+    ByteArray.mk #[makeRex true false false dstExt, 0xC7, makeModRM 3 0 dstCode] ++ uint32ToLittleEndian i.imm
+  step i s :=
+    let s' := s.setGpr64 i.dst (signExtendUInt32To64 i.imm)
+    { s' with rip := s.rip + 7 }
+  toUops _ := [{ mnemonic := "MOV.imm32_to_64", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
+  toNASM i :=
+    if (i.imm &&& 0x80000000) != 0 then
+      s!"mov {i.dst}, strict dword -0x{String.ofList (Nat.toDigits 16 (0 - i.imm).toNat)}"
+    else
+      s!"mov {i.dst}, strict dword 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
+  toLean i := s!"mov_r64_imm32 .{i.dst} {formatHex32 i.imm}"
+  canFuzzHardware i := hwSafeReg64 i.dst
+  validationOracle i := if hwSafeReg64 i.dst then .silicon else .nasmEncoding "RSP operand unsafe for HardwareHarness; encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; see docs/RDTSC_HARNESS.md section 8"
+  generateFuzzStates i rng := generateStandardFuzzStatesForImm i.dst rng
+  roundtripCases :=
+    (allReg64List.map (MovR64Imm32.mk · 0x00000000)) ++ (curatedUInt32Cases.map (MovR64Imm32.mk .rax ·)) ++
+    (curatedUInt32Cases.map (MovR64Imm32.mk .r15 ·))
+  memAccesses _ := []
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=description -/
+/-- MOV reg32, reg32 instruction: moves 32-bit register to 32-bit register with zero-extension to 64 bits. -/
+structure MovR32R32 where
+  dst : Reg32
+  src : Reg32
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
+instance : X86_64Instruction MovR32R32 where
+  encode i :=
+    let (dstCode, dstExt) := reg32Code i.dst
+    let (srcCode, srcExt) := reg32Code i.src
+    let rexPrefix := if dstExt || srcExt then #[makeRex false srcExt false dstExt] else #[]
+    ByteArray.mk rexPrefix ++ ByteArray.mk #[0x89, makeModRM 3 srcCode dstCode]
+  step i s :=
+    let sVal := s.readGpr32 i.src
+    let s' := s.setGpr32 i.dst sVal
+    let len := (if (reg32Code i.dst).2 || (reg32Code i.src).2 then 1 else 0) + 2
+    { s' with rip := s.rip + len }
+  toUops _ := [{ mnemonic := "MOV.reg32", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
+  toNASM i := s!"mov {i.dst}, {i.src}"
+  toLean i := s!"mov_r32_r32 .{i.dst} .{i.src}"
+  canFuzzHardware i := hwSafeReg32 i.dst && hwSafeReg32 i.src
+  validationOracle i := if hwSafeReg32 i.dst && hwSafeReg32 i.src then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness; encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; see docs/RDTSC_HARNESS.md section 8"
+  generateFuzzStates i rng := generateStandardFuzzStatesFor2Regs (reg32To64 i.dst) (reg32To64 i.src) rng
+  roundtripCases :=
+    (allReg32List.map (MovR32R32.mk · .eax)) ++ (allReg32List.map (MovR32R32.mk .eax ·)) ++
+    (extendedReg32Pairs.map fun p => MovR32R32.mk p.1 p.2)
+  memAccesses _ := []
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=description -/
+/-- MOV reg16, reg16 instruction: moves 16-bit register to 16-bit register, preserving upper 48 bits. -/
+structure MovR16R16 where
+  dst : Reg16
+  src : Reg16
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
+instance : X86_64Instruction MovR16R16 where
+  encode i :=
+    let (dstCode, dstExt) := reg16Code i.dst
+    let (srcCode, srcExt) := reg16Code i.src
+    let rexPrefix := if dstExt || srcExt then #[makeRex false srcExt false dstExt] else #[]
+    ByteArray.mk (#[0x66] ++ rexPrefix ++ #[0x89, makeModRM 3 srcCode dstCode])
+  step i s :=
+    let sVal := s.readGpr16 i.src
+    let s' := s.setGpr16 i.dst sVal
+    let len := 1 + (if (reg16Code i.dst).2 || (reg16Code i.src).2 then 1 else 0) + 2
+    { s' with rip := s.rip + len }
+  toUops _ := [{ mnemonic := "MOV.reg16", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
+  toNASM i := s!"mov {i.dst}, {i.src}"
+  toLean i := s!"mov_r16 .{i.dst} .{i.src}"
+  canFuzzHardware i := hwSafeReg16 i.dst && hwSafeReg16 i.src
+  validationOracle i := if hwSafeReg16 i.dst && hwSafeReg16 i.src then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness; encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; see docs/RDTSC_HARNESS.md section 8"
+  generateFuzzStates i rng := generateStandardFuzzStatesFor2Regs (reg16To64 i.dst) (reg16To64 i.src) rng
+  roundtripCases :=
+    (allReg16List.map (MovR16R16.mk · .ax)) ++ (allReg16List.map (MovR16R16.mk .ax ·)) ++
+    (extendedReg16Pairs.map fun p => MovR16R16.mk p.1 p.2)
+  memAccesses _ := []
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=description -/
+/-- MOV reg16, imm16: moves 16-bit immediate into 16-bit register, preserving upper 48 bits. -/
+structure MovR16Imm16 where
+  dst : Reg16
+  imm : UInt16
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
+instance : X86_64Instruction MovR16Imm16 where
+  encode i :=
+    let (code, isExt) := reg16Code i.dst
+    let rexPrefix := if isExt then #[makeRex false false false true] else #[]
+    ByteArray.mk (#[0x66] ++ rexPrefix ++ #[0xB8 + code]) ++ uint16ToLittleEndian i.imm
+  step i s :=
+    let s' := s.setGpr16 i.dst i.imm
+    let len := 1 + (if (reg16Code i.dst).2 then 1 else 0) + 3
+    { s' with rip := s.rip + len }
+  toUops _ := [{ mnemonic := "MOV.imm16", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
+  toNASM i := s!"mov {i.dst}, 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
+  toLean i := s!"mov_r16_imm16 .{i.dst} {formatHex16 i.imm}"
+  canFuzzHardware i := hwSafeReg16 i.dst
+  validationOracle i := if hwSafeReg16 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness; encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; see docs/RDTSC_HARNESS.md section 8"
+  generateFuzzStates i rng := generateStandardFuzzStatesForImm (reg16To64 i.dst) rng
+  roundtripCases :=
+    (allReg16List.map (MovR16Imm16.mk · 0x0000)) ++ (curatedUInt16Cases.map (MovR16Imm16.mk .ax ·)) ++
+    (curatedUInt16Cases.map (MovR16Imm16.mk .r15w ·))
+  memAccesses _ := []
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=description -/
+/-- MOV reg8, reg8 instruction: moves 8-bit register to 8-bit register, preserving upper 56 bits. -/
+structure MovR8R8 where
+  dst : Reg8
+  src : Reg8
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
+instance : X86_64Instruction MovR8R8 where
+  encode i :=
+    let (dstCode, dstExt, dstMandatory) := reg8Code i.dst
+    let (srcCode, srcExt, srcMandatory) := reg8Code i.src
+    let rexNeeded := dstExt || srcExt || dstMandatory || srcMandatory
+    let rexPrefix := if rexNeeded then #[makeRex false srcExt false dstExt] else #[]
+    ByteArray.mk rexPrefix ++ ByteArray.mk #[0x88, makeModRM 3 srcCode dstCode]
+  step i s :=
+    let sVal := s.readGpr8 i.src
+    let s' := s.setGpr8 i.dst sVal
+    let rexNeeded := (reg8Code i.dst).2.1 || (reg8Code i.src).2.1 || (reg8Code i.dst).2.2 || (reg8Code i.src).2.2
+    let len := (if rexNeeded then 1 else 0) + 2
+    { s' with rip := s.rip + len }
+  toUops _ := [{ mnemonic := "MOV.reg8", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
+  toNASM i := s!"mov {i.dst}, {i.src}"
+  toLean i := s!"mov_r8 .{i.dst} .{i.src}"
+  canFuzzHardware i := hwSafeReg8 i.dst && hwSafeReg8 i.src
+  validationOracle i := if hwSafeReg8 i.dst && hwSafeReg8 i.src then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness; encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; see docs/RDTSC_HARNESS.md section 8"
+  generateFuzzStates i rng := generateStandardFuzzStatesFor2Regs (reg8To64 i.dst) (reg8To64 i.src) rng
+  roundtripCases :=
+    (allReg8List.map (MovR8R8.mk · .al)) ++ (allReg8List.map (MovR8R8.mk .al ·)) ++
+    (extendedReg8Pairs.map fun p => MovR8R8.mk p.1 p.2)
+  memAccesses _ := []
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=description -/
+/-- MOV reg8, imm8: moves 8-bit immediate into 8-bit register, preserving upper 56 bits. -/
+structure MovR8Imm8 where
+  dst : Reg8
+  imm : UInt8
+  deriving DecidableEq, Repr, Inhabited
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=operation -/
+instance : X86_64Instruction MovR8Imm8 where
+  encode i :=
+    let (dstCode, dstExt, dstMandatory) := reg8Code i.dst
+    let rexNeeded := dstExt || dstMandatory
+    let rexPrefix := if rexNeeded then #[makeRex false false false dstExt] else #[]
+    ByteArray.mk rexPrefix ++ ByteArray.mk #[0xB0 + dstCode, i.imm]
+  step i s :=
+    let s' := s.setGpr8 i.dst i.imm
+    let rexNeeded := (reg8Code i.dst).2.1 || (reg8Code i.dst).2.2
+    let len := (if rexNeeded then 1 else 0) + 2
+    { s' with rip := s.rip + len }
+  toUops _ := [{ mnemonic := "MOV.imm8", uopClass := .intALU, eligiblePorts := [.p0, .p1, .p5, .p6], latencyCycles := 1, reciprocalThroughput := 0.25 }]
+  toNASM i := s!"mov {i.dst}, 0x{String.ofList (Nat.toDigits 16 i.imm.toNat)}"
+  toLean i := s!"mov_r8_imm8 .{i.dst} {formatHex8 i.imm}"
+  canFuzzHardware i := hwSafeReg8 i.dst
+  validationOracle i := if hwSafeReg8 i.dst then .silicon else .nasmEncoding "RSP/ESP operand unsafe for HardwareHarness; encoding is NASM-cross-checked instead"
+  costProvenance _ := .modelInternalUnvalidated "toUops coefficients predate Law 14 and remain uncalibrated model values; see docs/RDTSC_HARNESS.md section 8"
+  generateFuzzStates i rng := generateStandardFuzzStatesForImm (reg8To64 i.dst) rng
+  roundtripCases :=
+    (allReg8List.map (MovR8Imm8.mk · 0x00)) ++ (curatedUInt8Cases.map (MovR8Imm8.mk .al ·)) ++
+    (curatedUInt8Cases.map (MovR8Imm8.mk .r15b ·))
+  memAccesses _ := []
+
+/- REF: intel-sdm#vol=2;instr=MOV;part=description -/
 /-- MOV BYTE PTR [RSP + disp8], val: writes an 8-bit immediate byte directly to stack offset. -/
 structure MovRspDispByte where
   disp : UInt8
@@ -696,6 +882,36 @@ def mov_r64 (dst src : Reg64) : AnyX86_64Instruction :=
   ⟨MovR64R64.mk dst src⟩
 
 /- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- MOV reg64, imm32 helper. -/
+def mov_r64_imm32 (dst : Reg64) (imm : UInt32) : AnyX86_64Instruction :=
+  ⟨MovR64Imm32.mk dst imm⟩
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- MOV reg32, reg32 helper. -/
+def mov_r32_r32 (dst src : Reg32) : AnyX86_64Instruction :=
+  ⟨MovR32R32.mk dst src⟩
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- MOV reg16, reg16 helper. -/
+def mov_r16 (dst src : Reg16) : AnyX86_64Instruction :=
+  ⟨MovR16R16.mk dst src⟩
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- MOV reg16, imm16 helper. -/
+def mov_r16_imm16 (dst : Reg16) (imm : UInt16) : AnyX86_64Instruction :=
+  ⟨MovR16Imm16.mk dst imm⟩
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- MOV reg8, reg8 helper. -/
+def mov_r8 (dst src : Reg8) : AnyX86_64Instruction :=
+  ⟨MovR8R8.mk dst src⟩
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
+/-- MOV reg8, imm8 helper. -/
+def mov_r8_imm8 (dst : Reg8) (imm : UInt8) : AnyX86_64Instruction :=
+  ⟨MovR8Imm8.mk dst imm⟩
+
+/- REF: docs/TARGETS/X86_64.md#2-binary-instruction-encoding -/
 /-- MOV BYTE PTR [RSP + disp8], val helper. -/
 def mov_rsp_byte (disp : UInt8) (val : UInt8) : AnyX86_64Instruction :=
   ⟨MovRspDispByte.mk disp val⟩
@@ -1205,10 +1421,27 @@ private def decodeMovzxMem8Address (bytes : ByteArray) (mod rm : UInt8) (modPos 
     instead of hardcoding RSP for 0x88/0x89/0x8B/0xC7). Errors for any other byte pattern. -/
 def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64Instruction × Nat) :=
   -- NOTE: nested `match`, not `do` — see `addTryDecode`'s comment for why.
-  match parseRexAndOpcode bytes offset with
+  match parsePrefixesAndOpcode bytes offset with
   | .error e => .error e
-  | .ok (hasRex, rexW, rexR, rexX, rexB, opcode, opOffset) =>
-    if opcode >= 0xB8 && opcode <= 0xBF then
+  | .ok (has0x66, hasRex, rexW, rexR, rexX, rexB, opcode, opOffset) =>
+    if has0x66 then
+      if opcode == 0x89 then
+        match readModRM bytes opOffset with
+        | .error e => .error e
+        | .ok (mod, reg, rm, modPos) =>
+          if mod == 3 then
+            let dst := codeToReg16 rm rexB
+            let src := codeToReg16 reg rexR
+            .ok (mov_r16 dst src, modPos - offset)
+          else .error "movTryDecode: unsupported 16-bit memory form for 0x89 MOV"
+      else if opcode >= 0xB8 && opcode <= 0xBF then
+        let regCode := opcode - 0xB8
+        let dst := codeToReg16 regCode rexB
+        match readUInt16LE bytes opOffset with
+        | .error e => .error e
+        | .ok imm16 => .ok (mov_r16_imm16 dst imm16, (opOffset + 2) - offset)
+      else .error s!"movTryDecode: opcode 0x{String.ofList (Nat.toDigits 16 opcode.toNat)} with 0x66 is not MOV"
+    else if opcode >= 0xB8 && opcode <= 0xBF then
       let regCode := opcode - 0xB8
       if rexW then
         let dst := codeToReg64 regCode rexB
@@ -1220,6 +1453,12 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
         match readUInt32LE bytes opOffset with
         | .error e => .error e
         | .ok imm32 => .ok (mov_r32 dst imm32, (opOffset + 4) - offset)
+    else if opcode >= 0xB0 && opcode <= 0xB7 then
+      let regCode := opcode - 0xB0
+      let dst := codeToReg8 regCode rexB
+      match readUInt8 bytes opOffset with
+      | .error e => .error e
+      | .ok imm8 => .ok (mov_r8_imm8 dst imm8, (opOffset + 1) - offset)
     else if opcode == 0x88 then
       if rexW || rexX then
         .error "movTryDecode: unsupported REX.W/REX.X form for 0x88 MOV"
@@ -1227,12 +1466,21 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
         match readModRM bytes opOffset with
         | .error e => .error e
         | .ok (mod, reg, rm, modPos) =>
-          let needsRex := rexR || rexB || reg >= 4
-          if hasRex != needsRex then
-            .error "movTryDecode: noncanonical or legacy high-byte REX identity for 0x88 MOV"
+          if mod == 3 then
+            let dst := codeToReg8 rm rexB
+            let src := codeToReg8 reg rexR
+            let needsRex := rexR || rexB || (reg8Code src).2.2 || (reg8Code dst).2.2
+            if hasRex != needsRex then
+              .error "movTryDecode: noncanonical or legacy high-byte REX identity for 0x88 MOV"
+            else
+              .ok (mov_r8 dst src, modPos - offset)
           else
-            let srcReg := codeToReg64 reg rexR
-            if mod == 0 then
+            let needsRex := rexR || rexB || reg >= 4
+            if hasRex != needsRex then
+              .error "movTryDecode: noncanonical or legacy high-byte REX identity for 0x88 MOV"
+            else
+              let srcReg := codeToReg64 reg rexR
+              if mod == 0 then
               if rm == 4 then
                 match readUInt8 bytes modPos with
                 | .error e => .error e
@@ -1304,7 +1552,9 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
               let src := codeToReg64 reg rexR
               .ok (mov_r64 dst src, modPos - offset)
             else
-              .error "movTryDecode: unsupported 32-bit register-register form for 0x89 MOV"
+              let dst := codeToReg32 rm rexB
+              let src := codeToReg32 reg rexR
+              .ok (mov_r32_r32 dst src, modPos - offset)
           else if mod == 0 then
             if rexW then
               let srcReg := codeToReg64 reg rexR
@@ -1590,6 +1840,14 @@ def movTryDecode (bytes : ByteArray) (offset : Nat) : Except String (AnyX86_64In
                   | .ok imm32 =>
                     .ok (mov_mem64_disp_imm basePtr disp8 imm32,
                       (immPos + 4) - offset)
+          else if mod == 3 then
+            if rexW then
+              let dst := codeToReg64 rm rexB
+              match readUInt32LE bytes modPos with
+              | .error e => .error e
+              | .ok imm32 => .ok (mov_r64_imm32 dst imm32, (modPos + 4) - offset)
+            else
+              .error "movTryDecode: 32-bit register-immediate 0xC7 /0 is noncanonical (use 0xB8)"
           else
             .error "movTryDecode: unsupported mod field for 0xC7 MOV"
     else if opcode == 0x0F then

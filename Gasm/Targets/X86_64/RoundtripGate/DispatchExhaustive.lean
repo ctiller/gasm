@@ -109,6 +109,7 @@ theorem jccFamily_dispatchReachable : jccFamilyCases.all (decodesOk decodeX86_64
 theorem leaFamily_dispatchReachable : leaFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
+set_option maxHeartbeats 800000 in
 theorem movFamily_dispatchReachable : movFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
   set_option maxRecDepth 8000 in decide
 
@@ -136,7 +137,8 @@ theorem pushFamily_dispatchReachable : pushFamilyCases.all (decodesOk decodeX86_
 theorem retFamily_dispatchReachable : retFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-theorem shiftFamily_dispatchReachable : shiftFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+theorem shiftFamily_dispatchReachable : shiftFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem subFamily_dispatchReachable : subFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
@@ -150,7 +152,8 @@ theorem testFamily_dispatchReachable : testFamilyCases.all (decodesOk decodeX86_
   set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
-theorem xchgFamily_dispatchReachable : xchgFamilyCases.all (decodesOk decodeX86_64Instr) = true := by decide
+theorem xchgFamily_dispatchReachable : xchgFamilyCases.all (decodesOk decodeX86_64Instr) = true := by
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 theorem xorFamily_dispatchReachable : xorFamilyCases.all (decodesOk decodeX86_64Instr) = true := by

@@ -506,4 +506,82 @@ theorem MovR64R64.readsWithin (i : MovR64R64) : ReadsWithin i :=
         hreq, hfault] <;>
       (try split) <;> (try split) <;> (try split) <;> (try split) <;> (first | rfl | assumption))
 
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR64Imm32.writesWithin (i : MovR64Imm32) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR64Imm32.readsWithin (i : MovR64Imm32) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR32R32.writesWithin (i : MovR32R32) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR32R32.readsWithin (i : MovR32R32) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR16R16.writesWithin (i : MovR16R16) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR16R16.readsWithin (i : MovR16R16) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR16Imm16.writesWithin (i : MovR16Imm16) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR16Imm16.readsWithin (i : MovR16Imm16) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR8R8.writesWithin (i : MovR8R8) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR8R8.readsWithin (i : MovR8R8) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR8Imm8.writesWithin (i : MovR8Imm8) : WritesWithin i :=
+  registerOnly_writesWithin i (fun _ => rfl)
+
+/- REF: docs/MEMORY_HOOK.md#33-the-declarative-access-descriptor-the-one-source-four-consumers-read -/
+theorem MovR8Imm8.readsWithin (i : MovR8Imm8) : ReadsWithin i :=
+  registerOnly_readsWithin i (by
+    intro s1 s2 hout
+    obtain ⟨hrip, hgprs, hflags, hstdin, hreq, hfault⟩ := hout
+    cases s1; cases s2
+    subst hrip hgprs hflags hstdin hreq hfault
+    refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
 end Gasm.Targets.X86_64.MemoryFrame

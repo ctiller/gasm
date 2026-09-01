@@ -24,12 +24,20 @@ open Gasm.Targets.X86_64.Instructions
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Every `roundtripCases` witness for the IMUL family, lifted into the open existential wrapper. -/
 def imulFamilyCases : List AnyX86_64Instruction :=
-  (X86_64Instruction.roundtripCases : List ImulR64R64).map fun i => (⟨i⟩ : AnyX86_64Instruction)
+  (X86_64Instruction.roundtripCases : List ImulR64R64).map (⟨·⟩) ++
+  (X86_64Instruction.roundtripCases : List ImulR32R32).map (⟨·⟩) ++
+  (X86_64Instruction.roundtripCases : List ImulR16R16).map (⟨·⟩) ++
+  (X86_64Instruction.roundtripCases : List ImulR64R64Imm32).map (⟨·⟩) ++
+  (X86_64Instruction.roundtripCases : List ImulR64R64Imm8).map (⟨·⟩) ++
+  (X86_64Instruction.roundtripCases : List ImulR32R32Imm32).map (⟨·⟩) ++
+  (X86_64Instruction.roundtripCases : List ImulR32R32Imm8).map (⟨·⟩) ++
+  (X86_64Instruction.roundtripCases : List ImulR16R16Imm16).map (⟨·⟩) ++
+  (X86_64Instruction.roundtripCases : List ImulR16R16Imm8).map (⟨·⟩)
 
 /- REF: docs/TARGETS/X86_64.md#encodable-instruction-registry-roundtrip-gate -/
 /-- Exhaustive roundtrip gate for the IMUL family: every `roundtripCases` witness decodes back. -/
-theorem imulFamily_roundtripGate : imulFamilyCases.all (decodesOk imulTryDecode) = true := by decide
-
+theorem imulFamily_roundtripGate : imulFamilyCases.all (decodesOk imulTryDecode) = true := by
+  set_option maxRecDepth 8000 in decide
 
 /- REF: docs/TARGETS/X86_64.md#5-stage-b-decoder-modularization -/
 /-- In-bucket exclusivity for the IMUL family: no two of this family's own byte patterns
